@@ -196,6 +196,7 @@ type authInput struct {
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
 	TenantName  string `json:"tenant_name"`
+	InviteToken string `json:"invite_token"`
 }
 
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +204,15 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &in) {
 		return
 	}
-	session, err := s.service.Register(r.Context(), in.Email, in.Password, in.DisplayName, in.TenantName)
+	var (
+		session domain.Session
+		err     error
+	)
+	if strings.TrimSpace(in.InviteToken) != "" {
+		session, err = s.service.RegisterWithInvite(r.Context(), in.Email, in.Password, in.DisplayName, strings.TrimSpace(in.InviteToken))
+	} else {
+		session, err = s.service.Register(r.Context(), in.Email, in.Password, in.DisplayName, in.TenantName)
+	}
 	if err != nil {
 		s.fail(w, r, "auth.register", err)
 		return

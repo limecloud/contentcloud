@@ -265,6 +265,59 @@ func (s *Store) SaveMembershipInvite(_ context.Context, v domain.MembershipInvit
 	return nil
 }
 
+func (s *Store) pendingMembershipInvite(tokenHash, email string, now time.Time) (domain.MembershipInvite, error) {
+	for _, invite := range s.membershipInvites {
+		if invite.TokenHash != tokenHash {
+			continue
+		}
+		if err := invite.ValidateAcceptance(email, now); err != nil {
+			return domain.MembershipInvite{}, err
+		}
+		return invite, nil
+	}
+	return domain.MembershipInvite{}, domain.Conflict("INVITE_INVALID", "邀请无效、已撤销、邮箱不匹配或已过期")
+}
+
+func (s *Store) redeemMembershipInvite(invite domain.MembershipInvite, userID string, now time.Time) domain.Membership {
+	membership := domain.Membership{TenantID: invite.TenantID, UserID: userID, Role: invite.Role, Status: "active", CreatedAt: now}
+	s.memberships[membershipKey(membership.TenantID, membership.UserID)] = membership
+	invite.Status, invite.AcceptedBy, invite.AcceptedAt = "accepted", userID, &now
+	s.membershipInvites[invite.ID] = invite
+	return membership
+}
+
+func (s *Store) AcceptMembershipInvite(_ context.Context, tokenHash string, user domain.User, now time.Time) (domain.Membership, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.users[user.ID]; !ok {
+		return domain.Membership{}, domain.NotFound("用户")
+	}
+	invite, err := s.pendingMembershipInvite(tokenHash, user.Email, now)
+	if err != nil {
+		return domain.Membership{}, err
+	}
+	return s.redeemMembershipInvite(invite, user.ID, now), nil
+}
+
+func (s *Store) RegisterWithInvite(_ context.Context, user domain.User, tokenHash string, session domain.Session, now time.Time) (domain.Session, domain.Membership, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	invite, err := s.pendingMembershipInvite(tokenHash, user.Email, now)
+	if err != nil {
+		return domain.Session{}, domain.Membership{}, err
+	}
+	email := strings.ToLower(user.Email)
+	if _, exists := s.userByEmail[email]; exists {
+		return domain.Session{}, domain.Membership{}, domain.Conflict("EMAIL_EXISTS", "邮箱已注册")
+	}
+	session.UserID, session.TenantID = user.ID, invite.TenantID
+	membership := s.redeemMembershipInvite(invite, user.ID, now)
+	s.users[user.ID] = user
+	s.userByEmail[email] = user.ID
+	s.sessions[session.ID] = session
+	return session, membership, nil
+}
+
 func (s *Store) CreateProject(_ context.Context, v domain.Project) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
