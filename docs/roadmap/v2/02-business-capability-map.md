@@ -179,10 +179,11 @@ mindmap
 
 ### UC-04 锁定策略和 Brief
 
-1. 选择 Audience、DemandMoment 和 SellingPoint。
+1. 选择 Audience、DemandMoment 和 SellingPoint，组合为 StrategyVersion 候选。
 2. 创建至少一个 VisualizationPlan，声明真实性策略和 Plan B。
-3. 生成 Brief 草稿并执行确定性校验。
-4. Reviewer 批准不可变 BriefVersion。
+3. publish strategy 检查点，Reviewer 批准后 pull strategy ApprovedSnapshot。
+4. 引用已批准的 `strategy_version_id` 和 `visualization_plan_ids` 生成 Brief 草稿并执行确定性校验。
+5. publish brief 检查点，Reviewer 批准对应 SubmissionRevision，生成 brief ApprovedSnapshot。
 
 ### UC-05 生成 AI 视频就绪剧本批次
 

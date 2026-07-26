@@ -28,10 +28,12 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 
 ### 已知缺口
 
+- **审批单轨收敛**：ReviewCycle/ApprovalDecision/ReviewGrant/OTP/导出/DeliveryPackage/PerformanceObservation 仍以 V1 `script_version` 为 subject（`internal/app/review_cycles.go`、`internal/app/review_export.go`），Submission 轨与之无连接，Golden Journey 第 8-10 步因此跑不通。
 - Client/Brand/Product 分层和四层上下文继承。
-- 市场研究、内容计划、创意方向/批次、交付交接的正式聚合。
-- ScriptPackage V2 和完整剧本工作台。
-- 完整 LocalRunContext、15 维诊断、七层知识包转换和跨阶段本地命令。
+- StrategyVersion/VisualizationPlan 的版本化审批与 Brief 策略血缘（波次一）。
+- 市场研究、ContentPlan/Campaign 和交付交接的正式 V2 聚合（波次二）。
+- 资产、权利、冲突对象的正式本地导入/迁移命令，以及金陵古都香全量数据转换。
+- ScriptPackage V2 的 Web 业务工作台和真实业务 UAT；客户端剧本工程已实现。
 - 远程签名 WorkspaceTemplate、模板升级/diff 和更多领域 Skills/MCP 工具。
 - Automation Plan、schedule/event trigger、PlanChangeRequest、RunOutput。
 - 通用 Run 详情和九域导航。
@@ -44,6 +46,10 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 - feedback/decision/approved pull，进入 inbox 或只读 cache，不改业务正文。
 - Submission Web 列表、版本查看、来源披露、批注、修改要求、批准和 ApprovedSnapshot。
 - PostgreSQL migration `00013_v2_workspace_submissions.sql`、内存测试和可选 PostgreSQL 事务/RLS 集成测试。
+- 本地 source register/list/show/ingest/verify、可恢复 LocalRunContext，以及来源 hash/MIME/证据 locator 与 quote 精确校验。
+- `knowledge-candidates/1.0` 严格导入、15 维诊断、七层 KnowledgePack、eligible/blocked/informational 查询和 evidence-pack disclosures。
+- Brief V2 lint、CreativeDirection/CreativeBatch、冻结 context、ScriptPackage V2 逐镜头 lint、blocked/review_ready、JSON Pointer diff、JSON/Markdown/XLSX 导出。
+- 金陵古都香一个真实 DOCX 已自动走通 register -> ingest -> candidate import -> lint -> 15 维 -> 七层 pack -> knowledge publish preflight，且 `raw_files_upload=false`。
 
 ## 3. 波次一：本地工作区、知识发布与剧本工程
 
@@ -56,7 +62,9 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 - 增加 ClientAccount、Brand、Product 和项目引用。
 - 增加 WorkspaceBinding、WorkspaceTemplateManifest/Lock、Submission/Revision、SourceDisclosure、DecisionDelta 和 ApprovedSnapshot。
 - 增加 Methodology、TenantServiceTemplate、BrandKnowledgePack 和 ProjectContextSnapshot。
+- 增加 StrategyVersion 与 VisualizationPlan 审批（在 V1 SellingPoint/VisualizationPlan 之上补版本化封装），使 Brief 的策略血缘从波次一起成立。
 - 增加 ContentPlan、Campaign、ExperimentPlan、CreativeDirection 和 CreativeBatch。
+- 把审批主体收敛为 SubmissionRevision：ReviewCycle/ApprovalDecision/ReviewGrant/DeliveryPackage/PerformanceObservation 改挂 revision 与 ApprovedSnapshot，V1 ScriptVersion 回填只读影子快照。
 - 升级 ScriptPackage 2.0；现有 1.x 保持只读和导出兼容。
 - LocalRunContext 留在本地；Automation RunOutput 延后到波次三。
 
@@ -64,10 +72,12 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 
 - [部分完成] 项目创建已有一次性 init code；Client/Brand/Product/服务模板分层待补。
 - [部分完成] `contentcloud init`、workspace status/doctor 和项目级 Skills/MCP 已完成；upgrade/diff 待补。
-- [部分完成] publish/pull 已完成；本地素材诊断、七层知识包和 LocalRunContext 命令待补。
-- [部分完成] 云端 Submission 审阅、revision 查看和结构化对象展示已完成；本地候选比较、逐镜头 lint 和字段级 diff 待补。
+- [已实现，待 UAT] publish/pull、本地来源处理、LocalRunContext、15 维诊断、七层知识包和证据披露已完成。
+- [已实现，待 UAT] CreativeBatch、ScriptPackage V2、逐镜头 lint、blocked/review_ready、字段级 diff 和三格式导出已完成；云端 Submission 审阅保持只读正文。
+- [待实现] 审批单轨收敛：ReviewCycle/ApprovalDecision/ReviewGrant 改挂 SubmissionRevision，客户 OTP 审批与三格式导出改由 ApprovedSnapshot 驱动。这是波次一其余验收项的前置条件。
+- [待实现] StrategyVersion 最小可用审批，以及 Brief 的 `strategy_version_id` 必填校验与策略血缘。
 - 普通生成不需要 capability；`script.generate@2.x` capability 留给波次三 Automation。
-- 客户审批和三格式导出使用 ScriptPackage V2。
+- 客户审批和三格式导出使用 ScriptPackage V2 的 canonical 内容。
 
 ### 迁移
 
@@ -75,14 +85,18 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 2. 先生成 dry-run 报告：数量、重复 ID、无法映射状态、缺失 locator 和 hash。
 3. 在本地迁移候选状态，不自动提升 verified/approved/valid，也不默认上传 raw。
 4. 将首批十条脚本保留为本地 CreativeBatch；原 blocked 状态和原因不变。
-5. 分批 publish Knowledge/Script Submission，由真实审核员决定后生成 ApprovedSnapshot。
+5. 分批 publish Knowledge/Strategy/Brief/Script Submission，由真实审核员决定后生成 ApprovedSnapshot。
+6. 为 V1 已批准 ScriptVersion 回填只读影子 ApprovedSnapshot，核对导出内容与 hash 不变。
+
+当前只完成了单个真实 DOCX 的自动化纵向验证。现有 source registry、232 个可映射对象、首批十条旧稿、真实 publish/人工审批/pull，以及从 Approved Brief 生成三候选的 Golden Journey 尚未完成，不能标记为 `accepted`。
 
 ### 波次验收
 
 - 金陵古都香 Golden Journey 通过。
-- V1 现有 TaskRun、ScriptPackage、审批历史和导出不回归。
+- V1 现有 TaskRun、ScriptPackage、审批历史和导出不回归；影子 ApprovedSnapshot 回填后历史导出内容与 hash 不变。
 - 普通本地 ingest/generate/revise 全程不创建云端 TaskRun。
-- 客户审批固定 hash；修改上游后新稿必须重审。
+- 客户审批固定 SubmissionRevision hash；修改上游后新稿必须重审，旧 ReviewGrant 自动失效。
+- 已批准 Brief 均可追溯到某个 approved StrategyVersion。
 
 ## 4. 波次二：九域业务工作台
 
@@ -94,7 +108,7 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 
 - 项目总览重构为 Gate、Workspace 状态、Submission、阻断、负责人和交付状态。
 - 上线 ResearchTask、BenchmarkCase、MarketInsight 和情报采纳。
-- 上线 StrategyVersion、ContentPlan 和跨域 lineage。
+- 扩展 StrategyVersion 的比较、采纳与跨域 lineage（最小可用版本已在波次一交付）。
 - 上线 DeliveryPackage、ProductionHandoff 和外部制作状态。
 - 完成九域导航、全局待办、风险、审批和项目组合视图。
 - 补齐各域 publish/pull、BFF、权限、审计和云端治理页面，不建设在线正文编辑器。
@@ -130,7 +144,7 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 
 ### 波次验收
 
-- monitor、generate、review 三种类型完成端到端验证。
+- 先完成 monitor、review、maintain 三种类型的端到端验证；远程 generate 在本地交互闭环稳定后于同波次后段验收，顺序与 `07-automation-and-run-model.md` §3 一致。
 - schedule 不能用于正式生成、审批和交付模板。
 - late report、租约过期、重复触发和通知失败不重复创建业务产物。
 - Hosted Preview 失败可降级且不影响审批。
@@ -147,6 +161,7 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 - 后台批次按 tenant/project 处理，记录 checkpoint、数量、错误和不可映射项。
 - Client/Brand/Product 从现有项目字段回填，无法唯一判断时进入人工映射清单。
 - 旧 Brief 创建默认 ContentPlan/Campaign；旧 script Run 创建 one-off CreativeBatch。
+- 每条 V1 已批准 ScriptVersion 回填一条 `origin=v1_import` 只读 ApprovedSnapshot 影子记录，沿用原 `content_hash`，`external_ref` 保留原 ScriptVersion ID；历史 ApprovalDecision 与 ReviewGrant 不改写。
 
 ### Verify
 
@@ -173,6 +188,8 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 
 | Flag | 波次 | 回退行为 |
 | --- | --- | --- |
+| `submission_single_track` | 1 | 审批仍走 V1 ScriptVersion 轨；关闭期间不得同时开启双轨写入 |
+| `strategy_versions` | 1 | Brief 的 `strategy_version_id` 降级为可选，不校验策略血缘 |
 | `v2_client_context` | 1 | 使用现有项目字段和 V1 快照 |
 | `script_package_v2` | 1 | 继续生成/读取 1.x |
 | `creative_batches` | 1 | 使用单次 script run |
@@ -194,7 +211,7 @@ Feature Flag 只切入口和行为，不允许形成两个并行事实源。
 - 需求、领域、CLI/OpenAPI/Schema、Web 和审计语义一致。
 - 正常、blocked、权限、离线、超时、重试和影响路径有自动化测试。
 - 数据迁移有 dry-run、真实 PostgreSQL 证据、核对报告和回退步骤。
-- 没有服务端 LLM/Agent 依赖，没有程序化直连私有 API 的新入口。
+- 没有服务端 LLM/Agent 依赖；所有程序化云端访问复用 CLI 的 dispatch 客户端与凭据层，没有新增自建 HTTP 客户端。
 - 文档、实现状态和真实 Web 行为同步更新。
 - 客户业务门禁由有责任的试点人员签署，不由开发者代签。
 

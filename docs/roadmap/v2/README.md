@@ -119,7 +119,7 @@ V2 交付的是可供可灵、即梦及其他视频工具继续制作的结构�
 1. 服务端不运行、代理、选择或编排任何 LLM、Agent、Skill、模型或 Renderer。
 2. 服务端只在 Automation 中按客户端声明的业务 capability 分配确定性 Task Contract。
 3. Agent 不能成为责任矩阵中的 A/R，事实、主张、权利、Brief、剧本、审批和归因均由人负责。
-4. Agent、Skill、MCP、脚本、Renderer 和外部集成与服务端的程序化通信必须经过 `contentcloud` CLI。
+4. Agent、Skill、MCP、脚本、Renderer 和外部集成与服务端的程序化通信必须走 `contentcloud` 的 CLI 命令面或其同一 dispatch 客户端与凭据层；禁止新增自建 HTTP 客户端或直接绑定私有 REST 路径。
 5. 核心业务对象由服务端原生渲染；扩展产物使用安全投影和明确降级。
 6. 完整 Agent transcript 不上传；云端只保存脱敏步骤摘要、业务输出、usage 和 allowlist 文件清单。
 7. 本地资料默认不上传；publish 时逐来源选择 metadata-only、evidence-pack 或 full-source。
@@ -131,7 +131,7 @@ V2 交付的是可供可灵、即梦及其他视频工具继续制作的结构�
 | 分类 | 处理方式 |
 | --- | --- |
 | V1 已实现 | 多租户、项目、来源、证据、知识、Brief、ScriptVersion、TaskRun、RunAttempt、审批、导出、结果与 lineage 原位继承 |
-| V2 改造 | Gate 0-5 扩展为本地工作流与云端治理检查点；Script Package 升级；客户上下文改为四层继承 |
+| V2 改造 | Gate 0-5 扩展为本地工作流与云端治理检查点；Script Package 升级；客户上下文改为四层继承；审批主体从 ScriptVersion 单轨收敛到 SubmissionRevision |
 | V2 新增 | WorkspaceTemplate、LocalRunContext、Submission、ApprovedSnapshot、显式 publish/pull、Skills/MCP 安装、Automation Plan 和 RunOutput |
 | 延后能力 | 飞书/CRM 深度连接、视频生成平台、自动发布投放、Hosted Preview 的高级能力 |
 
@@ -159,6 +159,16 @@ V2 交付的是可供可灵、即梦及其他视频工具继续制作的结构�
 | [12-migration-and-delivery-plan.md](12-migration-and-delivery-plan.md) | V1 增量迁移、三个波次和上线策略 |
 | [13-acceptance-and-traceability.md](13-acceptance-and-traceability.md) | FR/UC/NFR 追踪、UAT 和完成定义 |
 | [14-implementation-status.md](14-implementation-status.md) | 仓库当前实现事实、缺口和验证入口 |
+
+### 文档编辑约定
+
+这套文档最容易出的问题是"某一份说已实现、另一份说待实现"。为避免再次漂移：
+
+1. **只有 `14-implementation-status.md` 描述实现现状**，并注明更新日期。01-13 一律只写目标契约和验收标准。
+2. 01-13 确实需要提醒现状时，使用 `> 实现现状：…… 以 14 号文档为准` 的引用块，不在正文混写。
+3. 领域概念的唯一定义处是 `03-domain-and-data-model.md`；其他文档引用概念时链接过去，不重复下定义。
+4. 改动波次归属时，`12`（交付计划）和 `13`（追踪矩阵）必须同时改。
+5. 文档中出现的命令、MCP 工具名、Schema 版本和文件路径，提交前用仓库实际内容核对一次。
 
 ## 11. 成功定义
 

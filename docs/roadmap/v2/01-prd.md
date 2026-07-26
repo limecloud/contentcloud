@@ -62,7 +62,7 @@ Agent、Daemon 和 Worker 是工具或系统参与者，不进入业务责任矩
 ## 5. 核心业务规则
 
 1. 业务对象版本与 Agent Run 使用独立状态机。
-2. 任何审批必须绑定不可变对象版本和内容哈希，不能审批“最新版本”。
+2. 任何审批必须绑定不可变 SubmissionRevision 和其内容哈希，不能审批”最新版本”；云端不存在第二条平行审批轨道。
 3. 正式内容只能使用 verified Fact、approved Claim、valid Rights 和允许等级的 Asset。
 4. 候选知识不足时可以生成 CreativeDraft，但必须 `publishable=false` 并列明阻断原因。
 5. 正式剧本必须先有卖点可视化方案，再生成镜头和话术。
@@ -105,6 +105,7 @@ Agent、Daemon 和 Worker 是工具或系统参与者，不进入业务责任矩
 - 管理 Audience、Scenario、PainPoint、DemandMoment、SellingPoint 和 VisualizationPlan。
 - 卖点排序必须记录目标人群、适用场景、支持知识和风险。
 - VisualizationPlan 包含主体、场景、道具、实施方式、真实性策略、Plan B 和验收条件。
+- 以上选择组合为不可变 StrategyVersion，经 publish strategy 检查点审批后才能被 Brief 引用。
 - 策略人员可比较候选方案；审核员批准后才能进入正式 Brief。
 
 ### FR-05 内容策划
@@ -124,15 +125,15 @@ Agent、Daemon 和 Worker 是工具或系统参与者，不进入业务责任矩
 
 ### FR-07 审核与客户协作
 
-- Brief、ScriptVersion 和交付版本分别使用 ReviewCycle。
+- 审核主体统一为 SubmissionRevision：knowledge、strategy、brief、script、delivery 各自的 Submission 分别开 ReviewCycle。
 - 批注支持对象级、镜头级、字段级定位，区分内部与客户可见性。
 - 未解决阻断批注时不得进入下一审批阶段。
-- 客户审批链接绑定 tenant、project、subject type、subject version、email 和有效期。
+- 客户审批链接绑定 tenant、project、具体 SubmissionRevision、email 和有效期；出现新 revision 后旧链接自动失效。
 - 客户作出最终决策前使用一次性邮件验证码；撤销立即生效。
 
 ### FR-08 交付与外部制作
 
-- 将客户批准的 ScriptVersion 组成 DeliveryPackage。
+- 将客户批准的 script ApprovedSnapshot 组成 DeliveryPackage。
 - 支持 canonical JSON、Markdown 和 XLSX 导出，并记录内容哈希。
 - ProductionHandoff 包含素材清单、缺失素材、镜头制作方式、生成工具建议、权利边界和验收清单。
 - V2 记录外部制作状态和成片关联，不在系统内自动生成视频。
@@ -140,7 +141,7 @@ Agent、Daemon 和 Worker 是工具或系统参与者，不进入业务责任矩
 ### FR-09 投放结果与学习
 
 - 支持 CSV/XLSX/人工方式导入平台或门店结果，保存不可变 ImportBatch 和 Observation。
-- 指标必须绑定内容版本、渠道、统计窗口、单位、分母、自然/付费来源和定义版本。
+- 指标必须绑定内容版本（script ApprovedSnapshot）、渠道、统计窗口、单位、分母、自然/付费来源和定义版本。
 - 系统可计算派生指标并生成候选评级建议；因果归因和策略采纳必须人工确认。
 - Learning 可回到 Framework、ShotPattern、SellingPoint、VisualizationPlan 和 Experiment。
 
@@ -164,7 +165,7 @@ Agent、Daemon 和 Worker 是工具或系统参与者，不进入业务责任矩
 - 核心业务对象使用服务端原生结构化视图。
 - 扩展产物按 `cloud_native -> safe_projection -> safe_rendition -> local_open -> metadata_only` 降级。
 - Preview 不可用时必须显示可理解占位和本机打开动作，不得出现空白 iframe。
-- Hosted Preview 属于第三波最后能力，不替代 ScriptVersion 的审批和哈希。
+- Hosted Preview 属于第三波最后能力，不替代 SubmissionRevision 的审批和哈希。
 
 ### FR-13 本地工作区、Skills、MCP 与发布
 
@@ -217,7 +218,7 @@ Agent、Daemon 和 Worker 是工具或系统参与者，不进入业务责任矩
 ### 8.4 内容学习
 
 - 每个正式实验只声明一个主要变化变量。
-- 导入结果能定位到 ScriptVersion、CreativeDirection、卖点、框架和镜头模式。
+- 导入结果能定位到 script ApprovedSnapshot 及其中的 ScriptVersion、CreativeDirection、卖点、框架和镜头模式。
 - 自动评级建议不能直接改写正式策略；人工采纳率和拒绝原因可统计。
 
 ## 9. V2 总体验收

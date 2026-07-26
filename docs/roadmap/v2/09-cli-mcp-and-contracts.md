@@ -62,10 +62,12 @@ contentcloud device list|show|revoke
 ### 本地工作流与云端九域资源
 
 ```text
-contentcloud local-run init|show|resume|validate
-contentcloud source register|list|show
-contentcloud lint knowledge|content|all
-contentcloud knowledge query
+contentcloud local source register|list|show|ingest|verify
+contentcloud local run init|show|record|check|advance|resume|fail|validate
+contentcloud local knowledge import|lint|query|diagnose|pack
+contentcloud local brief lint
+contentcloud local script batch init|lint|finalize
+contentcloud local script lint|diff|export
 
 contentcloud publish knowledge|research|strategy|brief|script|delivery|performance
 contentcloud pull feedback|decisions|approved
@@ -74,7 +76,7 @@ contentcloud review show             contentcloud delivery download
 contentcloud performance import      contentcloud impact show
 ```
 
-上面 publish/pull/submission 命令已实现。`local-run`、本地 source register、通用 lint、delivery download 和独立 impact 命令是目标命令面，当前分别由项目 Skill、既有云端资源命令或 lineage 命令承接。
+上述 `local source/run/knowledge/brief/script`、publish/pull/submission 命令已经实现。普通本地命令只读写工作区，不创建云端 `TaskRun`；只有显式 publish/pull/init 等云端动作才通过 CLI Gateway 通信。`delivery download` 和独立 impact 命令仍属于后续命令面。
 
 云端内容正文没有通用 update 命令。CLI 只发布不可变 Submission、拉取反馈/批准快照和执行领域允许的状态动作，不提供 `resource patch status=approved`。
 
@@ -98,7 +100,13 @@ contentcloud skills list|read|status|install
 contentcloud mcp status|serve
 ```
 
-`init` 默认安装项目级 Skill/MCP；修改项目 Agent 配置必须使用 `--accept-project-config`。当前 MCP 暴露 `workspace_status`、`workspace_doctor`、`publish_preflight`、`submission_status`、`review_feedback_list` 和 `approved_snapshot_list`。
+`init` 默认安装项目级 Skill/MCP；修改项目 Agent 配置必须使用 `--accept-project-config`。当前 MCP 复用同一套 `localworkspace` 与 CLI 网关逻辑，已暴露：
+
+- 工作区：`workspace_status`、`workspace_doctor`。
+- 本地来源：`source_register`、`source_list`、`source_ingest`、`source_verify`。
+- 本地运行与知识：`local_run_init`、`local_run_show`、`knowledge_import_candidates`、`knowledge_lint`、`knowledge_query`、`knowledge_diagnose`、`knowledge_pack`。
+- Brief 与剧本：`brief_lint`、`creative_batch_init`、`script_lint`、`creative_batch_lint`、`creative_batch_finalize`、`script_diff`、`script_export`。
+- 云端治理：`publish_preflight`、`submission_status`、`review_feedback_list`、`approved_snapshot_list`。
 
 ### 产物
 
@@ -194,7 +202,7 @@ JSON 成功 envelope 写 stdout，结构化错误写 stderr；当前未提供 `-
 }
 ```
 
-当前 publish preflight 显示对象数量、blocked 数、各披露等级、上传字节数、基线 ID 和审核可见范围，并验证工作区文件边界、JSON、类型字段和大小。字段级基线 diff 与完整 Schema registry 是后续加固项。服务端复算 canonical hash，并复核基线、tenant/project、权限和幂等键后创建 SubmissionRevision。
+当前 publish preflight 显示对象数量、blocked 数、各披露等级、上传字节数、基线 ID 和审核可见范围，并验证工作区文件边界、JSON、类型字段和大小。Brief publish 强制复用 Brief V2 lint；Script publish 会递归识别 `outputs/scripts/<batch>/` 下真正的 `script_package`，排除 batch/context 文件，并强制复用 ScriptPackage V2 完整本地 lint。只发现一个剧本时可自动选择；存在多个候选时必须用重复 `--file` 明确本次审核范围。修订字段漂移由 `contentcloud local script diff` 检查。服务端复算 canonical hash，并复核基线、tenant/project、权限和幂等键后创建 SubmissionRevision。
 
 ## 9. Pull Bundle
 
@@ -249,6 +257,17 @@ Capability Manifest 只在用户启用 Automation 时注册。服务端匹配 ca
 ```
 
 Task Contract 只服务 Automation。不同 task type 使用不同最小字段组合，并增加 workspace ID、required local source hashes 和 output submission policy。普通本地 `knowledge_extract`/`script_revise` 使用 LocalRunContext，不生成 Task Contract。
+
+仓库当前只有 `contracts/task-contract-1.0.schema.json`。1.1 是波次三 Automation 启用时的目标版本，相对 1.0 的增量为：
+
+| 变更 | 内容 | 兼容性 |
+| --- | --- | --- |
+| 新增 `workspace_id` | 声明 Automation 使用的隔离工作区 | 可选字段，向后兼容 |
+| 新增 `required_local_source_hashes` | 客户端据此校验本地来源一致性 | 可选字段，向后兼容 |
+| 新增 `output_submission_policy` | 声明 RunOutput 自动创建 SubmissionRevision 的类型和披露等级 | 可选字段，向后兼容 |
+| `output_schema` 收紧 | 只允许 capability manifest 中声明过的 schema ID | 收紧规则，需 1.1 |
+
+1.0 保持只读兼容，服务端不得向只支持 1.0 的客户端投递需要上述字段的任务。
 
 ## 12. Poll 与租约
 

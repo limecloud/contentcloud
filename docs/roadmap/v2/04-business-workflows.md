@@ -131,8 +131,11 @@ flowchart TB
     D --> E{画面能证明且可实现?}
     E -- 否 --> F[换主体/场景/道具/Plan B]
     F --> D
-    E -- 是 --> G[创建 Campaign/Experiment]
-    G --> H[生成 BriefVersion]
+    E -- 是 --> S1[组合不可变 StrategyVersion]
+    S1 --> S2[publish Strategy Submission]
+    S2 --> S3[云端审批后本地 pull strategy ApprovedSnapshot]
+    S3 --> G[创建 Campaign/Experiment]
+    G --> H[生成引用已批准策略的 BriefVersion]
     H --> I[本地引用/权利/单变量校验]
     I -- 失败 --> H
     I -- 通过 --> J[内部审核]
@@ -175,18 +178,18 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
-    A[ScriptVersion review_ready] --> B[内部 ReviewCycle]
+    A[script SubmissionRevision 待审] --> B[内部 ReviewCycle]
     B --> C{阻断批注?}
     C -- 是 --> D[本地pull反馈并创建revise LocalRunContext]
     D --> E[新不可变版本 + 结构化 diff]
     E --> P[publish新SubmissionRevision]
     P --> B
-    C -- 否 --> F[内部批准]
-    F --> G[生成客户审批 Grant]
+    C -- 否 --> F[内部批准 stage=internal]
+    F --> G[对该 revision 生成客户 ReviewGrant]
     G --> H[邮件 OTP 验证]
     H --> I{客户决策}
     I -- 退回 --> D
-    I -- 批准 --> J[锁定批准 hash]
+    I -- 批准 --> J[客户批准 stage=client 并生成 ApprovedSnapshot]
     J --> K[Gate 4 ready]
 ```
 
