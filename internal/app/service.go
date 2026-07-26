@@ -19,19 +19,21 @@ import (
 )
 
 type Service struct {
-	store store.Store
-	now   func() time.Time
-	log   *slog.Logger
-	blobs blob.Store
+	store               store.Store
+	now                 func() time.Time
+	log                 *slog.Logger
+	blobs               blob.Store
+	platformAdminEmails map[string]struct{}
 }
 
 type Actor struct {
-	UserID      string
-	TenantID    string
-	Role        string
-	Type        string
-	DeviceID    string
-	WorkspaceID string
+	UserID        string
+	TenantID      string
+	Role          string
+	Type          string
+	DeviceID      string
+	WorkspaceID   string
+	PlatformAdmin bool
 }
 
 type Dashboard struct {
@@ -50,18 +52,35 @@ type PipelineStage struct {
 	Blocked int    `json:"blocked"`
 }
 
-func New(st store.Store, logger *slog.Logger) *Service {
-	return NewWithBlob(st, logger, blob.NewMemory())
+type Option func(*Service)
+
+func WithPlatformAdminEmails(emails ...string) Option {
+	return func(service *Service) {
+		for _, email := range emails {
+			normalized := strings.ToLower(strings.TrimSpace(email))
+			if normalized != "" {
+				service.platformAdminEmails[normalized] = struct{}{}
+			}
+		}
+	}
 }
 
-func NewWithBlob(st store.Store, logger *slog.Logger, blobs blob.Store) *Service {
+func New(st store.Store, logger *slog.Logger, options ...Option) *Service {
+	return NewWithBlob(st, logger, blob.NewMemory(), options...)
+}
+
+func NewWithBlob(st store.Store, logger *slog.Logger, blobs blob.Store, options ...Option) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if blobs == nil {
 		blobs = blob.NewMemory()
 	}
-	return &Service{store: st, now: time.Now, log: logger, blobs: blobs}
+	service := &Service{store: st, now: time.Now, log: logger, blobs: blobs, platformAdminEmails: map[string]struct{}{}}
+	for _, option := range options {
+		option(service)
+	}
+	return service
 }
 
 // newRegistration 校验注册凭据并构造用户记录，不写入存储。
@@ -154,7 +173,8 @@ func (s *Service) SessionActor(ctx context.Context, sessionID string) (Actor, do
 	if err != nil {
 		return Actor{}, domain.User{}, err
 	}
-	return Actor{UserID: user.ID, TenantID: session.TenantID, Role: m.Role, Type: "user"}, user, nil
+	_, platformAdmin := s.platformAdminEmails[strings.ToLower(user.Email)]
+	return Actor{UserID: user.ID, TenantID: session.TenantID, Role: m.Role, Type: "user", PlatformAdmin: platformAdmin}, user, nil
 }
 
 func (s *Service) Tenant(ctx context.Context, actor Actor) (domain.Tenant, error) {

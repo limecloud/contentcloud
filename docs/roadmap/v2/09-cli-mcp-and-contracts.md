@@ -20,7 +20,7 @@
 ## 3. 安装与首次初始化
 
 ```bash
-npx --yes @goodvision/contentcloud@latest init --connect <one-time-code> ./project
+npx --yes @limecloud/contentcloud@latest init --connect <one-time-code> ./project
 cd ./project
 contentcloud workspace doctor
 ```

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -48,10 +49,14 @@ func main() {
 		logger.Error("initialize object storage", "error", err)
 		os.Exit(1)
 	}
-	service := app.NewWithBlob(st, logger, blobStore)
 	addr := env("CONTENTCLOUD_ADDR", ":8080")
 	webDist := env("CONTENTCLOUD_WEB_DIST", "web/dist")
 	devMode := os.Getenv("CONTENTCLOUD_DEV_MODE") == "1" || os.Getenv("CONTENTCLOUD_DEV_MODE") == "true"
+	adminEmails := splitValues(os.Getenv("CONTENTCLOUD_PLATFORM_ADMIN_EMAILS"))
+	if devMode {
+		adminEmails = append(adminEmails, "demo@contentcloud.local")
+	}
+	service := app.NewWithBlob(st, logger, blobStore, app.WithPlatformAdminEmails(adminEmails...))
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	defer cancelWorker()
 	if devMode && databaseURL == "" {
@@ -86,6 +91,18 @@ func main() {
 	defer cancel()
 	_ = server.Shutdown(ctx)
 }
+
+func splitValues(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if normalized := strings.TrimSpace(part); normalized != "" {
+			out = append(out, normalized)
+		}
+	}
+	return out
+}
+
 func env(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

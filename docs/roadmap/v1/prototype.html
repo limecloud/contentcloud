@@ -1699,7 +1699,7 @@
         </div>
         <div class="connect-pane is-active" data-connect-pane="new">
           <div class="command-label"><span>在你自己的电脑运行</span><span class="state-pill">10 分钟 · 单次连接</span></div>
-          <div class="command-box"><code id="installCommand">npx --yes @goodvision/contentcloud@latest up --server-url https://app.contentcloud.cn --connect-key cck_7c3a91f80b42</code><button class="icon-button" type="button" id="copyInstallCommandButton" data-tooltip="复制安装命令" aria-label="复制安装命令"><i data-lucide="copy"></i></button></div>
+          <div class="command-box"><code id="installCommand">npx --yes @limecloud/contentcloud@latest up --server-url https://app.contentcloud.cn --connect-key cck_7c3a91f80b42</code><button class="icon-button" type="button" id="copyInstallCommandButton" data-tooltip="复制安装命令" aria-label="复制安装命令"><i data-lucide="copy"></i></button></div>
           <div class="agent-prompt"><span>也可以把安装提示粘贴给当前 Codex 或 Claude Code 会话，由 Agent 检查环境并运行同一条 `contentcloud` 命令。</span><button class="button" type="button" id="copyAgentPromptButton"><i data-lucide="bot"></i>复制给 Agent</button></div>
           <div class="connect-status" id="connectStatus"><i data-lucide="radio"></i><div><strong id="connectStatusTitle">等待电脑连接...</strong><small id="connectStatusDetail">服务端不会远程运行任何命令；它只等待本机 CLI 消费连接码并上报首个心跳。</small></div></div>
           <div class="onboarding-actions"><button class="button" type="button" id="backToProjectButton"><i data-lucide="arrow-left"></i>返回项目信息</button><button class="button button-primary" type="button" id="simulateConnectButton"><i data-lucide="plug-zap"></i>模拟本机已运行</button></div>

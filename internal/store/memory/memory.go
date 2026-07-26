@@ -175,7 +175,7 @@ func (s *Store) TenantsForUser(_ context.Context, userID string) ([]domain.Tenan
 	defer s.mu.RUnlock()
 	out := []domain.Tenant{}
 	for _, m := range s.memberships {
-		if m.UserID == userID && m.Status == "active" && m.RevokedAt == nil {
+		if m.UserID == userID && m.Status == "active" && m.RevokedAt == nil && s.tenants[m.TenantID].Status == "active" {
 			out = append(out, s.tenants[m.TenantID])
 		}
 	}
@@ -203,6 +203,81 @@ func (s *Store) Memberships(_ context.Context, tenantID string) ([]domain.Member
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
+}
+
+func (s *Store) PlatformTenants(_ context.Context) ([]domain.PlatformTenant, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	now := time.Now()
+	out := make([]domain.PlatformTenant, 0, len(s.tenants))
+	for _, tenant := range s.tenants {
+		value := domain.PlatformTenant{Tenant: tenant}
+		for _, membership := range s.memberships {
+			if membership.TenantID == tenant.ID && membership.Status == "active" && membership.RevokedAt == nil {
+				value.MemberCount++
+			}
+		}
+		for _, project := range s.projects {
+			if project.TenantID == tenant.ID {
+				value.ProjectCount++
+				if value.LastActivityAt == nil || project.UpdatedAt.After(*value.LastActivityAt) {
+					updatedAt := project.UpdatedAt
+					value.LastActivityAt = &updatedAt
+				}
+			}
+		}
+		for _, device := range s.devices {
+			if device.TenantID == tenant.ID && device.RevokedAt == nil && now.Sub(device.LastSeenAt) <= 2*time.Minute {
+				value.DeviceCount++
+			}
+		}
+		for _, run := range s.runs {
+			if run.TenantID == tenant.ID && (run.State == "queued" || run.State == "leased" || run.State == "running") {
+				value.ActiveRunCount++
+			}
+		}
+		out = append(out, value)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out, nil
+}
+
+func (s *Store) PlatformUsers(_ context.Context) ([]domain.PlatformUser, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.PlatformUser, 0, len(s.users))
+	for _, user := range s.users {
+		value := domain.PlatformUser{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, VerifiedAt: user.VerifiedAt, CreatedAt: user.CreatedAt, Memberships: []domain.PlatformUserMembership{}}
+		for _, membership := range s.memberships {
+			if membership.UserID == user.ID {
+				value.Memberships = append(value.Memberships, domain.PlatformUserMembership{TenantID: membership.TenantID, TenantName: s.tenants[membership.TenantID].Name, Role: membership.Role, Status: membership.Status})
+			}
+		}
+		sort.Slice(value.Memberships, func(i, j int) bool { return value.Memberships[i].TenantName < value.Memberships[j].TenantName })
+		out = append(out, value)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out, nil
+}
+
+func (s *Store) SetTenantStatus(_ context.Context, tenantID, status string, now time.Time) (domain.Tenant, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tenant, ok := s.tenants[tenantID]
+	if !ok {
+		return tenant, domain.NotFound("租户")
+	}
+	tenant.Status = status
+	s.tenants[tenantID] = tenant
+	if status == "suspended" {
+		for id, session := range s.sessions {
+			if session.TenantID == tenantID && session.RevokedAt == nil {
+				session.RevokedAt = &now
+				s.sessions[id] = session
+			}
+		}
+	}
+	return tenant, nil
 }
 
 func (s *Store) SaveMembership(_ context.Context, v domain.Membership) error {

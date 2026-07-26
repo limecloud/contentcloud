@@ -172,7 +172,7 @@ func (s *Store) CreateTenant(ctx context.Context, tenant domain.Tenant, membersh
 }
 
 func (s *Store) TenantsForUser(ctx context.Context, userID string) ([]domain.Tenant, error) {
-	rows, err := s.pool.Query(ctx, `SELECT t.id,t.slug,t.name,t.status,t.created_at FROM tenants t JOIN memberships m ON m.tenant_id=t.id WHERE m.user_id=$1 AND m.status='active' AND m.revoked_at IS NULL ORDER BY t.created_at`, userID)
+	rows, err := s.pool.Query(ctx, `SELECT t.id,t.slug,t.name,t.status,t.created_at FROM tenants t JOIN memberships m ON m.tenant_id=t.id WHERE m.user_id=$1 AND m.status='active' AND m.revoked_at IS NULL AND t.status='active' ORDER BY t.created_at`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -212,6 +212,92 @@ func (s *Store) Memberships(ctx context.Context, tenantID string) ([]domain.Memb
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) PlatformTenants(ctx context.Context) ([]domain.PlatformTenant, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT t.id,t.slug,t.name,t.status,t.created_at,
+			(SELECT count(*) FROM memberships m WHERE m.tenant_id=t.id AND m.status='active' AND m.revoked_at IS NULL),
+			(SELECT count(*) FROM brand_projects p WHERE p.tenant_id=t.id),
+			(SELECT count(*) FROM devices d WHERE d.tenant_id=t.id AND d.revoked_at IS NULL AND d.last_seen_at>now()-interval '2 minutes'),
+			(SELECT count(*) FROM task_runs r WHERE r.tenant_id=t.id AND r.state IN ('queued','leased','running')),
+			(SELECT max(p.updated_at) FROM brand_projects p WHERE p.tenant_id=t.id)
+		FROM tenants t ORDER BY t.created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.PlatformTenant{}
+	for rows.Next() {
+		var value domain.PlatformTenant
+		if err := rows.Scan(&value.ID, &value.Slug, &value.Name, &value.Status, &value.CreatedAt, &value.MemberCount, &value.ProjectCount, &value.DeviceCount, &value.ActiveRunCount, &value.LastActivityAt); err != nil {
+			return nil, err
+		}
+		out = append(out, value)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) PlatformUsers(ctx context.Context) ([]domain.PlatformUser, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id,email,display_name,verified_at,created_at FROM users ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	out := []domain.PlatformUser{}
+	index := map[string]int{}
+	for rows.Next() {
+		var value domain.PlatformUser
+		if err := rows.Scan(&value.ID, &value.Email, &value.DisplayName, &value.VerifiedAt, &value.CreatedAt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		value.Memberships = []domain.PlatformUserMembership{}
+		index[value.ID] = len(out)
+		out = append(out, value)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	membershipRows, err := s.pool.Query(ctx, `SELECT m.user_id,m.tenant_id,t.name,m.role,m.status FROM memberships m JOIN tenants t ON t.id=m.tenant_id ORDER BY t.name`)
+	if err != nil {
+		return nil, err
+	}
+	defer membershipRows.Close()
+	for membershipRows.Next() {
+		var userID string
+		var membership domain.PlatformUserMembership
+		if err := membershipRows.Scan(&userID, &membership.TenantID, &membership.TenantName, &membership.Role, &membership.Status); err != nil {
+			return nil, err
+		}
+		if position, ok := index[userID]; ok {
+			out[position].Memberships = append(out[position].Memberships, membership)
+		}
+	}
+	return out, membershipRows.Err()
+}
+
+func (s *Store) SetTenantStatus(ctx context.Context, tenantID, status string, now time.Time) (domain.Tenant, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.Tenant{}, err
+	}
+	defer tx.Rollback(ctx)
+	var tenant domain.Tenant
+	err = tx.QueryRow(ctx, `UPDATE tenants SET status=$2 WHERE id=$1 RETURNING id,slug,name,status,created_at`, tenantID, status).Scan(&tenant.ID, &tenant.Slug, &tenant.Name, &tenant.Status, &tenant.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return tenant, domain.NotFound("租户")
+	}
+	if err != nil {
+		return tenant, dbError(err)
+	}
+	if status == "suspended" {
+		if _, err := tx.Exec(ctx, `UPDATE sessions SET revoked_at=$2 WHERE tenant_id=$1 AND revoked_at IS NULL`, tenantID, now); err != nil {
+			return tenant, dbError(err)
+		}
+	}
+	return tenant, tx.Commit(ctx)
 }
 
 func (s *Store) SaveMembership(ctx context.Context, v domain.Membership) error {

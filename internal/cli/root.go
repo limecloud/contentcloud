@@ -28,7 +28,7 @@ import (
 	builtinskills "github.com/limecloud/contentcloud/skills"
 )
 
-const Version = "0.2.0"
+const Version = "0.3.0"
 
 type Root struct {
 	json      bool
@@ -188,7 +188,7 @@ func (r *Root) down() *cobra.Command {
 
 func (r *Root) updateCommand() *cobra.Command {
 	return &cobra.Command{Use: "update", Short: "Show the verified installer command for updating this binary", RunE: func(cmd *cobra.Command, args []string) error {
-		return r.writeOK("update", map[string]any{"current_version": Version, "installer": "npx --yes @goodvision/contentcloud@latest update", "automatic_update": false, "reason": "release manifest and checksum endpoint are required before in-process replacement is enabled"})
+		return r.writeOK("update", map[string]any{"current_version": Version, "installer": "npx --yes @limecloud/contentcloud@latest update", "automatic_update": false, "reason": "release manifest and checksum endpoint are required before in-process replacement is enabled"})
 	}}
 }
 

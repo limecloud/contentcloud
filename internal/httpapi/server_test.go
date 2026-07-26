@@ -68,6 +68,100 @@ func TestBFFRequiresSession(t *testing.T) {
 	}
 }
 
+func TestSessionCookieSecurityFollowsRequestScheme(t *testing.T) {
+	tests := []struct {
+		name           string
+		forwardedProto string
+		expectedSecure bool
+	}{
+		{name: "plain HTTP", expectedSecure: false},
+		{name: "HTTPS reverse proxy", forwardedProto: "https", expectedSecure: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := app.New(memory.New(), slog.Default())
+			server := httptest.NewServer(httpapi.New(service, slog.Default(), false, "").Handler())
+			defer server.Close()
+			request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/api/v1/auth/register", strings.NewReader(`{"email":"cookie@example.com","password":"long-enough-password","display_name":"Cookie User","tenant_name":"Cookie Tenant"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Header.Set("Content-Type", "application/json")
+			if test.forwardedProto != "" {
+				request.Header.Set("X-Forwarded-Proto", test.forwardedProto)
+			}
+			response, err := http.DefaultClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("registration status %d", response.StatusCode)
+			}
+			cookies := response.Cookies()
+			if len(cookies) != 1 || cookies[0].Name != "cc_session" {
+				t.Fatalf("unexpected session cookies %#v", cookies)
+			}
+			if cookies[0].Secure != test.expectedSecure {
+				t.Fatalf("Secure=%v, want %v", cookies[0].Secure, test.expectedSecure)
+			}
+		})
+	}
+}
+
+func TestPlatformAdminEndpointsRequireExplicitGrant(t *testing.T) {
+	service := app.New(memory.New(), slog.Default())
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	response, err = client.Get(server.URL + "/api/v1/admin/dashboard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected explicit platform grant to be required, got %d", response.StatusCode)
+	}
+}
+
+func TestPlatformAdminOverviewAndTenantStatusEndpoint(t *testing.T) {
+	service := app.New(memory.New(), slog.Default(), app.WithPlatformAdminEmails("demo@contentcloud.local"))
+	targetSession, err := service.Register(t.Context(), "customer@example.com", "long-enough-password", "Customer", "Customer Tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetActor, _, err := service.SessionActor(t.Context(), targetSession.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	overview := callBFF[domain.PlatformOverview](t, client, http.MethodGet, server.URL+"/api/v1/admin/dashboard", nil)
+	if overview.Counts.Tenants != 2 || overview.Counts.Users != 2 {
+		t.Fatalf("unexpected platform overview %#v", overview.Counts)
+	}
+	tenant := callBFF[domain.Tenant](t, client, http.MethodPatch, server.URL+"/api/v1/admin/tenants/"+targetActor.TenantID, map[string]string{"status": "suspended"})
+	if tenant.Status != "suspended" {
+		t.Fatalf("unexpected tenant status %#v", tenant)
+	}
+	if _, _, err := service.SessionActor(t.Context(), targetSession.ID); err == nil {
+		t.Fatal("tenant status endpoint did not revoke active sessions")
+	}
+}
+
 func TestBFFTeamProjectAndConnectionOperations(t *testing.T) {
 	service := app.New(memory.New(), slog.Default())
 	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())

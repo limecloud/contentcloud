@@ -8,8 +8,8 @@ V2 交付 AI 视频就绪剧本，不生成图片、视频或成片。Hosted Pre
 
 - 云端 zero-exec：不调用、代理、编排 LLM，不保存模型凭据，不执行客户上传代码。
 - Agent、Skill、Renderer、脚本和 CI 的所有程序化服务通讯只经过 `contentcloud` CLI。
-- Web 只访问同源 `/api/bff`；内部 HTTP、token 和对象存储协议不是公共 SDK。
-- 客户先在 Web 创建项目，再用一次性连接码初始化本地工作区、项目级 Skills 和 MCP。
+- 使用者工作台只访问同源 `/api/bff`，独立系统后台只访问 `/api/v1/admin`；这些内部 HTTP、token 和对象存储协议都不是公共 SDK。
+- 客户先在 Web 创建项目，再把一次性 Agent Prompt 粘贴到 Codex 或 Claude，由 Agent 初始化本地工作区、项目级 Skills 和 MCP。
 - 普通本地操作不创建 TaskRun；只有显式启用的远程、事件或定时 Automation 使用 Daemon。
 - 客户审批绑定不可变 SubmissionRevision 内容哈希，不跟随“最新版本”。
 
@@ -36,7 +36,7 @@ make build
 CONTENTCLOUD_DEV_MODE=1 ./bin/contentcloud-server
 ```
 
-打开 `http://localhost:8080`。开发模式使用 Memory Store、本地 Blob，并自动创建金陵古法线香演示项目；来源由内置确定性 Worker 处理。
+打开 `http://localhost:8080` 使用租户工作台，或打开 `http://localhost:8080/admin/dashboard` 使用独立系统后台。开发模式使用 Memory Store、本地 Blob，演示账号默认具备平台管理员权限，并自动创建金陵古法线香演示项目；来源由内置确定性 Worker 处理。
 
 CLI 示例：
 
@@ -72,6 +72,7 @@ CONTENTCLOUD_BINARY_PATH=./bin/contentcloud node packages/contentcloud/bin/conte
 ```bash
 export CONTENTCLOUD_DATABASE_URL='postgres://...'
 export CONTENTCLOUD_AUTO_MIGRATE=1
+export CONTENTCLOUD_PLATFORM_ADMIN_EMAILS='admin@example.com' # 多个邮箱用逗号分隔
 export CONTENTCLOUD_S3_BUCKET='contentcloud'
 export CONTENTCLOUD_S3_REGION='us-east-1'
 export CONTENTCLOUD_S3_ENDPOINT='https://s3.example.com' # AWS S3 可省略
@@ -93,21 +94,32 @@ CONTENTCLOUD_REQUIRE_MALWARE_SCAN=1 ./bin/contentcloud-worker
 ## 首次项目连接
 
 1. 用户在 Web 创建项目。
-2. 项目总览生成 10 分钟有效、单次使用的 `cck_`。
-3. 用户在自己的 Mac 运行页面给出的命令：
+2. 项目总览生成 10 分钟有效、单次使用的 `cck_`，并拼成不含登录态的 Agent Prompt：
+
+```text
+Fetch https://content.example.com/api/bootstrap and initialize this ContentCloud project.
+
+server-url: https://content.example.com
+connect-key: cck_xxx
+project: "品牌 / 单品"
+```
+
+3. 用户把 Prompt 粘贴到目标项目的 Codex 或 Claude 会话。Agent 获取公开的 `/api/bootstrap` Markdown 协议，检查目录并执行初始化。
+4. CLI 先消费连接码并把会话推进到 `verifying`，再初始化项目级 Skills/MCP、执行 `workspace doctor` 并调用 `workspace.register`；只有全部成功后 Web 才显示 `connected`。
+5. npm 安装器校验 GitHub Release 的 `checksums.txt`，原子安装 Go binary。
+6. CLI 把 `wt_` Workspace Credential 和兼容用 `dt_` Device Credential 写入 macOS Keychain。
+7. 初始化默认不注册 LaunchAgent、不启动 Daemon、不上传文件，也不修改全局 Agent 配置。
+
+无法使用 Coding Agent 时，可以在一个空目录中手动运行：
 
 ```bash
-npx --yes @goodvision/contentcloud@latest init \
+npx --yes @limecloud/contentcloud@latest init \
   --server-url https://content.example.com \
   --connect cck_xxx \
   --target all \
   --accept-project-config \
-  ./contentcloud-project
+  .
 ```
-
-4. npm 安装器校验 GitHub Release 的 `checksums.txt`，原子安装 Go binary。
-5. CLI 把 `wt_` Workspace Credential 和兼容用 `dt_` Device Credential 写入 macOS Keychain。
-6. CLI 初始化本地模板、Skills/MCP，并通过 `workspace.register` 确认绑定；默认不注册 LaunchAgent、不启动 Daemon、不上传文件。
 
 用户 CLI 登录与设备连接凭据分离：`contentcloud auth login --no-wait --json` 发起浏览器确认，之后用 `--device-code` 完成并把 `ct_` 写入 Keychain。
 

@@ -28,6 +28,9 @@ type Store interface {
 	SaveMembershipInvite(context.Context, domain.MembershipInvite) error
 	AcceptMembershipInvite(context.Context, string, domain.User, time.Time) (domain.Membership, error)
 	RegisterWithInvite(context.Context, domain.User, string, domain.Session, time.Time) (domain.Session, domain.Membership, error)
+	PlatformTenants(context.Context) ([]domain.PlatformTenant, error)
+	PlatformUsers(context.Context) ([]domain.PlatformUser, error)
+	SetTenantStatus(context.Context, string, string, time.Time) (domain.Tenant, error)
 
 	CreateProject(context.Context, domain.Project) error
 	Projects(context.Context, string) ([]domain.Project, error)
