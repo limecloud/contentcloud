@@ -32,7 +32,7 @@ func (s *Server) switchTenant(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "tenant.switch", err)
 		return
 	}
-	s.setSession(w, session)
+	s.setSession(w, r, session)
 	s.ok(w, r, "tenant.switch", session)
 }
 
@@ -45,7 +45,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "session.logout", err)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "cc_session", Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: "cc_session", Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: requestIsHTTPS(r), MaxAge: -1})
 	s.ok(w, r, "session.logout", map[string]any{"logged_out": true})
 }
 

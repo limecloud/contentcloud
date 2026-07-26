@@ -49,6 +49,7 @@ func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, s.securityHeaders, s.accessLog)
 	r.Get("/healthz", s.health)
+	r.Get("/api/bootstrap", s.bootstrap)
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/register", s.register)
 		r.Post("/auth/login", s.login)
@@ -56,6 +57,11 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/dev/bootstrap", s.devBootstrap)
 		}
 		r.Post("/cli/dispatch", s.dispatch)
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(s.requireSession)
+			r.Get("/dashboard", s.platformOverview)
+			r.Patch("/tenants/{tenantID}", s.updatePlatformTenant)
+		})
 	})
 	r.Route("/api/review/{token}", func(r chi.Router) {
 		r.Get("/projection", s.publicReviewProjection)
@@ -217,7 +223,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "auth.register", err)
 		return
 	}
-	s.setSession(w, session)
+	s.setSession(w, r, session)
 	s.ok(w, r, "auth.register", map[string]any{"expires_at": session.ExpiresAt})
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -230,7 +236,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "auth.login", err)
 		return
 	}
-	s.setSession(w, session)
+	s.setSession(w, r, session)
 	s.ok(w, r, "auth.login", map[string]any{"expires_at": session.ExpiresAt})
 }
 func (s *Server) devBootstrap(w http.ResponseWriter, r *http.Request) {
@@ -242,7 +248,7 @@ func (s *Server) devBootstrap(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "dev.bootstrap", err)
 		return
 	}
-	s.setSession(w, session)
+	s.setSession(w, r, session)
 	actor, _, _ := s.service.SessionActor(r.Context(), session.ID)
 	projects, _ := s.service.Projects(r.Context(), actor)
 	if len(projects) == 0 {
@@ -258,8 +264,12 @@ func (s *Server) devBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	s.ok(w, r, "dev.bootstrap", map[string]any{"ready": true})
 }
-func (s *Server) setSession(w http.ResponseWriter, v domain.Session) {
-	http.SetCookie(w, &http.Cookie{Name: "cc_session", Value: v.ID, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: false, Expires: v.ExpiresAt})
+func (s *Server) setSession(w http.ResponseWriter, r *http.Request, v domain.Session) {
+	http.SetCookie(w, &http.Cookie{Name: "cc_session", Value: v.ID, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: requestIsHTTPS(r), Expires: v.ExpiresAt})
+}
+
+func requestIsHTTPS(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 }
 
 func (s *Server) requireSession(next http.Handler) http.Handler {
@@ -295,7 +305,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "session.show", err)
 		return
 	}
-	s.ok(w, r, "session.show", map[string]any{"user": user, "tenant": tenant, "role": actor.Role})
+	s.ok(w, r, "session.show", map[string]any{"user": user, "tenant": tenant, "role": actor.Role, "is_platform_admin": actor.PlatformAdmin})
 }
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)

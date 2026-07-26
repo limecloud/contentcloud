@@ -64,7 +64,7 @@ sequenceDiagram
 Web 展示的主命令为：
 
 ```bash
-npx --yes @goodvision/contentcloud@latest up \
+npx --yes @limecloud/contentcloud@latest up \
   --server-url https://app.contentcloud.cn \
   --connect-key cck_xxx
 ```

@@ -25,7 +25,7 @@
 Web 显示一条可复制命令：
 
 ```bash
-npx --yes @goodvision/contentcloud@latest init \
+npx --yes @limecloud/contentcloud@latest init \
   --server-url https://content.example.com \
   --connect <one-time-code> \
   --target all \

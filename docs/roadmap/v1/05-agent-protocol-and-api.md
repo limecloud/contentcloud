@@ -94,7 +94,7 @@ CLI 成功 envelope 固定为 `{ok, command, request_id, data, meta}`；错误 e
 
 ## 4. CLI 命令面与安装
 
-npm 安装器和 Go 可执行文件分别为 `@goodvision/contentcloud` 与 `contentcloud`。参考飞书官方 CLI，业务逻辑位于跨平台 Go 单二进制；npm 只负责选择 OS/arch、下载、校验并调用它，Daemon 常驻不依赖 Node.js。
+npm 安装器和 Go 可执行文件分别为 `@limecloud/contentcloud` 与 `contentcloud`。参考飞书官方 CLI，业务逻辑位于跨平台 Go 单二进制；npm 只负责选择 OS/arch、下载、校验并调用它，Daemon 常驻不依赖 Node.js。
 
 ```text
 contentcloud auth login|status|logout
@@ -174,7 +174,7 @@ contentcloud --json result ratings --project "$PROJECT_ID"
 ## 5. 项目优先的 Connect Session
 
 1. 登录用户先在 Web 创建 BrandProject，再从项目页创建 `connect-key`；key 绑定 tenant、project 和邀请人，有效期 10 分钟、仅可消费一次。
-2. Web 展示 `npx --yes @goodvision/contentcloud@latest up --server-url <url> --connect-key <cck_...>`，以及可复制给 Codex/Claude Code 的同义提示。
+2. Web 展示 `npx --yes @limecloud/contentcloud@latest up --server-url <url> --connect-key <cck_...>`，以及可复制给 Codex/Claude Code 的同义提示。
 3. npm 安装器在用户电脑下载并校验 Go 单二进制；CLI 执行 capability probe，提交 key、设备元数据和设备公钥摘要。
 4. 服务端原子消费 key，生成 32 字节随机 device token，只通过 TLS 返回一次，并创建当前项目的 ProjectDeviceGrant。
 5. CLI 将 server URL/device ID 写配置，将 token 写平台安全凭据存储，并注册用户级后台服务。

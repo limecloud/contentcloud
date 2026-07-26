@@ -1,4 +1,4 @@
-import { Activity, BookOpenCheck, ChevronDown, ClipboardCheck, ClipboardList, FileArchive, FileText, GitBranch, LayoutDashboard, LogOut, Menu, ScrollText, Settings, ShieldCheck, Sparkles, Users, X } from 'lucide-react';
+import { Activity, BookOpenCheck, ChevronDown, ClipboardCheck, ClipboardList, FileArchive, FileText, GitBranch, LayoutDashboard, LogOut, Menu, ScrollText, Settings, Shield, ShieldCheck, Sparkles, Users, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type { Project, Session, Tenant } from '../types';
 import { IconButton, Status } from './ui';
@@ -19,7 +19,7 @@ const projectItems: {id:View;label:string;icon:typeof LayoutDashboard}[] = [
   {id:'audit',label:'审计',icon:ScrollText}
 ];
 
-export function Layout({session,tenants,projects,project,view,onView,onTenant,onProject,onCreateProject,onLogout,children}: {session:Session;tenants:Tenant[];projects:Project[];project?:Project;view:View;onView:(view:View)=>void;onTenant:(tenantID:string)=>void;onProject:(project:Project)=>void;onCreateProject:()=>void;onLogout:()=>void;children:ReactNode}) {
+export function Layout({session,tenants,projects,project,view,onView,onTenant,onProject,onCreateProject,onAdmin,onLogout,children}: {session:Session;tenants:Tenant[];projects:Project[];project?:Project;view:View;onView:(view:View)=>void;onTenant:(tenantID:string)=>void;onProject:(project:Project)=>void;onCreateProject:()=>void;onAdmin:()=>void;onLogout:()=>void;children:ReactNode}) {
   const [mobileOpen,setMobileOpen]=useState(false);
   const canManage=session.role==='tenant_admin'||session.role==='project_manager';
   const navigate=(id:View)=>{onView(id);setMobileOpen(false)};
@@ -30,6 +30,7 @@ export function Layout({session,tenants,projects,project,view,onView,onTenant,on
       <div className="tenant-switcher"><div className="tenant-avatar">{session.tenant.name.slice(0,1)}</div><label><span className="visually-hidden">切换租户</span><select value={session.tenant.id} onChange={event=>onTenant(event.target.value)}>{tenants.map(tenant=><option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select><small>{session.role}</small></label><ChevronDown size={16}/></div>
       <nav>
         {globalItems.filter(item=>!item.roles||item.roles.includes(session.role)).map(item=><NavItem key={item.id} {...item} active={view===item.id} onClick={()=>navigate(item.id)}/>)}
+        {session.is_platform_admin&&<button className="nav-item" onClick={onAdmin}><Shield size={18}/><span>系统后台</span></button>}
         <div className="nav-label"><span>当前项目</span>{project&&<Status value={project.status}/>}</div>
         {project ? projectItems.map(item=><NavItem key={item.id} {...item} active={view===item.id} onClick={()=>navigate(item.id)}/>) : canManage ? <button className="nav-create" onClick={onCreateProject}>创建项目</button> : null}
       </nav>

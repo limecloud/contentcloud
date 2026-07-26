@@ -1,6 +1,10 @@
 export interface User { id: string; email: string; display_name: string }
-export interface Tenant { id: string; name: string; slug: string }
-export interface Session { user: User; tenant: Tenant; role: string }
+export interface Tenant { id: string; name: string; slug: string; status:string; created_at:string }
+export interface Session { user: User; tenant: Tenant; role: string; is_platform_admin:boolean }
+export interface PlatformTenant extends Tenant { member_count:number; project_count:number; device_count:number; active_run_count:number; last_activity_at?:string }
+export interface PlatformUserMembership { tenant_id:string; tenant_name:string; role:string; status:string }
+export interface PlatformUser { id:string; email:string; display_name:string; verified_at?:string; created_at:string; is_platform_admin:boolean; memberships:PlatformUserMembership[] }
+export interface PlatformOverview { counts:{tenants:number;active_tenants:number;users:number;projects:number;online_devices:number;active_runs:number}; tenants:PlatformTenant[]; users:PlatformUser[]; generated_at:string }
 export interface Project { id: string; brand_name: string; product_name: string; channel: string; stage_objective: string; status: string; owner_name: string; reviewer_name: string; client_approver: string; row_version:number; connected_devices: number; knowledge_ready: number; open_blockers: number; updated_at: string }
 export interface ProjectTemplate { id:string; name:string; channel:string; stage_objective:string; created_by:string; created_at:string }
 export interface Run { id: string; project_id: string; brief_version_id: string; script_id?:string; baseline_script_version_id?:string; change_type?:string; state: string; task_type: string; progress_label?: string; error_code?: string; created_at: string }

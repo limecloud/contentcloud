@@ -2,6 +2,26 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.3.0] - 2026-07-26
+
+### Added
+
+- 增加独立平台管理员后台，提供全平台租户、用户、项目、在线设备和活跃任务概览。
+- 增加租户停用与恢复能力；停用时原子撤销该租户的活动会话，并阻止成员继续登录。
+- 增加 `/workspace`、`/admin`、认证和公开审批页面的独立 React Router 路由树及按需加载。
+- 增加公开 `/api/bootstrap` Agent 初始化协议和 Web Prompt 引导；只有项目级配置、doctor 与 `workspace.register` 全部完成后才确认连接成功。
+
+### Changed
+
+- 将 npm 包作用域统一迁移到 `@limecloud/contentcloud`。
+- 统一 Server、Worker、CLI、Web 和 npm 安装器版本为 `0.3.0`，GitHub 发布标签为 `v0.3.0`。
+- 平台管理员权限改为通过 `CONTENTCLOUD_PLATFORM_ADMIN_EMAILS` 显式配置，不复用租户角色。
+
+### Fixed
+
+- 在宝塔 Nginx HTTPS 反向代理及原生 TLS 场景下为会话 Cookie 启用 `Secure` 标记，同时保留本地 HTTP 开发能力。
+- 隐藏停用租户的登录入口，并在恢复后重新允许其成员建立会话。
+
 ## [0.2.0] - 2026-07-26
 
 ### Added

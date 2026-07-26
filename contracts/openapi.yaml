@@ -10,8 +10,10 @@ info:
 servers:
   - url: /api
 tags:
+  - {name: Bootstrap, description: Public Agent-readable project initialization protocol}
   - {name: CLI, description: Private transport used only by the Go CLI}
   - {name: Web BFF, description: Same-origin human Web application}
+  - {name: Admin, description: Same-origin platform administrator control plane}
   - {name: Review BFF, description: Token-bound customer approval projection}
 x-json-read: &jsonRead
   tags: [Web BFF]
@@ -44,7 +46,42 @@ x-public-json-write: &publicJSONWrite
     '400': {$ref: '#/components/responses/Error'}
     '401': {$ref: '#/components/responses/Error'}
     '409': {$ref: '#/components/responses/Error'}
+x-admin-json-read: &adminJSONRead
+  tags: [Admin]
+  security: [{cookieAuth: []}]
+  responses:
+    '200': {$ref: '#/components/responses/Success'}
+    '401': {$ref: '#/components/responses/Error'}
+    '403': {$ref: '#/components/responses/Error'}
+    '404': {$ref: '#/components/responses/Error'}
+x-admin-json-write: &adminJSONWrite
+  tags: [Admin]
+  security: [{cookieAuth: []}]
+  requestBody:
+    required: true
+    content:
+      application/json: {schema: {type: object}}
+  responses:
+    '200': {$ref: '#/components/responses/Success'}
+    '400': {$ref: '#/components/responses/Error'}
+    '401': {$ref: '#/components/responses/Error'}
+    '403': {$ref: '#/components/responses/Error'}
+    '404': {$ref: '#/components/responses/Error'}
 paths:
+  /bootstrap:
+    get:
+      tags: [Bootstrap]
+      operationId: getAgentBootstrap
+      summary: Read the ContentCloud Agent initialization protocol
+      security: []
+      responses:
+        '200':
+          description: Agent-readable Markdown instructions
+          headers:
+            Cache-Control: {schema: {type: string}, description: Always `no-cache`}
+          content:
+            text/markdown:
+              schema: {type: string}
   /v1/auth/register:
     post: *publicJSONWrite
   /v1/auth/login:
@@ -66,6 +103,11 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+  /v1/admin/dashboard:
+    get: *adminJSONRead
+  /v1/admin/tenants/{tenant_id}:
+    parameters: [{name: tenant_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    patch: *adminJSONWrite
   /bff/session:
     get: *jsonRead
   /bff/session/switch:

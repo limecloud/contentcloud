@@ -60,7 +60,7 @@ Go 统一控制面与客户端的收益：
 Web 在项目创建成功后展示：
 
 ```bash
-npx --yes @goodvision/contentcloud@latest up \
+npx --yes @limecloud/contentcloud@latest up \
   --server-url https://app.contentcloud.cn \
   --connect-key cck_xxx
 ```

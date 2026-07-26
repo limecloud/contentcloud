@@ -22,7 +22,7 @@ ContentCloud 的首次接入仍保持“服务端先创建项目，客户端后�
 | 观察项 | 飞书 CLI 实现 | 对 ContentCloud 的含义 |
 | --- | --- | --- |
 | 运行时 | Go 1.23+、Cobra、跨平台单二进制 | 控制面与 CLI/Daemon 继续采用 Go 1.24 |
-| 安装 | npm `bin` 指向 Node runner；postinstall 按 OS/arch 下载 release 归档 | `@goodvision/contentcloud` 只做平台选择、下载、校验和执行 |
+| 安装 | npm `bin` 指向 Node runner；postinstall 按 OS/arch 下载 release 归档 | `@limecloud/contentcloud` 只做平台选择、下载、校验和执行 |
 | 供应链 | GoReleaser 生成 `checksums.txt`；安装器校验 SHA-256、限制初始下载 host 和重定向次数 | V1 必须校验 checksum；正式发布增加签名和最终下载来源校验 |
 | 命令设计 | 快捷命令、类型化 API 命令、通用 API 三层；根 help 内置 Agent quickstart | 只采用产品级 noun/verb 命令和 `schema`，拒绝任意 raw write |
 | 输出 | JSON 成功写 stdout，结构化错误写 stderr，退出码与错误类别绑定 | 固定 success/error envelope，禁止日志污染 stdout |
