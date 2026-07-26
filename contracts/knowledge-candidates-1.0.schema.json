@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.goodvision.cn/schemas/knowledge-candidates-1.0.schema.json",
+  "title": "ContentCloud Knowledge Candidates 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "candidates", "warnings"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {"$ref": "#/$defs/candidate"}
+    },
+    "warnings": {"type": "array", "maxItems": 100, "items": {"type": "string", "maxLength": 500}}
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "title", "statement", "subject", "predicate", "value", "scope", "risk_level", "allowed_channels", "evidence", "forbidden_extensions", "depends_on_fact_ids"],
+      "properties": {
+        "kind": {"enum": ["fact", "claim", "visual_rule", "methodology"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "statement": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "subject": {"type": "string", "minLength": 1, "maxLength": 300},
+        "predicate": {"type": "string", "minLength": 1, "maxLength": 300},
+        "value": {"$ref": "#/$defs/typed_value"},
+        "scope": {"$ref": "#/$defs/scope"},
+        "risk_level": {"enum": ["low", "medium", "high"]},
+        "allowed_channels": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "evidence": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/evidence"}},
+        "forbidden_extensions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "depends_on_fact_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "valid_from": {"type": "string", "format": "date-time"},
+        "valid_until": {"type": "string", "format": "date-time"},
+        "expires_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "typed_value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"enum": ["text", "number", "boolean", "date", "enum"]},
+        "text": {"type": "string"},
+        "number": {"type": "number"},
+        "boolean": {"type": "boolean"},
+        "unit": {"type": "string"}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["regions", "channels", "audiences", "product_variants"],
+      "properties": {
+        "regions": {"type": "array", "items": {"type": "string"}},
+        "channels": {"type": "array", "items": {"type": "string"}},
+        "audiences": {"type": "array", "items": {"type": "string"}},
+        "product_variants": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_revision_id", "locator_kind", "locator", "quote"],
+      "properties": {
+        "source_revision_id": {"type": "string", "minLength": 1},
+        "locator_kind": {"type": "string", "minLength": 1},
+        "locator": {"type": "string", "minLength": 2},
+        "quote": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

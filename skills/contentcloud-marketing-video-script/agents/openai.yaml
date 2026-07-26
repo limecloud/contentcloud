@@ -1,0 +1,7 @@
+interface:
+  display_name: "ContentCloud 营销视频剧本"
+  short_description: "为营销团队生成带可信知识引用和完整镜头约束的AI视频剧本包"
+  default_prompt: "Use $contentcloud-marketing-video-script to generate a cited marketing video script package from the current ContentCloud task contract."
+
+policy:
+  allow_implicit_invocation: true

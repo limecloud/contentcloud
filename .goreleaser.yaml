@@ -1,0 +1,25 @@
+version: 2
+project_name: contentcloud
+before:
+  hooks:
+    - go mod tidy
+builds:
+  - id: contentcloud
+    main: ./cmd/contentcloud
+    binary: contentcloud
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+archives:
+  - id: cli
+    ids: [contentcloud]
+    formats: [gz]
+    name_template: "contentcloud-{{ .Os }}-{{ .Arch }}{{ if eq .Os \"windows\" }}.exe{{ end }}"
+    wrap_in_directory: false
+checksum:
+  name_template: checksums.txt
+changelog:
+  disable: true

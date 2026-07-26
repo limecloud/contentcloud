@@ -1,0 +1,4 @@
+interface:
+  display_name: "ContentCloud 知识提取"
+  short_description: "Extract evidence-grounded brand knowledge candidates"
+  default_prompt: "Use $contentcloud-knowledge-extraction to extract evidence-grounded knowledge candidates from the provided Task Contract."

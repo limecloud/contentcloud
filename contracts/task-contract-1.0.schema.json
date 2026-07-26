@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.goodvision.cn/schemas/task-contract-1.0.schema.json",
+  "title": "ContentCloud Task Contract 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "contract_id", "run_id", "task_type", "project", "brief", "knowledge", "assets", "input_snapshot_id", "output_schema", "required_capability", "manifest_hash"],
+  "properties": {
+    "contract_version": {"const": "1.0"},
+    "contract_id": {"type": "string"},
+    "run_id": {"type": "string"},
+    "task_type": {"enum": ["script_generate", "script_revise", "knowledge_extract", "brief_generate"]},
+    "project": {"type": "object"},
+    "brief": {"type": "object"},
+    "knowledge": {"type": "array", "items": {"type": "object"}},
+    "assets": {"type": "array", "items": {"type": "object"}},
+    "sources": {"type": "array", "items": {"type": "object"}},
+    "baseline_script_version": {"type": "object"},
+    "change_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_type", "invariant_fields", "changed_fields", "revision_reason"],
+      "properties": {
+        "change_type": {"enum": ["revision", "variant"]},
+        "invariant_fields": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^/"}},
+        "changed_fields": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^/"}},
+        "hypothesis": {"type": "string"},
+        "revision_reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "input_snapshot_id": {"type": "string"},
+    "output_schema": {"enum": ["script-package/1.1", "knowledge-candidates/1.0"]},
+    "required_capability": {"type": "object"},
+    "manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

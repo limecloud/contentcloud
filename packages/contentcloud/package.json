@@ -1,0 +1,16 @@
+{
+  "name": "@goodvision/contentcloud",
+  "version": "0.1.0",
+  "description": "Verified installer and launcher for the ContentCloud Go CLI",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "contentcloud": "bin/contentcloud.js"
+  },
+  "files": [
+    "bin/contentcloud.js"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}

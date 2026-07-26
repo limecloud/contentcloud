@@ -1,0 +1,1223 @@
+openapi: 3.1.0
+info:
+  title: ContentCloud Private Transport
+  version: 1.0.0
+  description: >-
+    Private same-origin Web BFF, public review BFF, and CLI transport. This is not
+    a public SDK. Agents, renderers, scripts, and CI use the contentcloud CLI.
+    The cloud control plane never accepts LLM prompts, model credentials, or
+    arbitrary execution requests.
+servers:
+  - url: /api
+tags:
+  - {name: CLI, description: Private transport used only by the Go CLI}
+  - {name: Web BFF, description: Same-origin human Web application}
+  - {name: Review BFF, description: Token-bound customer approval projection}
+x-json-read: &jsonRead
+  tags: [Web BFF]
+  security: [{cookieAuth: []}]
+  responses:
+    '200': {$ref: '#/components/responses/Success'}
+    '401': {$ref: '#/components/responses/Error'}
+    '404': {$ref: '#/components/responses/Error'}
+x-json-write: &jsonWrite
+  tags: [Web BFF]
+  security: [{cookieAuth: []}]
+  requestBody:
+    required: true
+    content:
+      application/json: {schema: {type: object}}
+  responses:
+    '200': {$ref: '#/components/responses/Success'}
+    '400': {$ref: '#/components/responses/Error'}
+    '401': {$ref: '#/components/responses/Error'}
+    '403': {$ref: '#/components/responses/Error'}
+    '409': {$ref: '#/components/responses/Error'}
+x-public-json-write: &publicJSONWrite
+  tags: [Review BFF]
+  requestBody:
+    required: true
+    content:
+      application/json: {schema: {type: object}}
+  responses:
+    '200': {$ref: '#/components/responses/Success'}
+    '400': {$ref: '#/components/responses/Error'}
+    '401': {$ref: '#/components/responses/Error'}
+    '409': {$ref: '#/components/responses/Error'}
+paths:
+  /v1/auth/register:
+    post: *publicJSONWrite
+  /v1/auth/login:
+    post: *publicJSONWrite
+  /v1/cli/dispatch:
+    post:
+      tags: [CLI]
+      operationId: dispatchCLICommand
+      security: [{bearerAuth: []}, {}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DispatchRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '204': {description: No daemon task is available}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/session:
+    get: *jsonRead
+  /bff/session/switch:
+    post: *jsonWrite
+  /bff/session/logout:
+    post: *jsonWrite
+  /bff/tenants:
+    get: *jsonRead
+  /bff/team/members:
+    get: *jsonRead
+  /bff/team/members/{user_id}:
+    parameters: [{name: user_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    patch: *jsonWrite
+  /bff/team/members/{user_id}/revoke:
+    parameters: [{name: user_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post: *jsonWrite
+  /bff/team/invites:
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/team/invites/accept:
+    post: *jsonWrite
+  /bff/team/invites/{id}/revoke:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/dashboard:
+    get: *jsonRead
+  /bff/projects:
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/projects/{project_id}:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+    patch: *jsonWrite
+  /bff/projects/{project_id}/archive:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/restore:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    post: *jsonWrite
+  /bff/project-templates:
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/projects/{project_id}/connect-sessions:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    post: *jsonWrite
+  /bff/connect-sessions/{id}:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get: *jsonRead
+  /bff/connect-sessions/{id}/cancel:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/devices:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+  /bff/devices/{id}:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get: *jsonRead
+  /bff/devices/{id}/revoke:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/devices/{id}/attach:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}, {$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/devices/{id}/detach:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}, {$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/device-auth/approve:
+    post: *jsonWrite
+  /bff/projects/{project_id}/sources:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+  /bff/projects/{project_id}/sources/upload:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    post:
+      tags: [Web BFF]
+      operationId: uploadSource
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, name, source_type]
+              properties:
+                file: {type: string, format: binary}
+                name: {type: string}
+                source_type: {type: string}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+  /bff/sources/{source_id}/revisions:
+    parameters: [{name: source_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get: *jsonRead
+  /bff/sources/{source_id}/revisions/upload:
+    parameters: [{name: source_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Web BFF]
+      operationId: uploadSourceRevision
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+  /bff/sources/{source_id}/impact:
+    parameters: [{name: source_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get: *jsonRead
+  /bff/source-revisions/{id}:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get: *jsonRead
+  /bff/source-revisions/{id}/evidence:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get: *jsonRead
+  /bff/evidence/{id}/review:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/assets:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/assets/{id}/rights:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/rights/{id}/review:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/knowledge:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/projects/{project_id}/knowledge-extraction-runs:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    post: *jsonWrite
+  /bff/knowledge/{id}/review:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/knowledge-conflicts:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+  /bff/projects/{project_id}/decision-requests:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+  /bff/decision-requests/{id}/resolve:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/benchmarks:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/projects/{project_id}/frameworks:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+  /bff/benchmarks/{id}/frameworks:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/shot-patterns:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+  /bff/frameworks/{id}/shot-patterns:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/selling-points:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/projects/{project_id}/visualization-plans:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+  /bff/selling-points/{id}/visualization-plans:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/visualization-plans/{id}/review:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/briefs:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+    post:
+      tags: [Web BFF]
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/BriefInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/briefs/{id}/versions:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      security: [{cookieAuth: []}]
+      description: Create an immutable replacement version; the path ID is authoritative for supersedes_id and project ownership.
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/BriefInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/briefs/{id}/review:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/BriefReviewInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/briefs/{id}/runs:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/runs:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+  /bff/runs/{id}:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get: *jsonRead
+  /bff/runs/{id}/attempts:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get:
+      tags: [Web BFF]
+      operationId: listRunAttempts
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Immutable execution attempts. Run token hashes are never projected.
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/RunAttemptListEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/runs/{id}/cancel:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/scripts:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+  /bff/scripts/{id}:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get: *jsonRead
+  /bff/scripts/{id}/runs:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      operationId: createScriptChangeRun
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/ScriptChangeRunInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/scripts/{id}/review:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      operationId: reviewScriptVersion
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/ReviewScriptInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/scripts/{id}/comments:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/scripts/{id}/review-cycles:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get:
+      tags: [Web BFF]
+      operationId: listScriptReviewCycles
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Review cycles ordered newest first.
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/ReviewCycleListEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/comments/{id}/resolve:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/scripts/{id}/review-grants:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get:
+      tags: [Web BFF]
+      operationId: listScriptReviewGrants
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Review grant history without token or OTP hashes.
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/ReviewGrantListEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Web BFF]
+      operationId: createScriptReviewGrant
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/CreateReviewGrantInput'}}
+      responses:
+        '200':
+          description: Created grant. The plaintext token and OTP are returned once.
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/ReviewGrantCreatedEnvelope'}}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/review-grants/{id}/revoke:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      operationId: revokeReviewGrant
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {type: object, additionalProperties: false}}
+      responses:
+        '200':
+          description: Revoked grant without secrets.
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/ReviewGrantEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/scripts/{id}/artifacts:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get:
+      tags: [Web BFF]
+      operationId: listArtifactPresentations
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Server-computed presentation decisions for immutable ScriptVersion artifacts.
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/ArtifactPresentationListEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/scripts/{id}/exports:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/artifacts/{id}/presentation:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get:
+      tags: [Web BFF]
+      operationId: getArtifactPresentation
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Presentation tier and actions computed from server facts.
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/ArtifactPresentationEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/artifacts/{id}/local-open:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      operationId: createArtifactLocalOpen
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/CreateArtifactOpenInput'}}
+      responses:
+        '200':
+          description: Dry-run plan or a 60-second declarative local-open request.
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/ArtifactOpenResultEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/artifact-open-requests/{id}:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get:
+      tags: [Web BFF]
+      operationId: getArtifactOpenRequest
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Current declarative local-open request state.
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/ArtifactOpenRequestEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/artifacts/{id}/download:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get:
+      tags: [Web BFF]
+      operationId: downloadArtifact
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Versioned artifact bytes
+          content:
+            application/octet-stream: {schema: {type: string, format: binary}}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/projects/{project_id}/results:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/projects/{project_id}/performance-imports:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+    post:
+      tags: [Web BFF]
+      operationId: importPerformanceBatch
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/PerformanceImportInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/performance-imports/{id}:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get: *jsonRead
+  /bff/projects/{project_id}/rating-decisions:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+    post:
+      tags: [Web BFF]
+      operationId: createRatingDecision
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/CreateRatingDecisionInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/projects/{project_id}/lineage:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {name: focus_type, in: query, schema: {type: string}, description: Must be paired with focus_id.}
+      - {name: focus_id, in: query, schema: {type: string, format: uuid}, description: Must be paired with focus_type.}
+      - {name: direction, in: query, schema: {type: string, enum: [upstream, downstream, both], default: both}}
+    get:
+      tags: [Web BFF]
+      operationId: getProjectLineage
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Deterministic read-only project lineage projection.
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/LineageGraphEnvelope'}}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/projects/{project_id}/impact:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {name: focus_type, in: query, schema: {type: string}, description: Must be paired with focus_id.}
+      - {name: focus_id, in: query, schema: {type: string, format: uuid}, description: Must be paired with focus_type.}
+    get:
+      tags: [Web BFF]
+      operationId: getProjectImpact
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Downstream impact with reason, current status, severity, and recommended action.
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/ImpactAnalysisEnvelope'}}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/projects/{project_id}/audit:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+  /review/{token}/projection:
+    parameters: [{$ref: '#/components/parameters/ReviewToken'}]
+    get:
+      tags: [Review BFF]
+      operationId: getReviewProjection
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+  /review/{token}/verify:
+    parameters: [{$ref: '#/components/parameters/ReviewToken'}]
+    post: *publicJSONWrite
+  /review/{token}/decision:
+    parameters: [{$ref: '#/components/parameters/ReviewToken'}]
+    post: *publicJSONWrite
+components:
+  securitySchemes:
+    cookieAuth: {type: apiKey, in: cookie, name: cc_session}
+    bearerAuth: {type: http, scheme: bearer}
+  parameters:
+    ProjectID: {name: project_id, in: path, required: true, schema: {type: string, format: uuid}}
+    ID: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    ReviewToken: {name: token, in: path, required: true, schema: {type: string, pattern: '^crg_[A-Za-z0-9_-]+$'}}
+  schemas:
+    DispatchRequest:
+      type: object
+      additionalProperties: false
+      required: [command, params]
+      properties:
+        command: {type: string, minLength: 1}
+        params: {type: object}
+    LineageNode:
+      type: object
+      additionalProperties: false
+      required: [key, type, id, label, status, stage, created_at]
+      properties:
+        key: {type: string, pattern: '^[a-z_]+:.+$'}
+        type: {type: string}
+        id: {type: string}
+        label: {type: string}
+        status: {type: string}
+        stage: {type: string, enum: [sources, knowledge, strategy, brief, generation, script, delivery, results, learning]}
+        created_at: {type: string, format: date-time}
+        metadata: {type: object, additionalProperties: true}
+    LineageEdge:
+      type: object
+      additionalProperties: false
+      required: [from, to, relation, reason]
+      properties:
+        from: {type: string}
+        to: {type: string}
+        relation: {type: string}
+        reason: {type: string}
+    LineageGraph:
+      type: object
+      additionalProperties: false
+      required: [project_id, direction, nodes, edges, stage_count, generated_at]
+      properties:
+        project_id: {type: string, format: uuid}
+        focus_key: {type: string}
+        direction: {type: string, enum: [upstream, downstream, both]}
+        nodes: {type: array, items: {$ref: '#/components/schemas/LineageNode'}}
+        edges: {type: array, items: {$ref: '#/components/schemas/LineageEdge'}}
+        stage_count: {type: object, additionalProperties: {type: integer, minimum: 0}}
+        generated_at: {type: string, format: date-time}
+    ImpactItem:
+      type: object
+      additionalProperties: false
+      required: [node, depth, severity, reason, current_status, recommended_action]
+      properties:
+        node: {$ref: '#/components/schemas/LineageNode'}
+        depth: {type: integer, minimum: 0}
+        severity: {type: string, enum: [blocked, attention, review]}
+        reason: {type: string}
+        current_status: {type: string}
+        recommended_action: {type: string}
+    ImpactAnalysis:
+      type: object
+      additionalProperties: false
+      required: [project_id, items, generated_at]
+      properties:
+        project_id: {type: string, format: uuid}
+        focus: {$ref: '#/components/schemas/LineageNode'}
+        items: {type: array, items: {$ref: '#/components/schemas/ImpactItem'}}
+        generated_at: {type: string, format: date-time}
+    LineageGraphEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: lineage.show}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/LineageGraph'}
+        meta: {type: object}
+    ImpactAnalysisEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: lineage.impact}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/ImpactAnalysis'}
+        meta: {type: object}
+    BriefInput:
+      type: object
+      additionalProperties: false
+      required: [objective, audience, demand_moment, scene, conflict, primary_selling_point, evidence_summary, cta, channel, aspect_ratio, target_duration_seconds, primary_test_variable, approved_knowledge_ids, framework_ids, visualization_plan_ids]
+      properties:
+        project_id: {type: string, format: uuid, description: Used by CLI transport; Web BFF derives it from the route.}
+        objective: {type: string, minLength: 1}
+        audience: {type: string, minLength: 1}
+        demand_moment: {type: string, minLength: 1}
+        scene: {type: string, minLength: 1}
+        conflict: {type: string, minLength: 1}
+        primary_selling_point: {type: string, minLength: 1}
+        secondary_selling_points: {type: array, maxItems: 2, items: {type: string}}
+        evidence_summary: {type: string, minLength: 1}
+        cta: {type: string, minLength: 1}
+        channel: {type: string, minLength: 1}
+        aspect_ratio: {const: '9:16'}
+        target_duration_seconds: {type: integer, minimum: 10, maximum: 120}
+        primary_test_variable: {type: string, minLength: 1}
+        approved_knowledge_ids: {type: array, minItems: 1, uniqueItems: true, items: {type: string, format: uuid}}
+        framework_ids: {type: array, minItems: 1, uniqueItems: true, items: {type: string, format: uuid}}
+        visualization_plan_ids: {type: array, minItems: 1, uniqueItems: true, items: {type: string, format: uuid}}
+        viewpoint: {type: string, default: user}
+        constraints: {type: array, uniqueItems: true, items: {type: string}}
+        supersedes_id: {type: string, format: uuid, description: CLI transport only; revision BFF derives it from the route.}
+        revision_reason: {type: string}
+    BriefReviewInput:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision: {type: string, enum: [submit, approve, return]}
+        reason: {type: string, description: Required when decision is return.}
+    RunAttempt:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, run_id, device_id, state, capability_id, capability_version, capability_digest, input_schema, output_schema, lease_expires_at, usage, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        run_id: {type: string, format: uuid}
+        device_id: {type: string, format: uuid}
+        state: {type: string, enum: [leased, running, succeeded, failed, canceled, expired]}
+        capability_id: {type: string}
+        capability_version: {type: string}
+        capability_digest: {type: string}
+        input_schema: {type: string}
+        output_schema: {type: string}
+        lease_expires_at: {type: string, format: date-time}
+        heartbeat_at: {type: string, format: date-time}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time}
+        exit_code: {type: integer}
+        failure_class: {type: string}
+        usage: {type: object, description: Optional client-reported and sanitized usage summary.}
+        transcript_summary: {type: string, description: Sanitized summary only; never prompt or source content.}
+        created_at: {type: string, format: date-time}
+    ScriptChangeRunInput:
+      type: object
+      additionalProperties: false
+      required: [change_type, invariant_fields, changed_fields, revision_reason]
+      properties:
+        brief_version_id: {type: string, format: uuid}
+        change_type: {type: string, enum: [revision, variant]}
+        invariant_fields: {type: array, uniqueItems: true, items: {type: string, pattern: '^/'}}
+        changed_fields: {type: array, uniqueItems: true, items: {type: string, pattern: '^/'}}
+        hypothesis: {type: string, description: Required for variant.}
+        revision_reason: {type: string, minLength: 1}
+        idempotency_key: {type: string}
+    ScriptVersionLineage:
+      type: object
+      description: Immutable logical-script version lineage fields included in every ScriptVersion projection.
+      required: [id, project_id, script_id, run_id, version, change_type, invariant_fields, changed_fields, status, content_hash, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        script_id: {type: string, format: uuid}
+        run_id: {type: string, format: uuid}
+        version: {type: integer, minimum: 1}
+        supersedes_id: {type: string, format: uuid}
+        baseline_script_version_id: {type: string, format: uuid}
+        change_type: {type: string, enum: [initial, revision, variant]}
+        invariant_fields: {type: array, uniqueItems: true, items: {type: string, pattern: '^/'}}
+        changed_fields: {type: array, uniqueItems: true, items: {type: string, pattern: '^/'}}
+        hypothesis: {type: string}
+        revision_reason: {type: string}
+        status: {type: string, enum: [blocked, review_ready, internal_review, internally_approved, client_review, revision_requested, approved, superseded]}
+        content_hash: {type: string}
+        created_at: {type: string, format: date-time}
+    ReviewScriptInput:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision: {type: string, enum: [submit, approve_internal, return]}
+        conclusion: {type: string, description: Required for approve_internal and return.}
+        assignee_user_id: {type: string, format: uuid, description: Required for return.}
+      allOf:
+        - if:
+            properties: {decision: {enum: [approve_internal, return]}}
+          then:
+            required: [conclusion]
+            properties: {conclusion: {type: string, minLength: 1}}
+        - if:
+            properties: {decision: {const: return}}
+          then:
+            required: [assignee_user_id]
+    ReviewCycle:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, subject_type, subject_id, cycle_number, status, opened_by, opened_at, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        subject_type: {const: script_version}
+        subject_id: {type: string, format: uuid}
+        cycle_number: {type: integer, minimum: 1}
+        status: {type: string, enum: [open, approved, changes_requested, superseded]}
+        conclusion: {type: string}
+        assignee_user_id: {type: string, format: uuid}
+        opened_by: {type: string}
+        decided_by: {type: string}
+        opened_at: {type: string, format: date-time}
+        decided_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+    ReviewGrantBase:
+      type: object
+      required: [id, tenant_id, project_id, subject_type, subject_id, subject_hash, reviewer_email, expires_at, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        subject_type: {const: script_version}
+        subject_id: {type: string, format: uuid}
+        subject_hash: {type: string}
+        reviewer_email: {type: string, format: email}
+        expires_at: {type: string, format: date-time}
+        verified_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time}
+        decision_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+    ReviewGrant:
+      allOf:
+        - {$ref: '#/components/schemas/ReviewGrantBase'}
+      unevaluatedProperties: false
+    ReviewGrantCreated:
+      allOf:
+        - {$ref: '#/components/schemas/ReviewGrantBase'}
+        - type: object
+          required: [review_token, dev_otp]
+          properties:
+            review_token: {type: string, pattern: '^crg_[A-Za-z0-9_-]+$', description: Plaintext token returned exactly once.}
+            dev_otp: {type: string, pattern: '^[0-9]{6}$', description: Plaintext OTP returned exactly once.}
+      unevaluatedProperties: false
+    CreateReviewGrantInput:
+      type: object
+      additionalProperties: false
+      required: [reviewer_email]
+      properties:
+        reviewer_email: {type: string, format: email}
+    ArtifactCapabilityRef:
+      type: object
+      additionalProperties: false
+      required: [id, version, digest]
+      properties:
+        id: {type: string, minLength: 1}
+        version: {type: string, pattern: '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$'}
+        digest: {type: string, minLength: 1}
+    ArtifactRef:
+      type: object
+      additionalProperties: false
+      required: [sha256, media_type, size]
+      properties:
+        sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+        media_type: {type: string, minLength: 1}
+        size: {type: integer, minimum: 1, maximum: 107374182400}
+    ArtifactRenditionRef:
+      type: object
+      additionalProperties: false
+      required: [purpose, artifact]
+      properties:
+        purpose: {type: string, enum: [thumbnail, preview, poster, transcript]}
+        artifact: {$ref: '#/components/schemas/ArtifactRef'}
+    ExtensionArtifactEnvelopeV1:
+      type: object
+      additionalProperties: false
+      required: [envelope_version, project_id, script_version_id, capability, schema_id, media_type, sha256, size, renditions, metadata]
+      properties:
+        envelope_version: {const: '1.0'}
+        project_id: {type: string, format: uuid}
+        script_version_id: {type: string, format: uuid}
+        capability: {$ref: '#/components/schemas/ArtifactCapabilityRef'}
+        schema_id: {type: string, minLength: 1, maxLength: 160}
+        media_type: {type: string, minLength: 1, maxLength: 160}
+        sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+        size: {type: integer, minimum: 1, maximum: 107374182400}
+        review_projection: {$ref: '#/components/schemas/ArtifactRef'}
+        renditions: {type: array, maxItems: 16, items: {$ref: '#/components/schemas/ArtifactRenditionRef'}}
+        metadata:
+          type: object
+          maxProperties: 64
+          additionalProperties: {type: [string, number, boolean]}
+    Artifact:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, script_version_id, kind, capability_id, capability_version, capability_digest, schema_id, media_type, file_name, sha256, byte_size, visibility, retention_class, purpose, validation_status, presentation_tier, metadata, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        script_version_id: {type: string, format: uuid}
+        kind: {type: string, enum: [core, export, extension, rendition, review_projection]}
+        capability_id: {type: string}
+        capability_version: {type: string}
+        capability_digest: {type: string}
+        schema_id: {type: string}
+        media_type: {type: string}
+        file_name: {type: string}
+        sha256: {type: string}
+        byte_size: {type: integer, minimum: 0}
+        visibility: {type: string, enum: [internal, client, restricted]}
+        retention_class: {type: string, enum: [attempt, project, audit]}
+        derived_from_artifact_id: {type: string, format: uuid}
+        purpose: {type: string}
+        source_device_id: {type: string, format: uuid}
+        validation_status: {type: string, enum: [pending, valid, rejected]}
+        validation_error: {type: string}
+        envelope: {$ref: '#/components/schemas/ExtensionArtifactEnvelopeV1'}
+        presentation_tier: {type: string, enum: [cloud_native, hosted_preview, safe_rendition, local_open, metadata_only]}
+        metadata: {type: object}
+        created_at: {type: string, format: date-time}
+    ArtifactPresentation:
+      type: object
+      additionalProperties: false
+      required: [artifact, tier, renditions, actions]
+      properties:
+        artifact: {$ref: '#/components/schemas/Artifact'}
+        tier: {type: string, enum: [cloud_native, hosted_preview, safe_rendition, local_open, metadata_only]}
+        review_projection: {$ref: '#/components/schemas/Artifact'}
+        renditions: {type: array, items: {$ref: '#/components/schemas/Artifact'}}
+        actions: {type: array, uniqueItems: true, items: {type: string, enum: [view_native, preview, local_open, download]}}
+        source_device:
+          type: object
+          additionalProperties: false
+          required: [id, display_name, online]
+          properties:
+            id: {type: string, format: uuid}
+            display_name: {type: string}
+            online: {type: boolean}
+    CreateArtifactOpenInput:
+      type: object
+      additionalProperties: false
+      required: [device_id]
+      properties:
+        device_id: {type: string, format: uuid}
+        dry_run: {type: boolean, default: false}
+    ArtifactOpenRequest:
+      type: object
+      additionalProperties: false
+      required: [open_request_id, tenant_id, project_id, artifact_id, device_id, requested_by, state, expires_at, created_at]
+      properties:
+        open_request_id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        artifact_id: {type: string, format: uuid}
+        device_id: {type: string, format: uuid}
+        requested_by: {type: string}
+        state: {type: string, enum: [pending, accepted, opened, not_available, failed, expired]}
+        reason: {type: string, enum: [local_index_missing, file_changed, launcher_unavailable, open_failed]}
+        expires_at: {type: string, format: date-time}
+        accepted_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+    ArtifactOpenResult:
+      type: object
+      additionalProperties: false
+      required: [dry_run, presentation]
+      properties:
+        dry_run: {type: boolean}
+        request: {$ref: '#/components/schemas/ArtifactOpenRequest'}
+        presentation: {$ref: '#/components/schemas/ArtifactPresentation'}
+    PerformanceImportRowError:
+      type: object
+      additionalProperties: false
+      required: [row_number, code, message]
+      properties:
+        row_number: {type: integer, minimum: 1}
+        field: {type: string}
+        code: {type: string}
+        message: {type: string}
+    PerformanceObservationInput:
+      type: object
+      additionalProperties: false
+      required: [script_version_id, platform, account_alias, published_at, window_hours, sample_status, metrics]
+      properties:
+        row_number: {type: integer, minimum: 1}
+        project_id: {type: string, format: uuid}
+        script_version_id: {type: string, format: uuid}
+        platform: {type: string, minLength: 1}
+        account_alias: {type: string, minLength: 1}
+        published_at: {type: string, format: date-time}
+        window_hours: {type: integer, minimum: 1, maximum: 8760}
+        sample_status: {type: string, enum: [insufficient_sample, seed_candidate, repairable, discarded]}
+        metrics:
+          type: object
+          propertyNames: {enum: [impressions, views, three_second_retention_rate, completion_rate, clicks, conversions, likes, comments, shares]}
+          additionalProperties: {type: number, minimum: 0}
+        currency: {type: string, pattern: '^[A-Z]{3}$'}
+        spend: {type: number, minimum: 0, default: 0}
+        gmv: {type: number, minimum: 0, default: 0}
+        roi: {type: number, description: Accepted for import compatibility but ignored; the server calculates persisted ROI from GMV and spend.}
+        issue_category: {type: string, enum: ['', creative, account, delivery, landing]}
+        notes: {type: string}
+    PerformanceImportInput:
+      type: object
+      additionalProperties: false
+      required: [source_name, source_format, observations]
+      properties:
+        project_id: {type: string, format: uuid, description: CLI transport only; Web BFF derives it from the route.}
+        source_name: {type: string, minLength: 1, maxLength: 255}
+        source_format: {type: string, enum: [manual, json, csv, xlsx]}
+        source_sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+        observations: {type: array, minItems: 1, maxItems: 1000, items: {$ref: '#/components/schemas/PerformanceObservationInput'}}
+        dry_run: {type: boolean, default: false}
+    PerformanceImportBatch:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, source_name, source_format, source_sha256, row_count, imported_count, status, created_by, created_at]
+      properties:
+        id: {type: string, description: UUID when persisted; empty only in a dry-run result.}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        source_name: {type: string}
+        source_format: {type: string, enum: [manual, json, csv, xlsx]}
+        source_sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+        currency: {type: string, pattern: '^[A-Z]{3}$'}
+        row_count: {type: integer, minimum: 1, maximum: 1000}
+        imported_count: {type: integer, minimum: 1, maximum: 1000}
+        status: {type: string, enum: [validated, imported]}
+        created_by: {type: string, format: uuid}
+        created_at: {type: string, format: date-time}
+    PerformanceObservation:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, import_batch_id, row_number, script_version_id, platform, account_alias, published_at, window_hours, sample_status, metrics, spend, gmv, dedup_key, issue_category, notes, created_at]
+      properties:
+        id: {type: string, description: UUID when persisted; empty only in a dry-run result.}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        import_batch_id: {type: string}
+        row_number: {type: integer, minimum: 1}
+        script_version_id: {type: string, format: uuid}
+        platform: {type: string}
+        account_alias: {type: string}
+        published_at: {type: string, format: date-time}
+        window_hours: {type: integer, minimum: 1, maximum: 8760}
+        sample_status: {type: string, enum: [insufficient_sample, seed_candidate, repairable, discarded]}
+        metrics: {type: object, additionalProperties: {type: number, minimum: 0}}
+        currency: {type: string, pattern: '^[A-Z]{3}$'}
+        spend: {type: number, minimum: 0}
+        gmv: {type: number, minimum: 0}
+        roi: {type: number, minimum: 0, description: Server-computed GMV divided by spend.}
+        dedup_key: {type: string, pattern: '^[a-f0-9]{64}$'}
+        issue_category: {type: string, enum: ['', creative, account, delivery, landing]}
+        notes: {type: string}
+        created_at: {type: string, format: date-time}
+    PerformanceImportResult:
+      type: object
+      additionalProperties: false
+      required: [dry_run, batch, observations]
+      properties:
+        dry_run: {type: boolean}
+        batch: {$ref: '#/components/schemas/PerformanceImportBatch'}
+        observations: {type: array, items: {$ref: '#/components/schemas/PerformanceObservation'}}
+    PerformanceImportDetails:
+      type: object
+      additionalProperties: false
+      required: [batch, observations]
+      properties:
+        batch: {$ref: '#/components/schemas/PerformanceImportBatch'}
+        observations: {type: array, items: {$ref: '#/components/schemas/PerformanceObservation'}}
+    CreateRatingDecisionInput:
+      type: object
+      additionalProperties: false
+      required: [subject_type, subject_id, observation_ids, rating, reason, next_action]
+      properties:
+        project_id: {type: string, format: uuid, description: CLI transport only; Web BFF derives it from the route.}
+        subject_type: {type: string, enum: [script_version, content_framework, shot_pattern]}
+        subject_id: {type: string, format: uuid}
+        observation_ids: {type: array, minItems: 1, maxItems: 100, uniqueItems: true, items: {type: string, format: uuid}}
+        rating: {type: string, enum: [insufficient_sample, seed_candidate, repairable, discarded]}
+        reason: {type: string, minLength: 1}
+        next_action: {type: string, minLength: 1}
+        dry_run: {type: boolean, default: false}
+    RatingDecision:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, subject_type, subject_id, observation_ids, rating, reason, next_action, created_by, created_at]
+      properties:
+        id: {type: string, description: UUID when persisted; empty only in a dry-run result.}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        subject_type: {type: string, enum: [script_version, content_framework, shot_pattern]}
+        subject_id: {type: string, format: uuid}
+        observation_ids: {type: array, minItems: 1, maxItems: 100, uniqueItems: true, items: {type: string, format: uuid}}
+        rating: {type: string, enum: [insufficient_sample, seed_candidate, repairable, discarded]}
+        reason: {type: string}
+        next_action: {type: string}
+        created_by: {type: string, format: uuid}
+        created_at: {type: string, format: date-time}
+    ArtifactPresentationListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: artifact.list}
+        request_id: {type: string}
+        data: {type: array, items: {$ref: '#/components/schemas/ArtifactPresentation'}}
+        meta: {type: object}
+    ArtifactPresentationEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: artifact.presentation}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/ArtifactPresentation'}
+        meta: {type: object}
+    ArtifactOpenResultEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: artifact.open}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/ArtifactOpenResult'}
+        meta: {type: object}
+    ArtifactOpenRequestEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: artifact.open.status}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/ArtifactOpenRequest'}
+        meta: {type: object}
+    ReviewCycleListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: review_cycle.list}
+        request_id: {type: string}
+        data: {type: array, items: {$ref: '#/components/schemas/ReviewCycle'}}
+        meta: {type: object}
+    ReviewGrantListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: review_grant.list}
+        request_id: {type: string}
+        data: {type: array, items: {$ref: '#/components/schemas/ReviewGrant'}}
+        meta: {type: object}
+    ReviewGrantEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: review_grant.revoke}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/ReviewGrant'}
+        meta: {type: object}
+    ReviewGrantCreatedEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: review_grant.create}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/ReviewGrantCreated'}
+        meta: {type: object}
+    RunAttemptListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: run.attempts}
+        request_id: {type: string}
+        data: {type: array, items: {$ref: '#/components/schemas/RunAttempt'}}
+        meta: {type: object}
+    SuccessEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {type: string}
+        request_id: {type: string}
+        data: {}
+        meta: {type: object}
+    ErrorEnvelope:
+      type: object
+      required: [ok, command, request_id, error]
+      properties:
+        ok: {const: false}
+        command: {type: string}
+        request_id: {type: string}
+        error:
+          type: object
+          required: [type, subtype, code, message, retryable]
+          properties:
+            type: {type: string}
+            subtype: {type: string}
+            code: {type: string}
+            message: {type: string}
+            retryable: {type: boolean}
+            hint: {type: string}
+            details: {}
+  responses:
+    Success:
+      description: Stable success envelope
+      content:
+        application/json: {schema: {$ref: '#/components/schemas/SuccessEnvelope'}}
+    Error:
+      description: Stable structured error envelope
+      content:
+        application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}}

@@ -1,0 +1,12 @@
+{
+  "name": "@goodvision/contentcloud-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.8.1",
+  "scripts": {
+    "dev:web": "pnpm --dir web dev",
+    "build:web": "pnpm --dir web build",
+    "test:web": "pnpm --dir web test",
+    "typecheck": "pnpm --dir web typecheck"
+  }
+}
