@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -81,8 +82,18 @@ func TestV2WorkspaceSubmissionGovernanceWithPostgres(t *testing.T) {
 		t.Fatal("submission revision update unexpectedly bypassed the immutability trigger")
 	}
 	immutable, err := store.SubmissionRevision(ctx, admin.TenantID, firstRevision.ID)
-	if err != nil || immutable.Message != firstRevision.Message || string(immutable.Objects) != string(firstRevision.Objects) {
-		t.Fatalf("immutable revision changed: revision=%#v err=%v", immutable, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var immutableObjects, submittedObjects any
+	if decodeErr := json.Unmarshal(immutable.Objects, &immutableObjects); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if decodeErr := json.Unmarshal(firstRevision.Objects, &submittedObjects); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if immutable.Message != firstRevision.Message || !reflect.DeepEqual(immutableObjects, submittedObjects) {
+		t.Fatalf("immutable revision changed: revision=%#v", immutable)
 	}
 
 	changed, err := service.RequestSubmissionChanges(ctx, admin, firstRevision.ID, "补充事实适用边界", "/0/scope", "req-v2-changes")

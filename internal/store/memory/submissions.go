@@ -55,7 +55,7 @@ func (s *Store) SaveWorkspaceBinding(_ context.Context, value domain.WorkspaceBi
 	return nil
 }
 
-func (s *Store) CreateSubmissionRevision(_ context.Context, submission domain.Submission, revision domain.SubmissionRevision, disclosures []domain.SourceDisclosure) error {
+func (s *Store) CreateSubmissionRevision(_ context.Context, submission domain.Submission, revision domain.SubmissionRevision, disclosures []domain.SourceDisclosure, cycle domain.ReviewCycle) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, existing := range s.submissionRevisions {
@@ -74,8 +74,10 @@ func (s *Store) CreateSubmissionRevision(_ context.Context, submission domain.Su
 		disclosures[index].SubmissionRevisionID = revision.ID
 	}
 	revision.SourceDisclosures = append([]domain.SourceDisclosure(nil), disclosures...)
+	cycle.CycleNumber = 1
 	s.submissions[submission.ID] = submission
 	s.submissionRevisions[revision.ID] = revision
+	s.reviewCycles[cycle.ID] = cycle
 	return nil
 }
 

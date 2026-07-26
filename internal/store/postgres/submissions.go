@@ -72,7 +72,7 @@ func (s *Store) SaveWorkspaceBinding(ctx context.Context, value domain.Workspace
 	})
 }
 
-func (s *Store) CreateSubmissionRevision(ctx context.Context, submission domain.Submission, revision domain.SubmissionRevision, disclosures []domain.SourceDisclosure) error {
+func (s *Store) CreateSubmissionRevision(ctx context.Context, submission domain.Submission, revision domain.SubmissionRevision, disclosures []domain.SourceDisclosure, cycle domain.ReviewCycle) error {
 	return s.withTenant(ctx, submission.TenantID, func(tx pgx.Tx) error {
 		var exists bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM submissions WHERE tenant_id=$1 AND id=$2)`, submission.TenantID, submission.ID).Scan(&exists); err != nil {
@@ -91,6 +91,10 @@ func (s *Store) CreateSubmissionRevision(ctx context.Context, submission domain.
 			if _, err := tx.Exec(ctx, `INSERT INTO source_disclosures(id,tenant_id,project_id,submission_revision_id,source_ref,disclosure_level,sha256,byte_size,evidence_pack,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, disclosure.ID, revision.TenantID, revision.ProjectID, revision.ID, disclosure.SourceRef, disclosure.Level, disclosure.SHA256, disclosure.ByteSize, nullableJSON(disclosure.EvidencePack), disclosure.CreatedAt); err != nil {
 				return dbError(err)
 			}
+		}
+		cycle.CycleNumber = 1
+		if _, err := tx.Exec(ctx, `INSERT INTO review_cycles(id,tenant_id,project_id,subject_type,subject_id,cycle_number,status,conclusion,assignee_user_id,opened_by,decided_by,opened_at,decided_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, cycle.ID, cycle.TenantID, cycle.ProjectID, cycle.SubjectType, cycle.SubjectID, cycle.CycleNumber, cycle.Status, cycle.Conclusion, cycle.AssigneeUserID, cycle.OpenedBy, cycle.DecidedBy, cycle.OpenedAt, cycle.DecidedAt, cycle.CreatedAt); err != nil {
+			return dbError(err)
 		}
 		result, err := tx.Exec(ctx, `UPDATE submissions SET status=$3,current_revision_id=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2`, submission.TenantID, submission.ID, submission.Status, submission.CurrentRevisionID, submission.UpdatedAt)
 		if err != nil {
@@ -338,7 +342,7 @@ func (s *Store) RequestSubmissionChanges(ctx context.Context, submission domain.
 		if _, err := tx.Exec(ctx, `INSERT INTO approval_decisions(id,tenant_id,project_id,subject_type,subject_id,subject_hash,actor_id,decision,reason,previous_state,resulting_state,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, decision.ID, decision.TenantID, decision.ProjectID, decision.SubjectType, decision.SubjectID, decision.SubjectHash, decision.ActorID, decision.Decision, decision.Reason, decision.PreviousState, decision.ResultingState, decision.CreatedAt); err != nil {
 			return dbError(err)
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO review_comments(id,tenant_id,project_id,review_cycle_id,subject_type,subject_id,carried_from_comment_id,shot_id,json_pointer,body,visibility,author_id,resolved_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, comment.ID, comment.TenantID, comment.ProjectID, comment.ReviewCycleID, comment.SubjectType, comment.SubjectID, nullable(comment.CarriedFromID), nullable(comment.ShotID), nullable(comment.JSONPointer), comment.Body, comment.Visibility, comment.AuthorID, comment.ResolvedAt, comment.CreatedAt); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO review_comments(id,tenant_id,project_id,review_cycle_id,subject_type,subject_id,carried_from_comment_id,shot_id,json_pointer,body,visibility,author_id,resolved_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, comment.ID, comment.TenantID, comment.ProjectID, comment.ReviewCycleID, comment.SubjectType, comment.SubjectID, nullable(comment.CarriedFromID), comment.ShotID, comment.JSONPointer, comment.Body, comment.Visibility, comment.AuthorID, comment.ResolvedAt, comment.CreatedAt); err != nil {
 			return dbError(err)
 		}
 		result, err := tx.Exec(ctx, `UPDATE submissions SET status=$3,current_revision_id=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2`, submission.TenantID, submission.ID, submission.Status, submission.CurrentRevisionID, submission.UpdatedAt)

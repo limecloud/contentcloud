@@ -103,18 +103,15 @@ func (s *Service) CreateSubmission(ctx context.Context, actor Actor, binding dom
 	revision := domain.SubmissionRevision{
 		ID: domain.NewID(), TenantID: binding.TenantID, ProjectID: binding.ProjectID, WorkspaceID: binding.ID, SubmissionID: submission.ID,
 		RevisionNo: revisionNo, SchemaVersion: bundle.SchemaVersion, ContentHash: normalizeSubmissionHash(bundle.ContentHash), BaseApprovedSnapshotID: bundle.BaseApprovedSnapshotID,
-		LocalRunSummary: bundle.LocalRunSummary, Objects: append(json.RawMessage(nil), bundle.Objects...), Artifacts: append([]domain.SubmissionArtifact(nil), bundle.Artifacts...), Message: strings.TrimSpace(bundle.Message),
+		LocalRunSummary: bundle.LocalRunSummary, Objects: append(json.RawMessage(nil), bundle.Objects...), Artifacts: append([]domain.SubmissionArtifact{}, bundle.Artifacts...), Message: strings.TrimSpace(bundle.Message),
 		IdempotencyKey: bundle.IdempotencyKey, EvidenceLimited: domain.EvidenceLimited(bundle.Objects, disclosures), CreatedBy: binding.ID, CreatedAt: now, SourceDisclosures: disclosures,
 	}
 	submission.Status = "submitted"
 	submission.CurrentRevisionID = revision.ID
 	submission.UpdatedAt = now
-	if err := s.store.CreateSubmissionRevision(ctx, submission, revision, disclosures); err != nil {
-		return domain.SubmissionRevision{}, err
-	}
 	cycle := domain.ReviewCycle{ID: domain.NewID(), TenantID: binding.TenantID, ProjectID: binding.ProjectID, SubjectType: "submission_revision", SubjectID: revision.ID, Status: "open", OpenedBy: binding.ID, OpenedAt: now, CreatedAt: now}
-	if _, err := s.store.CreateReviewCycle(ctx, cycle); err != nil {
-		return revision, err
+	if err := s.store.CreateSubmissionRevision(ctx, submission, revision, disclosures, cycle); err != nil {
+		return domain.SubmissionRevision{}, err
 	}
 	s.audit(ctx, actor, binding.ProjectID, "submission.published", "submission_revision", revision.ID, requestID, map[string]any{"submission_id": submission.ID, "type": submission.SubmissionType, "revision_no": revision.RevisionNo, "content_hash": revision.ContentHash, "evidence_limited": revision.EvidenceLimited})
 	return revision, nil

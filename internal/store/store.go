@@ -148,7 +148,7 @@ type Store interface {
 	ReviewGrantByTokenHash(context.Context, string) (domain.ReviewGrant, error)
 	SaveReviewGrant(context.Context, domain.ReviewGrant) error
 
-	CreateSubmissionRevision(context.Context, domain.Submission, domain.SubmissionRevision, []domain.SourceDisclosure) error
+	CreateSubmissionRevision(context.Context, domain.Submission, domain.SubmissionRevision, []domain.SourceDisclosure, domain.ReviewCycle) error
 	SubmissionByWorkspaceType(context.Context, string, string, string, string) (domain.Submission, error)
 	Submissions(context.Context, string, string) ([]domain.Submission, error)
 	Submission(context.Context, string, string) (domain.Submission, error)

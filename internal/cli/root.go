@@ -716,6 +716,9 @@ func uninstallUserDaemon() error {
 func commandSchemas() map[string]any {
 	read := func(args []string, output string) map[string]any { return schemaEntry("read", "none", args, output) }
 	userRead := func(args []string, output string) map[string]any { return schemaEntry("read", "user", args, output) }
+	workspaceRead := func(args []string, output string) map[string]any {
+		return schemaEntry("read", "workspace", args, output)
+	}
 	write := func(auth string, args []string, output string) map[string]any {
 		return schemaEntry("write", auth, args, output)
 	}
@@ -734,8 +737,8 @@ func commandSchemas() map[string]any {
 		"publish.script":      write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "immutable script SubmissionRevision"),
 		"publish.delivery":    write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "immutable delivery SubmissionRevision"),
 		"publish.performance": write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "immutable performance SubmissionRevision"),
-		"pull.feedback":       read([]string{"--dry-run"}, "review feedback bundles in local inbox"), "pull.decisions": read([]string{"--dry-run"}, "decision delta in local inbox"), "pull.approved": read([]string{"--type", "--id", "--dry-run"}, "read-only ApprovedSnapshot cache"),
-		"submission.list": read(nil, "workspace submission list"), "submission.show": read([]string{"submission-id"}, "submission with immutable revisions"), "submission.status": read([]string{"submission-id"}, "submission governance status"), "submission.approve": high([]string{"revision-id", "--reason"}, "immutable ApprovedSnapshot"),
+		"pull.feedback":       workspaceRead([]string{"--dry-run"}, "review feedback bundles in local inbox"), "pull.decisions": workspaceRead([]string{"--dry-run"}, "decision delta in local inbox"), "pull.approved": workspaceRead([]string{"--type", "--id", "--dry-run"}, "read-only ApprovedSnapshot cache"),
+		"submission.list": workspaceRead(nil, "workspace submission list"), "submission.show": workspaceRead([]string{"submission-id"}, "submission with immutable revisions"), "submission.status": workspaceRead([]string{"submission-id"}, "submission governance status"), "submission.approve": high([]string{"revision-id", "--reason"}, "immutable ApprovedSnapshot"),
 		"submission.request_changes": high([]string{"revision-id", "--reason", "--json-pointer"}, "immutable change request and review feedback"),
 		"up":                         write("connect-key", []string{"--server-url", "--connect-key", "--name"}, "connected device summary"), "down": high(nil, "revoked device and cleared local binding"),
 		"auth.login": write("none", []string{"--no-wait", "--device-code"}, "device login state"), "auth.status": read(nil, "user session state"), "auth.logout": write("user", nil, "revoked user session"),

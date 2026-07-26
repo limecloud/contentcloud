@@ -13,9 +13,18 @@ import (
 func (s *Store) CreateReviewCycle(ctx context.Context, cycle domain.ReviewCycle) (domain.ReviewCycle, error) {
 	err := s.withTenant(ctx, cycle.TenantID, func(tx pgx.Tx) error {
 		var locked bool
-		if err := tx.QueryRow(ctx, `SELECT true FROM script_versions WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, cycle.TenantID, cycle.SubjectID).Scan(&locked); err != nil {
+		var lockQuery string
+		switch cycle.SubjectType {
+		case "script_version":
+			lockQuery = `SELECT true FROM script_versions WHERE tenant_id=$1 AND id=$2 FOR UPDATE`
+		case "submission_revision":
+			lockQuery = `SELECT true FROM submission_revisions WHERE tenant_id=$1 AND id=$2 FOR UPDATE`
+		default:
+			return domain.Invalid("REVIEW_SUBJECT_TYPE_INVALID", "审核周期不支持该 subject_type")
+		}
+		if err := tx.QueryRow(ctx, lockQuery, cycle.TenantID, cycle.SubjectID).Scan(&locked); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return domain.NotFound("剧本版本")
+				return domain.NotFound("审核对象")
 			}
 			return err
 		}

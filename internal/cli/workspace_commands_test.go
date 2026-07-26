@@ -68,6 +68,12 @@ func TestWorkspaceCommandsAndMCPUseLocalState(t *testing.T) {
 			t.Fatalf("command schema %q is missing", name)
 		}
 	}
+	for _, name := range []string{"pull.feedback", "pull.decisions", "pull.approved", "submission.list", "submission.show", "submission.status"} {
+		schema, ok := commandSchemas()[name].(map[string]any)
+		if !ok || schema["auth"] != "workspace" {
+			t.Fatalf("command schema %q must require workspace auth: %#v", name, schema)
+		}
+	}
 }
 
 func TestMCPListsAndCallsWorkspaceTools(t *testing.T) {

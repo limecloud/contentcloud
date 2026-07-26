@@ -60,6 +60,9 @@ func TestWorkspaceSubmissionApprovalCreatesImmutableSnapshotWithoutTaskRun(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	if revision.Artifacts == nil {
+		t.Fatal("empty artifact manifest must remain a JSON array")
+	}
 	replayed, err := service.CreateSubmission(ctx, workspaceActor, binding, bundle, "req-publish-retry")
 	if err != nil || replayed.ID != revision.ID {
 		t.Fatalf("idempotent retry failed: %#v %v", replayed, err)
