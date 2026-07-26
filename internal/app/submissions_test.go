@@ -43,6 +43,9 @@ func TestWorkspaceSubmissionApprovalCreatesImmutableSnapshotWithoutTaskRun(t *te
 	if err != nil || binding.CredentialHash != "" {
 		t.Fatalf("workspace registration failed or leaked token hash: %#v %v", binding, err)
 	}
+	if _, _, err := service.DeviceActor(ctx, connected.DeviceToken); err != nil {
+		t.Fatalf("workspace registration must not invalidate the optional Device Credential: %v", err)
+	}
 	bundle := domain.SubmissionBundle{
 		BundleVersion: "1.0", SchemaVersion: "contentcloud.knowledge/2.0", SubmissionType: "knowledge", ProjectID: project.ID, WorkspaceID: connected.WorkspaceID,
 		Objects: json.RawMessage(`[{"id":"fact-1","kind":"fact","status":"verified","risk_level":"low"}]`), SourceDisclosures: []domain.SourceDisclosure{}, Artifacts: []domain.SubmissionArtifact{}, LocalRunSummary: domain.LocalRunSummary{Checks: []domain.LocalRunCheck{{Name: "knowledge-lint", Status: "passed"}}}, IdempotencyKey: "knowledge-v1",
@@ -64,6 +67,27 @@ func TestWorkspaceSubmissionApprovalCreatesImmutableSnapshotWithoutTaskRun(t *te
 	}
 	if snapshot.SubmissionRevisionID != revision.ID || snapshot.ContentHash != revision.ContentHash || len(snapshot.EligibleIDs) != 1 || snapshot.EligibleIDs[0] != "fact-1" {
 		t.Fatalf("unexpected approved snapshot: %#v", snapshot)
+	}
+	bundle.Objects = json.RawMessage(`[{"id":"fact-2","kind":"fact","status":"verified","risk_level":"low"}]`)
+	bundle.IdempotencyKey = "knowledge-v2"
+	if err := bundle.SetComputedHash(); err != nil {
+		t.Fatal(err)
+	}
+	secondRevision, err := service.CreateSubmission(ctx, workspaceActor, binding, bundle, "req-publish-v2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	returned, err := service.RequestSubmissionChanges(ctx, admin, secondRevision.ID, "补充事实生效范围", "/0/scope", "req-changes")
+	if err != nil || returned.Status != "changes_requested" {
+		t.Fatalf("request changes failed: %#v %v", returned, err)
+	}
+	feedback, err := service.WorkspaceFeedback(ctx, workspaceActor, binding)
+	if err != nil || len(feedback) != 1 || feedback[0].Comments[0].JSONPointer != "/0/scope" {
+		t.Fatalf("workspace feedback missing: %#v %v", feedback, err)
+	}
+	delta, err := service.WorkspaceDecisions(ctx, workspaceActor, binding)
+	if err != nil || len(delta.Decisions) != 2 {
+		t.Fatalf("workspace decision delta missing approval/change request: %#v %v", delta, err)
 	}
 	runs, err := service.Runs(ctx, admin, project.ID)
 	if err != nil || len(runs) != 0 {

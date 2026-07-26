@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/limecloud/contentcloud/internal/apiclient"
+	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 )
@@ -212,7 +213,7 @@ func (r *Root) serveMCP(ctx context.Context, input io.Reader) error {
 		if request.Method == "notifications/initialized" {
 			continue
 		}
-		response := r.handleMCPRequest(request)
+		response := r.handleMCPRequest(ctx, request)
 		if err := encoder.Encode(response); err != nil {
 			return err
 		}
@@ -220,7 +221,7 @@ func (r *Root) serveMCP(ctx context.Context, input io.Reader) error {
 	return scanner.Err()
 }
 
-func (r *Root) handleMCPRequest(request mcpRequest) mcpResponse {
+func (r *Root) handleMCPRequest(ctx context.Context, request mcpRequest) mcpResponse {
 	response := mcpResponse{JSONRPC: "2.0", ID: request.ID}
 	switch request.Method {
 	case "initialize":
@@ -234,7 +235,7 @@ func (r *Root) handleMCPRequest(request mcpRequest) mcpResponse {
 	case "tools/list":
 		response.Result = map[string]any{"tools": mcpTools()}
 	case "tools/call":
-		result, err := callLocalMCPTool(request.Params)
+		result, err := r.callLocalMCPTool(ctx, request.Params)
 		if err != nil {
 			response.Result = mcpToolError(err)
 		} else {
@@ -247,22 +248,60 @@ func (r *Root) handleMCPRequest(request mcpRequest) mcpResponse {
 }
 
 func mcpTools() []map[string]any {
-	inputSchema := map[string]any{
+	directory := map[string]any{
 		"type":                 "object",
 		"properties":           map[string]any{"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"}},
 		"additionalProperties": false,
 	}
+	preflight := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":        map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"submission_type":  map[string]any{"type": "string", "enum": []string{"knowledge", "research", "strategy", "brief", "script", "delivery", "performance"}},
+			"files":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Workspace-relative JSON checkpoint files; defaults to the type output directory"},
+			"disclosures_file": map[string]any{"type": "string", "description": "Workspace-relative source disclosure JSON file"},
+			"message":          map[string]any{"type": "string", "description": "Review note included in the computed hash"},
+		},
+		"required":             []string{"submission_type"},
+		"additionalProperties": false,
+	}
+	submissionStatus := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":     map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"submission_id": map[string]any{"type": "string"},
+		},
+		"required":             []string{"submission_id"},
+		"additionalProperties": false,
+	}
+	snapshots := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":       map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"submission_type": map[string]any{"type": "string", "enum": []string{"knowledge", "research", "strategy", "brief", "script", "delivery", "performance"}},
+		},
+		"additionalProperties": false,
+	}
 	return []map[string]any{
-		{"name": "workspace_status", "description": "Read local workspace binding, template and synchronization state without contacting the cloud", "inputSchema": inputSchema},
-		{"name": "workspace_doctor", "description": "Validate local workspace structure, managed files, Skills and MCP configuration", "inputSchema": inputSchema},
+		{"name": "workspace_status", "description": "Read local workspace binding, template and synchronization state without contacting the cloud", "inputSchema": directory},
+		{"name": "workspace_doctor", "description": "Validate local workspace structure, managed files, Skills and MCP configuration", "inputSchema": directory},
+		{"name": "publish_preflight", "description": "Validate a local immutable checkpoint and show exactly what would be review-visible without publishing", "inputSchema": preflight},
+		{"name": "submission_status", "description": "Read the current cloud governance status for a workspace submission", "inputSchema": submissionStatus},
+		{"name": "review_feedback_list", "description": "Read cloud review feedback for this workspace without changing local business files", "inputSchema": directory},
+		{"name": "approved_snapshot_list", "description": "List immutable approved snapshots available to this workspace", "inputSchema": snapshots},
 	}
 }
 
-func callLocalMCPTool(raw json.RawMessage) (map[string]any, error) {
+func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[string]any, error) {
 	var params struct {
 		Name      string `json:"name"`
 		Arguments struct {
-			Directory string `json:"directory"`
+			Directory       string   `json:"directory"`
+			SubmissionType  string   `json:"submission_type"`
+			SubmissionID    string   `json:"submission_id"`
+			Files           []string `json:"files"`
+			DisclosuresFile string   `json:"disclosures_file"`
+			Message         string   `json:"message"`
 		} `json:"arguments"`
 	}
 	if err := json.Unmarshal(raw, &params); err != nil {
@@ -275,6 +314,46 @@ func callLocalMCPTool(raw json.RawMessage) (map[string]any, error) {
 		value, err = localworkspace.LoadStatus(params.Arguments.Directory)
 	case "workspace_doctor":
 		value, err = localworkspace.Doctor(params.Arguments.Directory)
+	case "publish_preflight":
+		if !validSubmissionType(params.Arguments.SubmissionType) {
+			return nil, domain.Invalid("SUBMISSION_TYPE_INVALID", "submission_type 无效")
+		}
+		root, findErr := localworkspace.FindRoot(params.Arguments.Directory)
+		if findErr != nil {
+			return nil, findErr
+		}
+		_, preflight, buildErr := buildPublishCheckpoint(publishBuildOptions{Root: root, SubmissionType: params.Arguments.SubmissionType, Files: params.Arguments.Files, DisclosuresFile: params.Arguments.DisclosuresFile, Message: params.Arguments.Message})
+		value, err = map[string]any{"preflight": preflight, "cloud_write": false, "business_files_modified": false}, buildErr
+	case "submission_status":
+		if strings.TrimSpace(params.Arguments.SubmissionID) == "" {
+			return nil, domain.Invalid("SUBMISSION_ID_REQUIRED", "submission_id 必填")
+		}
+		_, client, _, clientErr := r.workspaceClient(params.Arguments.Directory)
+		if clientErr != nil {
+			return nil, clientErr
+		}
+		var details app.SubmissionDetails
+		err = client.Dispatch(ctx, "submission.workspace-show", map[string]any{"id": params.Arguments.SubmissionID}, &details)
+		value = map[string]any{"submission_id": details.Submission.ID, "status": details.Submission.Status, "current_revision_id": details.Submission.CurrentRevisionID, "revision_count": len(details.Revisions)}
+	case "review_feedback_list":
+		_, client, _, clientErr := r.workspaceClient(params.Arguments.Directory)
+		if clientErr != nil {
+			return nil, clientErr
+		}
+		var feedback []domain.ReviewFeedbackBundle
+		err = client.Dispatch(ctx, "feedback.workspace-list", map[string]any{}, &feedback)
+		value = map[string]any{"count": len(feedback), "feedback": feedback, "business_files_modified": false}
+	case "approved_snapshot_list":
+		if params.Arguments.SubmissionType != "" && !validSubmissionType(params.Arguments.SubmissionType) {
+			return nil, domain.Invalid("SUBMISSION_TYPE_INVALID", "submission_type 无效")
+		}
+		_, client, _, clientErr := r.workspaceClient(params.Arguments.Directory)
+		if clientErr != nil {
+			return nil, clientErr
+		}
+		var snapshots []domain.ApprovedSnapshot
+		err = client.Dispatch(ctx, "snapshot.workspace-list", map[string]any{"submission_type": params.Arguments.SubmissionType}, &snapshots)
+		value = map[string]any{"count": len(snapshots), "snapshots": snapshots}
 	default:
 		return nil, domain.NotFound("MCP tool")
 	}
@@ -286,6 +365,15 @@ func callLocalMCPTool(raw json.RawMessage) (map[string]any, error) {
 		return nil, err
 	}
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(body)}}, "structuredContent": value, "isError": false}, nil
+}
+
+func validSubmissionType(value string) bool {
+	switch value {
+	case "knowledge", "research", "strategy", "brief", "script", "delivery", "performance":
+		return true
+	default:
+		return false
+	}
 }
 
 func mcpToolError(err error) map[string]any {

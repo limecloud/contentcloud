@@ -12,6 +12,7 @@ import (
 type SubmissionDetails struct {
 	Submission domain.Submission           `json:"submission"`
 	Revisions  []domain.SubmissionRevision `json:"revisions"`
+	Comments   []domain.ReviewComment      `json:"comments"`
 }
 
 func (s *Service) RegisterWorkspace(ctx context.Context, actor Actor, binding domain.WorkspaceBinding, templateID, templateVersion string, targets []string, requestID string) (domain.WorkspaceBinding, error) {
@@ -32,6 +33,16 @@ func (s *Service) RegisterWorkspace(ctx context.Context, actor Actor, binding do
 	binding.LastSeenAt = s.now().UTC()
 	if err := s.store.SaveWorkspaceBinding(ctx, binding); err != nil {
 		return binding, err
+	}
+	if binding.DeviceID != "" {
+		device, err := s.store.Device(ctx, binding.TenantID, binding.DeviceID)
+		if err != nil {
+			return binding, err
+		}
+		device.LastSeenAt = binding.LastSeenAt
+		if err := s.store.SaveDevice(ctx, device); err != nil {
+			return binding, err
+		}
 	}
 	binding.CredentialHash = ""
 	s.audit(ctx, actor, binding.ProjectID, "workspace.registered", "workspace_binding", binding.ID, requestID, map[string]any{"template_version": templateVersion, "targets": targets})
@@ -142,7 +153,18 @@ func (s *Service) SubmissionDetails(ctx context.Context, actor Actor, id string)
 		return SubmissionDetails{}, domain.NotFound("Submission")
 	}
 	revisions, err := s.store.SubmissionRevisions(ctx, actor.TenantID, submission.ID)
-	return SubmissionDetails{Submission: submission, Revisions: revisions}, err
+	if err != nil {
+		return SubmissionDetails{}, err
+	}
+	comments := []domain.ReviewComment{}
+	for _, revision := range revisions {
+		values, err := s.store.ReviewComments(ctx, actor.TenantID, revision.ID)
+		if err != nil {
+			return SubmissionDetails{}, err
+		}
+		comments = append(comments, values...)
+	}
+	return SubmissionDetails{Submission: submission, Revisions: revisions, Comments: comments}, nil
 }
 
 func (s *Service) ApproveSubmission(ctx context.Context, actor Actor, revisionID, reason, requestID string) (domain.ApprovedSnapshot, error) {
@@ -166,6 +188,9 @@ func (s *Service) ApproveSubmission(ctx context.Context, actor Actor, revisionID
 	if revision.EvidenceLimited {
 		return domain.ApprovedSnapshot{}, domain.Policy("EVIDENCE_LEVEL_INSUFFICIENT", "高风险内容的来源披露不足，不能远程批准", "上传 evidence_pack/full_source，或完成受治理的本地核验")
 	}
+	if err := s.requireResolvedComments(ctx, actor.TenantID, revision.ID, ""); err != nil {
+		return domain.ApprovedSnapshot{}, err
+	}
 	canonical, err := json.Marshal(map[string]any{
 		"schema_version": revision.SchemaVersion, "submission_type": submission.SubmissionType, "objects": revision.Objects,
 		"source_disclosures": revision.SourceDisclosures, "artifacts": revision.Artifacts, "local_run_summary": revision.LocalRunSummary,
@@ -183,6 +208,55 @@ func (s *Service) ApproveSubmission(ctx context.Context, actor Actor, revisionID
 	}
 	s.audit(ctx, actor, revision.ProjectID, "submission.approved", "submission_revision", revision.ID, requestID, map[string]any{"submission_id": submission.ID, "snapshot_id": snapshot.ID, "content_hash": snapshot.ContentHash})
 	return snapshot, nil
+}
+
+func (s *Service) RequestSubmissionChanges(ctx context.Context, actor Actor, revisionID, reason, jsonPointer, requestID string) (domain.Submission, error) {
+	if err := requireRole(actor, "tenant_admin", "project_manager", "reviewer"); err != nil {
+		return domain.Submission{}, err
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return domain.Submission{}, domain.Invalid("CHANGE_REASON_REQUIRED", "修改要求必须填写具体原因")
+	}
+	if jsonPointer != "" && !domain.ValidJSONPointer(jsonPointer) {
+		return domain.Submission{}, domain.Invalid("COMMENT_POINTER_INVALID", "批注位置必须使用合法 JSON Pointer")
+	}
+	revision, err := s.store.SubmissionRevision(ctx, actor.TenantID, revisionID)
+	if err != nil {
+		return domain.Submission{}, err
+	}
+	submission, err := s.store.Submission(ctx, actor.TenantID, revision.SubmissionID)
+	if err != nil {
+		return submission, err
+	}
+	if submission.CurrentRevisionID != revision.ID || (submission.Status != "submitted" && submission.Status != "in_review") {
+		return submission, domain.Conflict("SUBMISSION_STATE_INVALID", "只能退回当前待审 SubmissionRevision")
+	}
+	cycles, err := s.store.ReviewCycles(ctx, actor.TenantID, revision.ID)
+	if err != nil {
+		return submission, err
+	}
+	var cycle domain.ReviewCycle
+	if len(cycles) > 0 && cycles[0].Status == "open" {
+		cycle = cycles[0]
+	} else {
+		now := s.now().UTC()
+		cycle = domain.ReviewCycle{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: revision.ProjectID, SubjectType: "submission_revision", SubjectID: revision.ID, Status: "open", OpenedBy: actor.UserID, OpenedAt: now, CreatedAt: now}
+		cycle, err = s.store.CreateReviewCycle(ctx, cycle)
+		if err != nil {
+			return submission, err
+		}
+	}
+	now := s.now().UTC()
+	comment := domain.ReviewComment{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: revision.ProjectID, ReviewCycleID: cycle.ID, SubjectType: "submission_revision", SubjectID: revision.ID, JSONPointer: jsonPointer, Body: reason, Visibility: "internal", AuthorID: actor.UserID, CreatedAt: now}
+	decision := domain.ApprovalDecision{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: revision.ProjectID, SubjectType: "submission_revision", SubjectID: revision.ID, SubjectHash: revision.ContentHash, ActorID: actor.UserID, Decision: "request_changes", Reason: reason, PreviousState: submission.Status, ResultingState: "changes_requested", CreatedAt: now}
+	submission.Status = "changes_requested"
+	submission.UpdatedAt = now
+	if err := s.store.RequestSubmissionChanges(ctx, submission, decision, comment); err != nil {
+		return submission, err
+	}
+	s.audit(ctx, actor, revision.ProjectID, "submission.changes_requested", "submission_revision", revision.ID, requestID, map[string]any{"submission_id": submission.ID, "json_pointer": jsonPointer})
+	return submission, nil
 }
 
 func (s *Service) ApprovedSnapshots(ctx context.Context, actor Actor, projectID, submissionType string) ([]domain.ApprovedSnapshot, error) {

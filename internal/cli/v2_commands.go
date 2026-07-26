@@ -34,6 +34,15 @@ type publishPreflight struct {
 	RawFilesUpload  bool           `json:"raw_files_upload"`
 }
 
+type publishBuildOptions struct {
+	Root            string
+	SubmissionType  string
+	Files           []string
+	DisclosuresFile string
+	Message         string
+	IdempotencyKey  string
+}
+
 func (r *Root) publishCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "publish", Short: "Publish an immutable local checkpoint for cloud review"}
 	for _, submissionType := range []string{"knowledge", "research", "strategy", "brief", "script", "delivery", "performance"} {
@@ -46,42 +55,10 @@ func (r *Root) publishCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			resolvedFiles, err := resolvePublishFiles(root, typeName, files)
+			bundle, preflight, err := buildPublishCheckpoint(publishBuildOptions{Root: root, SubmissionType: typeName, Files: files, DisclosuresFile: disclosuresFile, Message: message, IdempotencyKey: idempotencyKey})
 			if err != nil {
 				return err
 			}
-			objects, fileBytes, blocked, inputHash, err := readPublishObjects(root, typeName, resolvedFiles)
-			if err != nil {
-				return err
-			}
-			disclosures, disclosureBytes, err := readDisclosures(root, disclosuresFile)
-			if err != nil {
-				return err
-			}
-			status, err := localworkspace.LoadStatus(root)
-			if err != nil {
-				return err
-			}
-			bundle := domain.SubmissionBundle{
-				BundleVersion: "1.0", SchemaVersion: publishSchemaVersion(typeName), SubmissionType: typeName,
-				ProjectID: status.Binding.ProjectID, WorkspaceID: status.Binding.WorkspaceID, BaseApprovedSnapshotID: status.Sync.ApprovedSnapshotID,
-				LocalRunSummary: domain.LocalRunSummary{Stage: "publish_preflight", Checks: []domain.LocalRunCheck{{Name: typeName + "-json", Status: "passed"}, {Name: typeName + "-lint", Status: "passed"}}, InputHash: inputHash, OutputHash: inputHash, Versions: map[string]string{"cli": Version, "template": status.Template.TemplateVersion}},
-				Objects:         objects, SourceDisclosures: disclosures, Artifacts: []domain.SubmissionArtifact{}, Message: strings.TrimSpace(message), IdempotencyKey: idempotencyKey,
-			}
-			if err := bundle.SetComputedHash(); err != nil {
-				return err
-			}
-			if bundle.IdempotencyKey == "" {
-				bundle.IdempotencyKey = typeName + ":" + strings.TrimPrefix(bundle.ContentHash, "sha256:")
-			}
-			if err := bundle.Validate(); err != nil {
-				return err
-			}
-			counts := map[string]int{"metadata_only": 0, "evidence_pack": 0, "full_source": 0}
-			for _, disclosure := range disclosures {
-				counts[disclosure.Level]++
-			}
-			preflight := publishPreflight{SubmissionType: typeName, SchemaVersion: bundle.SchemaVersion, Files: relativePaths(root, resolvedFiles), ObjectCount: countJSONArray(objects), BlockedCount: blocked, DisclosureCount: counts, UploadBytes: fileBytes + disclosureBytes, ContentHash: bundle.ContentHash, BaseSnapshotID: bundle.BaseApprovedSnapshotID, ReviewVisible: []string{"objects", "local_run_summary", "source_disclosures", "artifact_manifest"}, RawFilesUpload: false}
 			if dryRun {
 				return r.writeOK("publish."+typeName, map[string]any{"dry_run": true, "preflight": preflight})
 			}
@@ -111,6 +88,50 @@ func (r *Root) publishCommand() *cobra.Command {
 		cmd.AddCommand(publish)
 	}
 	return cmd
+}
+
+func buildPublishCheckpoint(options publishBuildOptions) (domain.SubmissionBundle, publishPreflight, error) {
+	resolvedFiles, err := resolvePublishFiles(options.Root, options.SubmissionType, options.Files)
+	if err != nil {
+		return domain.SubmissionBundle{}, publishPreflight{}, err
+	}
+	objects, fileBytes, blocked, inputHash, err := readPublishObjects(options.Root, options.SubmissionType, resolvedFiles)
+	if err != nil {
+		return domain.SubmissionBundle{}, publishPreflight{}, err
+	}
+	disclosures, disclosureBytes, err := readDisclosures(options.Root, options.DisclosuresFile)
+	if err != nil {
+		return domain.SubmissionBundle{}, publishPreflight{}, err
+	}
+	status, err := localworkspace.LoadStatus(options.Root)
+	if err != nil {
+		return domain.SubmissionBundle{}, publishPreflight{}, err
+	}
+	bundle := domain.SubmissionBundle{
+		BundleVersion: "1.0", SchemaVersion: publishSchemaVersion(options.SubmissionType), SubmissionType: options.SubmissionType,
+		ProjectID: status.Binding.ProjectID, WorkspaceID: status.Binding.WorkspaceID, BaseApprovedSnapshotID: status.Sync.ApprovedSnapshotID,
+		LocalRunSummary: domain.LocalRunSummary{Stage: "publish_preflight", Checks: []domain.LocalRunCheck{{Name: options.SubmissionType + "-json", Status: "passed"}, {Name: options.SubmissionType + "-lint", Status: "passed"}}, InputHash: inputHash, OutputHash: inputHash, Versions: map[string]string{"cli": Version, "template": status.Template.TemplateVersion}},
+		Objects:         objects, SourceDisclosures: disclosures, Artifacts: []domain.SubmissionArtifact{}, Message: strings.TrimSpace(options.Message), IdempotencyKey: options.IdempotencyKey,
+	}
+	if err := bundle.SetComputedHash(); err != nil {
+		return domain.SubmissionBundle{}, publishPreflight{}, err
+	}
+	if bundle.IdempotencyKey == "" {
+		bundle.IdempotencyKey = options.SubmissionType + ":" + strings.TrimPrefix(bundle.ContentHash, "sha256:")
+	}
+	if err := bundle.Validate(); err != nil {
+		return domain.SubmissionBundle{}, publishPreflight{}, err
+	}
+	counts := map[string]int{"metadata_only": 0, "evidence_pack": 0, "full_source": 0}
+	for _, disclosure := range disclosures {
+		counts[disclosure.Level]++
+	}
+	preflight := publishPreflight{
+		SubmissionType: options.SubmissionType, SchemaVersion: bundle.SchemaVersion, Files: relativePaths(options.Root, resolvedFiles), ObjectCount: countJSONArray(objects), BlockedCount: blocked,
+		DisclosureCount: counts, UploadBytes: fileBytes + disclosureBytes, ContentHash: bundle.ContentHash, BaseSnapshotID: bundle.BaseApprovedSnapshotID,
+		ReviewVisible: []string{"objects", "local_run_summary", "source_disclosures", "artifact_manifest"}, RawFilesUpload: false,
+	}
+	return bundle, preflight, nil
 }
 
 func (r *Root) pullCommand() *cobra.Command {
@@ -248,7 +269,33 @@ func (r *Root) submissionCommand() *cobra.Command {
 	approve.Flags().StringVar(&reason, "reason", "", "human approval conclusion")
 	approve.Flags().BoolVar(&yes, "yes", false, "confirm immutable approval")
 	approve.Flags().BoolVar(&dryRun, "dry-run", false, "validate command without approving")
-	cmd.AddCommand(list, show, status, approve)
+	var changeReason, jsonPointer string
+	var changeYes, changeDryRun bool
+	requestChanges := &cobra.Command{Use: "request-changes <revision-id>", Args: cobra.ExactArgs(1), Short: "Return the current revision with actionable feedback", RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(changeReason) == "" {
+			return domain.Invalid("CHANGE_REASON_REQUIRED", "--reason 必填")
+		}
+		if changeDryRun {
+			return r.writeOK("submission.request_changes", map[string]any{"dry_run": true, "revision_id": args[0], "reason": changeReason, "json_pointer": jsonPointer})
+		}
+		if !changeYes {
+			return confirmationRequired("提出修改会记录不可变决定和批注，并把当前 Submission 状态改为 changes_requested")
+		}
+		_, client, _, err := r.userClient()
+		if err != nil {
+			return err
+		}
+		var submission domain.Submission
+		if err := client.Dispatch(cmd.Context(), "submission.request_changes", map[string]any{"revision_id": args[0], "reason": changeReason, "json_pointer": jsonPointer}, &submission); err != nil {
+			return err
+		}
+		return r.writeOK("submission.request_changes", submission)
+	}}
+	requestChanges.Flags().StringVar(&changeReason, "reason", "", "actionable revision request")
+	requestChanges.Flags().StringVar(&jsonPointer, "json-pointer", "", "optional RFC 6901 path into the submitted objects")
+	requestChanges.Flags().BoolVar(&changeYes, "yes", false, "confirm the review decision")
+	requestChanges.Flags().BoolVar(&changeDryRun, "dry-run", false, "validate command without changing cloud state")
+	cmd.AddCommand(list, show, status, approve, requestChanges)
 	return cmd
 }
 

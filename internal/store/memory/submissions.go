@@ -174,3 +174,16 @@ func (s *Store) ApproveSubmissionRevision(_ context.Context, submission domain.S
 	s.approvals[decision.ID] = decision
 	return nil
 }
+
+func (s *Store) RequestSubmissionChanges(_ context.Context, submission domain.Submission, decision domain.ApprovalDecision, comment domain.ReviewComment) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.submissions[submission.ID]
+	if !ok || existing.TenantID != submission.TenantID {
+		return domain.NotFound("Submission")
+	}
+	s.submissions[submission.ID] = submission
+	s.approvals[decision.ID] = decision
+	s.reviewComments[comment.ID] = comment
+	return nil
+}

@@ -412,6 +412,9 @@ func (s *Store) ConsumeConnectSession(_ context.Context, keyHash string, device 
 func (s *Store) SaveDevice(_ context.Context, v domain.Device) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if existing, ok := s.devices[v.ID]; ok && v.TokenHash == "" {
+		v.TokenHash = existing.TokenHash
+	}
 	s.devices[v.ID] = v
 	for id, session := range s.connects {
 		if session.ConsumedDeviceID != v.ID || session.State != "verifying" {

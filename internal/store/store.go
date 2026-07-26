@@ -157,6 +157,7 @@ type Store interface {
 	ApprovedSnapshots(context.Context, string, string, string) ([]domain.ApprovedSnapshot, error)
 	ApprovedSnapshot(context.Context, string, string) (domain.ApprovedSnapshot, error)
 	ApproveSubmissionRevision(context.Context, domain.Submission, domain.ApprovedSnapshot, domain.ApprovalDecision) error
+	RequestSubmissionChanges(context.Context, domain.Submission, domain.ApprovalDecision, domain.ReviewComment) error
 
 	CreateArtifact(context.Context, domain.Artifact) error
 	Artifacts(context.Context, string, string) ([]domain.Artifact, error)

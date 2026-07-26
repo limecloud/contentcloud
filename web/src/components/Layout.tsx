@@ -1,9 +1,9 @@
-import { Activity, BookOpenCheck, ChevronDown, ClipboardList, FileArchive, FileText, GitBranch, LayoutDashboard, LogOut, Menu, ScrollText, Settings, ShieldCheck, Sparkles, Users, X } from 'lucide-react';
+import { Activity, BookOpenCheck, ChevronDown, ClipboardCheck, ClipboardList, FileArchive, FileText, GitBranch, LayoutDashboard, LogOut, Menu, ScrollText, Settings, ShieldCheck, Sparkles, Users, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type { Project, Session, Tenant } from '../types';
 import { IconButton, Status } from './ui';
 
-export type View = 'dashboard'|'team'|'overview'|'sources'|'assets'|'knowledge'|'strategy'|'briefs'|'scripts'|'results'|'lineage'|'audit';
+export type View = 'dashboard'|'team'|'overview'|'sources'|'assets'|'knowledge'|'strategy'|'briefs'|'scripts'|'submissions'|'results'|'lineage'|'audit';
 const globalItems: {id:View;label:string;icon:typeof LayoutDashboard;roles?:string[]}[] = [{id:'dashboard',label:'工作台',icon:LayoutDashboard},{id:'team',label:'团队',icon:Users}];
 const projectItems: {id:View;label:string;icon:typeof LayoutDashboard}[] = [
   {id:'overview',label:'项目总览',icon:LayoutDashboard},
@@ -13,6 +13,7 @@ const projectItems: {id:View;label:string;icon:typeof LayoutDashboard}[] = [
   {id:'strategy',label:'内容策略',icon:Sparkles},
   {id:'briefs',label:'Brief',icon:ClipboardList},
   {id:'scripts',label:'剧本',icon:FileText},
+  {id:'submissions',label:'提交审核',icon:ClipboardCheck},
   {id:'results',label:'结果',icon:Activity},
   {id:'lineage',label:'追踪与影响',icon:GitBranch},
   {id:'audit',label:'审计',icon:ScrollText}

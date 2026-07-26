@@ -745,6 +745,17 @@ func (s *Server) handleUserDispatch(w http.ResponseWriter, r *http.Request, req 
 		}
 		value, err := s.service.ApproveSubmission(r.Context(), actor, in.RevisionID, in.Reason, requestID)
 		s.dispatchResult(w, r, req.Command, value, err)
+	case "submission.request_changes":
+		var in struct {
+			RevisionID  string `json:"revision_id"`
+			Reason      string `json:"reason"`
+			JSONPointer string `json:"json_pointer"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		value, err := s.service.RequestSubmissionChanges(r.Context(), actor, in.RevisionID, in.Reason, in.JSONPointer, requestID)
+		s.dispatchResult(w, r, req.Command, value, err)
 	case "snapshot.list":
 		var in struct {
 			ProjectID      string `json:"project_id"`

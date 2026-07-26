@@ -160,6 +160,11 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/projects/{projectID}/lineage", s.projectLineage)
 		r.Get("/projects/{projectID}/impact", s.projectImpact)
 		r.Get("/projects/{projectID}/audit", s.audit)
+		r.Get("/projects/{projectID}/submissions", s.submissions)
+		r.Get("/submissions/{id}", s.submissionDetails)
+		r.Post("/submission-revisions/{id}/approve", s.approveSubmission)
+		r.Post("/submission-revisions/{id}/request-changes", s.requestSubmissionChanges)
+		r.Get("/projects/{projectID}/approved-snapshots", s.approvedSnapshots)
 	})
 	r.Get("/*", s.static)
 	return r
