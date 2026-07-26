@@ -31,9 +31,19 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 - Client/Brand/Product 分层和四层上下文继承。
 - 市场研究、内容计划、创意方向/批次、交付交接的正式聚合。
 - ScriptPackage V2 和完整剧本工作台。
-- 本地 init、WorkspaceTemplate、Skills/MCP、Submission 和 publish/pull。
+- 完整 LocalRunContext、15 维诊断、七层知识包转换和跨阶段本地命令。
+- 远程签名 WorkspaceTemplate、模板升级/diff 和更多领域 Skills/MCP 工具。
 - Automation Plan、schedule/event trigger、PlanChangeRequest、RunOutput。
 - 通用 Run 详情和九域导航。
+
+### 已落地的 V2 基础
+
+- `contentcloud init --connect`、工作区模板锁、项目级 Codex/Claude Skill/MCP 配置、status/doctor，默认不启 Daemon、不上传 raw。
+- 独立 `wt_` Workspace Credential；`dt_` Device Credential 仅用于兼容 Runtime 与可选 Automation。
+- knowledge/research/strategy/brief/script/delivery/performance 的 publish preflight 和不可变 SubmissionRevision。
+- feedback/decision/approved pull，进入 inbox 或只读 cache，不改业务正文。
+- Submission Web 列表、版本查看、来源披露、批注、修改要求、批准和 ApprovedSnapshot。
+- PostgreSQL migration `00013_v2_workspace_submissions.sql`、内存测试和可选 PostgreSQL 事务/RLS 集成测试。
 
 ## 3. 波次一：本地工作区、知识发布与剧本工程
 
@@ -52,10 +62,10 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 
 ### 产品与客户端
 
-- 项目创建扩展为客户/品牌/产品/模板和一次性 init code。
-- 实现 `contentcloud init`、workspace doctor/upgrade、项目级 Skills/MCP。
-- 实现本地素材诊断、七层知识包、LocalRunContext 和 publish/pull。
-- 实现本地候选比较和逐镜头 lint；云端只实现 Submission 审阅和结构化 diff。
+- [部分完成] 项目创建已有一次性 init code；Client/Brand/Product/服务模板分层待补。
+- [部分完成] `contentcloud init`、workspace status/doctor 和项目级 Skills/MCP 已完成；upgrade/diff 待补。
+- [部分完成] publish/pull 已完成；本地素材诊断、七层知识包和 LocalRunContext 命令待补。
+- [部分完成] 云端 Submission 审阅、revision 查看和结构化对象展示已完成；本地候选比较、逐镜头 lint 和字段级 diff 待补。
 - 普通生成不需要 capability；`script.generate@2.x` capability 留给波次三 Automation。
 - 客户审批和三格式导出使用 ScriptPackage V2。
 
@@ -185,7 +195,7 @@ Feature Flag 只切入口和行为，不允许形成两个并行事实源。
 - 正常、blocked、权限、离线、超时、重试和影响路径有自动化测试。
 - 数据迁移有 dry-run、真实 PostgreSQL 证据、核对报告和回退步骤。
 - 没有服务端 LLM/Agent 依赖，没有程序化直连私有 API 的新入口。
-- 文档、原型和实现状态同步更新。
+- 文档、实现状态和真实 Web 行为同步更新。
 - 客户业务门禁由有责任的试点人员签署，不由开发者代签。
 
 ## 11. 风险登记
@@ -193,7 +203,7 @@ Feature Flag 只切入口和行为，不允许形成两个并行事实源。
 | 风险 | 影响 | 控制 |
 | --- | --- | --- |
 | 九域同时扩展导致失焦 | 延迟核心交付 | 三波次，第一波先完成纵向剧本闭环 |
-| 四层继承过度复杂 | 用户不理解当前规则来源 | 原型显示有效值、来源层和覆盖差异 |
+| 四层继承过度复杂 | 用户不理解当前规则来源 | 真实 Web 显示有效值、来源层和覆盖差异 |
 | 自动化喧宾夺主 | 产品退化为 Run 面板 | 业务页面主入口，运行中心只作横向诊断 |
 | ScriptPackage 过度约束创作 | 候选同质化 | 固定治理和交付字段，创意方向保持开放候选 |
 | 客户资料不足 | 只能生成 blocked 草稿 | 15维诊断、补料清单和 CreativeDraft 路径 |

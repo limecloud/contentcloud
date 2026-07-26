@@ -48,12 +48,12 @@ sequenceDiagram
 ### 全局与上下文
 
 ```text
-contentcloud login|logout|whoami|doctor|version|update
+contentcloud auth login|logout|status
+contentcloud doctor|version|update
 contentcloud init --connect <code> <directory>
-contentcloud workspace status|doctor|diff|upgrade
-contentcloud tenant list|use
-contentcloud client list|show|create
-contentcloud project list|show|create|use|status
+contentcloud workspace status|doctor
+contentcloud tenant list|switch
+contentcloud project list|show|create|update|archive|restore
 contentcloud device list|show|revoke
 ```
 
@@ -67,12 +67,14 @@ contentcloud source register|list|show
 contentcloud lint knowledge|content|all
 contentcloud knowledge query
 
-contentcloud publish knowledge|research|strategy|brief|script|delivery
+contentcloud publish knowledge|research|strategy|brief|script|delivery|performance
 contentcloud pull feedback|decisions|approved
-contentcloud submission list|show|status|withdraw
+contentcloud submission list|show|status|approve|request-changes
 contentcloud review show             contentcloud delivery download
 contentcloud performance import      contentcloud impact show
 ```
+
+上面 publish/pull/submission 命令已实现。`local-run`、本地 source register、通用 lint、delivery download 和独立 impact 命令是目标命令面，当前分别由项目 Skill、既有云端资源命令或 lineage 命令承接。
 
 云端内容正文没有通用 update 命令。CLI 只发布不可变 Submission、拉取反馈/批准快照和执行领域允许的状态动作，不提供 `resource patch status=approved`。
 
@@ -92,11 +94,11 @@ Daemon 内部命令可以隐藏或标记 machine-only，但仍复用同一 CLI c
 ### Skills 与 MCP
 
 ```text
-contentcloud skills list|status|install|upgrade
-contentcloud mcp status|install|remove
+contentcloud skills list|read|status|install
+contentcloud mcp status|serve
 ```
 
-安装默认项目级。修改全局 Agent 配置时必须显示精确路径、diff 和确认提示。
+`init` 默认安装项目级 Skill/MCP；修改项目 Agent 配置必须使用 `--accept-project-config`。当前 MCP 暴露 `workspace_status`、`workspace_doctor`、`publish_preflight`、`submission_status`、`review_feedback_list` 和 `approved_snapshot_list`。
 
 ### 产物
 
@@ -110,7 +112,7 @@ contentcloud preview build-manifest|publish|status|revoke
 
 ## 5. 输出 Envelope
 
-默认人类可读；Agent 和脚本使用 `--output json`。
+默认人类可读；Agent 和脚本使用 `--json`。
 
 成功：
 
@@ -134,10 +136,11 @@ contentcloud preview build-manifest|publish|status|revoke
 {
   "ok": false,
   "error": {
-    "category": "policy",
+    "type": "policy",
+    "subtype": "business_rule",
     "code": "BRIEF_NOT_APPROVED",
     "message": "当前 Brief 不能进入正式剧本生产",
-    "resolution": "完成内部审核或选择已批准版本",
+    "hint": "完成内部审核或选择已批准版本",
     "retryable": false,
     "details": {}
   },
@@ -145,7 +148,7 @@ contentcloud preview build-manifest|publish|status|revoke
 }
 ```
 
-stdout 只写 envelope；诊断和进度写 stderr。`--quiet` 不改变退出码或 JSON 完整性。
+JSON 成功 envelope 写 stdout，结构化错误写 stderr；当前未提供 `--quiet`。
 
 ## 6. 稳定退出码
 
@@ -154,8 +157,8 @@ stdout 只写 envelope；诊断和进度写 stderr。`--quiet` 不改变退出�
 | 0 | 成功 |
 | 2 | 参数或本地配置错误 |
 | 3 | 认证失败 |
-| 4 | 权限/业务策略拒绝 |
-| 5 | 资源不存在 |
+| 4 | 权限/业务策略拒绝或资源不可见 |
+| 5 | 网络/运行环境失败 |
 | 6 | 版本或幂等冲突 |
 | 7 | 服务暂时不可用，可重试 |
 | 8 | 契约或输出校验失败 |
@@ -165,7 +168,7 @@ stdout 只写 envelope；诊断和进度写 stderr。`--quiet` 不改变退出�
 
 ## 7. WorkspaceTemplateManifest
 
-init 响应包含项目绑定、签名模板 manifest、方法论/Schema/Skill/MCP 版本和文件 hash。CLI 必须先验证签名再写文件；模板文件模式为 managed-replace、managed-merge、seed-once 或 local-state。
+当前 init 交换 Workspace/Device Credential 和项目绑定，随后安装 CLI 内嵌版本化模板，并把方法论/Schema/Skill/MCP 版本及文件 hash 写入 `template.lock`。远程签名 manifest 下发与升级尚未实现；启用后 CLI 必须先验签再写文件。
 
 初始化输出固定列出 created、installed、skipped、conflicted、warnings、workspace ID 和下一动作。任何冲突都不得被“初始化成功”摘要隐藏。
 
@@ -191,7 +194,7 @@ init 响应包含项目绑定、签名模板 manifest、方法论/Schema/Skill/M
 }
 ```
 
-publish preflight 必须显示对象数量、blocked 数、各披露等级、上传字节数、基线 diff 和审核可见范围。服务端完成 hash、Schema、基线、tenant/project 和权限复核后才创建 SubmissionRevision。
+当前 publish preflight 显示对象数量、blocked 数、各披露等级、上传字节数、基线 ID 和审核可见范围，并验证工作区文件边界、JSON、类型字段和大小。字段级基线 diff 与完整 Schema registry 是后续加固项。服务端复算 canonical hash，并复核基线、tenant/project、权限和幂等键后创建 SubmissionRevision。
 
 ## 9. Pull Bundle
 
@@ -331,7 +334,7 @@ calendar, kanban, tabs, attachment-list
 ```text
 contentcloud schema list
 contentcloud schema show contentcloud.script-package --version 2.0
-contentcloud automation templates --output json
+contentcloud automation templates --json
 contentcloud capability list --local
 ```
 

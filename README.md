@@ -1,16 +1,17 @@
 # ContentCloud
 
-ContentCloud 是面向 AI 内容营销团队的 CLI-first 创作控制面。云端负责项目、来源、可信知识、内容策略、Brief、审批、确定性 Task Contract 和产物索引；Codex、Claude Code、Skill、模型凭据与 Renderer 只在客户电脑运行。
+ContentCloud 是面向 AI 内容营销团队的本地优先创作与云端治理系统。客户在本机 Codex、Claude Code 等成熟 Agent 中完成资料整理、知识工程、策略、Brief 和剧本；云端负责项目、不可变 Submission、人工审批、审计和可选 Automation 调度。
 
-V1 交付 AI 视频就绪剧本，不生成图片、视频或成片。Hosted Preview 属于 V1.1/P3。
+V2 交付 AI 视频就绪剧本，不生成图片、视频或成片。Hosted Preview 是低优先级能力。
 
 ## 核心边界
 
 - 云端 zero-exec：不调用、代理、编排 LLM，不保存模型凭据，不执行客户上传代码。
 - Agent、Skill、Renderer、脚本和 CI 的所有程序化服务通讯只经过 `contentcloud` CLI。
 - Web 只访问同源 `/api/bff`；内部 HTTP、token 和对象存储协议不是公共 SDK。
-- 客户先在 Web 创建项目，再用一次性连接码在自己的电脑安装并连接 Runtime。
-- 客户审批绑定不可变 ScriptVersion 内容哈希，不跟随“最新版本”。
+- 客户先在 Web 创建项目，再用一次性连接码初始化本地工作区、项目级 Skills 和 MCP。
+- 普通本地操作不创建 TaskRun；只有显式启用的远程、事件或定时 Automation 使用 Daemon。
+- 客户审批绑定不可变 SubmissionRevision 内容哈希，不跟随“最新版本”。
 
 ## 仓库结构
 
@@ -22,7 +23,7 @@ migrations/             PostgreSQL schema、RLS 与 runtime role
 skills/                  随 CLI 内嵌的本地 Agent Skill
 packages/contentcloud/   零依赖 npm 校验安装器
 web/                     React + TypeScript 工作台与客户审批页
-docs/roadmap/v1/         产品、架构、流程、安全、计划与实现状态
+docs/roadmap/v2/         V2 产品、架构、流程、安全、计划与实现状态
 ```
 
 ## 本地开发
@@ -42,6 +43,11 @@ CLI 示例：
 ```bash
 ./bin/contentcloud --json doctor --offline
 ./bin/contentcloud --json schema
+./bin/contentcloud init --connect cck_xxx --target all --accept-project-config ./contentcloud-project
+./bin/contentcloud workspace doctor ./contentcloud-project
+./bin/contentcloud publish script --dry-run
+./bin/contentcloud submission list
+./bin/contentcloud pull approved --type script
 ./bin/contentcloud team invite editor@example.com --role editor --dry-run --json
 ./bin/contentcloud tenant switch "$TENANT_ID" --dry-run --json
 ./bin/contentcloud project templates --json
@@ -89,14 +95,17 @@ CONTENTCLOUD_REQUIRE_MALWARE_SCAN=1 ./bin/contentcloud-worker
 3. 用户在自己的 Mac 运行页面给出的命令：
 
 ```bash
-npx --yes @goodvision/contentcloud@latest up \
+npx --yes @goodvision/contentcloud@latest init \
   --server-url https://content.example.com \
-  --connect-key cck_xxx
+  --connect cck_xxx \
+  --target all \
+  --accept-project-config \
+  ./contentcloud-project
 ```
 
 4. npm 安装器校验 GitHub Release 的 `checksums.txt`，原子安装 Go binary。
-5. CLI 把 `dt_` 写入 macOS Keychain，注册用户级 LaunchAgent。
-6. 首次 Daemon poll 后项目页面从 `verifying` 进入 `connected`。
+5. CLI 把 `wt_` Workspace Credential 和兼容用 `dt_` Device Credential 写入 macOS Keychain。
+6. CLI 初始化本地模板、Skills/MCP，并通过 `workspace.register` 确认绑定；默认不注册 LaunchAgent、不启动 Daemon、不上传文件。
 
 用户 CLI 登录与设备连接凭据分离：`contentcloud auth login --no-wait --json` 发起浏览器确认，之后用 `--device-code` 完成并把 `ct_` 写入 Keychain。
 
@@ -112,4 +121,4 @@ python /Users/coso/.codex/skills/.system/skill-creator/scripts/quick_validate.py
 
 设置 `CONTENTCLOUD_TEST_DATABASE_URL` 后，`go test ./...` 会额外执行真实 PostgreSQL migration、runtime-role RLS 隔离和来源处理生命周期测试。
 
-完整范围和当前实现事实见 [V1 路线图](docs/roadmap/v1/README.md) 与 [实现状态](docs/roadmap/v1/14-implementation-status.md)。
+完整范围和当前实现事实见 [V2 路线图](docs/roadmap/v2/README.md) 与 [V2 实现状态](docs/roadmap/v2/14-implementation-status.md)。

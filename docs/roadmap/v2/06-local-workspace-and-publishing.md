@@ -26,8 +26,11 @@ Web 显示一条可复制命令：
 
 ```bash
 npx --yes @goodvision/contentcloud@latest init \
+  --server-url https://content.example.com \
   --connect <one-time-code> \
-  ./jinling-gudu
+  --target all \
+  --accept-project-config \
+  ./contentcloud-project
 ```
 
 ### 2.2 CLI 初始化
@@ -44,8 +47,8 @@ sequenceDiagram
     U->>CLI: init --connect code ./project
     CLI->>CLI: 检查目标目录和本机依赖
     CLI->>API: 消费init code
-    API-->>CLI: 项目绑定 + 签名WorkspaceTemplateManifest
-    CLI->>CLI: 验证签名、版本和文件hash
+    API-->>CLI: Workspace/Device Credential + 项目绑定
+    CLI->>CLI: 读取CLI内置版本化模板并计算文件hash
     CLI->>FS: 创建目录和模板文件
     CLI->>FS: 写project.yaml/template.lock/sync-state
     CLI->>Agent: 经确认安装项目级Skills和MCP配置
@@ -61,7 +64,7 @@ sequenceDiagram
 - 已有工作区时 `init` 幂等返回状态，不重新消费连接码。
 - 不覆盖未知文件、用户已修改模板、现有 AGENTS.md 或 Agent 配置。
 - 支持 `--dry-run` 输出将创建、修改、跳过和冲突的文件。
-- 非交互模式必须显式传 `--target codex|claude|all` 和 `--accept-project-config`。
+- `--target` 默认 `all`；只要目标不是 `none`，就必须显式传 `--accept-project-config`。
 - 默认不上传任何本地文件，不注册后台 Automation Daemon。
 - init code 只用于项目绑定，不能执行用户管理、审批或读取其他项目。
 
@@ -118,7 +121,9 @@ project-root/
 
 ## 5. 模板清单与锁文件
 
-`WorkspaceTemplateManifest` 由服务端按租户模板生成并签名：
+当前实现由 CLI 内嵌 `workspace_marketing_video@2.0.0`，初始化后生成 `template.lock`，记录每个受管文件 hash、内置 Skill、MCP 和目标 Agent。服务端通过 `workspace.register` 记录 template ID/version/targets，但不下发或执行模板。
+
+远程签名 `WorkspaceTemplateManifest` 是后续租户定制模板的目标契约，不是当前已实现入口：
 
 ```json
 {
@@ -141,60 +146,44 @@ project-root/
 - `seed_once`：客户内容模板只在首次创建，之后永不自动覆盖。
 - `local_state`：运行和同步状态，不参与模板升级。
 
-`template.lock` 保存安装版本、每个受管文件的基线 hash、Skill/MCP 版本和签名摘要。
+`template.lock` 当前保存安装版本、CLI 版本、每个受管文件的基线 hash 以及 Skill/MCP 版本；远程模板启用后再增加签名摘要。
 
 ## 6. Skills 安装
 
-ContentCloud 提供一套面向业务阶段的项目级 Skills：
+当前随 CLI 内嵌并由 `init` 安装两个项目级 Skills：
 
 ```text
-workspace-onboarding
-client-knowledge-pack-builder
-source-ingest
-knowledge-lint
-knowledge-query
-knowledge-content-pipeline
-market-research
-strategy-brief-compile
-marketing-content-compile
-script-revise
-submission-publish
-review-feedback-apply
+contentcloud-knowledge-extraction
+contentcloud-marketing-video-script
 ```
 
 Skills 只描述业务步骤、输入输出、门禁和 CLI/MCP 使用，不内嵌客户事实、模型配置和云端私有 HTTP。
 
-CLI 以 `.contentcloud/skills` 为唯一受管副本，再为目标 Agent 生成项目级入口：
+CLI 以 `.contentcloud/skills` 为受管副本，并在初始化时为目标 Agent 生成项目级入口。独立查看/安装命令为：
 
 ```bash
-contentcloud skills install --target codex
-contentcloud skills install --target claude
+contentcloud skills list
 contentcloud skills status
-contentcloud skills upgrade --dry-run
+contentcloud skills install contentcloud-marketing-video-script --target codex
 ```
 
-若目标 Agent 不支持共享入口，CLI 复制并在 manifest 中记录生成文件；升级从唯一受管副本重新物化，避免人工维护多份。
+知识查询、市场研究、策略 Brief、修订和反馈应用等更细 Skill 仍属于后续波次；当前不得标记为已安装。
 
 ## 7. MCP
 
-`contentcloud-local` MCP 运行在本机，工具面只包括：
+`contentcloud-local` MCP 通过 `contentcloud mcp serve` 在本机以 stdio 运行。当前已实现工具：
 
 - `workspace_status`、`workspace_doctor`
-- `source_register`、`source_list`
-- `local_run_init`、`local_run_show`
-- `knowledge_query`
-- `lint_run`
 - `publish_preflight`
 - `submission_status`
 - `review_feedback_list`
 - `approved_snapshot_list`
 
-MCP 调用本地确定性脚本或 `contentcloud` CLI。它不直接调用私有 HTTP，不返回设备/user token，不自动上传资料，不启动后台 Daemon。
+`source_register`、`source_list`、`local_run_*`、`knowledge_query` 和 `lint_run` 属于后续本地业务工具。MCP 本身不直接调用私有 HTTP；需要云端数据时复用 CLI 的 Workspace Credential 和统一 dispatch 客户端。它不返回 token、不自动上传资料、不启动后台 Daemon。
 
 ```bash
-contentcloud mcp install --target codex
-contentcloud mcp install --target claude
 contentcloud mcp status
+contentcloud mcp serve
 ```
 
 修改全局 Agent 配置属于高风险范围，V2 默认只写项目级配置；目标 Agent 只支持全局配置时必须展示精确 diff 并要求明确确认。
@@ -246,16 +235,18 @@ contentcloud publish brief --review
 contentcloud publish script --review
 ```
 
-publish 固定执行：
+当前 publish 固定执行：
 
 1. 解析项目上下文和最近 ApprovedSnapshot。
 2. 运行对应 lint 和 Schema 校验。
-3. 计算 canonical content hash、文件 manifest 和与基线的 diff。
-4. 检查未解决冲突、blocked 引用和来源披露策略。
-5. 展示将上传的结构化数据、证据/原件、总大小和可见对象。
-6. 用户确认后申请上传许可并上传。
+3. 计算 canonical content hash、输入 hash 和最近批准基线 ID。
+4. 检查 JSON、类型必填字段、blocked 标记、文件边界、大小和来源披露。
+5. 展示将上传的结构化对象、披露数量、总字节和审核可见范围；raw 文件始终不上传。
+6. 用户通过 `--review` 或 `--yes` 确认后提交。
 7. 服务端复核 hash、Schema、基线、权限和幂等键。
-8. 创建 SubmissionRevision 和 ReviewCycle，返回安全 Web 链接。
+8. 创建 SubmissionRevision 和 ReviewCycle，返回 revision 与下一条状态查询命令。
+
+完整 Schema registry、对象存储上传许可和基线字段级 diff 尚未实现，属于后续加固项。
 
 相同 submission type + content hash + base snapshot + idempotency key 重试只返回已有 revision。
 
@@ -267,7 +258,7 @@ publish 固定执行：
 | `evidence_pack` | 以上 + 精确摘录/安全预览 | 默认；可审核普通事实，受租户风险策略限制 |
 | `full_source` | 以上 + 加密原件 | 允许授权审核人检查完整上下文 |
 
-publish 默认 evidence_pack，并逐来源显示选择。用户降为 metadata-only 或升为 full-source 都需要明确确认。
+当前 CLI 接受显式 disclosures JSON；未提供时不上传来源正文。产品默认 evidence_pack 和交互式逐来源选择仍待实现。
 
 高风险 Claim、权利和合规事实如果证据等级不足：
 
@@ -285,19 +276,19 @@ contentcloud pull approved
 
 - feedback/decision 先下载到 `.contentcloud/inbox`，不直接修改业务文件。
 - ApprovedSnapshot 下载到只读 `.contentcloud/cache/approved/<snapshot-id>`。
-- `review-feedback-apply` Skill 读取指定基线和反馈，在新 LocalRunContext 中生成修订。
-- 应用前比较本地文件 hash；发现本地未提交修改时生成冲突报告。
-- 冲突不得自动选择云端或本地版本；用户处理后重跑 lint。
-- sync-state 只有在完整拉取和 hash 验证后推进游标。
+- 当前 pull 只落盘不可变 bundle，不自动应用反馈，也不推进业务正文。
+- 后续 `review-feedback-apply` Skill 才会读取指定基线和反馈，在新 LocalRunContext 中生成修订。
+- 后续应用流程必须先比较本地文件 hash；冲突不得自动选择云端或本地版本，用户处理后重跑 lint。
 
 ## 13. 云端编辑边界
 
-Web 允许：
+当前 Web 允许：
 
-- 对 SubmissionRevision 批注。
 - 对指定对象/字段/镜头提出修改要求。
-- 对 Fact、Claim、Rights、Brief 和 Script 作出受权限控制的决定。
-- 分配责任人、设置截止时间、撤销审批链接和查看 diff。
+- 批准当前 SubmissionRevision 并创建 ApprovedSnapshot。
+- 查看 revision 摘要、结构化正文、来源披露、hash 和审核记录。
+
+独立批注编辑、责任人/截止时间、审批链接和字段级 diff 属于后续审核协作增强。
 
 Web 不允许直接改 Submission 正文、知识值、Brief 内容、口播或镜头文本。所有内容修改回到本地，形成新的 SubmissionRevision。
 
@@ -308,13 +299,13 @@ contentcloud workspace upgrade --dry-run
 contentcloud workspace upgrade
 ```
 
-升级流程：下载新签名 manifest -> 比较 template.lock -> 安全替换未修改 generated 文件 -> 对 managed_merge 生成三方 diff -> 保留 seed_once -> 用户确认 -> 运行 doctor/lint -> 更新 lock。
+以上 upgrade 命令尚未实现。目标流程为：下载新签名 manifest -> 比较 template.lock -> 安全替换未修改 generated 文件 -> 对 managed_merge 生成三方 diff -> 保留 seed_once -> 用户确认 -> 运行 doctor/lint -> 更新 lock。
 
 升级失败不改变旧 lock。平台强制安全升级可以阻止新的 publish/Automation，但不能静默修改客户工作区。
 
 ## 15. Automation 工作区隔离
 
-启用 Automation 时：
+以下是后续显式启用 Automation 的目标命令，当前尚未实现：
 
 ```bash
 contentcloud automation device enable --project <id>
@@ -329,9 +320,8 @@ Automation 不直接写用户当前工作目录。用户可通过 CLI 将通过�
 ```bash
 contentcloud workspace status
 contentcloud workspace doctor
-contentcloud workspace diff
 ```
 
-状态至少显示：项目绑定、模板/Skill/MCP 版本、Agent 可用性、来源数量、当前 LocalRunContext、未发布变化、待 pull 反馈、最近 ApprovedSnapshot、披露警告和 Automation 授权状态。
+当前状态显示项目绑定、模板/Skill/MCP 版本、Agent 可用性、同步状态、披露默认策略和 Automation 是否启用。来源数量、LocalRunContext、待拉取反馈和 workspace diff 待对应本地领域能力完成后增加。
 
 doctor 区分本地结构、Agent/MCP、云端连接和 Automation；普通创作所需检查通过时，不因后台 Daemon 未启用而整体失败。

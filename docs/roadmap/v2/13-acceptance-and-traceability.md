@@ -10,7 +10,7 @@
 | `accepted` | 自动化证据和有责任人的业务 UAT 均通过 |
 | `deferred` | 明确不进入当前 V2 波次 |
 
-本文建立 V2 开工基线，不把文档完成视为功能 implemented。
+本文维护 V2 动态完成度，不把文档完成视为功能 implemented。
 
 ## 2. 功能追踪矩阵
 
@@ -29,6 +29,20 @@
 | FR-11 多客户上下文 | 单项目快照 | 四层继承、rebase、七层知识包 | 1 | 两客户隔离与模板复用 |
 | FR-12 产物展示 | 原生核心和基础降级 | 安全投影、Run详情、Hosted Preview | 2-3 | 降级、隔离、无空白视图 |
 | FR-13 本地工作区 | CLI/Daemon/embedded skills基础 | init、模板锁、Skills/MCP、publish/pull | 1 | 空/非空目录、披露、冲突 UAT |
+
+### 2.1 当前实现判定
+
+| 能力切片 | 状态 | 当前证据 |
+| --- | --- | --- |
+| V2 初始化与 Workspace Credential | `implemented` | init dry-run/冲突/幂等、Keychain token、workspace.register、Device token 保留测试 |
+| 本地模板与项目级 Agent 接入 | `implemented` | template.lock、两个内置 Skill、Codex/Claude 项目配置、MCP stdio、doctor 测试 |
+| publish/pull 与 Submission 数据层 | `implemented` | 7 类 publish、3 类 pull、canonical hash、幂等、披露门禁、`00013` 与 Store 测试 |
+| Submission Web 审核切片 | `implemented` | 列表/详情、revision 切换、批注定位、修改要求、批准快照和正文不可编辑测试 |
+| PostgreSQL V2 真实运行证据 | `partial` | 集成测试已覆盖 token/不可变/事务/RLS；本次未设置测试数据库，尚无新执行记录 |
+| 15 维诊断到七层知识包 | `partial` | 工作区目录和知识提取 Skill 已有；完整 LocalRun/领域命令和金陵数据迁移未完成 |
+| ScriptPackage V2 全流程 | `partial` | 营销视频 Skill 和 script Submission 已有；CreativeBatch、2.0 Schema/工作台/三格式闭环未完成 |
+| 九域、四层上下文与 Automation Plan | `planned` | V1 对象可继承；V2 新聚合、页面和计划调度尚未实现 |
+| Hosted Preview | `deferred` | 不进入当前优先级，且不影响原生 Submission 审核 |
 
 ## 3. 用例验收矩阵
 
@@ -127,19 +141,19 @@ make check
 make build
 ```
 
-另需增加：OpenAPI breaking change、JSON Schema fixtures、migration integration、跨租户、Prototype 浏览器和可访问性检查。
+另需增加：OpenAPI breaking change、JSON Schema fixtures、真实 migration 执行记录、Web 浏览器和可访问性检查。V2 Submission migration 集成与跨租户测试代码已加入。
 
-## 9. 文档和原型验收
+## 9. 文档和真实 Web 验收
 
 - `docs/roadmap/v2/README.md` 中的所有链接存在。
 - Mermaid code block 可解析，参与者和术语与领域模型一致。
 - PRD FR、用例、领域对象、CLI 和验收矩阵可双向追踪。
-- Prototype 覆盖项目init、Workspace、Submission/审批、九域治理、Automation、Run详情和本地剧本生产主路径。
-- Prototype 在 1440px、1024px、390px 视口无文本溢出、遮挡和不可达操作。
+- Web 的已实现页面必须使用真实 BFF 和领域对象，并以可运行行为验收。
+- Submission 审核页在 1440px、1024px、390px 视口无文本溢出、遮挡和不可达操作。
 
 ## 10. 发布结论规则
 
 - 文档完成：只能标记规划完成。
 - 代码和自动化通过：标记 implemented。
 - 南京业务人员和第二客户场景完成：对应项才可 accepted。
-- Hosted Preview、飞书深度连接和视频生成平台不得因为存在原型或接口占位而标记完成。
+- Hosted Preview、飞书深度连接和视频生成平台不得因为存在接口占位而标记完成。

@@ -1,6 +1,7 @@
 # ContentCloud V2 路线方案
 
-> 状态：实施方案  
+> 状态：实施中
+>
 > 版本：2.0  
 > 日期：2026-07-26  
 > 基线：在 V1 已实现能力上增量演进
@@ -157,7 +158,7 @@ V2 交付的是可供可灵、即梦及其他视频工具继续制作的结构�
 | [11-security-reliability-and-observability.md](11-security-reliability-and-observability.md) | 安全、可靠性、隐私、监控和测试 |
 | [12-migration-and-delivery-plan.md](12-migration-and-delivery-plan.md) | V1 增量迁移、三个波次和上线策略 |
 | [13-acceptance-and-traceability.md](13-acceptance-and-traceability.md) | FR/UC/NFR 追踪、UAT 和完成定义 |
-| [prototype.html](prototype.html) | 九域可交互业务原型 |
+| [14-implementation-status.md](14-implementation-status.md) | 仓库当前实现事实、缺口和验证入口 |
 
 ## 11. 成功定义
 
