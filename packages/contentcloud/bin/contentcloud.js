@@ -11,6 +11,7 @@ import process from 'node:process';
 
 const packageJSON = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const version = packageJSON.version;
+const releaseTag = packageJSON.contentcloudReleaseTag || `v${version}`;
 const platformNames = {darwin: 'darwin', linux: 'linux', win32: 'windows'};
 const archNames = {x64: 'amd64', arm64: 'arm64'};
 const targetPlatform = platformNames[platform()];
@@ -50,7 +51,7 @@ async function install(force) {
     return explicitBinary;
   }
   if (!force && existsSync(binaryPath)) return binaryPath;
-  const base = (process.env.CONTENTCLOUD_DOWNLOAD_BASE_URL || `https://github.com/limecloud/contentcloud/releases/download/v${version}`).replace(/\/$/, '');
+  const base = (process.env.CONTENTCLOUD_DOWNLOAD_BASE_URL || `https://github.com/limecloud/contentcloud/releases/download/${releaseTag}`).replace(/\/$/, '');
   const checksumURL = `${base}/checksums.txt`;
   const artifactURL = `${base}/${fileName}`;
   const [checksums, compressed] = await Promise.all([download(checksumURL), download(artifactURL)]);

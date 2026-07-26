@@ -282,9 +282,161 @@ func mcpTools() []map[string]any {
 		},
 		"additionalProperties": false,
 	}
+	sourceRegister := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":    map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"file":         map[string]any{"type": "string", "description": "Source file path"},
+			"id":           map[string]any{"type": "string", "description": "Stable source ID"},
+			"title":        map[string]any{"type": "string"},
+			"source_kind":  map[string]any{"type": "string"},
+			"storage_mode": map[string]any{"type": "string", "enum": []string{"copy", "reference"}},
+		},
+		"required":             []string{"file"},
+		"additionalProperties": false,
+	}
+	sourceID := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"source_id": map[string]any{"type": "string"},
+		},
+		"required":             []string{"source_id"},
+		"additionalProperties": false,
+	}
+	localRunInit := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":   map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"run_id":      map[string]any{"type": "string"},
+			"intent":      map[string]any{"type": "string", "enum": []string{"ingest", "query", "content"}},
+			"source_refs": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"with_ingest": map[string]any{"type": "boolean"},
+		},
+		"required":             []string{"intent"},
+		"additionalProperties": false,
+	}
+	localRunShow := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"run_id":    map[string]any{"type": "string", "description": "Defaults to current run"},
+		},
+		"additionalProperties": false,
+	}
+	knowledgeImport := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":  map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"file":       map[string]any{"type": "string", "description": "Workspace-relative knowledge-candidates/1.0 file"},
+			"origin_run": map[string]any{"type": "string"},
+		},
+		"required":             []string{"file"},
+		"additionalProperties": false,
+	}
+	knowledgeQuery := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"channel":   map[string]any{"type": "string"},
+			"at":        map[string]any{"type": "string", "format": "date-time"},
+		},
+		"additionalProperties": false,
+	}
+	knowledgePack := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"pack_id":   map[string]any{"type": "string"},
+			"name":      map[string]any{"type": "string"},
+		},
+		"additionalProperties": false,
+	}
+	localFile := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"file":      map[string]any{"type": "string", "description": "Workspace-relative JSON file"},
+		},
+		"required":             []string{"file"},
+		"additionalProperties": false,
+	}
+	creativeBatchInit := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":             map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"brief_id":              map[string]any{"type": "string"},
+			"directions_file":       map[string]any{"type": "string"},
+			"requested_count":       map[string]any{"type": "integer", "minimum": 1, "maximum": 10},
+			"variant_dimension":     map[string]any{"type": "string", "enum": []string{"hook", "audience", "scenario", "visualization", "cta", "duration"}},
+			"controlled_dimensions": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"batch_id":              map[string]any{"type": "string"},
+		},
+		"required":             []string{"directions_file", "requested_count", "variant_dimension"},
+		"additionalProperties": false,
+	}
+	scriptLint := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":  map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"file":       map[string]any{"type": "string", "description": "Workspace-relative ScriptPackage V2 file"},
+			"batch_file": map[string]any{"type": "string", "description": "Workspace-relative batch.json"},
+		},
+		"required":             []string{"file"},
+		"additionalProperties": false,
+	}
+	creativeBatchFiles := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":    map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"batch_file":   map[string]any{"type": "string"},
+			"script_files": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		},
+		"required":             []string{"batch_file", "script_files"},
+		"additionalProperties": false,
+	}
+	scriptDiff := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":      map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"baseline_file":  map[string]any{"type": "string"},
+			"candidate_file": map[string]any{"type": "string"},
+			"allowed_paths":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		},
+		"required":             []string{"baseline_file", "candidate_file", "allowed_paths"},
+		"additionalProperties": false,
+	}
+	scriptExport := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":        map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"script_id":        map[string]any{"type": "string"},
+			"output_directory": map[string]any{"type": "string"},
+		},
+		"required":             []string{"script_id"},
+		"additionalProperties": false,
+	}
 	return []map[string]any{
 		{"name": "workspace_status", "description": "Read local workspace binding, template and synchronization state without contacting the cloud", "inputSchema": directory},
 		{"name": "workspace_doctor", "description": "Validate local workspace structure, managed files, Skills and MCP configuration", "inputSchema": directory},
+		{"name": "source_register", "description": "Register an immutable local customer source without uploading it", "inputSchema": sourceRegister},
+		{"name": "source_list", "description": "List local source registry records without contacting the cloud", "inputSchema": directory},
+		{"name": "source_ingest", "description": "Parse a registered source into exact local evidence spans", "inputSchema": sourceID},
+		{"name": "source_verify", "description": "Verify local source hashes and MIME types", "inputSchema": directory},
+		{"name": "local_run_init", "description": "Initialize a resumable local ingest, query, or content workflow", "inputSchema": localRunInit},
+		{"name": "local_run_show", "description": "Read a LocalRunContext without cloud communication", "inputSchema": localRunShow},
+		{"name": "knowledge_import_candidates", "description": "Import knowledge-candidates/1.0 after exact evidence verification", "inputSchema": knowledgeImport},
+		{"name": "knowledge_lint", "description": "Run deterministic local knowledge governance checks", "inputSchema": directory},
+		{"name": "knowledge_query", "description": "Classify knowledge as eligible, blocked, or informational", "inputSchema": knowledgeQuery},
+		{"name": "knowledge_diagnose", "description": "Produce the 15-dimension customer material diagnosis", "inputSchema": knowledgeQuery},
+		{"name": "knowledge_pack", "description": "Build a seven-layer knowledge review pack and evidence disclosures", "inputSchema": knowledgePack},
+		{"name": "brief_lint", "description": "Validate a local Brief V2 against current eligible knowledge", "inputSchema": localFile},
+		{"name": "creative_batch_init", "description": "Freeze approved Brief and Knowledge snapshots into a local CreativeBatch", "inputSchema": creativeBatchInit},
+		{"name": "script_lint", "description": "Validate one ScriptPackage V2 against its frozen local batch context", "inputSchema": scriptLint},
+		{"name": "creative_batch_lint", "description": "Validate every ScriptPackage candidate in a CreativeBatch", "inputSchema": creativeBatchFiles},
+		{"name": "creative_batch_finalize", "description": "Finalize a validated local CreativeBatch without creating a cloud TaskRun", "inputSchema": creativeBatchFiles},
+		{"name": "script_diff", "description": "Detect undeclared JSON Pointer drift in a script revision or variant", "inputSchema": scriptDiff},
+		{"name": "script_export", "description": "Export a pulled approved ScriptPackage V2 as JSON, Markdown, and XLSX", "inputSchema": scriptExport},
 		{"name": "publish_preflight", "description": "Validate a local immutable checkpoint and show exactly what would be review-visible without publishing", "inputSchema": preflight},
 		{"name": "submission_status", "description": "Read the current cloud governance status for a workspace submission", "inputSchema": submissionStatus},
 		{"name": "review_feedback_list", "description": "Read cloud review feedback for this workspace without changing local business files", "inputSchema": directory},
@@ -296,12 +448,40 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 	var params struct {
 		Name      string `json:"name"`
 		Arguments struct {
-			Directory       string   `json:"directory"`
-			SubmissionType  string   `json:"submission_type"`
-			SubmissionID    string   `json:"submission_id"`
-			Files           []string `json:"files"`
-			DisclosuresFile string   `json:"disclosures_file"`
-			Message         string   `json:"message"`
+			Directory            string   `json:"directory"`
+			File                 string   `json:"file"`
+			ID                   string   `json:"id"`
+			Title                string   `json:"title"`
+			SourceKind           string   `json:"source_kind"`
+			StorageMode          string   `json:"storage_mode"`
+			SourceID             string   `json:"source_id"`
+			RunID                string   `json:"run_id"`
+			Intent               string   `json:"intent"`
+			SourceRefs           []string `json:"source_refs"`
+			WithIngest           bool     `json:"with_ingest"`
+			OriginRun            string   `json:"origin_run"`
+			Channel              string   `json:"channel"`
+			At                   string   `json:"at"`
+			PackID               string   `json:"pack_id"`
+			Name                 string   `json:"name"`
+			BriefID              string   `json:"brief_id"`
+			DirectionsFile       string   `json:"directions_file"`
+			RequestedCount       int      `json:"requested_count"`
+			VariantDimension     string   `json:"variant_dimension"`
+			ControlledDimensions []string `json:"controlled_dimensions"`
+			BatchID              string   `json:"batch_id"`
+			BatchFile            string   `json:"batch_file"`
+			ScriptFiles          []string `json:"script_files"`
+			BaselineFile         string   `json:"baseline_file"`
+			CandidateFile        string   `json:"candidate_file"`
+			AllowedPaths         []string `json:"allowed_paths"`
+			ScriptID             string   `json:"script_id"`
+			OutputDirectory      string   `json:"output_directory"`
+			SubmissionType       string   `json:"submission_type"`
+			SubmissionID         string   `json:"submission_id"`
+			Files                []string `json:"files"`
+			DisclosuresFile      string   `json:"disclosures_file"`
+			Message              string   `json:"message"`
 		} `json:"arguments"`
 	}
 	if err := json.Unmarshal(raw, &params); err != nil {
@@ -314,6 +494,101 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		value, err = localworkspace.LoadStatus(params.Arguments.Directory)
 	case "workspace_doctor":
 		value, err = localworkspace.Doctor(params.Arguments.Directory)
+	case "source_register":
+		if strings.TrimSpace(params.Arguments.File) == "" {
+			return nil, domain.Invalid("LOCAL_SOURCE_FILE_REQUIRED", "file 必填")
+		}
+		value, err = localworkspace.RegisterLocalSource(localworkspace.RegisterLocalSourceOptions{Root: params.Arguments.Directory, File: params.Arguments.File, ID: params.Arguments.ID, Title: params.Arguments.Title, SourceKind: params.Arguments.SourceKind, StorageMode: params.Arguments.StorageMode, Now: time.Now()})
+	case "source_list":
+		var sources []localworkspace.LocalSource
+		sources, err = localworkspace.LocalSources(params.Arguments.Directory)
+		value = map[string]any{"count": len(sources), "sources": sources}
+	case "source_ingest":
+		if strings.TrimSpace(params.Arguments.SourceID) == "" {
+			return nil, domain.Invalid("LOCAL_SOURCE_ID_REQUIRED", "source_id 必填")
+		}
+		value, err = localworkspace.IngestLocalSource(params.Arguments.Directory, params.Arguments.SourceID, time.Now())
+	case "source_verify":
+		var report localworkspace.SourceVerification
+		report, err = localworkspace.VerifyLocalSources(params.Arguments.Directory)
+		value = report
+		if err == nil && !report.Valid {
+			err = domain.Invalid("LOCAL_SOURCE_VERIFY_FAILED", "本地来源完整性校验失败")
+		}
+	case "local_run_init":
+		value, err = localworkspace.InitLocalRun(localworkspace.InitLocalRunOptions{Root: params.Arguments.Directory, RunID: params.Arguments.RunID, Intent: params.Arguments.Intent, SourceRefs: params.Arguments.SourceRefs, WithIngest: params.Arguments.WithIngest, Now: time.Now()})
+	case "local_run_show":
+		value, err = localworkspace.ShowLocalRun(params.Arguments.Directory, params.Arguments.RunID)
+	case "knowledge_import_candidates":
+		if strings.TrimSpace(params.Arguments.File) == "" {
+			return nil, domain.Invalid("LOCAL_FILE_REQUIRED", "file 必填")
+		}
+		value, err = localworkspace.ImportKnowledgeCandidates(localworkspace.ImportKnowledgeOptions{Root: params.Arguments.Directory, PackageFile: params.Arguments.File, OriginRunID: params.Arguments.OriginRun, Now: time.Now()})
+	case "knowledge_lint":
+		var report localworkspace.KnowledgeLintReport
+		report, err = localworkspace.LintKnowledge(params.Arguments.Directory)
+		value = report
+		if err == nil && !report.Valid {
+			lintErr := domain.Invalid("KNOWLEDGE_LINT_FAILED", "知识库确定性校验失败")
+			lintErr.Details = report
+			err = lintErr
+		}
+	case "knowledge_query", "knowledge_diagnose":
+		var at time.Time
+		at, err = parseLocalQueryTime(params.Arguments.At)
+		if err != nil {
+			break
+		}
+		if params.Name == "knowledge_query" {
+			value, err = localworkspace.QueryKnowledge(localworkspace.QueryKnowledgeOptions{Root: params.Arguments.Directory, Channel: params.Arguments.Channel, At: at})
+		} else {
+			value, err = localworkspace.DiagnoseKnowledge(params.Arguments.Directory, params.Arguments.Channel, at)
+		}
+	case "knowledge_pack":
+		value, err = localworkspace.PackKnowledge(localworkspace.PackKnowledgeOptions{Root: params.Arguments.Directory, PackID: params.Arguments.PackID, Name: params.Arguments.Name, Now: time.Now()})
+	case "brief_lint":
+		var report localworkspace.KnowledgeLintReport
+		var brief localworkspace.LocalBrief
+		report, brief, err = localworkspace.LintBrief(params.Arguments.Directory, params.Arguments.File)
+		value = map[string]any{"brief": brief, "report": report}
+		if err == nil && !report.Valid {
+			lintErr := domain.Invalid("BRIEF_LINT_FAILED", "Brief V2 确定性校验失败")
+			lintErr.Details = report
+			err = lintErr
+		}
+	case "creative_batch_init":
+		value, err = localworkspace.CreateCreativeBatch(localworkspace.CreateCreativeBatchOptions{Root: params.Arguments.Directory, BriefID: params.Arguments.BriefID, DirectionsFile: params.Arguments.DirectionsFile, RequestedCount: params.Arguments.RequestedCount, VariantDimension: params.Arguments.VariantDimension, ControlledDimensions: params.Arguments.ControlledDimensions, BatchID: params.Arguments.BatchID, Now: time.Now()})
+	case "script_lint":
+		var report localworkspace.ScriptLintReport
+		report, _, err = localworkspace.LintScriptPackage(params.Arguments.Directory, params.Arguments.File, params.Arguments.BatchFile)
+		value = report
+		if err == nil && !report.Valid {
+			lintErr := domain.Invalid("SCRIPT_PACKAGE_LINT_FAILED", "ScriptPackage V2 确定性校验失败")
+			lintErr.Details = report
+			err = lintErr
+		}
+	case "creative_batch_lint":
+		var report localworkspace.ScriptBatchLintReport
+		report, err = localworkspace.LintCreativeBatch(params.Arguments.Directory, params.Arguments.BatchFile, params.Arguments.ScriptFiles)
+		value = report
+		if err == nil && !report.Valid {
+			lintErr := domain.Invalid("CREATIVE_BATCH_LINT_FAILED", "CreativeBatch 确定性校验失败")
+			lintErr.Details = report
+			err = lintErr
+		}
+	case "creative_batch_finalize":
+		value, err = localworkspace.FinalizeCreativeBatch(params.Arguments.Directory, params.Arguments.BatchFile, params.Arguments.ScriptFiles, time.Now())
+	case "script_diff":
+		var diff localworkspace.ScriptDiff
+		diff, err = localworkspace.DiffScriptPackages(params.Arguments.Directory, params.Arguments.BaselineFile, params.Arguments.CandidateFile, params.Arguments.AllowedPaths)
+		value = diff
+		if err == nil && !diff.Valid {
+			diffErr := domain.Invalid("SCRIPT_REVISION_DRIFT", "修订包含未声明字段变化")
+			diffErr.Details = diff
+			err = diffErr
+		}
+	case "script_export":
+		value, err = localworkspace.ExportApprovedScript(params.Arguments.Directory, params.Arguments.ScriptID, params.Arguments.OutputDirectory, time.Now())
 	case "publish_preflight":
 		if !validSubmissionType(params.Arguments.SubmissionType) {
 			return nil, domain.Invalid("SUBMISSION_TYPE_INVALID", "submission_type 无效")

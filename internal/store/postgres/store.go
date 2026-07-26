@@ -223,6 +223,84 @@ func (s *Store) SaveMembership(ctx context.Context, v domain.Membership) error {
 	return dbError(err)
 }
 
+func pendingMembershipInvite(ctx context.Context, tx pgx.Tx, tokenHash, email string, now time.Time) (domain.MembershipInvite, error) {
+	var tenantID, inviteID string
+	if err := tx.QueryRow(ctx, `SELECT tenant_id,invite_id FROM contentcloud_lookup_membership_invite($1)`, tokenHash).Scan(&tenantID, &inviteID); err != nil {
+		return domain.MembershipInvite{}, domain.Conflict("INVITE_INVALID", "邀请无效、已撤销、邮箱不匹配或已过期")
+	}
+	invite, err := scanMembershipInvite(tx.QueryRow(ctx, membershipInviteSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, inviteID))
+	if err != nil {
+		return domain.MembershipInvite{}, domain.Conflict("INVITE_INVALID", "邀请无效、已撤销、邮箱不匹配或已过期")
+	}
+	if err := invite.ValidateAcceptance(email, now); err != nil {
+		return domain.MembershipInvite{}, err
+	}
+	return invite, nil
+}
+
+func redeemMembershipInvite(ctx context.Context, tx pgx.Tx, invite domain.MembershipInvite, userID string, now time.Time) (domain.Membership, error) {
+	membership := domain.Membership{TenantID: invite.TenantID, UserID: userID, Role: invite.Role, Status: "active", CreatedAt: now}
+	if _, err := tx.Exec(ctx, `INSERT INTO memberships(tenant_id,user_id,role,status,created_at,revoked_at) VALUES($1,$2,$3,$4,$5,$6)
+		ON CONFLICT (tenant_id,user_id) DO UPDATE SET role=EXCLUDED.role,status=EXCLUDED.status,revoked_at=EXCLUDED.revoked_at`, membership.TenantID, membership.UserID, membership.Role, membership.Status, membership.CreatedAt, membership.RevokedAt); err != nil {
+		return domain.Membership{}, dbError(err)
+	}
+	result, err := tx.Exec(ctx, `UPDATE membership_invites SET status='accepted',accepted_by=$2,accepted_at=$3 WHERE id=$1 AND status='pending'`, invite.ID, userID, now)
+	if err != nil {
+		return domain.Membership{}, dbError(err)
+	}
+	if result.RowsAffected() != 1 {
+		return domain.Membership{}, domain.Conflict("INVITE_INVALID", "邀请无效、已撤销、邮箱不匹配或已过期")
+	}
+	return membership, nil
+}
+
+func (s *Store) AcceptMembershipInvite(ctx context.Context, tokenHash string, user domain.User, now time.Time) (domain.Membership, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.Membership{}, err
+	}
+	defer tx.Rollback(ctx)
+	invite, err := pendingMembershipInvite(ctx, tx, tokenHash, user.Email, now)
+	if err != nil {
+		return domain.Membership{}, err
+	}
+	membership, err := redeemMembershipInvite(ctx, tx, invite, user.ID, now)
+	if err != nil {
+		return domain.Membership{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Membership{}, err
+	}
+	return membership, nil
+}
+
+func (s *Store) RegisterWithInvite(ctx context.Context, user domain.User, tokenHash string, session domain.Session, now time.Time) (domain.Session, domain.Membership, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.Session{}, domain.Membership{}, err
+	}
+	defer tx.Rollback(ctx)
+	invite, err := pendingMembershipInvite(ctx, tx, tokenHash, user.Email, now)
+	if err != nil {
+		return domain.Session{}, domain.Membership{}, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO users(id,email,display_name,password_hash,verified_at,created_at) VALUES($1,$2,$3,$4,$5,$6)`, user.ID, strings.ToLower(user.Email), user.DisplayName, user.PasswordHash, user.VerifiedAt, user.CreatedAt); err != nil {
+		return domain.Session{}, domain.Membership{}, dbError(err)
+	}
+	membership, err := redeemMembershipInvite(ctx, tx, invite, user.ID, now)
+	if err != nil {
+		return domain.Session{}, domain.Membership{}, err
+	}
+	session.UserID, session.TenantID = user.ID, invite.TenantID
+	if _, err := tx.Exec(ctx, `INSERT INTO sessions(id,user_id,tenant_id,expires_at,revoked_at) VALUES($1,$2,$3,$4,$5)`, session.ID, session.UserID, session.TenantID, session.ExpiresAt, session.RevokedAt); err != nil {
+		return domain.Session{}, domain.Membership{}, dbError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Session{}, domain.Membership{}, err
+	}
+	return session, membership, nil
+}
+
 func (s *Store) CreateMembershipInvite(ctx context.Context, v domain.MembershipInvite) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO membership_invites(id,tenant_id,email,role,invited_by,token_hash,status,expires_at,accepted_by,accepted_at,revoked_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, v.ID, v.TenantID, strings.ToLower(v.Email), v.Role, v.InvitedBy, v.TokenHash, v.Status, v.ExpiresAt, nullable(v.AcceptedBy), v.AcceptedAt, v.RevokedAt, v.CreatedAt)

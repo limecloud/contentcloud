@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/limecloud/contentcloud/contracts"
 	"github.com/limecloud/contentcloud/internal/domain"
 	builtinskills "github.com/limecloud/contentcloud/skills"
 )
@@ -412,18 +414,38 @@ func replaceJSON(path string, value any, mode fs.FileMode) error {
 		return err
 	}
 	body = append(body, '\n')
-	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, body, mode); err != nil {
+	return replaceFile(path, body, mode)
+}
+
+func replaceFile(path string, body []byte, mode fs.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.Rename(temporary, path)
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".contentcloud-*.tmp")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(mode); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(body); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
 }
 
 func template(targets []string) ([]templateFile, []string, error) {
 	dirs := []string{
 		".contentcloud/inbox/review-feedback", ".contentcloud/inbox/decision-deltas", ".contentcloud/cache/approved", ".contentcloud/skills", ".contentcloud/mcp",
-		"methodology", "ontology/rules", "ontology/vocabularies", "knowledge/index", "knowledge/sources", "knowledge/evidence", "knowledge/facts", "knowledge/claims", "knowledge/assets", "knowledge/rights", "knowledge/packs",
-		"raw/inbox", "work/runs", "workflows", "scripts", "outputs/briefs", "outputs/scripts", "outputs/storyboards", "outputs/reports",
+		"methodology", "ontology/rules", "ontology/vocabularies", "schemas", "knowledge/index", "knowledge/sources", "knowledge/evidence", "knowledge/facts", "knowledge/claims", "knowledge/assets", "knowledge/rights", "knowledge/conflicts", "knowledge/packs",
+		"raw/inbox", "work/runs", "workflows", "scripts", "outputs/briefs", "outputs/scripts", "outputs/storyboards", "outputs/reports", "outputs/delivery",
 	}
 	files := []templateFile{
 		{path: "AGENTS.md", mode: "managed_merge", body: []byte(agentInstructions)},
@@ -433,6 +455,10 @@ func template(targets []string) ([]templateFile, []string, error) {
 		{path: "raw/.gitignore", mode: "managed_replace", body: []byte("inbox/*\n!inbox/.gitkeep\n")},
 		{path: "raw/inbox/.gitkeep", mode: "managed_replace", body: []byte{}},
 		{path: "raw/source-registry.yaml", mode: "seed_once", body: []byte("{\n  \"schema_version\": \"2.0\",\n  \"sources\": []\n}\n")},
+		{path: "schemas/knowledge-candidates-1.0.schema.json", mode: "managed_replace", body: contracts.KnowledgeCandidatesSchema},
+		{path: "schemas/brief-2.0.schema.json", mode: "managed_replace", body: contracts.BriefV2Schema},
+		{path: "schemas/creative-directions-2.0.schema.json", mode: "managed_replace", body: contracts.CreativeDirectionsV2Schema},
+		{path: "schemas/script-package-2.0.schema.json", mode: "managed_replace", body: contracts.ScriptPackageV2Schema},
 		{path: "work/current-focus.md", mode: "seed_once", body: []byte("# 当前焦点\n\n")},
 		{path: "work/conflicts.md", mode: "seed_once", body: []byte("# 待解决冲突\n\n")},
 		{path: "work/knowledge-gaps.md", mode: "seed_once", body: []byte("# 知识缺口\n\n")},
@@ -557,6 +583,26 @@ func readJSON(path string, value any) error {
 	return nil
 }
 
+func readStrictJSON(path string, value any) error {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return strictUnmarshal(body, value)
+}
+
+func strictUnmarshal(body []byte, value any) error {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("JSON 只能包含一个顶层值")
+	}
+	return nil
+}
+
 func verifyManagedFiles(root string, files []ManagedFile) ([]string, []string) {
 	modified := []string{}
 	missing := []string{}
@@ -633,12 +679,12 @@ const methodologyReadme = `# 方法论
 
 const workflowReadme = `# 知识到剧本
 
-1. 将客户原始资料放入 raw/inbox，并登记 source-registry。
-2. 提取可定位证据，形成事实、主张、视觉规则、资产和权利记录。
-3. 运行确定性校验，处理冲突与知识缺口。
-4. 基于合格知识完成策略和 Brief。
-5. 生成带引用、镜头连续性和可生成性约束的 Script Package。
-6. 通过 contentcloud publish 显式提交云端审核。
+1. 用 contentcloud local source register/ingest 登记客户资料并生成可定位 EvidenceBundle。
+2. 初始化 LocalRunContext，由本地 Agent Skill 从已接受证据生成 knowledge-candidates/1.0。
+3. 用 contentcloud local knowledge import/lint/query/diagnose/pack 完成候选治理、15维诊断和七层知识包。
+4. 用 contentcloud publish knowledge --dry-run 检查审核可见范围，再显式提交云端审核。
+5. 拉取 ApprovedSnapshot 后，基于 eligible 知识完成策略和 Brief。
+6. 生成带引用、镜头连续性和可生成性约束的 Script Package，并显式 publish。
 `
 
 const classesYAML = `schema_version: "2.0"

@@ -63,6 +63,13 @@ type MembershipInvite struct {
 	PlaintextToken string     `json:"invite_token,omitempty"`
 }
 
+func (v MembershipInvite) ValidateAcceptance(email string, now time.Time) error {
+	if v.Status != "pending" || v.RevokedAt != nil || now.After(v.ExpiresAt) || !strings.EqualFold(v.Email, email) {
+		return Conflict("INVITE_INVALID", "邀请无效、已撤销、邮箱不匹配或已过期")
+	}
+	return nil
+}
+
 type Session struct {
 	ID        string     `json:"id"`
 	UserID    string     `json:"user_id"`

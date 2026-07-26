@@ -90,6 +90,7 @@ project-root/
 │   ├── properties.yaml
 │   ├── rules/
 │   └── vocabularies/
+├── schemas/
 ├── knowledge/
 │   ├── index/
 │   ├── sources/
@@ -98,6 +99,7 @@ project-root/
 │   ├── claims/
 │   ├── assets/
 │   ├── rights/
+│   ├── conflicts/
 │   └── packs/
 ├── raw/
 │   ├── inbox/
@@ -114,7 +116,8 @@ project-root/
     ├── briefs/
     ├── scripts/
     ├── storyboards/
-    └── reports/
+    ├── reports/
+    └── delivery/
 ```
 
 `raw/` 默认加入项目忽略规则；模板不强制创建 Git 仓库。用户选择版本控制时，原始资料和本地敏感缓存仍保持忽略。
@@ -171,15 +174,15 @@ contentcloud skills install contentcloud-marketing-video-script --target codex
 
 ## 7. MCP
 
-`contentcloud-local` MCP 通过 `contentcloud mcp serve` 在本机以 stdio 运行。当前已实现工具：
+`contentcloud-local` MCP 通过 `contentcloud mcp serve` 在本机以 stdio 运行。当前已实现 24 个工具，与 `09-cli-mcp-and-contracts.md` §4 的清单一致：
 
-- `workspace_status`、`workspace_doctor`
-- `publish_preflight`
-- `submission_status`
-- `review_feedback_list`
-- `approved_snapshot_list`
+- 工作区：`workspace_status`、`workspace_doctor`
+- 本地来源：`source_register`、`source_list`、`source_ingest`、`source_verify`
+- 本地运行与知识：`local_run_init`、`local_run_show`、`knowledge_import_candidates`、`knowledge_lint`、`knowledge_query`、`knowledge_diagnose`、`knowledge_pack`
+- Brief 与剧本：`brief_lint`、`creative_batch_init`、`creative_batch_lint`、`creative_batch_finalize`、`script_lint`、`script_diff`、`script_export`
+- 云端治理：`publish_preflight`、`submission_status`、`review_feedback_list`、`approved_snapshot_list`
 
-`source_register`、`source_list`、`local_run_*`、`knowledge_query` 和 `lint_run` 属于后续本地业务工具。MCP 本身不直接调用私有 HTTP；需要云端数据时复用 CLI 的 Workspace Credential 和统一 dispatch 客户端。它不返回 token、不自动上传资料、不启动后台 Daemon。
+研究、策略编译和反馈应用相关工具属于后续波次。MCP 本身不直接调用私有 HTTP；需要云端数据时复用 CLI 的 Workspace Credential 和统一 dispatch 客户端。它不返回 token、不自动上传资料、不启动后台 Daemon。
 
 ```bash
 contentcloud mcp status
@@ -258,7 +261,9 @@ contentcloud publish script --review
 | `evidence_pack` | 以上 + 精确摘录/安全预览 | 默认；可审核普通事实，受租户风险策略限制 |
 | `full_source` | 以上 + 加密原件 | 允许授权审核人检查完整上下文 |
 
-当前 CLI 接受显式 disclosures JSON；未提供时不上传来源正文。产品默认 evidence_pack 和交互式逐来源选择仍待实现。
+产品规则是默认 `evidence_pack` 并支持逐来源交互选择。
+
+> 实现现状：CLI 目前接受显式 disclosures JSON，未提供时不上传任何来源正文（等价于 `metadata_only`），交互式逐来源选择待实现。以 `14-implementation-status.md` 为准。
 
 高风险 Claim、权利和合规事实如果证据等级不足：
 
@@ -288,7 +293,7 @@ contentcloud pull approved
 - 批准当前 SubmissionRevision 并创建 ApprovedSnapshot。
 - 查看 revision 摘要、结构化正文、来源披露、hash 和审核记录。
 
-独立批注编辑、责任人/截止时间、审批链接和字段级 diff 属于后续审核协作增强。
+独立批注编辑、责任人/截止时间和字段级 diff 属于后续审核协作增强。客户审批链接（ReviewGrant + OTP）目标是绑定具体 SubmissionRevision，属于波次一的单轨收敛改造，见 `03-domain-and-data-model.md` §2.1。
 
 Web 不允许直接改 Submission 正文、知识值、Brief 内容、口播或镜头文本。所有内容修改回到本地，形成新的 SubmissionRevision。
 

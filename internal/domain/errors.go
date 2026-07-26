@@ -1,6 +1,9 @@
 package domain
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 type Error struct {
 	Type      string `json:"type"`
@@ -21,6 +24,12 @@ func E(kind, subtype, code, message string, exitCode int) *Error {
 
 func NotFound(resource string) *Error {
 	return E("not_found", "resource", "RESOURCE_NOT_FOUND", fmt.Sprintf("%s 不存在或无权访问", resource), 4)
+}
+
+// IsNotFound 判断错误是否为 not_found 类别，便于调用方区分"缺少对象"与真实故障。
+func IsNotFound(err error) bool {
+	var domainError *Error
+	return errors.As(err, &domainError) && domainError.Type == "not_found"
 }
 
 func Invalid(code, message string) *Error {

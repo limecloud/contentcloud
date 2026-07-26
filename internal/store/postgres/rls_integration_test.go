@@ -2,9 +2,11 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -41,6 +43,37 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	}
 	a, _, _ := service.SessionActor(ctx, aSession.ID)
 	b, _, _ := service.SessionActor(ctx, bSession.ID)
+	invite, err := service.CreateMembershipInvite(ctx, a, fmt.Sprintf("rls-b-%s@example.com", suffix), "reviewer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	acceptErrors := make([]error, 2)
+	var acceptWait sync.WaitGroup
+	for index := range acceptErrors {
+		acceptWait.Add(1)
+		go func(index int) {
+			defer acceptWait.Done()
+			<-start
+			_, acceptErrors[index] = service.AcceptMembershipInvite(ctx, b, invite.PlaintextToken, "")
+		}(index)
+	}
+	close(start)
+	acceptWait.Wait()
+	acceptSuccesses := 0
+	for _, acceptErr := range acceptErrors {
+		if acceptErr == nil {
+			acceptSuccesses++
+			continue
+		}
+		var domainErr *domain.Error
+		if !errors.As(acceptErr, &domainErr) || domainErr.Code != "INVITE_INVALID" {
+			t.Fatalf("unexpected concurrent invite error: %v", acceptErr)
+		}
+	}
+	if acceptSuccesses != 1 {
+		t.Fatalf("PostgreSQL invite must be accepted exactly once, got %d successes", acceptSuccesses)
+	}
 	project, err := service.CreateProject(ctx, a, app.CreateProjectInput{BrandName: "Same", ProductName: "Product"}, "")
 	if err != nil {
 		t.Fatal(err)

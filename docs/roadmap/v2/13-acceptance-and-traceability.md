@@ -19,14 +19,14 @@
 | FR-01 项目治理 | Project/成员/设备/审计 | Client/Brand/Product、Gate、Risk、Impact | 1-2 | 多客户项目与角色 UAT |
 | FR-02 可信知识 | 来源、证据、知识、冲突、权利 | 本地15维诊断、Knowledge Submission/批准快照 | 1 | 金陵古都香本地迁移/publish/决策 |
 | FR-03 市场情报 | Benchmark/Framework/ShotPattern | ResearchTask、Insight、监控 | 2-3 | 公网+企业资料研究及采纳 |
-| FR-04 营销策略 | SellingPoint/VisualizationPlan | StrategyVersion、Audience/Scenario 组合 | 1-2 | 策略到 Brief lineage |
+| FR-04 营销策略 | SellingPoint/VisualizationPlan | StrategyVersion、Audience/Scenario 组合 | 1-2 | 波次一：最小可用 StrategyVersion 审批与策略到 Brief lineage；波次二：候选比较与采纳 |
 | FR-05 内容策划 | Brief/Experiment 基础 | ContentPlan/Campaign/完整 Brief | 1-2 | 单变量 Brief 审批 |
 | FR-06 创意生产 | 云端script run、Package 1.x | 本地CreativeBatch、Package 2.0、Script Submission | 1 | 无TaskRun三候选、publish、修订 |
 | FR-07 审核协作 | Review/Comment/Grant/Approval | 字段定位、客户安全投影完善 | 1 | 内审、OTP、固定 hash |
 | FR-08 交付制作 | JSON/MD/XLSX Artifact | DeliveryPackage/Handoff/外部状态 | 1-2 | 三格式一致与交接清单 |
 | FR-09 结果学习 | Import/Observation/Rating/Memory | Learning 和跨域回流 | 2-3 | 人工采纳/拒绝与新实验 |
 | FR-10 Automation | TaskRun/Attempt/lease/heartbeat | Plan/remote/event/schedule/Submission | 3 | 隔离工作区与故障矩阵 |
-| FR-11 多客户上下文 | 单项目快照 | 四层继承、rebase、七层知识包 | 1 | 两客户隔离与模板复用 |
+| FR-11 多客户上下文 | 单项目快照 | 四层继承、rebase、七层知识包 | 1-2 | 波次一：四层继承与 rebase；波次二：两客户隔离与模板复用 |
 | FR-12 产物展示 | 原生核心和基础降级 | 安全投影、Run详情、Hosted Preview | 2-3 | 降级、隔离、无空白视图 |
 | FR-13 本地工作区 | CLI/Daemon/embedded skills基础 | init、模板锁、Skills/MCP、publish/pull | 1 | 空/非空目录、披露、冲突 UAT |
 
@@ -39,8 +39,12 @@
 | publish/pull 与 Submission 数据层 | `implemented` | 7 类 publish、3 类 pull、canonical hash、幂等、披露门禁、`00013` 与 Store 测试 |
 | Submission Web 审核切片 | `implemented` | 列表/详情、revision 切换、批注定位、修改要求、批准快照和正文不可编辑测试 |
 | PostgreSQL V2 真实运行证据 | `partial` | 集成测试已覆盖 token/不可变/事务/RLS；本次未设置测试数据库，尚无新执行记录 |
-| 15 维诊断到七层知识包 | `partial` | 工作区目录和知识提取 Skill 已有；完整 LocalRun/领域命令和金陵数据迁移未完成 |
-| ScriptPackage V2 全流程 | `partial` | 营销视频 Skill 和 script Submission 已有；CreativeBatch、2.0 Schema/工作台/三格式闭环未完成 |
+| 本地来源、LocalRun 与证据链 | `implemented` | source register/list/show/ingest/verify、100MB/MIME/SHA-256、EvidenceBundle、阶段门禁和恢复测试 |
+| 15 维诊断到七层知识包 | `implemented` | strict candidate import、locator/quote 精确匹配、eligible/blocked 查询、15 维、七层 pack 和 disclosures 测试；尚未业务 UAT |
+| ScriptPackage V2 客户端闭环 | `implemented` | Brief lint、CreativeBatch/context 冻结、blocked/review_ready、逐镜头 lint、JSON Pointer diff、JSON/MD/XLSX 与 publish lint 测试 |
+| 审批单轨收敛（Submission 承接审批/交付/结果） | `planned` | 契约与领域模型已定义（03 §2.1/§2.2）；ReviewCycle/Grant/导出/交付仍挂 V1 `script_version`，代码未改造 |
+| Brief 策略血缘（strategy_version_id） | `partial` | `contracts/brief-2.0.schema.json` 已列为必填；`LocalBrief` 结构体与 Brief lint 的必填校验待补 |
+| 金陵古都香 Golden Journey | `partial` | 单个真实 DOCX 已到 knowledge publish preflight；232 对象、十条旧稿、真实审批/pull、Brief 到三候选未完成 |
 | 九域、四层上下文与 Automation Plan | `planned` | V1 对象可继承；V2 新聚合、页面和计划调度尚未实现 |
 | Hosted Preview | `deferred` | 不进入当前优先级，且不影响原生 Submission 审核 |
 
@@ -65,20 +69,23 @@
 - 保留 stable external ref、source locator、状态和 blocked 原因。
 - 在本地保留首批十条 CreativeDraft 为一个 CreativeBatch，不提升发布资格、不默认上传 raw。
 
+当前自动化证据只覆盖一个真实 DOCX 到 knowledge publish preflight。以下清单仍是试点验收目标，不是已完成事实。
+
 ### 业务验收
 
 1. Web 完成客户、品牌、产品、项目和服务模板，生成 init code。
 2. 在空目录执行 init，验证模板、Skills、MCP、doctor 和默认不开启 Daemon。
 3. 本地完成 15 维覆盖、七层知识包和 lint，明确缺口与冲突。
 4. 选择来源披露等级并 publish；审核员按 ID 决定 Fact、Claim 和 Rights。
-5. 本地 pull ApprovedSnapshot，创建抖音 Campaign、单变量 Experiment 和 Brief，再 publish 审批。
-6. 本地选择至少两个 CreativeDirection，生成至少三条 ScriptPackage V2，证明没有云端 TaskRun。
-7. 验证一条 blocked、一条本地 review_ready，并准确解释差异。
-8. publish 剧本；云端对具体镜头和口播批注，本地 pull 后按基线修订并 republish。
-9. 完成内部批准和客户 OTP 批准，本地 pull 最终 ApprovedSnapshot。
-10. 导出 JSON、Markdown、XLSX，内容和 hash 一致。
-11. 导入结果、生成 candidate Learning，由策略人员明确采纳或拒绝。
-12. 修改一个来源或权利，验证受影响 Strategy/Brief/Script 进入 review_required。
+5. 本地 pull knowledge ApprovedSnapshot，完成受众、场景、卖点排序和可视化方案，publish strategy 检查点并由审核员批准。
+6. pull strategy ApprovedSnapshot，创建抖音 Campaign、单变量 Experiment 和引用 `strategy_version_id` 的 Brief，再 publish 审批。
+7. 本地选择至少两个 CreativeDirection，生成至少三条 ScriptPackage V2，证明没有云端 TaskRun。
+8. 验证一条 blocked、一条本地 review_ready，并准确解释差异。
+9. publish 剧本；云端对具体镜头和口播批注，本地 pull 后按基线修订并 republish。
+10. 完成内部批准（stage=internal）和客户 OTP 批准（stage=client），二者绑定同一 SubmissionRevision，本地 pull 最终 ApprovedSnapshot。
+11. 从该 ApprovedSnapshot 导出 JSON、Markdown、XLSX，内容和 hash 一致。
+12. 导入结果、生成 candidate Learning，由策略人员明确采纳或拒绝。
+13. 修改一个来源或权利，验证受影响 Strategy/Brief/Script 进入 review_required。
 
 ### 责任签署
 

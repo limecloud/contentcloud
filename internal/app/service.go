@@ -64,15 +64,24 @@ func NewWithBlob(st store.Store, logger *slog.Logger, blobs blob.Store) *Service
 	return &Service{store: st, now: time.Now, log: logger, blobs: blobs}
 }
 
-func (s *Service) Register(ctx context.Context, email, password, displayName, tenantName string) (domain.Session, error) {
+// newRegistration 校验注册凭据并构造用户记录，不写入存储。
+func newRegistration(email, password, displayName string, now time.Time) (domain.User, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if !strings.Contains(email, "@") || len(password) < 10 {
-		return domain.Session{}, domain.Invalid("REGISTRATION_INVALID", "邮箱无效或密码少于 10 位")
+		return domain.User{}, domain.Invalid("REGISTRATION_INVALID", "邮箱无效或密码少于 10 位")
 	}
-	now := s.now().UTC()
 	user := domain.User{ID: domain.NewID(), Email: email, DisplayName: strings.TrimSpace(displayName), PasswordHash: hashPassword(password), VerifiedAt: &now, CreatedAt: now}
 	if user.DisplayName == "" {
 		user.DisplayName = strings.Split(email, "@")[0]
+	}
+	return user, nil
+}
+
+func (s *Service) Register(ctx context.Context, email, password, displayName, tenantName string) (domain.Session, error) {
+	now := s.now().UTC()
+	user, err := newRegistration(email, password, displayName, now)
+	if err != nil {
+		return domain.Session{}, err
 	}
 	if err := s.store.CreateUser(ctx, user); err != nil {
 		return domain.Session{}, err
@@ -90,6 +99,26 @@ func (s *Service) Register(ctx context.Context, email, password, displayName, te
 		return domain.Session{}, err
 	}
 	s.audit(ctx, Actor{UserID: user.ID, TenantID: tenant.ID, Role: "tenant_admin", Type: "user"}, "", "tenant.created", "tenant", tenant.ID, "", map[string]any{"name": tenant.Name})
+	return session, nil
+}
+
+// RegisterWithInvite 凭成员邀请令牌注册并直接加入邀请方租户，不创建新租户。
+func (s *Service) RegisterWithInvite(ctx context.Context, email, password, displayName, inviteToken string) (domain.Session, error) {
+	now := s.now().UTC()
+	user, err := newRegistration(email, password, displayName, now)
+	if err != nil {
+		return domain.Session{}, err
+	}
+	invite, err := s.validateInviteToken(ctx, inviteToken, user.Email, now)
+	if err != nil {
+		return domain.Session{}, err
+	}
+	session := domain.Session{ID: domain.NewID(), UserID: user.ID, ExpiresAt: now.Add(12 * time.Hour)}
+	session, membership, err := s.store.RegisterWithInvite(ctx, user, domain.TokenHash(inviteToken), session, now)
+	if err != nil {
+		return domain.Session{}, err
+	}
+	s.audit(ctx, Actor{UserID: user.ID, TenantID: session.TenantID, Role: membership.Role, Type: "user"}, "", "membership.invite_accepted", "membership", user.ID, "", map[string]any{"invite_id": invite.ID, "role": membership.Role})
 	return session, nil
 }
 

@@ -22,7 +22,8 @@ ContentPlan
 
 - CreativeDirection 是可比较的创意方向，不是完整剧本。
 - CreativeBatch 是本地批次 manifest 和候选集合，不等于 TaskRun；只有 Automation 远程触发时才同时存在云端 TaskRun。
-- Script 是稳定内容身份，ScriptVersion 是不可变稿件。
+- Script 是稳定内容身份，ScriptVersion 是不可变稿件；二者的 ID 在本地产生，批准资格由云端 ApprovedSnapshot 授予（见 `03-domain-and-data-model.md` §2.1）。
+- "approved BriefVersion" 指该 `brief_version_id` 已出现在某个 brief ApprovedSnapshot 的 eligible IDs 中，本地 lint 从 `.contentcloud/cache/approved/` 判定。
 - Shot 同时承担叙事功能、视觉实现、生成约束、证据和验收。
 
 ## 3. 完整生产流程
@@ -57,7 +58,7 @@ flowchart TB
 | --- | --- |
 | 业务 | channel、objective、campaign、experiment、duration range |
 | 用户 | audience、scenario、demand moment、pain point |
-| 策略 | primary selling point、support points、positioning |
+| 策略 | strategy_version_id（已批准）、primary selling point、support points、positioning |
 | 画面 | approved visualization plans、assets、truth strategy、Plan B |
 | 表达 | tone、brand rules、approved claims、forbidden claims |
 | 结构 | hook expectation、narrative constraints、single CTA |

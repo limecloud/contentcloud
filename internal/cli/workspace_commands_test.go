@@ -99,7 +99,7 @@ func TestMCPListsAndCallsWorkspaceTools(t *testing.T) {
 		name, _ := tool["name"].(string)
 		names[name] = true
 	}
-	for _, name := range []string{"workspace_status", "workspace_doctor", "publish_preflight", "submission_status", "review_feedback_list", "approved_snapshot_list"} {
+	for _, name := range []string{"workspace_status", "workspace_doctor", "source_register", "source_list", "source_ingest", "source_verify", "local_run_init", "local_run_show", "knowledge_import_candidates", "knowledge_lint", "knowledge_query", "knowledge_diagnose", "knowledge_pack", "brief_lint", "creative_batch_init", "script_lint", "creative_batch_lint", "creative_batch_finalize", "script_diff", "script_export", "publish_preflight", "submission_status", "review_feedback_list", "approved_snapshot_list"} {
 		if !names[name] {
 			t.Fatalf("MCP tool %q is missing: %#v", name, tools)
 		}
@@ -122,6 +122,20 @@ func TestMCPListsAndCallsWorkspaceTools(t *testing.T) {
 	result, ok = call.Result.(map[string]any)
 	if call.Error != nil || !ok || result["isError"] != false {
 		t.Fatalf("publish preflight tool failed: error=%+v result=%#v", call.Error, call.Result)
+	}
+	basePath := filepath.Join(root, "work", "base-script.json")
+	candidatePath := filepath.Join(root, "work", "candidate-script.json")
+	if err := os.WriteFile(basePath, []byte(`{"id":"script-version:1","title":"原标题"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidatePath, []byte(`{"id":"script-version:2","based_on_version_id":"script-version:1","change_summary":"调整标题","title":"新标题"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	params, _ = json.Marshal(map[string]any{"name": "script_diff", "arguments": map[string]any{"directory": root, "baseline_file": "work/base-script.json", "candidate_file": "work/candidate-script.json", "allowed_paths": []string{"/title"}}})
+	call = r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("4"), Method: "tools/call", Params: params})
+	result, ok = call.Result.(map[string]any)
+	if call.Error != nil || !ok || result["isError"] != false {
+		t.Fatalf("script diff MCP tool failed: error=%+v result=%#v", call.Error, call.Result)
 	}
 }
 

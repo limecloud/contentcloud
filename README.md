@@ -80,11 +80,13 @@ export CONTENTCLOUD_S3_SECRET_ACCESS_KEY='...'
 ./bin/contentcloud-server
 ```
 
-Worker 使用相同数据库与对象存储配置，并要求 ClamAV：
+Worker 使用相同数据库与对象存储配置。v0.2 默认不安装或调用 ClamAV；开放不可信文件上传前，可显式启用恶意文件扫描：
 
 ```bash
 CONTENTCLOUD_REQUIRE_MALWARE_SCAN=1 ./bin/contentcloud-worker
 ```
+
+生产环境可按 [systemd 部署说明](deploy/systemd/README.md) 在无 Docker 模式下运行 Server 与 Worker，并由 Nginx 反向代理到 Server 的本地监听地址。
 
 可用 `docker compose up --build` 启动 Server、Worker、PostgreSQL 和 MinIO 的完整本地拓扑。Compose 中的凭据只用于本机开发。
 

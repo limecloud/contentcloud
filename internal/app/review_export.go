@@ -1,20 +1,18 @@
 package app
 
 import (
-	"archive/zip"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"html"
 	"math/big"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/exportfmt"
 )
 
 type CreateReviewCommentInput struct {
@@ -456,59 +454,10 @@ func md(value string) string {
 }
 
 func renderXLSX(script domain.ScriptVersion) ([]byte, error) {
-	var output bytes.Buffer
-	zw := zip.NewWriter(&output)
-	files := map[string]string{
-		"[Content_Types].xml":        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
-		"_rels/.rels":                `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
-		"xl/workbook.xml":            `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="镜头" sheetId="1" r:id="rId1"/></sheets></workbook>`,
-		"xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
-	}
-	for name, contents := range files {
-		writer, err := zw.Create(name)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := writer.Write([]byte(contents)); err != nil {
-			return nil, err
-		}
-	}
 	headers := []string{"镜头ID", "开始(ms)", "结束(ms)", "功能", "叙事目的", "主体", "画面意图", "主体动作", "构图", "相机运动", "首帧提示", "动态提示", "尾帧提示", "口播", "字幕", "声音", "知识引用", "可视化方案", "负面约束", "连续性", "真实性策略", "验收条件", "Plan B"}
 	rows := [][]string{headers}
 	for _, shot := range script.Package.Shots {
 		rows = append(rows, []string{shot.ShotID, strconv.Itoa(shot.StartMS), strconv.Itoa(shot.EndMS), shot.Role, shot.NarrativePurpose, shot.Subject, shot.VisualIntent, shot.SubjectAction, shot.Composition, shot.CameraMotion, shot.FirstFrame.PromptZH, shot.MotionSpec, shot.EndFrame.PromptZH, shot.Voiceover, shot.OnScreenText, shot.SoundIntent, strings.Join(shot.KnowledgeRefs, ","), shot.VisualizationPlanID, strings.Join(shot.NegativeConstraints, "；"), shot.Continuity.IncomingState + " → " + shot.Continuity.OutgoingState, shot.ProductTruthStrategy, strings.Join(shot.AcceptanceCriteria, "；"), shot.PlanB})
 	}
-	var sheet strings.Builder
-	sheet.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetData>`)
-	for rowIndex, row := range rows {
-		fmt.Fprintf(&sheet, `<row r="%d">`, rowIndex+1)
-		for columnIndex, value := range row {
-			if strings.HasPrefix(value, "=") || strings.HasPrefix(value, "+") || strings.HasPrefix(value, "-") || strings.HasPrefix(value, "@") {
-				value = "'" + value
-			}
-			fmt.Fprintf(&sheet, `<c r="%s%d" t="inlineStr"><is><t>%s</t></is></c>`, xlsxColumn(columnIndex), rowIndex+1, html.EscapeString(value))
-		}
-		sheet.WriteString(`</row>`)
-	}
-	sheet.WriteString(`</sheetData></worksheet>`)
-	writer, err := zw.Create("xl/worksheets/sheet1.xml")
-	if err != nil {
-		return nil, err
-	}
-	if _, err := writer.Write([]byte(sheet.String())); err != nil {
-		return nil, err
-	}
-	if err := zw.Close(); err != nil {
-		return nil, err
-	}
-	return output.Bytes(), nil
-}
-
-func xlsxColumn(index int) string {
-	value := ""
-	for index >= 0 {
-		value = string(rune('A'+index%26)) + value
-		index = index/26 - 1
-	}
-	return value
+	return exportfmt.XLSX("镜头", rows)
 }

@@ -13,3 +13,5 @@ var/
 web/vite.config.js
 web/vite.config.d.ts
 *.log
+.playwright-mcp/
+register-create.png

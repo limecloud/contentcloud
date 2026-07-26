@@ -112,33 +112,38 @@ func (s *Service) MembershipInvites(ctx context.Context, actor Actor) ([]domain.
 	return s.store.MembershipInvites(ctx, actor.TenantID)
 }
 
-func (s *Service) AcceptMembershipInvite(ctx context.Context, actor Actor, token, requestID string) (domain.Membership, error) {
+// validateInviteToken 解析并校验邀请令牌，不写入注册或成员数据。
+func (s *Service) validateInviteToken(ctx context.Context, token, email string, now time.Time) (domain.MembershipInvite, error) {
 	invite, err := s.store.MembershipInviteByTokenHash(ctx, domain.TokenHash(token))
 	if err != nil {
-		return domain.Membership{}, domain.Conflict("INVITE_INVALID", "邀请无效、已撤销或已过期")
+		return domain.MembershipInvite{}, domain.Conflict("INVITE_INVALID", "邀请无效、已撤销或已过期")
 	}
+	if err := invite.ValidateAcceptance(email, now); err != nil {
+		if invite.Status == "pending" && now.After(invite.ExpiresAt) {
+			invite.Status = "expired"
+			_ = s.store.SaveMembershipInvite(ctx, invite)
+		}
+		return domain.MembershipInvite{}, err
+	}
+	return invite, nil
+}
+
+func (s *Service) AcceptMembershipInvite(ctx context.Context, actor Actor, token, requestID string) (domain.Membership, error) {
 	user, err := s.store.UserByID(ctx, actor.UserID)
 	if err != nil {
 		return domain.Membership{}, err
 	}
 	now := s.now().UTC()
-	if invite.Status != "pending" || invite.RevokedAt != nil || now.After(invite.ExpiresAt) || !strings.EqualFold(invite.Email, user.Email) {
-		if invite.Status == "pending" && now.After(invite.ExpiresAt) {
-			invite.Status = "expired"
-			_ = s.store.SaveMembershipInvite(ctx, invite)
-		}
-		return domain.Membership{}, domain.Conflict("INVITE_INVALID", "邀请无效、已撤销、邮箱不匹配或已过期")
+	invite, err := s.validateInviteToken(ctx, token, user.Email, now)
+	if err != nil {
+		return domain.Membership{}, err
 	}
-	membership := domain.Membership{TenantID: invite.TenantID, UserID: user.ID, Role: invite.Role, Status: "active", CreatedAt: now}
-	if err := s.store.SaveMembership(ctx, membership); err != nil {
-		return membership, err
+	membership, err := s.store.AcceptMembershipInvite(ctx, domain.TokenHash(token), user, now)
+	if err != nil {
+		return domain.Membership{}, err
 	}
-	invite.Status, invite.AcceptedBy, invite.AcceptedAt = "accepted", user.ID, &now
-	if err := s.store.SaveMembershipInvite(ctx, invite); err != nil {
-		return membership, err
-	}
-	tenantActor := Actor{UserID: user.ID, TenantID: invite.TenantID, Role: invite.Role, Type: "user"}
-	s.audit(ctx, tenantActor, "", "membership.invite_accepted", "membership", user.ID, requestID, map[string]any{"invite_id": invite.ID, "role": invite.Role})
+	tenantActor := Actor{UserID: user.ID, TenantID: membership.TenantID, Role: membership.Role, Type: "user"}
+	s.audit(ctx, tenantActor, "", "membership.invite_accepted", "membership", user.ID, requestID, map[string]any{"invite_id": invite.ID, "role": membership.Role})
 	return membership, nil
 }
 

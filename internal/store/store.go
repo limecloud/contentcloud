@@ -26,6 +26,8 @@ type Store interface {
 	MembershipInviteByTokenHash(context.Context, string) (domain.MembershipInvite, error)
 	MembershipInvites(context.Context, string) ([]domain.MembershipInvite, error)
 	SaveMembershipInvite(context.Context, domain.MembershipInvite) error
+	AcceptMembershipInvite(context.Context, string, domain.User, time.Time) (domain.Membership, error)
+	RegisterWithInvite(context.Context, domain.User, string, domain.Session, time.Time) (domain.Session, domain.Membership, error)
 
 	CreateProject(context.Context, domain.Project) error
 	Projects(context.Context, string) ([]domain.Project, error)
