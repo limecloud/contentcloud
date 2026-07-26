@@ -1,6 +1,4 @@
 -- +goose Up
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
 CREATE TABLE users (
   id uuid PRIMARY KEY,
   email text NOT NULL UNIQUE,
