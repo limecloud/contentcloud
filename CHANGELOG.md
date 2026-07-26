@@ -2,6 +2,29 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.4.0] - 2026-07-27
+
+### Added
+
+- 打通 SubmissionRevision 内审、客户 OTP 审批、ApprovedSnapshot、三格式 DeliveryPackage、投放结果、人工评级与 Lineage 的 V2 完整业务链。
+- 增加 revision 级客户 ReviewGrant 的创建、查看、撤销、过期与新 revision 自动失效机制，公开审批页继续兼容 V1 历史链接。
+- 增加基于 ApprovedSnapshot 的 JSON、Markdown、XLSX 导出与不可变交付包，并支持 Web 和 CLI 下载。
+- 增加 `00014`/`00015` 数据库迁移，将交付和结果切换到 ApprovedSnapshot，并以可审计、幂等方式回填 V1 影子快照。
+- 增加真实 PostgreSQL、应用层和 HTTP Golden Path 测试，覆盖两阶段审批、交付、结果回流、RLS、不可变约束及脏 hash 跳过。
+
+### Changed
+
+- 内部批准只推进到 `internally_approved`，客户批准才原子生成 ApprovedSnapshot，避免未获客户确认的内容进入正式交付。
+- Brief 强制绑定已拉取的 Strategy ApprovedSnapshot；PerformanceObservation、RatingDecision 与 Lineage 统一使用批准快照作为事实源。
+- 更新 CLI `review`、`artifact`、`result` 命令和 OpenAPI 契约，使 revision、快照、交付包与结果字段保持一致。
+- 重构租户控制台路由与 Editorial Studio 视觉体系，保留旧 `/workspace/*` 地址的兼容跳转，并完善审批、交付和结果操作界面。
+- 本地开发改为 `make dev` 同时运行 Go API 与 Vite，默认使用隔离 Memory Store；构建后单体预览使用 `make preview`。
+
+### Fixed
+
+- 修复 V1 影子回填遇到非 SHA-256 历史 hash 时导致迁移失败的问题；无效记录仅计入报告，不伪造或重算历史 hash。
+- 修复 CLI `review status` 仍读取 V1 ScriptVersion 的问题，改为返回 Submission、Revision 与客户授权状态。
+
 ## [0.3.0] - 2026-07-26
 
 ### Added

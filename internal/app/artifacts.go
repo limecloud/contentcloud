@@ -115,7 +115,12 @@ func (s *Service) ArtifactPresentation(ctx context.Context, actor Actor, artifac
 	if err != nil {
 		return domain.ArtifactPresentation{}, err
 	}
-	artifacts, err := s.store.Artifacts(ctx, actor.TenantID, target.ScriptVersionID)
+	var artifacts []domain.Artifact
+	if target.ApprovedSnapshotID != "" {
+		artifacts, err = s.store.ArtifactsByApprovedSnapshot(ctx, actor.TenantID, target.ApprovedSnapshotID)
+	} else {
+		artifacts, err = s.store.Artifacts(ctx, actor.TenantID, target.ScriptVersionID)
+	}
 	if err != nil {
 		return domain.ArtifactPresentation{}, err
 	}

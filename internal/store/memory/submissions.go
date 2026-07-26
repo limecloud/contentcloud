@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"sort"
+	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
 )
@@ -78,6 +79,14 @@ func (s *Store) CreateSubmissionRevision(_ context.Context, submission domain.Su
 	s.submissions[submission.ID] = submission
 	s.submissionRevisions[revision.ID] = revision
 	s.reviewCycles[cycle.ID] = cycle
+	for id, grant := range s.reviewGrants {
+		grantRevision, ok := s.submissionRevisions[grant.SubjectID]
+		if grant.SubjectType == "submission_revision" && ok && grantRevision.SubmissionID == submission.ID && grant.SubjectID != revision.ID && grant.RevokedAt == nil && grant.DecisionAt == nil {
+			revokedAt := revision.CreatedAt
+			grant.RevokedAt = &revokedAt
+			s.reviewGrants[id] = grant
+		}
+	}
 	return nil
 }
 
@@ -161,6 +170,18 @@ func (s *Store) ApprovedSnapshot(_ context.Context, tenantID, id string) (domain
 	return value, nil
 }
 
+func (s *Store) RecordSubmissionApproval(_ context.Context, submission domain.Submission, decision domain.ApprovalDecision) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.submissions[submission.ID]
+	if !ok || existing.TenantID != submission.TenantID {
+		return domain.NotFound("Submission")
+	}
+	s.submissions[submission.ID] = submission
+	s.approvals[decision.ID] = decision
+	return nil
+}
+
 func (s *Store) ApproveSubmissionRevision(_ context.Context, submission domain.Submission, snapshot domain.ApprovedSnapshot, decision domain.ApprovalDecision) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -187,5 +208,84 @@ func (s *Store) RequestSubmissionChanges(_ context.Context, submission domain.Su
 	s.submissions[submission.ID] = submission
 	s.approvals[decision.ID] = decision
 	s.reviewComments[comment.ID] = comment
+	for id, grant := range s.reviewGrants {
+		if grant.TenantID == submission.TenantID && grant.SubjectID == submission.CurrentRevisionID && grant.SubjectType == "submission_revision" && grant.RevokedAt == nil && grant.DecisionAt == nil {
+			revokedAt := decision.CreatedAt
+			grant.RevokedAt = &revokedAt
+			s.reviewGrants[id] = grant
+		}
+	}
 	return nil
+}
+
+func (s *Store) CreateSubmissionReviewGrant(_ context.Context, submission domain.Submission, grant domain.ReviewGrant) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.submissions[submission.ID]
+	if !ok || existing.TenantID != submission.TenantID {
+		return domain.NotFound("Submission")
+	}
+	if _, ok := s.submissionRevisions[grant.SubjectID]; !ok {
+		return domain.NotFound("SubmissionRevision")
+	}
+	s.submissions[submission.ID] = submission
+	s.reviewGrants[grant.ID] = grant
+	return nil
+}
+
+func (s *Store) CompleteSubmissionClientReview(_ context.Context, submission domain.Submission, grant domain.ReviewGrant, decision domain.ApprovalDecision, comment *domain.ReviewComment, snapshot *domain.ApprovedSnapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.submissions[submission.ID]
+	if !ok || existing.TenantID != submission.TenantID {
+		return domain.NotFound("Submission")
+	}
+	storedGrant, ok := s.reviewGrants[grant.ID]
+	if !ok || storedGrant.DecisionAt != nil || storedGrant.RevokedAt != nil || time.Now().After(storedGrant.ExpiresAt) {
+		return domain.Conflict("REVIEW_ALREADY_DECIDED", "该审批链接已失效或已完成最终决策")
+	}
+	s.submissions[submission.ID] = submission
+	s.reviewGrants[grant.ID] = grant
+	s.approvals[decision.ID] = decision
+	if comment != nil {
+		s.reviewComments[comment.ID] = *comment
+	}
+	if snapshot != nil {
+		if _, exists := s.approvedSnapshots[snapshot.ID]; exists {
+			return domain.Conflict("APPROVED_SNAPSHOT_EXISTS", "批准快照已存在")
+		}
+		s.approvedSnapshots[snapshot.ID] = *snapshot
+	}
+	return nil
+}
+
+func (s *Store) CompleteLegacyClientReview(_ context.Context, script domain.ScriptVersion, grant domain.ReviewGrant, decision domain.ApprovalDecision, comment *domain.ReviewComment) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	storedGrant, ok := s.reviewGrants[grant.ID]
+	if !ok || storedGrant.TenantID != grant.TenantID || storedGrant.VerifiedAt == nil || storedGrant.RevokedAt != nil || storedGrant.DecisionAt != nil || !decision.CreatedAt.Before(storedGrant.ExpiresAt) {
+		return domain.Conflict("REVIEW_GRANT_STATE_INVALID", "客户审批授权未验证、已撤销、已完成或已过期")
+	}
+	storedScript, ok := s.scripts[script.ID]
+	if !ok || storedScript.TenantID != script.TenantID || storedScript.ContentHash != script.ContentHash || storedScript.Status != "client_review" {
+		return domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效或状态已变化")
+	}
+	storedScript.Status = script.Status
+	s.scripts[script.ID] = storedScript
+	decision.DecisionStage = defaultMemoryDecisionStage(decision.DecisionStage)
+	s.approvals[decision.ID] = decision
+	if comment != nil {
+		s.reviewComments[comment.ID] = *comment
+	}
+	decidedAt := decision.CreatedAt
+	storedGrant.DecisionAt = &decidedAt
+	s.reviewGrants[grant.ID] = storedGrant
+	return nil
+}
+
+func defaultMemoryDecisionStage(value string) string {
+	if value == "" {
+		return "legacy"
+	}
+	return value
 }

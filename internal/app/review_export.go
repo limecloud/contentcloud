@@ -13,6 +13,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/exportfmt"
+	"github.com/limecloud/contentcloud/internal/localworkspace"
 )
 
 type CreateReviewCommentInput struct {
@@ -96,25 +97,57 @@ func (s *Service) ResolveReviewComment(ctx context.Context, actor Actor, id, req
 }
 
 type ReviewProjection struct {
-	Project  domain.Project         `json:"project"`
-	Script   domain.ScriptVersion   `json:"script"`
-	Comments []domain.ReviewComment `json:"comments"`
-	Verified bool                   `json:"verified"`
+	Project    domain.Project           `json:"project"`
+	Script     domain.ScriptVersion     `json:"script,omitempty"`
+	Submission *SubmissionReviewSubject `json:"submission,omitempty"`
+	Comments   []domain.ReviewComment   `json:"comments"`
+	Verified   bool                     `json:"verified"`
 }
 
-func (s *Service) CreateReviewGrant(ctx context.Context, actor Actor, scriptID, reviewerEmail, requestID string) (domain.ReviewGrant, error) {
+type SubmissionReviewSubject struct {
+	SubmissionID         string          `json:"submission_id"`
+	SubmissionRevisionID string          `json:"submission_revision_id"`
+	SubjectHash          string          `json:"subject_hash"`
+	SchemaVersion        string          `json:"schema_version"`
+	Objects              json.RawMessage `json:"objects"`
+}
+
+type ReviewDecisionResult struct {
+	SubjectType      string                   `json:"subject_type"`
+	SubjectID        string                   `json:"subject_id"`
+	Status           string                   `json:"status"`
+	ApprovedSnapshot *domain.ApprovedSnapshot `json:"approved_snapshot,omitempty"`
+}
+
+type SubmissionReviewStatus struct {
+	Submission domain.Submission         `json:"submission"`
+	Revision   domain.SubmissionRevision `json:"revision"`
+	Grants     []domain.ReviewGrant      `json:"grants"`
+}
+
+func (s *Service) CreateReviewGrant(ctx context.Context, actor Actor, revisionID, reviewerEmail, requestID string) (domain.ReviewGrant, error) {
 	if !canManage(actor.Role) {
 		return domain.ReviewGrant{}, domain.Policy("ROLE_DENIED", "当前角色不能创建客户审批", "联系项目负责人")
 	}
-	script, err := s.store.Script(ctx, actor.TenantID, scriptID)
+	revision, err := s.store.SubmissionRevision(ctx, actor.TenantID, revisionID)
 	if err != nil {
 		return domain.ReviewGrant{}, err
 	}
-	if _, err := s.projectForWrite(ctx, actor, script.ProjectID); err != nil {
+	submission, err := s.store.Submission(ctx, actor.TenantID, revision.SubmissionID)
+	if err != nil {
 		return domain.ReviewGrant{}, err
 	}
-	if script.Status != "internally_approved" && script.Status != "client_review" {
-		return domain.ReviewGrant{}, domain.Conflict("SCRIPT_STATE_INVALID", "只有已通过内审的版本可发起客户审批")
+	if _, err := s.projectForWrite(ctx, actor, revision.ProjectID); err != nil {
+		return domain.ReviewGrant{}, err
+	}
+	if submission.SubmissionType != "script" {
+		return domain.ReviewGrant{}, domain.Invalid("REVIEW_SUBJECT_INVALID", "客户审批只接受 script SubmissionRevision")
+	}
+	if submission.CurrentRevisionID != revision.ID || (submission.Status != "internally_approved" && submission.Status != "client_review") {
+		return domain.ReviewGrant{}, domain.Conflict("SUBMISSION_STATE_INVALID", "只有当前已通过内审的 script SubmissionRevision 可发起客户审批")
+	}
+	if err := s.requireInternalSubmissionApproval(ctx, revision); err != nil {
+		return domain.ReviewGrant{}, err
 	}
 	if !strings.Contains(reviewerEmail, "@") {
 		return domain.ReviewGrant{}, domain.Invalid("REVIEWER_EMAIL_INVALID", "客户审批邮箱无效")
@@ -128,20 +161,16 @@ func (s *Service) CreateReviewGrant(ctx context.Context, actor Actor, scriptID, 
 		return domain.ReviewGrant{}, err
 	}
 	now := s.now().UTC()
-	v := domain.ReviewGrant{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: script.ProjectID, SubjectType: "script_version", SubjectID: script.ID, SubjectHash: script.ContentHash, ReviewerEmail: strings.ToLower(strings.TrimSpace(reviewerEmail)), TokenHash: tokenHash, OTPHash: domain.TokenHash(otp), ExpiresAt: now.Add(7 * 24 * time.Hour), CreatedAt: now, PlaintextToken: plain, PlaintextOTP: otp}
+	v := domain.ReviewGrant{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: revision.ProjectID, SubjectType: "submission_revision", SubjectID: revision.ID, SubjectHash: revision.ContentHash, ReviewerEmail: strings.ToLower(strings.TrimSpace(reviewerEmail)), TokenHash: tokenHash, OTPHash: domain.TokenHash(otp), ExpiresAt: now.Add(7 * 24 * time.Hour), CreatedAt: now, PlaintextToken: plain, PlaintextOTP: otp}
 	stored := v
 	stored.PlaintextToken = ""
 	stored.PlaintextOTP = ""
-	if err := s.store.CreateReviewGrant(ctx, stored); err != nil {
+	submission.Status = "client_review"
+	submission.UpdatedAt = now
+	if err := s.store.CreateSubmissionReviewGrant(ctx, submission, stored); err != nil {
 		return v, err
 	}
-	if script.Status == "internally_approved" {
-		script.Status = "client_review"
-		if err := s.store.SaveScript(ctx, script); err != nil {
-			return v, err
-		}
-	}
-	s.audit(ctx, actor, script.ProjectID, "review_grant.created", "review_grant", v.ID, requestID, map[string]any{"script_version_id": script.ID, "expires_at": v.ExpiresAt})
+	s.audit(ctx, actor, revision.ProjectID, "review_grant.created", "review_grant", v.ID, requestID, map[string]any{"submission_revision_id": revision.ID, "expires_at": v.ExpiresAt})
 	return v, nil
 }
 
@@ -153,7 +182,30 @@ func newReviewOTP() (string, error) {
 	return fmt.Sprintf("%06d", value.Int64()), nil
 }
 
-func (s *Service) ReviewGrants(ctx context.Context, actor Actor, scriptVersionID string) ([]domain.ReviewGrant, error) {
+func (s *Service) ReviewGrants(ctx context.Context, actor Actor, revisionID string) ([]domain.ReviewGrant, error) {
+	if _, err := s.store.SubmissionRevision(ctx, actor.TenantID, revisionID); err != nil {
+		return nil, err
+	}
+	return s.store.ReviewGrants(ctx, actor.TenantID, revisionID)
+}
+
+func (s *Service) SubmissionReviewStatus(ctx context.Context, actor Actor, revisionID string) (SubmissionReviewStatus, error) {
+	revision, err := s.store.SubmissionRevision(ctx, actor.TenantID, revisionID)
+	if err != nil {
+		return SubmissionReviewStatus{}, err
+	}
+	submission, err := s.store.Submission(ctx, actor.TenantID, revision.SubmissionID)
+	if err != nil {
+		return SubmissionReviewStatus{}, err
+	}
+	grants, err := s.store.ReviewGrants(ctx, actor.TenantID, revision.ID)
+	if err != nil {
+		return SubmissionReviewStatus{}, err
+	}
+	return SubmissionReviewStatus{Submission: submission, Revision: revision, Grants: grants}, nil
+}
+
+func (s *Service) LegacyReviewGrants(ctx context.Context, actor Actor, scriptVersionID string) ([]domain.ReviewGrant, error) {
 	if _, err := s.store.Script(ctx, actor.TenantID, scriptVersionID); err != nil {
 		return nil, err
 	}
@@ -178,10 +230,10 @@ func (s *Service) RevokeReviewGrant(ctx context.Context, actor Actor, grantID, r
 	}
 	now := s.now().UTC()
 	grant.RevokedAt = &now
-	if err := s.store.SaveReviewGrant(ctx, grant); err != nil {
+	if err := s.store.RevokeReviewGrant(ctx, grant.TenantID, grant.ID, now); err != nil {
 		return grant, err
 	}
-	s.audit(ctx, actor, grant.ProjectID, "review_grant.revoked", "review_grant", grant.ID, requestID, map[string]any{"script_version_id": grant.SubjectID})
+	s.audit(ctx, actor, grant.ProjectID, "review_grant.revoked", "review_grant", grant.ID, requestID, map[string]any{"subject_type": grant.SubjectType, "subject_id": grant.SubjectID})
 	grant.TokenHash = ""
 	grant.OTPHash = ""
 	return grant, nil
@@ -192,10 +244,6 @@ func (s *Service) ReviewProjection(ctx context.Context, reviewToken string) (Rev
 	if err != nil {
 		return ReviewProjection{}, err
 	}
-	script, err := s.store.Script(ctx, grant.TenantID, grant.SubjectID)
-	if err != nil || script.ContentHash != grant.SubjectHash {
-		return ReviewProjection{}, domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效")
-	}
 	project, err := s.store.Project(ctx, grant.TenantID, grant.ProjectID)
 	if err != nil {
 		return ReviewProjection{}, err
@@ -203,14 +251,38 @@ func (s *Service) ReviewProjection(ctx context.Context, reviewToken string) (Rev
 	if grant.VerifiedAt == nil {
 		return ReviewProjection{Project: domain.Project{ID: project.ID, BrandName: project.BrandName, ProductName: project.ProductName}, Verified: false}, nil
 	}
-	comments, _ := s.store.ReviewComments(ctx, grant.TenantID, script.ID)
+	if grant.SubjectType == "script_version" {
+		script, err := s.store.Script(ctx, grant.TenantID, grant.SubjectID)
+		if err != nil || script.ContentHash != grant.SubjectHash {
+			return ReviewProjection{}, domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效")
+		}
+		comments, _ := s.store.ReviewComments(ctx, grant.TenantID, script.ID)
+		return ReviewProjection{Project: project, Script: script, Comments: clientVisibleComments(comments), Verified: true}, nil
+	}
+	if grant.SubjectType != "submission_revision" {
+		return ReviewProjection{}, domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象类型无效")
+	}
+	revision, err := s.store.SubmissionRevision(ctx, grant.TenantID, grant.SubjectID)
+	if err != nil || revision.ContentHash != grant.SubjectHash {
+		return ReviewProjection{}, domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效")
+	}
+	submission, err := s.store.Submission(ctx, grant.TenantID, revision.SubmissionID)
+	if err != nil || submission.CurrentRevisionID != revision.ID || submission.Status != "client_review" {
+		return ReviewProjection{}, domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效或状态已变化")
+	}
+	comments, _ := s.store.ReviewComments(ctx, grant.TenantID, revision.ID)
+	subject := &SubmissionReviewSubject{SubmissionID: submission.ID, SubmissionRevisionID: revision.ID, SubjectHash: revision.ContentHash, SchemaVersion: revision.SchemaVersion, Objects: revision.Objects}
+	return ReviewProjection{Project: project, Submission: subject, Comments: clientVisibleComments(comments), Verified: true}, nil
+}
+
+func clientVisibleComments(comments []domain.ReviewComment) []domain.ReviewComment {
 	publicComments := []domain.ReviewComment{}
 	for _, comment := range comments {
 		if comment.Visibility == "client" {
 			publicComments = append(publicComments, comment)
 		}
 	}
-	return ReviewProjection{Project: project, Script: script, Comments: publicComments, Verified: grant.VerifiedAt != nil}, nil
+	return publicComments
 }
 
 func (s *Service) VerifyReviewGrant(ctx context.Context, reviewToken, otp string) (ReviewProjection, error) {
@@ -223,72 +295,157 @@ func (s *Service) VerifyReviewGrant(ctx context.Context, reviewToken, otp string
 	}
 	now := s.now().UTC()
 	grant.VerifiedAt = &now
-	if err := s.store.SaveReviewGrant(ctx, grant); err != nil {
+	if err := s.store.MarkReviewGrantVerified(ctx, grant.TenantID, grant.ID, now); err != nil {
 		return ReviewProjection{}, err
 	}
 	return s.ReviewProjection(ctx, reviewToken)
 }
 
-func (s *Service) DecideReviewGrant(ctx context.Context, reviewToken, decision, reason, shotID, requestID string) (domain.ScriptVersion, error) {
+func (s *Service) DecideReviewGrant(ctx context.Context, reviewToken, decision, reason, shotID, requestID string) (ReviewDecisionResult, error) {
 	grant, err := s.reviewGrant(ctx, reviewToken)
 	if err != nil {
-		return domain.ScriptVersion{}, err
+		return ReviewDecisionResult{}, err
 	}
 	if grant.VerifiedAt == nil {
-		return domain.ScriptVersion{}, domain.E("authentication", "review_otp", "REVIEW_VERIFICATION_REQUIRED", "请先完成邮箱验证码验证", 3)
+		return ReviewDecisionResult{}, domain.E("authentication", "review_otp", "REVIEW_VERIFICATION_REQUIRED", "请先完成邮箱验证码验证", 3)
 	}
 	if grant.DecisionAt != nil {
-		return domain.ScriptVersion{}, domain.Conflict("REVIEW_ALREADY_DECIDED", "该审批链接已完成最终决策")
+		return ReviewDecisionResult{}, domain.Conflict("REVIEW_ALREADY_DECIDED", "该审批链接已完成最终决策")
 	}
+	if grant.SubjectType == "script_version" {
+		return s.decideLegacyReviewGrant(ctx, grant, decision, reason, shotID, requestID)
+	}
+	if grant.SubjectType != "submission_revision" {
+		return ReviewDecisionResult{}, domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象类型无效")
+	}
+	return s.decideSubmissionReviewGrant(ctx, grant, decision, reason, shotID, requestID)
+}
+
+func (s *Service) decideSubmissionReviewGrant(ctx context.Context, grant domain.ReviewGrant, decision, reason, shotID, requestID string) (ReviewDecisionResult, error) {
+	revision, err := s.store.SubmissionRevision(ctx, grant.TenantID, grant.SubjectID)
+	if err != nil || revision.ContentHash != grant.SubjectHash {
+		return ReviewDecisionResult{}, domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效")
+	}
+	submission, err := s.store.Submission(ctx, grant.TenantID, revision.SubmissionID)
+	if err != nil || submission.CurrentRevisionID != revision.ID || submission.Status != "client_review" || submission.SubmissionType != "script" {
+		return ReviewDecisionResult{}, domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效或状态已变化")
+	}
+	if err := s.requireInternalSubmissionApproval(ctx, revision); err != nil {
+		return ReviewDecisionResult{}, err
+	}
+	now := s.now().UTC()
+	previous := submission.Status
+	var comment *domain.ReviewComment
+	var snapshot *domain.ApprovedSnapshot
+	switch decision {
+	case "approve":
+		if err := s.requireResolvedComments(ctx, grant.TenantID, revision.ID, "client"); err != nil {
+			return ReviewDecisionResult{}, err
+		}
+		canonical, err := canonicalSubmissionContent(submission, revision)
+		if err != nil {
+			return ReviewDecisionResult{}, err
+		}
+		submission.Status = "approved"
+		snapshot = &domain.ApprovedSnapshot{ID: domain.NewID(), TenantID: grant.TenantID, ProjectID: revision.ProjectID, WorkspaceID: revision.WorkspaceID, SubmissionID: submission.ID, SubmissionRevisionID: revision.ID, SubmissionType: submission.SubmissionType, SchemaVersion: revision.SchemaVersion, ContentHash: revision.ContentHash, SubjectHash: revision.ContentHash, CanonicalContent: canonical, EligibleIDs: revision.EligibleObjectIDs(), Artifacts: revision.Artifacts, CreatedBy: "client:" + grant.ReviewerEmail, CreatedAt: now, Origin: "current"}
+	case "return":
+		reason = strings.TrimSpace(reason)
+		if reason == "" {
+			return ReviewDecisionResult{}, domain.Invalid("REVIEW_REASON_REQUIRED", "退回修改必须填写原因")
+		}
+		submission.Status = "changes_requested"
+		cycleID := s.submissionReviewCycleID(ctx, grant.TenantID, revision.ID)
+		comment = &domain.ReviewComment{ID: domain.NewID(), TenantID: grant.TenantID, ProjectID: grant.ProjectID, ReviewCycleID: cycleID, SubjectType: "submission_revision", SubjectID: revision.ID, ShotID: shotID, Body: reason, Visibility: "client", AuthorID: "client:" + grant.ReviewerEmail, CreatedAt: now}
+	default:
+		return ReviewDecisionResult{}, domain.Invalid("DECISION_INVALID", "客户审批决策无效")
+	}
+	approval := domain.ApprovalDecision{ID: domain.NewID(), TenantID: grant.TenantID, ProjectID: grant.ProjectID, SubjectType: "submission_revision", SubjectID: revision.ID, SubjectHash: revision.ContentHash, DecisionStage: "client", ActorID: "client:" + grant.ReviewerEmail, Decision: decision, Reason: reason, PreviousState: previous, ResultingState: submission.Status, CreatedAt: now}
+	if snapshot != nil {
+		snapshot.DecisionID = approval.ID
+	}
+	submission.UpdatedAt = now
+	grant.DecisionAt = &now
+	if err := s.store.CompleteSubmissionClientReview(ctx, submission, grant, approval, comment, snapshot); err != nil {
+		return ReviewDecisionResult{}, err
+	}
+	s.audit(ctx, Actor{UserID: "client:" + grant.ReviewerEmail, TenantID: grant.TenantID, Type: "client"}, grant.ProjectID, "submission.client_reviewed", "submission_revision", revision.ID, requestID, map[string]any{"decision": decision, "to": submission.Status, "snapshot_id": valueOrEmptySnapshotID(snapshot)})
+	return ReviewDecisionResult{SubjectType: "submission_revision", SubjectID: revision.ID, Status: submission.Status, ApprovedSnapshot: snapshot}, nil
+}
+
+func (s *Service) decideLegacyReviewGrant(ctx context.Context, grant domain.ReviewGrant, decision, reason, shotID, requestID string) (ReviewDecisionResult, error) {
 	script, err := s.store.Script(ctx, grant.TenantID, grant.SubjectID)
 	if err != nil || script.ContentHash != grant.SubjectHash || script.Status != "client_review" {
-		return domain.ScriptVersion{}, domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效或状态已变化")
+		return ReviewDecisionResult{}, domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效或状态已变化")
 	}
 	previous := script.Status
 	switch decision {
 	case "approve":
 		if err := s.requireResolvedComments(ctx, grant.TenantID, script.ID, "client"); err != nil {
-			return script, err
+			return ReviewDecisionResult{}, err
 		}
 		if err := s.validateScriptApprovalDependencies(ctx, grant.TenantID, script); err != nil {
 			script.Status = "review_required"
 			_ = s.store.SaveScript(ctx, script)
-			return script, err
+			return ReviewDecisionResult{}, err
 		}
 		script.Status = "approved"
 	case "return":
 		if strings.TrimSpace(reason) == "" {
-			return script, domain.Invalid("REVIEW_REASON_REQUIRED", "退回修改必须填写原因")
+			return ReviewDecisionResult{}, domain.Invalid("REVIEW_REASON_REQUIRED", "退回修改必须填写原因")
 		}
 		script.Status = "revision_requested"
 	default:
-		return script, domain.Invalid("DECISION_INVALID", "客户审批决策无效")
-	}
-	if err := s.store.SaveScript(ctx, script); err != nil {
-		return script, err
+		return ReviewDecisionResult{}, domain.Invalid("DECISION_INVALID", "客户审批决策无效")
 	}
 	now := s.now().UTC()
 	grant.DecisionAt = &now
-	if err := s.store.SaveReviewGrant(ctx, grant); err != nil {
-		return script, err
-	}
-	approval := domain.ApprovalDecision{ID: domain.NewID(), TenantID: grant.TenantID, ProjectID: grant.ProjectID, SubjectType: "script_version", SubjectID: script.ID, SubjectHash: script.ContentHash, ActorID: "client:" + grant.ReviewerEmail, Decision: decision, Reason: reason, PreviousState: previous, ResultingState: script.Status, CreatedAt: now}
-	if err := s.store.CreateApproval(ctx, approval); err != nil {
-		return script, err
-	}
+	approval := domain.ApprovalDecision{ID: domain.NewID(), TenantID: grant.TenantID, ProjectID: grant.ProjectID, SubjectType: "script_version", SubjectID: script.ID, SubjectHash: script.ContentHash, DecisionStage: "legacy", ActorID: "client:" + grant.ReviewerEmail, Decision: decision, Reason: reason, PreviousState: previous, ResultingState: script.Status, CreatedAt: now}
+	var comment *domain.ReviewComment
 	if decision == "return" && reason != "" {
 		cycles, _ := s.store.ReviewCycles(ctx, grant.TenantID, script.ID)
 		cycleID := ""
 		if len(cycles) > 0 {
 			cycleID = cycles[0].ID
 		}
-		_ = s.store.CreateReviewComment(ctx, domain.ReviewComment{ID: domain.NewID(), TenantID: grant.TenantID, ProjectID: grant.ProjectID, ReviewCycleID: cycleID, SubjectType: "script_version", SubjectID: script.ID, ShotID: shotID, Body: reason, Visibility: "client", AuthorID: "client:" + grant.ReviewerEmail, CreatedAt: now})
+		value := domain.ReviewComment{ID: domain.NewID(), TenantID: grant.TenantID, ProjectID: grant.ProjectID, ReviewCycleID: cycleID, SubjectType: "script_version", SubjectID: script.ID, ShotID: shotID, Body: reason, Visibility: "client", AuthorID: "client:" + grant.ReviewerEmail, CreatedAt: now}
+		comment = &value
+	}
+	if err := s.store.CompleteLegacyClientReview(ctx, script, grant, approval, comment); err != nil {
+		return ReviewDecisionResult{}, err
 	}
 	if decision == "approve" {
 		_ = s.supersedeApprovedScriptVersions(ctx, grant.TenantID, script)
 	}
 	s.audit(ctx, Actor{UserID: "client:" + grant.ReviewerEmail, TenantID: grant.TenantID, Type: "client"}, grant.ProjectID, "script.client_reviewed", "script_version", script.ID, requestID, map[string]any{"decision": decision, "to": script.Status})
-	return script, nil
+	return ReviewDecisionResult{SubjectType: "script_version", SubjectID: script.ID, Status: script.Status}, nil
+}
+
+func (s *Service) requireInternalSubmissionApproval(ctx context.Context, revision domain.SubmissionRevision) error {
+	decisions, err := s.store.Approvals(ctx, revision.TenantID, revision.ID)
+	if err != nil {
+		return err
+	}
+	for _, decision := range decisions {
+		if decision.SubjectType == "submission_revision" && decision.SubjectHash == revision.ContentHash && decision.DecisionStage == "internal" && decision.Decision == "approve" {
+			return nil
+		}
+	}
+	return domain.Policy("INTERNAL_APPROVAL_REQUIRED", "客户审批前必须完成同一 revision 的内部批准", "先完成 SubmissionRevision 内审")
+}
+
+func (s *Service) submissionReviewCycleID(ctx context.Context, tenantID, revisionID string) string {
+	cycles, err := s.store.ReviewCycles(ctx, tenantID, revisionID)
+	if err == nil && len(cycles) > 0 {
+		return cycles[0].ID
+	}
+	return ""
+}
+
+func valueOrEmptySnapshotID(snapshot *domain.ApprovedSnapshot) string {
+	if snapshot == nil {
+		return ""
+	}
+	return snapshot.ID
 }
 
 func (s *Service) validateScriptApprovalDependencies(ctx context.Context, tenantID string, script domain.ScriptVersion) error {
@@ -341,7 +498,7 @@ func (s *Service) supersedeApprovedScriptVersions(ctx context.Context, tenantID 
 		for _, grant := range grants {
 			if grant.RevokedAt == nil && grant.DecisionAt == nil {
 				grant.RevokedAt = &now
-				_ = s.store.SaveReviewGrant(ctx, grant)
+				_ = s.store.RevokeReviewGrant(ctx, grant.TenantID, grant.ID, now)
 			}
 		}
 	}
@@ -406,6 +563,146 @@ func (s *Service) ExportScript(ctx context.Context, actor Actor, scriptID, forma
 	}
 	s.audit(ctx, actor, script.ProjectID, "script.exported", "artifact", artifact.ID, requestID, map[string]any{"script_version_id": script.ID, "format": format, "sha256": hash})
 	return artifact, nil
+}
+
+func (s *Service) ExportApprovedSnapshot(ctx context.Context, actor Actor, snapshotID, scriptID, format, requestID string) (domain.Artifact, error) {
+	if err := requireRole(actor, "tenant_admin", "project_manager", "editor"); err != nil {
+		return domain.Artifact{}, err
+	}
+	snapshot, rendered, err := s.renderApprovedSnapshotScript(ctx, actor, snapshotID, scriptID)
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	file, err := renderedScriptFile(rendered, format)
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	now := s.now().UTC()
+	artifact := snapshotArtifact(snapshot, rendered, file, actor.UserID, now)
+	artifact.ObjectKey = fmt.Sprintf("tenants/%s/projects/%s/approved-snapshots/%s/exports/%s/%s", actor.TenantID, snapshot.ProjectID, snapshot.ID, artifact.ID, artifact.FileName)
+	if err := s.blobs.Put(ctx, artifact.ObjectKey, file.Body); err != nil {
+		return artifact, err
+	}
+	if err := s.store.CreateArtifact(ctx, artifact); err != nil {
+		return artifact, err
+	}
+	s.audit(ctx, actor, snapshot.ProjectID, "approved_snapshot.exported", "artifact", artifact.ID, requestID, map[string]any{"approved_snapshot_id": snapshot.ID, "script_id": rendered.Package.ID, "format": file.Format, "sha256": file.SHA256})
+	return artifact, nil
+}
+
+func (s *Service) CreateDeliveryPackage(ctx context.Context, actor Actor, snapshotID, scriptID, requestID string) (domain.DeliveryPackage, error) {
+	if err := requireRole(actor, "tenant_admin", "project_manager", "editor"); err != nil {
+		return domain.DeliveryPackage{}, err
+	}
+	snapshot, rendered, err := s.renderApprovedSnapshotScript(ctx, actor, snapshotID, scriptID)
+	if err != nil {
+		return domain.DeliveryPackage{}, err
+	}
+	now := s.now().UTC()
+	value := domain.DeliveryPackage{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: snapshot.ProjectID, ApprovedSnapshotIDs: []string{snapshot.ID}, ScriptID: rendered.Package.ID, Status: "ready", CreatedBy: actor.UserID, CreatedAt: now}
+	artifacts := make([]domain.Artifact, 0, len(rendered.Files))
+	for _, file := range rendered.Files {
+		artifact := snapshotArtifact(snapshot, rendered, file, actor.UserID, now)
+		artifact.ObjectKey = fmt.Sprintf("tenants/%s/projects/%s/delivery-packages/%s/%s", actor.TenantID, snapshot.ProjectID, value.ID, artifact.FileName)
+		if err := s.blobs.Put(ctx, artifact.ObjectKey, file.Body); err != nil {
+			return domain.DeliveryPackage{}, err
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	if err := s.store.CreateDeliveryPackage(ctx, value, artifacts); err != nil {
+		return domain.DeliveryPackage{}, err
+	}
+	value.Manifest = artifacts
+	s.audit(ctx, actor, snapshot.ProjectID, "delivery_package.created", "delivery_package", value.ID, requestID, map[string]any{"approved_snapshot_id": snapshot.ID, "script_id": rendered.Package.ID, "file_count": len(artifacts), "revision_hash": snapshot.ContentHash})
+	return value, nil
+}
+
+func (s *Service) DeliveryPackages(ctx context.Context, actor Actor, projectID string) ([]domain.DeliveryPackage, error) {
+	if _, err := s.store.Project(ctx, actor.TenantID, projectID); err != nil {
+		return nil, err
+	}
+	return s.store.DeliveryPackages(ctx, actor.TenantID, projectID)
+}
+
+func (s *Service) DeliveryPackage(ctx context.Context, actor Actor, id string) (domain.DeliveryPackage, error) {
+	return s.store.DeliveryPackage(ctx, actor.TenantID, id)
+}
+
+func (s *Service) ApprovedSnapshotArtifacts(ctx context.Context, actor Actor, snapshotID string) ([]domain.Artifact, error) {
+	if _, err := s.store.ApprovedSnapshot(ctx, actor.TenantID, snapshotID); err != nil {
+		return nil, err
+	}
+	return s.store.ArtifactsByApprovedSnapshot(ctx, actor.TenantID, snapshotID)
+}
+
+func (s *Service) renderApprovedSnapshotScript(ctx context.Context, actor Actor, snapshotID, scriptID string) (domain.ApprovedSnapshot, localworkspace.RenderedScriptDelivery, error) {
+	snapshot, err := s.store.ApprovedSnapshot(ctx, actor.TenantID, snapshotID)
+	if err != nil {
+		return snapshot, localworkspace.RenderedScriptDelivery{}, err
+	}
+	if _, err := s.projectForWrite(ctx, actor, snapshot.ProjectID); err != nil {
+		return snapshot, localworkspace.RenderedScriptDelivery{}, err
+	}
+	if snapshot.Origin != "current" || snapshot.SubmissionType != "script" || snapshot.SubmissionRevisionID == "" {
+		return snapshot, localworkspace.RenderedScriptDelivery{}, domain.Policy("SNAPSHOT_NOT_DELIVERABLE", "只有当前轨道客户批准的 script ApprovedSnapshot 可生成新交付", "V1 影子快照仅用于历史读取和结果归因")
+	}
+	raw, err := approvedSnapshotObject(snapshot, scriptID)
+	if err != nil {
+		return snapshot, localworkspace.RenderedScriptDelivery{}, err
+	}
+	rendered, err := localworkspace.RenderScriptPackageV2(raw)
+	return snapshot, rendered, err
+}
+
+func approvedSnapshotObject(snapshot domain.ApprovedSnapshot, objectID string) (json.RawMessage, error) {
+	var canonical struct {
+		Objects []json.RawMessage `json:"objects"`
+	}
+	if err := json.Unmarshal(snapshot.CanonicalContent, &canonical); err != nil || len(canonical.Objects) == 0 {
+		return nil, domain.Invalid("APPROVED_SNAPSHOT_INVALID", "批准快照缺少 canonical objects")
+	}
+	eligible := map[string]bool{}
+	for _, id := range snapshot.EligibleIDs {
+		eligible[id] = true
+	}
+	matches := []json.RawMessage{}
+	for _, raw := range canonical.Objects {
+		var identity struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(raw, &identity) == nil && identity.ID != "" && eligible[identity.ID] && (objectID == "" || identity.ID == objectID) {
+			matches = append(matches, raw)
+		}
+	}
+	if len(matches) == 0 {
+		return nil, domain.NotFound("批准快照中的 script")
+	}
+	if len(matches) > 1 {
+		return nil, domain.Invalid("DELIVERY_SCRIPT_REQUIRED", "批准快照包含多个 script，必须明确 script_id")
+	}
+	return matches[0], nil
+}
+
+func renderedScriptFile(rendered localworkspace.RenderedScriptDelivery, format string) (localworkspace.RenderedScriptFile, error) {
+	if format == "md" {
+		format = "markdown"
+	}
+	for _, file := range rendered.Files {
+		if file.Format == format {
+			return file, nil
+		}
+	}
+	return localworkspace.RenderedScriptFile{}, domain.Invalid("EXPORT_FORMAT_INVALID", "导出格式必须为 markdown、xlsx 或 json")
+}
+
+func snapshotArtifact(snapshot domain.ApprovedSnapshot, rendered localworkspace.RenderedScriptDelivery, file localworkspace.RenderedScriptFile, createdBy string, now time.Time) domain.Artifact {
+	schemaID := domain.ArtifactExportSchemaMD
+	if file.Format == "json" {
+		schemaID = localworkspace.ScriptPackageV2Schema
+	} else if file.Format == "xlsx" {
+		schemaID = domain.ArtifactExportSchemaXLSX
+	}
+	return domain.Artifact{ID: domain.NewID(), TenantID: snapshot.TenantID, ProjectID: snapshot.ProjectID, ApprovedSnapshotID: snapshot.ID, Kind: "delivery", CapabilityID: domain.ArtifactExportCapability, CapabilityVersion: "2.0.0", CapabilityDigest: "contentcloud-script-delivery@2", SchemaID: schemaID, MediaType: file.MediaType, FileName: file.Name, SHA256: file.SHA256, ByteSize: int64(len(file.Body)), Visibility: "client", RetentionClass: "audit", Purpose: "delivery", ValidationStatus: "valid", PresentationTier: "cloud_native", Metadata: map[string]any{"format": file.Format, "script_id": rendered.Package.ID, "script_hash": rendered.ScriptHash, "revision_hash": snapshot.ContentHash, "approved_snapshot_id": snapshot.ID, "created_by": createdBy}, CreatedAt: now}
 }
 
 func (s *Service) Artifacts(ctx context.Context, actor Actor, scriptID string) ([]domain.Artifact, error) {

@@ -11,22 +11,23 @@ import { ScriptsView } from '../views/ScriptsView';
 import { SubmissionsView } from '../views/SubmissionsView';
 import { LineageView } from '../views/LineageView';
 import { AuditView } from '../views/AuditView';
+import { consolePath } from '../consoleRoutes';
 import { useWorkspace } from './context';
-import type { WorkspaceOutletContext } from './WorkspaceShell';
+import type { ConsoleOutletContext } from './WorkspaceShell';
 
-export function WorkspaceDashboardPage() {
-  const {session,dashboard}=useWorkspace();const {openCreateProject}=useOutletContext<WorkspaceOutletContext>();const navigate=useNavigate();
-  const selectProject=(project:Project)=>navigate(`/workspace/projects/${project.id}/overview`);
+export function ConsoleDashboardPage() {
+  const {session,dashboard}=useWorkspace();const {openCreateProject}=useOutletContext<ConsoleOutletContext>();const navigate=useNavigate();
+  const selectProject=(project:Project)=>navigate(consolePath.project(project.id));
   return <DashboardView data={dashboard} canManage={session.role==='tenant_admin'||session.role==='project_manager'} onProject={selectProject} onCreate={openCreateProject}/>;
 }
 
-export function WorkspaceTeamPage() {const {session,refresh}=useWorkspace();return <TeamView session={session} onChanged={refresh}/>}
+export function ConsoleTeamPage() {const {session,refresh}=useWorkspace();return <TeamView session={session} onChanged={refresh}/>}
 
 export type ProjectView='overview'|'sources'|'assets'|'knowledge'|'strategy'|'briefs'|'scripts'|'submissions'|'results'|'lineage'|'audit';
 
-export function WorkspaceProjectPage({view}:{view:ProjectView}) {
+export function ConsoleProjectPage({view}:{view:ProjectView}) {
   const {projectID}=useParams();const {session,dashboard,refresh}=useWorkspace();
   const project=dashboard.projects.find(item=>item.id===projectID);
-  if(!project)return <Navigate to="/workspace/dashboard" replace/>;
+  if(!project)return <Navigate to={consolePath.dashboard} replace/>;
   switch(view){case'overview':return <OverviewView project={project} role={session.role} onChanged={refresh}/>;case'sources':return <SourcesView project={project}/>;case'assets':return <AssetRightsView project={project}/>;case'knowledge':return <KnowledgeView project={project} onChanged={refresh}/>;case'strategy':return <StrategyView project={project}/>;case'briefs':return <BriefsView project={project}/>;case'scripts':return <ScriptsView project={project}/>;case'submissions':return <SubmissionsView project={project} role={session.role}/>;case'results':return <ResultsView project={project}/>;case'lineage':return <LineageView project={project}/>;case'audit':return <AuditView project={project}/>}
 }

@@ -1,9 +1,12 @@
-.PHONY: dev server web worker cli build test check install-cli migrate-up
+.PHONY: dev preview server web worker cli build test check install-cli migrate-up
 
 CONTENTCLOUD_ADDR ?= :8080
 CONTENTCLOUD_WEB_DIST ?= web/dist
 
-dev: build
+dev:
+	./scripts/dev.sh
+
+preview: build
 	CONTENTCLOUD_ADDR=$(CONTENTCLOUD_ADDR) CONTENTCLOUD_WEB_DIST=$(CONTENTCLOUD_WEB_DIST) ./bin/contentcloud-server
 
 server:

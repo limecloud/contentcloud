@@ -16,7 +16,8 @@ import (
 
 func TestEndToEndScriptFlow(t *testing.T) {
 	ctx := context.Background()
-	service := app.New(memory.New(), slog.Default())
+	store := memory.New()
+	service := app.New(store, slog.Default())
 	session, err := service.Register(ctx, "owner@example.com", "long-enough-password", "Owner", "Agency")
 	must(t, err)
 	actor, _, err := service.SessionActor(ctx, session.ID)
@@ -102,10 +103,19 @@ func TestEndToEndScriptFlow(t *testing.T) {
 	must(t, err)
 	clientComment, err := service.CreateReviewComment(ctx, actor, app.CreateReviewCommentInput{SubjectID: script.ID, ShotID: script.Package.Shots[0].ShotID, Body: "client note", Visibility: "client"}, "req-comment-client")
 	must(t, err)
-	grant, err := service.CreateReviewGrant(ctx, actor, script.ID, "client@example.com", "req-12")
-	must(t, err)
-	revokedGrant, err := service.CreateReviewGrant(ctx, actor, script.ID, "revoked@example.com", "req-12-revoked")
-	must(t, err)
+	script.Status = "client_review"
+	must(t, store.SaveScript(ctx, script))
+	newLegacyGrant := func(email, otp string) domain.ReviewGrant {
+		plain, tokenHash, tokenErr := domain.NewOpaqueToken("crg_", 32)
+		must(t, tokenErr)
+		stored := domain.ReviewGrant{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, SubjectType: "script_version", SubjectID: script.ID, SubjectHash: script.ContentHash, ReviewerEmail: email, TokenHash: tokenHash, OTPHash: domain.TokenHash(otp), ExpiresAt: time.Now().Add(24 * time.Hour), CreatedAt: time.Now()}
+		must(t, store.CreateReviewGrant(ctx, stored))
+		stored.PlaintextToken = plain
+		stored.PlaintextOTP = otp
+		return stored
+	}
+	grant := newLegacyGrant("client@example.com", "123456")
+	revokedGrant := newLegacyGrant("revoked@example.com", "654321")
 	revokedToken := revokedGrant.PlaintextToken
 	revokedGrant, err = service.RevokeReviewGrant(ctx, actor, revokedGrant.ID, "req-12-revoke")
 	must(t, err)
@@ -115,7 +125,7 @@ func TestEndToEndScriptFlow(t *testing.T) {
 	if _, err := service.ReviewProjection(ctx, revokedToken); err == nil {
 		t.Fatal("revoked review token must fail immediately")
 	}
-	grants, err := service.ReviewGrants(ctx, actor, script.ID)
+	grants, err := service.LegacyReviewGrants(ctx, actor, script.ID)
 	must(t, err)
 	if len(grants) != 2 || grants[0].TokenHash != "" || grants[0].OTPHash != "" {
 		t.Fatalf("review grant list leaked secrets or omitted history: %#v", grants)
@@ -137,11 +147,13 @@ func TestEndToEndScriptFlow(t *testing.T) {
 	assertDomainCode(t, err, "REVIEW_COMMENTS_UNRESOLVED")
 	_, err = service.ResolveReviewComment(ctx, actor, clientComment.ID, "req-comment-client-resolve")
 	must(t, err)
-	script, err = service.DecideReviewGrant(ctx, grant.PlaintextToken, "approve", "approved", "", "req-13")
+	legacyDecision, err := service.DecideReviewGrant(ctx, grant.PlaintextToken, "approve", "approved", "", "req-13")
 	must(t, err)
-	if script.Status != "approved" {
-		t.Fatalf("expected approved, got %s", script.Status)
+	if legacyDecision.Status != "approved" {
+		t.Fatalf("expected approved, got %s", legacyDecision.Status)
 	}
+	script, err = service.Script(ctx, actor, script.ID)
+	must(t, err)
 	revisedBrief, err := service.CreateBrief(ctx, actor, app.CreateBriefInput{ProjectID: project.ID, Objective: "conversion", Audience: brief.Audience, DemandMoment: brief.DemandMoment, Scene: brief.Scene, Conflict: brief.Conflict, PrimarySellingPoint: brief.PrimarySellingPoint, EvidenceSummary: brief.EvidenceSummary, CTA: "view product details", Channel: brief.Channel, AspectRatio: brief.AspectRatio, TargetDurationSeconds: brief.TargetDurationSeconds, PrimaryTestVariable: "cta", ApprovedKnowledgeIDs: brief.ApprovedKnowledgeIDs, FrameworkIDs: brief.FrameworkIDs, VisualizationPlanIDs: brief.VisualizationPlanIDs, SupersedesID: brief.ID, RevisionReason: "change the primary objective and test variable"}, "req-brief-revision")
 	must(t, err)
 	revisedBrief, err = service.ReviewBrief(ctx, actor, revisedBrief.ID, "submit", "req-brief-revision-submit")

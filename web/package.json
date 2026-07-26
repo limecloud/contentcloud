@@ -1,11 +1,11 @@
 {
   "name": "@limecloud/contentcloud-web",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "dev": "vite --config vite.config.ts --host 0.0.0.0",
+    "build": "tsc -b && vite build --config vite.config.ts",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run --passWithNoTests"
   },

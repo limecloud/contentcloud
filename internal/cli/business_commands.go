@@ -1141,16 +1141,16 @@ func (r *Root) reviewCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "review", Short: "Create customer-bound review grants"}
 	var email string
 	var createDryRun bool
-	create := &cobra.Command{Use: "create <script-id>", Args: cobra.ExactArgs(1), Short: "Create a seven-day customer approval link", RunE: func(cmd *cobra.Command, args []string) error {
+	create := &cobra.Command{Use: "create <submission-revision-id>", Args: cobra.ExactArgs(1), Short: "Create a seven-day customer approval link", RunE: func(cmd *cobra.Command, args []string) error {
 		if createDryRun {
-			return r.writeOK("review.create", map[string]any{"dry_run": true, "script_id": args[0], "reviewer_email": email})
+			return r.writeOK("review.create", map[string]any{"dry_run": true, "revision_id": args[0], "reviewer_email": email})
 		}
 		_, client, _, err := r.userClient()
 		if err != nil {
 			return err
 		}
 		var result domain.ReviewGrant
-		if err := client.Dispatch(cmd.Context(), "review.create", map[string]any{"script_id": args[0], "reviewer_email": email}, &result); err != nil {
+		if err := client.Dispatch(cmd.Context(), "review.create", map[string]any{"revision_id": args[0], "reviewer_email": email}, &result); err != nil {
 			return err
 		}
 		return r.writeOK("review.create", result)
@@ -1158,13 +1158,13 @@ func (r *Root) reviewCommand() *cobra.Command {
 	create.Flags().StringVar(&email, "email", "", "bound customer approver email")
 	create.Flags().BoolVar(&createDryRun, "dry-run", false, "validate without creating a customer approval link")
 	_ = create.MarkFlagRequired("email")
-	list := &cobra.Command{Use: "list <script-id>", Args: cobra.ExactArgs(1), Short: "List customer approval grants without secret hashes", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list <submission-revision-id>", Args: cobra.ExactArgs(1), Short: "List customer approval grants without secret hashes", RunE: func(cmd *cobra.Command, args []string) error {
 		_, client, _, err := r.userClient()
 		if err != nil {
 			return err
 		}
 		var result []domain.ReviewGrant
-		if err := client.Dispatch(cmd.Context(), "review.list", map[string]any{"script_id": args[0]}, &result); err != nil {
+		if err := client.Dispatch(cmd.Context(), "review.list", map[string]any{"revision_id": args[0]}, &result); err != nil {
 			return err
 		}
 		return r.writeOK("review.list", result)
@@ -1189,16 +1189,16 @@ func (r *Root) reviewCommand() *cobra.Command {
 	}}
 	revoke.Flags().BoolVar(&revokeYes, "yes", false, "confirm this high-risk write")
 	revoke.Flags().BoolVar(&revokeDryRun, "dry-run", false, "validate without revoking the grant")
-	status := &cobra.Command{Use: "status <script-id>", Args: cobra.ExactArgs(1), Short: "Show the customer review state for a ScriptVersion", RunE: func(cmd *cobra.Command, args []string) error {
+	status := &cobra.Command{Use: "status <submission-revision-id>", Args: cobra.ExactArgs(1), Short: "Show the customer review state for a SubmissionRevision", RunE: func(cmd *cobra.Command, args []string) error {
 		_, client, _, err := r.userClient()
 		if err != nil {
 			return err
 		}
-		var result domain.ScriptVersion
-		if err := client.Dispatch(cmd.Context(), "script.show", map[string]any{"id": args[0]}, &result); err != nil {
+		var result app.SubmissionReviewStatus
+		if err := client.Dispatch(cmd.Context(), "review.status", map[string]any{"revision_id": args[0]}, &result); err != nil {
 			return err
 		}
-		return r.writeOK("review.status", map[string]any{"script_version_id": result.ID, "content_hash": result.ContentHash, "status": result.Status})
+		return r.writeOK("review.status", result)
 	}}
 	cmd.AddCommand(create, list, revoke, status)
 	return cmd
@@ -1267,7 +1267,7 @@ func (r *Root) resultCommand() *cobra.Command {
 	var observationIDs []string
 	var rating, reason, nextAction string
 	var ratingDryRun bool
-	rate := &cobra.Command{Use: "rate <script_version|content_framework|shot_pattern> <subject-id>", Args: cobra.ExactArgs(2), Short: "Create an immutable human rating decision", RunE: func(cmd *cobra.Command, args []string) error {
+	rate := &cobra.Command{Use: "rate <approved_snapshot|content_framework|shot_pattern> <subject-id>", Args: cobra.ExactArgs(2), Short: "Create an immutable human rating decision", RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, client, _, err := r.userClient()
 		if err != nil {
 			return err

@@ -1,6 +1,8 @@
 # Initialize a ContentCloud Project
 
-You are setting up a local-first ContentCloud workspace for the user. Complete the setup from the current Agent session and report the verified result. Do not merely print commands for the user to run.
+You are reading this because the user pasted a short ContentCloud initialization Prompt into a local Codex or Claude session. This document is served over HTTP before the project-level ContentCloud Skill is installed.
+
+Complete the setup on the user's machine from the current Agent session and report the verified result. Do not merely print commands for the user to run, and do not ask the cloud control plane to execute local work.
 
 ## Request values
 

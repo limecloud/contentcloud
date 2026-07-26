@@ -526,6 +526,7 @@ type ApprovalDecision struct {
 	SubjectType    string    `json:"subject_type"`
 	SubjectID      string    `json:"subject_id"`
 	SubjectHash    string    `json:"subject_hash"`
+	DecisionStage  string    `json:"decision_stage"`
 	ActorID        string    `json:"actor_id"`
 	Decision       string    `json:"decision"`
 	Reason         string    `json:"reason"`

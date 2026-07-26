@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -102,6 +103,11 @@ func (s *Store) CreateSubmissionRevision(ctx context.Context, submission domain.
 		}
 		if result.RowsAffected() == 0 {
 			return domain.NotFound("Submission")
+		}
+		if _, err := tx.Exec(ctx, `UPDATE review_grants SET revoked_at=$3
+				WHERE tenant_id=$1 AND subject_type='submission_revision' AND revoked_at IS NULL AND decision_at IS NULL
+				AND subject_id IN (SELECT id FROM submission_revisions WHERE tenant_id=$1 AND submission_id=$2 AND id<>$4)`, submission.TenantID, submission.ID, revision.CreatedAt, revision.ID); err != nil {
+			return dbError(err)
 		}
 		return nil
 	})
@@ -258,7 +264,7 @@ func sourceDisclosures(ctx context.Context, tx pgx.Tx, tenantID, revisionID stri
 func scanApprovedSnapshot(row pgx.Row) (domain.ApprovedSnapshot, error) {
 	var value domain.ApprovedSnapshot
 	var canonical, eligible, artifacts []byte
-	err := row.Scan(&value.ID, &value.TenantID, &value.ProjectID, &value.WorkspaceID, &value.SubmissionID, &value.SubmissionRevisionID, &value.SubmissionType, &value.SchemaVersion, &value.ContentHash, &value.SubjectHash, &canonical, &eligible, &artifacts, &value.DecisionID, &value.CreatedBy, &value.CreatedAt)
+	err := row.Scan(&value.ID, &value.TenantID, &value.ProjectID, &value.WorkspaceID, &value.SubmissionID, &value.SubmissionRevisionID, &value.SubmissionType, &value.SchemaVersion, &value.ContentHash, &value.SubjectHash, &canonical, &eligible, &artifacts, &value.DecisionID, &value.CreatedBy, &value.CreatedAt, &value.Origin, &value.ExternalRef)
 	if err != nil {
 		return value, err
 	}
@@ -272,7 +278,7 @@ func scanApprovedSnapshot(row pgx.Row) (domain.ApprovedSnapshot, error) {
 	return value, nil
 }
 
-const approvedSnapshotSelect = `SELECT id,tenant_id,project_id,workspace_id,submission_id,submission_revision_id,submission_type,schema_version,content_hash,subject_hash,canonical_content,eligible_ids,artifacts,decision_id,created_by,created_at FROM approved_snapshots`
+const approvedSnapshotSelect = `SELECT id,tenant_id,project_id,COALESCE(workspace_id::text,''),COALESCE(submission_id::text,''),COALESCE(submission_revision_id::text,''),submission_type,schema_version,content_hash,subject_hash,canonical_content,eligible_ids,artifacts,COALESCE(decision_id::text,''),created_by,created_at,origin,COALESCE(external_ref,'') FROM approved_snapshots`
 
 func (s *Store) ApprovedSnapshots(ctx context.Context, tenantID, projectID, submissionType string) ([]domain.ApprovedSnapshot, error) {
 	values := []domain.ApprovedSnapshot{}
@@ -320,11 +326,11 @@ func (s *Store) ApprovedSnapshot(ctx context.Context, tenantID, id string) (doma
 
 func (s *Store) ApproveSubmissionRevision(ctx context.Context, submission domain.Submission, snapshot domain.ApprovedSnapshot, decision domain.ApprovalDecision) error {
 	return s.withTenant(ctx, submission.TenantID, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `INSERT INTO approval_decisions(id,tenant_id,project_id,subject_type,subject_id,subject_hash,actor_id,decision,reason,previous_state,resulting_state,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, decision.ID, decision.TenantID, decision.ProjectID, decision.SubjectType, decision.SubjectID, decision.SubjectHash, decision.ActorID, decision.Decision, decision.Reason, decision.PreviousState, decision.ResultingState, decision.CreatedAt); err != nil {
-			return dbError(err)
+		if err := insertApprovalDecision(ctx, tx, decision); err != nil {
+			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO approved_snapshots(id,tenant_id,project_id,workspace_id,submission_id,submission_revision_id,submission_type,schema_version,content_hash,subject_hash,canonical_content,eligible_ids,artifacts,decision_id,created_by,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, snapshot.ID, snapshot.TenantID, snapshot.ProjectID, snapshot.WorkspaceID, snapshot.SubmissionID, snapshot.SubmissionRevisionID, snapshot.SubmissionType, snapshot.SchemaVersion, snapshot.ContentHash, snapshot.SubjectHash, []byte(snapshot.CanonicalContent), jsonValue(snapshot.EligibleIDs), jsonValue(snapshot.Artifacts), snapshot.DecisionID, snapshot.CreatedBy, snapshot.CreatedAt); err != nil {
-			return dbError(err)
+		if err := insertApprovedSnapshot(ctx, tx, snapshot); err != nil {
+			return err
 		}
 		result, err := tx.Exec(ctx, `UPDATE submissions SET status=$3,current_revision_id=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2`, submission.TenantID, submission.ID, submission.Status, submission.CurrentRevisionID, submission.UpdatedAt)
 		if err != nil {
@@ -333,14 +339,33 @@ func (s *Store) ApproveSubmissionRevision(ctx context.Context, submission domain
 		if result.RowsAffected() == 0 {
 			return domain.NotFound("Submission")
 		}
+		if _, err := tx.Exec(ctx, `UPDATE review_grants SET revoked_at=$3 WHERE tenant_id=$1 AND subject_type='submission_revision' AND subject_id=$2 AND revoked_at IS NULL AND decision_at IS NULL`, submission.TenantID, submission.CurrentRevisionID, decision.CreatedAt); err != nil {
+			return dbError(err)
+		}
+		return nil
+	})
+}
+
+func (s *Store) RecordSubmissionApproval(ctx context.Context, submission domain.Submission, decision domain.ApprovalDecision) error {
+	return s.withTenant(ctx, submission.TenantID, func(tx pgx.Tx) error {
+		if err := insertApprovalDecision(ctx, tx, decision); err != nil {
+			return err
+		}
+		result, err := tx.Exec(ctx, `UPDATE submissions SET status=$3,current_revision_id=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2 AND current_revision_id=$4`, submission.TenantID, submission.ID, submission.Status, submission.CurrentRevisionID, submission.UpdatedAt)
+		if err != nil {
+			return dbError(err)
+		}
+		if result.RowsAffected() == 0 {
+			return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本已变化")
+		}
 		return nil
 	})
 }
 
 func (s *Store) RequestSubmissionChanges(ctx context.Context, submission domain.Submission, decision domain.ApprovalDecision, comment domain.ReviewComment) error {
 	return s.withTenant(ctx, submission.TenantID, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `INSERT INTO approval_decisions(id,tenant_id,project_id,subject_type,subject_id,subject_hash,actor_id,decision,reason,previous_state,resulting_state,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, decision.ID, decision.TenantID, decision.ProjectID, decision.SubjectType, decision.SubjectID, decision.SubjectHash, decision.ActorID, decision.Decision, decision.Reason, decision.PreviousState, decision.ResultingState, decision.CreatedAt); err != nil {
-			return dbError(err)
+		if err := insertApprovalDecision(ctx, tx, decision); err != nil {
+			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO review_comments(id,tenant_id,project_id,review_cycle_id,subject_type,subject_id,carried_from_comment_id,shot_id,json_pointer,body,visibility,author_id,resolved_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, comment.ID, comment.TenantID, comment.ProjectID, comment.ReviewCycleID, comment.SubjectType, comment.SubjectID, nullable(comment.CarriedFromID), comment.ShotID, comment.JSONPointer, comment.Body, comment.Visibility, comment.AuthorID, comment.ResolvedAt, comment.CreatedAt); err != nil {
 			return dbError(err)
@@ -352,8 +377,78 @@ func (s *Store) RequestSubmissionChanges(ctx context.Context, submission domain.
 		if result.RowsAffected() == 0 {
 			return domain.NotFound("Submission")
 		}
+		if _, err := tx.Exec(ctx, `UPDATE review_grants SET revoked_at=$3 WHERE tenant_id=$1 AND subject_type='submission_revision' AND subject_id=$2 AND revoked_at IS NULL AND decision_at IS NULL`, submission.TenantID, submission.CurrentRevisionID, decision.CreatedAt); err != nil {
+			return dbError(err)
+		}
 		return nil
 	})
+}
+
+func (s *Store) CreateSubmissionReviewGrant(ctx context.Context, submission domain.Submission, grant domain.ReviewGrant) error {
+	return s.withTenant(ctx, submission.TenantID, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `INSERT INTO review_grants(id,tenant_id,project_id,subject_type,subject_id,subject_hash,reviewer_email,token_hash,otp_hash,expires_at,verified_at,revoked_at,decision_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, grant.ID, grant.TenantID, grant.ProjectID, grant.SubjectType, grant.SubjectID, grant.SubjectHash, grant.ReviewerEmail, grant.TokenHash, grant.OTPHash, grant.ExpiresAt, grant.VerifiedAt, grant.RevokedAt, grant.DecisionAt, grant.CreatedAt); err != nil {
+			return dbError(err)
+		}
+		result, err := tx.Exec(ctx, `UPDATE submissions SET status=$3,updated_at=$4 WHERE tenant_id=$1 AND id=$2 AND current_revision_id=$5 AND status IN ('internally_approved','client_review')`, submission.TenantID, submission.ID, submission.Status, submission.UpdatedAt, submission.CurrentRevisionID)
+		if err != nil {
+			return dbError(err)
+		}
+		if result.RowsAffected() == 0 {
+			return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本或状态已变化")
+		}
+		return nil
+	})
+}
+
+func (s *Store) CompleteSubmissionClientReview(ctx context.Context, submission domain.Submission, grant domain.ReviewGrant, decision domain.ApprovalDecision, comment *domain.ReviewComment, snapshot *domain.ApprovedSnapshot) error {
+	return s.withTenant(ctx, submission.TenantID, func(tx pgx.Tx) error {
+		var revokedAt, decisionAt *time.Time
+		var expiresAt time.Time
+		if err := tx.QueryRow(ctx, `SELECT revoked_at,decision_at,expires_at FROM review_grants WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, grant.TenantID, grant.ID).Scan(&revokedAt, &decisionAt, &expiresAt); err != nil {
+			return dbError(err)
+		}
+		if revokedAt != nil || decisionAt != nil || !grant.DecisionAt.Before(expiresAt) {
+			return domain.Conflict("REVIEW_ALREADY_DECIDED", "该审批链接已失效或已完成最终决策")
+		}
+		if err := insertApprovalDecision(ctx, tx, decision); err != nil {
+			return err
+		}
+		if comment != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO review_comments(id,tenant_id,project_id,review_cycle_id,subject_type,subject_id,carried_from_comment_id,shot_id,json_pointer,body,visibility,author_id,resolved_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, comment.ID, comment.TenantID, comment.ProjectID, nullable(comment.ReviewCycleID), comment.SubjectType, comment.SubjectID, nullable(comment.CarriedFromID), comment.ShotID, comment.JSONPointer, comment.Body, comment.Visibility, comment.AuthorID, comment.ResolvedAt, comment.CreatedAt); err != nil {
+				return dbError(err)
+			}
+		}
+		if snapshot != nil {
+			if err := insertApprovedSnapshot(ctx, tx, *snapshot); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(ctx, `UPDATE review_grants SET verified_at=$3,decision_at=$4 WHERE tenant_id=$1 AND id=$2`, grant.TenantID, grant.ID, grant.VerifiedAt, grant.DecisionAt); err != nil {
+			return dbError(err)
+		}
+		result, err := tx.Exec(ctx, `UPDATE submissions SET status=$3,updated_at=$4 WHERE tenant_id=$1 AND id=$2 AND current_revision_id=$5 AND status='client_review'`, submission.TenantID, submission.ID, submission.Status, submission.UpdatedAt, submission.CurrentRevisionID)
+		if err != nil {
+			return dbError(err)
+		}
+		if result.RowsAffected() == 0 {
+			return domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效或状态已变化")
+		}
+		return nil
+	})
+}
+
+func insertApprovalDecision(ctx context.Context, tx pgx.Tx, decision domain.ApprovalDecision) error {
+	_, err := tx.Exec(ctx, `INSERT INTO approval_decisions(id,tenant_id,project_id,subject_type,subject_id,subject_hash,decision_stage,actor_id,decision,reason,previous_state,resulting_state,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, decision.ID, decision.TenantID, decision.ProjectID, decision.SubjectType, decision.SubjectID, decision.SubjectHash, defaultDecisionStage(decision.DecisionStage), decision.ActorID, decision.Decision, decision.Reason, decision.PreviousState, decision.ResultingState, decision.CreatedAt)
+	return dbError(err)
+}
+
+func insertApprovedSnapshot(ctx context.Context, tx pgx.Tx, snapshot domain.ApprovedSnapshot) error {
+	origin := snapshot.Origin
+	if origin == "" {
+		origin = "current"
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO approved_snapshots(id,tenant_id,project_id,workspace_id,submission_id,submission_revision_id,submission_type,schema_version,content_hash,subject_hash,canonical_content,eligible_ids,artifacts,decision_id,created_by,created_at,origin,external_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, snapshot.ID, snapshot.TenantID, snapshot.ProjectID, nullable(snapshot.WorkspaceID), nullable(snapshot.SubmissionID), nullable(snapshot.SubmissionRevisionID), snapshot.SubmissionType, snapshot.SchemaVersion, snapshot.ContentHash, snapshot.SubjectHash, []byte(snapshot.CanonicalContent), jsonValue(snapshot.EligibleIDs), jsonValue(snapshot.Artifacts), nullable(snapshot.DecisionID), snapshot.CreatedBy, snapshot.CreatedAt, origin, nullable(snapshot.ExternalRef))
+	return dbError(err)
 }
 
 func nullableJSON(value json.RawMessage) any {

@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"sort"
+	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
 )
@@ -462,13 +463,31 @@ func (s *Store) ReviewGrantByTokenHash(_ context.Context, hash string) (domain.R
 	return domain.ReviewGrant{}, domain.NotFound("客户审批授权")
 }
 
-func (s *Store) SaveReviewGrant(_ context.Context, v domain.ReviewGrant) error {
+func (s *Store) MarkReviewGrantVerified(_ context.Context, tenantID, id string, verifiedAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.reviewGrants[v.ID]; !ok {
-		return domain.NotFound("客户审批授权")
+	grant, ok := s.reviewGrants[id]
+	if !ok || grant.TenantID != tenantID || grant.RevokedAt != nil || grant.DecisionAt != nil || !verifiedAt.Before(grant.ExpiresAt) {
+		return domain.Conflict("REVIEW_GRANT_STATE_INVALID", "客户审批授权已撤销、已完成或已过期")
 	}
-	s.reviewGrants[v.ID] = v
+	if grant.VerifiedAt == nil {
+		grant.VerifiedAt = &verifiedAt
+		s.reviewGrants[id] = grant
+	}
+	return nil
+}
+
+func (s *Store) RevokeReviewGrant(_ context.Context, tenantID, id string, revokedAt time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	grant, ok := s.reviewGrants[id]
+	if !ok || grant.TenantID != tenantID || grant.DecisionAt != nil {
+		return domain.Conflict("REVIEW_GRANT_STATE_INVALID", "客户审批授权不存在或已完成")
+	}
+	if grant.RevokedAt == nil {
+		grant.RevokedAt = &revokedAt
+		s.reviewGrants[id] = grant
+	}
 	return nil
 }
 
@@ -492,6 +511,19 @@ func (s *Store) Artifacts(_ context.Context, tenantID, scriptVersionID string) (
 	return out, nil
 }
 
+func (s *Store) ArtifactsByApprovedSnapshot(_ context.Context, tenantID, snapshotID string) ([]domain.Artifact, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.Artifact{}
+	for _, value := range s.artifacts {
+		if value.TenantID == tenantID && value.ApprovedSnapshotID == snapshotID {
+			out = append(out, value)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out, nil
+}
+
 func (s *Store) Artifact(_ context.Context, tenantID, id string) (domain.Artifact, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -500,6 +532,48 @@ func (s *Store) Artifact(_ context.Context, tenantID, id string) (domain.Artifac
 		return v, domain.NotFound("产物")
 	}
 	return v, nil
+}
+
+func (s *Store) CreateDeliveryPackage(_ context.Context, value domain.DeliveryPackage, artifacts []domain.Artifact) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.deliveryPackages[value.ID]; exists {
+		return domain.Conflict("DELIVERY_PACKAGE_EXISTS", "交付包已存在")
+	}
+	for _, artifact := range artifacts {
+		if _, exists := s.artifacts[artifact.ID]; exists {
+			return domain.Conflict("ARTIFACT_EXISTS", "交付 Artifact 已存在")
+		}
+	}
+	for _, artifact := range artifacts {
+		s.artifacts[artifact.ID] = artifact
+	}
+	value.Manifest = append([]domain.Artifact(nil), artifacts...)
+	s.deliveryPackages[value.ID] = value
+	return nil
+}
+
+func (s *Store) DeliveryPackages(_ context.Context, tenantID, projectID string) ([]domain.DeliveryPackage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.DeliveryPackage{}
+	for _, value := range s.deliveryPackages {
+		if value.TenantID == tenantID && (projectID == "" || value.ProjectID == projectID) {
+			out = append(out, value)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out, nil
+}
+
+func (s *Store) DeliveryPackage(_ context.Context, tenantID, id string) (domain.DeliveryPackage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.deliveryPackages[id]
+	if !ok || value.TenantID != tenantID {
+		return value, domain.NotFound("DeliveryPackage")
+	}
+	return value, nil
 }
 
 func (s *Store) CreatePerformanceImportBatch(_ context.Context, batch domain.PerformanceImportBatch, observations []domain.PerformanceObservation) error {

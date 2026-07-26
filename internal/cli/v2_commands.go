@@ -250,25 +250,25 @@ func (r *Root) submissionCommand() *cobra.Command {
 	}}
 	var reason string
 	var yes, dryRun bool
-	approve := &cobra.Command{Use: "approve <revision-id>", Args: cobra.ExactArgs(1), Short: "Approve a current SubmissionRevision and create an ApprovedSnapshot", RunE: func(cmd *cobra.Command, args []string) error {
+	approve := &cobra.Command{Use: "approve <revision-id>", Args: cobra.ExactArgs(1), Short: "Record internal approval for a current SubmissionRevision", RunE: func(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(reason) == "" {
 			return domain.Invalid("APPROVAL_REASON_REQUIRED", "--reason 必填")
 		}
 		if dryRun {
-			return r.writeOK("submission.approve", map[string]any{"dry_run": true, "revision_id": args[0], "reason": reason, "would_create_approved_snapshot": true})
+			return r.writeOK("submission.approve", map[string]any{"dry_run": true, "revision_id": args[0], "reason": reason, "script_requires_client_approval": true})
 		}
 		if !yes {
-			return confirmationRequired("批准会锁定当前 revision hash 并创建不可变 ApprovedSnapshot")
+			return confirmationRequired("批准会锁定当前 revision hash；script 还需客户 OTP 批准后才创建 ApprovedSnapshot")
 		}
 		_, client, _, err := r.userClient()
 		if err != nil {
 			return err
 		}
-		var snapshot domain.ApprovedSnapshot
-		if err := client.Dispatch(cmd.Context(), "submission.approve", map[string]any{"revision_id": args[0], "reason": reason}, &snapshot); err != nil {
+		var result app.SubmissionApprovalResult
+		if err := client.Dispatch(cmd.Context(), "submission.approve", map[string]any{"revision_id": args[0], "reason": reason}, &result); err != nil {
 			return err
 		}
-		return r.writeOK("submission.approve", snapshot)
+		return r.writeOK("submission.approve", result)
 	}}
 	approve.Flags().StringVar(&reason, "reason", "", "human approval conclusion")
 	approve.Flags().BoolVar(&yes, "yes", false, "confirm immutable approval")

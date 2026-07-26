@@ -128,6 +128,8 @@ type ApprovedSnapshot struct {
 	DecisionID           string               `json:"decision_id"`
 	CreatedBy            string               `json:"created_by"`
 	CreatedAt            time.Time            `json:"created_at"`
+	Origin               string               `json:"origin"`
+	ExternalRef          string               `json:"external_ref,omitempty"`
 }
 
 type ReviewFeedbackBundle struct {

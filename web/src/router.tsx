@@ -1,34 +1,12 @@
-import { Navigate, type RouteObject } from 'react-router-dom';
+import { Navigate, useLocation, type RouteObject } from 'react-router-dom';
+import { canonicalConsolePath } from './consoleRoutes';
 
 export const appRoutes: RouteObject[] = [
-  {path: '/', element: <Navigate to="/workspace/dashboard" replace />},
   {path: '/login', lazy: async()=>({Component:(await import('./views/auth/AuthRoutes')).LoginRoute})},
   {path: '/register', lazy: async()=>({Component:(await import('./views/auth/AuthRoutes')).RegisterRoute})},
   {path: '/device-auth', lazy: async()=>({Component:(await import('./views/PublicRoutes')).DeviceAuthRoute})},
   {path: '/review/:token', lazy: async()=>({Component:(await import('./views/PublicRoutes')).PublicReviewRoute})},
-  {
-    path: '/workspace',
-    lazy: async()=>({Component:(await import('./App')).App}),
-    children: [
-      {
-        lazy: async()=>({Component:(await import('./workspace/WorkspaceShell')).WorkspaceShell}),
-        children: [
-          {index: true, element: <Navigate to="dashboard" replace />},
-          {path: 'dashboard', lazy: async()=>({Component:(await import('./workspace/pages')).WorkspaceDashboardPage})},
-          {path: 'team', lazy: async()=>({Component:(await import('./workspace/pages')).WorkspaceTeamPage})},
-          {
-            path: 'projects/:projectID',
-            children: [
-              {index: true, element: <Navigate to="overview" replace />},
-              ...projectRoutes(),
-              {path: '*', element: <Navigate to="overview" replace />}
-            ]
-          },
-          {path: '*', element: <Navigate to="dashboard" replace />}
-        ]
-      }
-    ]
-  },
+  {path: '/workspace/*', Component: LegacyWorkspaceRedirect},
   {
     path: '/admin',
     lazy: async()=>({Component:(await import('./admin/AdminRoute')).AdminRoute}),
@@ -45,16 +23,42 @@ export const appRoutes: RouteObject[] = [
       }
     ]
   },
-  {path: '*', element: <Navigate to="/workspace/dashboard" replace />}
+  {
+    path: '/',
+    lazy: async()=>({Component:(await import('./App')).App}),
+    children: [
+      {
+        lazy: async()=>({Component:(await import('./workspace/WorkspaceShell')).ConsoleShell}),
+        children: [
+          {index: true, lazy: async()=>({Component:(await import('./workspace/pages')).ConsoleDashboardPage})},
+          {path: 'team', lazy: async()=>({Component:(await import('./workspace/pages')).ConsoleTeamPage})},
+          {
+            path: 'projects/:projectID',
+            children: [
+              {index: true, element: <Navigate to="overview" replace />},
+              ...projectRoutes(),
+              {path: '*', element: <Navigate to="overview" replace />}
+            ]
+          },
+          {path: '*', element: <Navigate to="/" replace />}
+        ]
+      }
+    ]
+  }
 ];
+
+function LegacyWorkspaceRedirect(){
+  const location=useLocation();
+  return <Navigate to={`${canonicalConsolePath(location.pathname)}${location.search}${location.hash}`} replace/>;
+}
 
 function projectRoutes():RouteObject[] {
   const views=['overview','sources','assets','knowledge','strategy','briefs','scripts','submissions','results','lineage','audit'] as const;
   return views.map(view=>({
     path:view,
     lazy:async()=>{
-      const {WorkspaceProjectPage}=await import('./workspace/pages');
-      return {Component:()=> <WorkspaceProjectPage view={view}/>};
+      const {ConsoleProjectPage}=await import('./workspace/pages');
+      return {Component:()=> <ConsoleProjectPage view={view}/>};
     }
   }));
 }

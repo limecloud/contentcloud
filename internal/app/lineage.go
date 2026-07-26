@@ -265,6 +265,15 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 			}
 		}
 	}
+	approvedSnapshots, err := s.store.ApprovedSnapshots(ctx, tenantID, projectID, "")
+	if err != nil {
+		return nil, err
+	}
+	for _, snapshot := range approvedSnapshots {
+		b.node("approved_snapshot", snapshot.ID, fmt.Sprintf("%s snapshot", snapshot.SubmissionType), "approved", "approval", snapshot.CreatedAt, map[string]any{"origin": snapshot.Origin, "content_hash": snapshot.ContentHash, "external_ref": snapshot.ExternalRef})
+		b.edge("submission_revision", snapshot.SubmissionRevisionID, "approved_snapshot", snapshot.ID, "approved_as", "客户批准将不可变 revision 固化为快照")
+		b.edge("script_version", snapshot.ExternalRef, "approved_snapshot", snapshot.ID, "represented_as", "V1 剧本版本映射为只读影子快照")
+	}
 
 	artifacts, err := s.store.Artifacts(ctx, tenantID, "")
 	if err != nil {
@@ -275,8 +284,25 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 			continue
 		}
 		b.node("artifact", artifact.ID, artifact.FileName, firstNonEmpty(artifact.ValidationStatus, artifact.PresentationTier), "delivery", artifact.CreatedAt, map[string]any{"kind": artifact.Kind, "media_type": artifact.MediaType, "presentation_tier": artifact.PresentationTier})
-		b.edge("script_version", artifact.ScriptVersionID, "artifact", artifact.ID, "exported_as", "剧本版本导出为交付工件")
+		if artifact.ApprovedSnapshotID != "" {
+			b.edge("approved_snapshot", artifact.ApprovedSnapshotID, "artifact", artifact.ID, "exported_as", "批准快照确定性导出为交付工件")
+		} else {
+			b.edge("script_version", artifact.ScriptVersionID, "artifact", artifact.ID, "exported_as", "V1 剧本版本导出为历史工件")
+		}
 		b.edge("artifact", artifact.DerivedFromArtifactID, "artifact", artifact.ID, "derived_as", "工件派生安全预览或 rendition")
+	}
+	deliveryPackages, err := s.store.DeliveryPackages(ctx, tenantID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	for _, delivery := range deliveryPackages {
+		b.node("delivery_package", delivery.ID, "DeliveryPackage · "+delivery.ScriptID, delivery.Status, "delivery", delivery.CreatedAt, map[string]any{"script_id": delivery.ScriptID, "artifact_count": len(delivery.Manifest)})
+		for _, snapshotID := range delivery.ApprovedSnapshotIDs {
+			b.edge("approved_snapshot", snapshotID, "delivery_package", delivery.ID, "delivered_as", "客户批准快照组成正式交付包")
+		}
+		for _, artifact := range delivery.Manifest {
+			b.edge("delivery_package", delivery.ID, "artifact", artifact.ID, "contains", "交付包包含确定性格式文件")
+		}
 	}
 
 	batches, err := s.store.PerformanceImportBatches(ctx, tenantID, projectID)
@@ -293,7 +319,11 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 	for _, observation := range observations {
 		b.node("performance_observation", observation.ID, observationLabel(observation), observation.SampleStatus, "results", observation.CreatedAt, map[string]any{"platform": observation.Platform, "window_hours": observation.WindowHours, "roi": observation.ROI})
 		b.edge("performance_import_batch", observation.ImportBatchID, "performance_observation", observation.ID, "imports", "导入批次包含效果观察")
-		b.edge("script_version", observation.ScriptVersionID, "performance_observation", observation.ID, "measured_by", "效果数据度量剧本版本")
+		if observation.ApprovedSnapshotID != "" {
+			b.edge("approved_snapshot", observation.ApprovedSnapshotID, "performance_observation", observation.ID, "measured_by", "效果数据度量已批准快照")
+		} else {
+			b.edge("script_version", observation.ScriptVersionID, "performance_observation", observation.ID, "measured_by", "效果数据度量 V1 剧本版本")
+		}
 	}
 	ratings, err := s.store.RatingDecisions(ctx, tenantID, projectID)
 	if err != nil {

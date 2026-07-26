@@ -484,6 +484,16 @@ func (s *Server) reviewGrants(w http.ResponseWriter, r *http.Request) {
 	s.ok(w, r, "review_grant.list", v)
 }
 
+func (s *Server) legacyReviewGrants(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	v, err := s.service.LegacyReviewGrants(r.Context(), actor, chi.URLParam(r, "id"))
+	if err != nil {
+		s.fail(w, r, "review_grant.list", err)
+		return
+	}
+	s.ok(w, r, "review_grant.list", v)
+}
+
 func (s *Server) revokeReviewGrant(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	v, err := s.service.RevokeReviewGrant(r.Context(), actor, chi.URLParam(r, "id"), middleware.GetReqID(r.Context()))
@@ -555,6 +565,69 @@ func (s *Server) exportScript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.ok(w, r, "artifact.export", v)
+}
+
+func (s *Server) exportApprovedSnapshot(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var in struct {
+		ScriptID string `json:"script_id"`
+		Format   string `json:"format"`
+	}
+	if !s.decode(w, r, &in) {
+		return
+	}
+	value, err := s.service.ExportApprovedSnapshot(r.Context(), actor, chi.URLParam(r, "id"), in.ScriptID, in.Format, middleware.GetReqID(r.Context()))
+	if err != nil {
+		s.fail(w, r, "artifact.export", err)
+		return
+	}
+	s.ok(w, r, "artifact.export", value)
+}
+
+func (s *Server) approvedSnapshotArtifacts(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.ApprovedSnapshotArtifacts(r.Context(), actor, chi.URLParam(r, "id"))
+	if err != nil {
+		s.fail(w, r, "artifact.list", err)
+		return
+	}
+	s.ok(w, r, "artifact.list", value)
+}
+
+func (s *Server) createDeliveryPackage(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var in struct {
+		ScriptID string `json:"script_id"`
+	}
+	if !s.decode(w, r, &in) {
+		return
+	}
+	value, err := s.service.CreateDeliveryPackage(r.Context(), actor, chi.URLParam(r, "id"), in.ScriptID, middleware.GetReqID(r.Context()))
+	if err != nil {
+		s.fail(w, r, "delivery.create", err)
+		return
+	}
+	s.ok(w, r, "delivery.create", value)
+}
+
+func (s *Server) deliveryPackages(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.DeliveryPackages(r.Context(), actor, chi.URLParam(r, "projectID"))
+	if err != nil {
+		s.fail(w, r, "delivery.list", err)
+		return
+	}
+	s.ok(w, r, "delivery.list", value)
+}
+
+func (s *Server) deliveryPackage(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.DeliveryPackage(r.Context(), actor, chi.URLParam(r, "id"))
+	if err != nil {
+		s.fail(w, r, "delivery.show", err)
+		return
+	}
+	s.ok(w, r, "delivery.show", value)
 }
 
 func (s *Server) downloadArtifact(w http.ResponseWriter, r *http.Request) {

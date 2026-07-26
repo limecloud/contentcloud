@@ -32,11 +32,14 @@ docs/roadmap/v2/         V2 产品、架构、流程、安全、计划与实现�
 
 ```bash
 pnpm install
-make build
-CONTENTCLOUD_DEV_MODE=1 ./bin/contentcloud-server
+make dev
 ```
 
-打开 `http://localhost:8080` 使用租户工作台，或打开 `http://localhost:8080/admin/dashboard` 使用独立系统后台。开发模式使用 Memory Store、本地 Blob，演示账号默认具备平台管理员权限，并自动创建金陵古法线香演示项目；来源由内置确定性 Worker 处理。
+开发脚本会同时启动 Go API（`http://localhost:8080`）和 Vite（`http://localhost:5173`），自动加载根目录 `.env`，并在退出时清理自己启动的子进程。打开 `http://localhost:5173` 使用租户工作台，或打开 `http://localhost:5173/admin/dashboard` 使用独立系统后台。
+
+默认使用隔离的 Memory Store 和 `var/dev-data` 本地 Blob，不会连接 `.env` 中的数据库或 S3。运行 `./scripts/dev.sh --help` 可查看端口覆盖、真实数据库联调和显式清理占用端口等选项。需要验证构建后的前后端单体服务时使用 `make preview`。
+
+开发模式下，演示账号默认具备平台管理员权限，并自动创建金陵古法线香演示项目；来源由内置确定性 Worker 处理。
 
 CLI 示例：
 
@@ -97,7 +100,7 @@ CONTENTCLOUD_REQUIRE_MALWARE_SCAN=1 ./bin/contentcloud-worker
 2. 项目总览生成 10 分钟有效、单次使用的 `cck_`，并拼成不含登录态的 Agent Prompt：
 
 ```text
-Fetch https://content.example.com/api/bootstrap and initialize this ContentCloud project.
+Fetch https://content.example.com/api/bootstrap and help me initialize this ContentCloud project on this machine.
 
 server-url: https://content.example.com
 connect-key: cck_xxx

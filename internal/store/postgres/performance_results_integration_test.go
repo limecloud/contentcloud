@@ -2,11 +2,14 @@ package postgres_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
@@ -51,9 +54,49 @@ func TestPerformanceImportTransactionWithPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	logical := domain.Script{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, Title: "Results script", CreatedAt: now}
-	script, err := store.CreateScript(ctx, logical, domain.ScriptVersion{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, RunID: run.ID, ChangeType: "initial", InvariantFields: []string{}, ChangedFields: []string{}, Status: "approved", InputSnapshotID: snapshot.ID, ContentHash: "results-script-" + suffix, Package: domain.ScriptPackage{SchemaVersion: "1.1", Title: "Results script"}, Validation: domain.ValidationReport{Valid: true}, CreatedAt: now})
+	script, err := store.CreateScript(ctx, logical, domain.ScriptVersion{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, RunID: run.ID, ChangeType: "initial", InvariantFields: []string{}, ChangedFields: []string{}, Status: "approved", InputSnapshotID: snapshot.ID, ContentHash: domain.TokenHash("results-script-" + suffix), Package: domain.ScriptPackage{SchemaVersion: "1.1", Title: "Results script"}, Validation: domain.ValidationReport{Valid: true}, CreatedAt: now})
 	if err != nil {
 		t.Fatal(err)
+	}
+	invalidRun := run
+	invalidRun.ID = domain.NewID()
+	invalidRun.IdempotencyKey = "invalid-results-run-" + suffix
+	if err := store.CreateRun(ctx, invalidRun); err != nil {
+		t.Fatal(err)
+	}
+	invalidLogical := domain.Script{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, Title: "Invalid legacy hash", CreatedAt: now}
+	if _, err := store.CreateScript(ctx, invalidLogical, domain.ScriptVersion{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, RunID: invalidRun.ID, ChangeType: "initial", InvariantFields: []string{}, ChangedFields: []string{}, Status: "approved", InputSnapshotID: snapshot.ID, ContentHash: "legacy-invalid-hash", Package: domain.ScriptPackage{SchemaVersion: "1.1", Title: "Invalid legacy hash"}, Validation: domain.ValidationReport{Valid: true}, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	type backfillReport struct {
+		Inserted           int `json:"inserted"`
+		SkippedInvalidHash int `json:"skipped_invalid_hash"`
+	}
+	var firstJSON, secondJSON []byte
+	if err := conn.QueryRow(ctx, `SELECT contentcloud_backfill_v1_approved_snapshots($1::uuid)`, actor.TenantID).Scan(&firstJSON); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.QueryRow(ctx, `SELECT contentcloud_backfill_v1_approved_snapshots($1::uuid)`, actor.TenantID).Scan(&secondJSON); err != nil {
+		t.Fatal(err)
+	}
+	var firstBackfill, secondBackfill backfillReport
+	if err := json.Unmarshal(firstJSON, &firstBackfill); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(secondJSON, &secondBackfill); err != nil {
+		t.Fatal(err)
+	}
+	legacySnapshots, err := store.ApprovedSnapshots(ctx, actor.TenantID, project.ID, "script")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstBackfill.Inserted != 1 || firstBackfill.SkippedInvalidHash != 1 || secondBackfill.Inserted != 0 || secondBackfill.SkippedInvalidHash != 1 || len(legacySnapshots) != 1 || legacySnapshots[0].Origin != "v1_import" || legacySnapshots[0].ExternalRef != script.ID || legacySnapshots[0].ContentHash != script.ContentHash || legacySnapshots[0].SubjectHash != script.ContentHash {
+		t.Fatalf("V1 shadow backfill is not idempotent or hash-preserving: first=%#v second=%#v snapshots=%#v", firstBackfill, secondBackfill, legacySnapshots)
 	}
 
 	result, err := service.ImportPerformanceObservations(ctx, actor, app.ImportPerformanceInput{ProjectID: project.ID, SourceName: "results.csv", SourceFormat: "csv", Observations: []app.CreateObservationInput{{RowNumber: 2, ScriptVersionID: script.ID, Platform: "douyin", AccountAlias: "brand-main", PublishedAt: now.Add(-24 * time.Hour), WindowHours: 24, SampleStatus: "seed_candidate", Metrics: map[string]float64{"impressions": 1000}, Currency: "CNY", Spend: 100, GMV: 250, IssueCategory: "creative"}}}, "req-results")
