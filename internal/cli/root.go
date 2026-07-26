@@ -28,7 +28,7 @@ import (
 	builtinskills "github.com/limecloud/contentcloud/skills"
 )
 
-const Version = "0.1.0-dev"
+const Version = "0.2.0"
 
 type Root struct {
 	json      bool
