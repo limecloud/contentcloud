@@ -303,7 +303,9 @@ func (s *Service) WorkspaceActor(ctx context.Context, token string) (Actor, doma
 	if err != nil {
 		return Actor{}, binding, domain.E("authentication", "workspace", "WORKSPACE_TOKEN_INVALID", "工作区凭据无效", 3)
 	}
-	return Actor{UserID: binding.OwnerUserID, TenantID: binding.TenantID, Role: "editor", Type: "workspace", DeviceID: binding.DeviceID, WorkspaceID: binding.ID}, binding, nil
+	actor := Actor{UserID: binding.OwnerUserID, TenantID: binding.TenantID, Role: "editor", Type: "workspace", DeviceID: binding.DeviceID, WorkspaceID: binding.ID}
+	binding.CredentialHash = ""
+	return actor, binding, nil
 }
 func (s *Service) Devices(ctx context.Context, actor Actor, projectID string) ([]domain.Device, error) {
 	return s.store.Devices(ctx, actor.TenantID, projectID)

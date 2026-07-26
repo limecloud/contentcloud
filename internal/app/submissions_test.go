@@ -39,6 +39,9 @@ func TestWorkspaceSubmissionApprovalCreatesImmutableSnapshotWithoutTaskRun(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	if binding.CredentialHash != "" {
+		t.Fatal("workspace authentication leaked the credential hash")
+	}
 	binding, err = service.RegisterWorkspace(ctx, workspaceActor, binding, "workspace_marketing_video", "2.0.0", []string{"codex"}, "req-register")
 	if err != nil || binding.CredentialHash != "" {
 		t.Fatalf("workspace registration failed or leaked token hash: %#v %v", binding, err)
