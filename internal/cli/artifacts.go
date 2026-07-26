@@ -50,19 +50,59 @@ func (r *Root) artifactCommand() *cobra.Command {
 		return r.writeOK("artifact.presentation", result)
 	}}
 
-	var format string
-	export := &cobra.Command{Use: "export <script-id>", Args: cobra.ExactArgs(1), Short: "Create an approved script export", RunE: func(cmd *cobra.Command, args []string) error {
+	var format, exportScriptID string
+	export := &cobra.Command{Use: "export <approved-snapshot-id>", Args: cobra.ExactArgs(1), Short: "Create an export from a client-approved snapshot", RunE: func(cmd *cobra.Command, args []string) error {
 		_, client, _, err := r.userClient()
 		if err != nil {
 			return err
 		}
 		var result domain.Artifact
-		if err := client.Dispatch(cmd.Context(), "artifact.export", map[string]any{"script_id": args[0], "format": format}, &result); err != nil {
+		if err := client.Dispatch(cmd.Context(), "artifact.export", map[string]any{"snapshot_id": args[0], "script_id": exportScriptID, "format": format}, &result); err != nil {
 			return err
 		}
 		return r.writeOK("artifact.export", result)
 	}}
 	export.Flags().StringVar(&format, "format", "json", "markdown, xlsx, or json")
+	export.Flags().StringVar(&exportScriptID, "script", "", "script ID when the snapshot contains multiple scripts")
+
+	var deliveryScriptID string
+	delivery := &cobra.Command{Use: "package <approved-snapshot-id>", Args: cobra.ExactArgs(1), Short: "Create a three-format DeliveryPackage", RunE: func(cmd *cobra.Command, args []string) error {
+		_, client, _, err := r.userClient()
+		if err != nil {
+			return err
+		}
+		var result domain.DeliveryPackage
+		if err := client.Dispatch(cmd.Context(), "delivery.create", map[string]any{"snapshot_id": args[0], "script_id": deliveryScriptID}, &result); err != nil {
+			return err
+		}
+		return r.writeOK("delivery.create", result)
+	}}
+	delivery.Flags().StringVar(&deliveryScriptID, "script", "", "script ID when the snapshot contains multiple scripts")
+	var deliveryProjectID string
+	deliveryList := &cobra.Command{Use: "packages", Short: "List immutable DeliveryPackages", RunE: func(cmd *cobra.Command, args []string) error {
+		_, client, _, err := r.userClient()
+		if err != nil {
+			return err
+		}
+		var result []domain.DeliveryPackage
+		if err := client.Dispatch(cmd.Context(), "delivery.list", map[string]any{"project_id": deliveryProjectID}, &result); err != nil {
+			return err
+		}
+		return r.writeOK("delivery.list", result)
+	}}
+	deliveryList.Flags().StringVar(&deliveryProjectID, "project", "", "project ID")
+	_ = deliveryList.MarkFlagRequired("project")
+	deliveryShow := &cobra.Command{Use: "package-show <delivery-package-id>", Args: cobra.ExactArgs(1), Short: "Show a DeliveryPackage manifest", RunE: func(cmd *cobra.Command, args []string) error {
+		_, client, _, err := r.userClient()
+		if err != nil {
+			return err
+		}
+		var result domain.DeliveryPackage
+		if err := client.Dispatch(cmd.Context(), "delivery.show", map[string]any{"id": args[0]}, &result); err != nil {
+			return err
+		}
+		return r.writeOK("delivery.show", result)
+	}}
 
 	var out string
 	download := &cobra.Command{Use: "download <artifact-id>", Args: cobra.ExactArgs(1), Short: "Download a server-hosted artifact to an explicit path", RunE: func(cmd *cobra.Command, args []string) error {
@@ -105,7 +145,7 @@ func (r *Root) artifactCommand() *cobra.Command {
 		}
 		return r.writeOK("artifact.open.status", result)
 	}}
-	cmd.AddCommand(list, presentation, export, download, register, open, openStatus)
+	cmd.AddCommand(list, presentation, export, delivery, deliveryList, deliveryShow, download, register, open, openStatus)
 	return cmd
 }
 

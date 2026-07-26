@@ -151,7 +151,9 @@ type Store interface {
 	ReviewGrant(context.Context, string, string) (domain.ReviewGrant, error)
 	ReviewGrants(context.Context, string, string) ([]domain.ReviewGrant, error)
 	ReviewGrantByTokenHash(context.Context, string) (domain.ReviewGrant, error)
-	SaveReviewGrant(context.Context, domain.ReviewGrant) error
+	MarkReviewGrantVerified(context.Context, string, string, time.Time) error
+	RevokeReviewGrant(context.Context, string, string, time.Time) error
+	CompleteLegacyClientReview(context.Context, domain.ScriptVersion, domain.ReviewGrant, domain.ApprovalDecision, *domain.ReviewComment) error
 
 	CreateSubmissionRevision(context.Context, domain.Submission, domain.SubmissionRevision, []domain.SourceDisclosure, domain.ReviewCycle) error
 	SubmissionByWorkspaceType(context.Context, string, string, string, string) (domain.Submission, error)
@@ -161,12 +163,19 @@ type Store interface {
 	SubmissionRevisions(context.Context, string, string) ([]domain.SubmissionRevision, error)
 	ApprovedSnapshots(context.Context, string, string, string) ([]domain.ApprovedSnapshot, error)
 	ApprovedSnapshot(context.Context, string, string) (domain.ApprovedSnapshot, error)
+	RecordSubmissionApproval(context.Context, domain.Submission, domain.ApprovalDecision) error
 	ApproveSubmissionRevision(context.Context, domain.Submission, domain.ApprovedSnapshot, domain.ApprovalDecision) error
 	RequestSubmissionChanges(context.Context, domain.Submission, domain.ApprovalDecision, domain.ReviewComment) error
+	CreateSubmissionReviewGrant(context.Context, domain.Submission, domain.ReviewGrant) error
+	CompleteSubmissionClientReview(context.Context, domain.Submission, domain.ReviewGrant, domain.ApprovalDecision, *domain.ReviewComment, *domain.ApprovedSnapshot) error
 
 	CreateArtifact(context.Context, domain.Artifact) error
 	Artifacts(context.Context, string, string) ([]domain.Artifact, error)
+	ArtifactsByApprovedSnapshot(context.Context, string, string) ([]domain.Artifact, error)
 	Artifact(context.Context, string, string) (domain.Artifact, error)
+	CreateDeliveryPackage(context.Context, domain.DeliveryPackage, []domain.Artifact) error
+	DeliveryPackages(context.Context, string, string) ([]domain.DeliveryPackage, error)
+	DeliveryPackage(context.Context, string, string) (domain.DeliveryPackage, error)
 	CreateArtifactOpenRequest(context.Context, domain.ArtifactOpenRequest) error
 	ArtifactOpenRequest(context.Context, string, string) (domain.ArtifactOpenRequest, error)
 	PendingArtifactOpenRequests(context.Context, string, string, time.Time, int) ([]domain.ArtifactOpenRequest, error)

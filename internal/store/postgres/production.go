@@ -344,14 +344,14 @@ func (s *Store) SaveScript(ctx context.Context, v domain.ScriptVersion) error {
 
 func (s *Store) CreateApproval(ctx context.Context, v domain.ApprovalDecision) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO approval_decisions(id,tenant_id,project_id,subject_type,subject_id,subject_hash,actor_id,decision,reason,previous_state,resulting_state,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, v.ID, v.TenantID, v.ProjectID, v.SubjectType, v.SubjectID, v.SubjectHash, v.ActorID, v.Decision, v.Reason, v.PreviousState, v.ResultingState, v.CreatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO approval_decisions(id,tenant_id,project_id,subject_type,subject_id,subject_hash,decision_stage,actor_id,decision,reason,previous_state,resulting_state,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, v.ID, v.TenantID, v.ProjectID, v.SubjectType, v.SubjectID, v.SubjectHash, defaultDecisionStage(v.DecisionStage), v.ActorID, v.Decision, v.Reason, v.PreviousState, v.ResultingState, v.CreatedAt)
 		return dbError(err)
 	})
 }
 func (s *Store) Approvals(ctx context.Context, tenantID, subjectID string) ([]domain.ApprovalDecision, error) {
 	out := []domain.ApprovalDecision{}
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		query := `SELECT id,tenant_id,project_id,subject_type,subject_id,subject_hash,actor_id,decision,reason,previous_state,resulting_state,created_at FROM approval_decisions WHERE tenant_id=$1`
+		query := `SELECT id,tenant_id,project_id,subject_type,subject_id,subject_hash,decision_stage,actor_id,decision,reason,previous_state,resulting_state,created_at FROM approval_decisions WHERE tenant_id=$1`
 		args := []any{tenantID}
 		if subjectID != "" {
 			query += ` AND subject_id=$2`
@@ -365,7 +365,7 @@ func (s *Store) Approvals(ctx context.Context, tenantID, subjectID string) ([]do
 		defer rows.Close()
 		for rows.Next() {
 			var v domain.ApprovalDecision
-			if err := rows.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.SubjectType, &v.SubjectID, &v.SubjectHash, &v.ActorID, &v.Decision, &v.Reason, &v.PreviousState, &v.ResultingState, &v.CreatedAt); err != nil {
+			if err := rows.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.SubjectType, &v.SubjectID, &v.SubjectHash, &v.DecisionStage, &v.ActorID, &v.Decision, &v.Reason, &v.PreviousState, &v.ResultingState, &v.CreatedAt); err != nil {
 				return err
 			}
 			out = append(out, v)
@@ -373,6 +373,13 @@ func (s *Store) Approvals(ctx context.Context, tenantID, subjectID string) ([]do
 		return rows.Err()
 	})
 	return out, err
+}
+
+func defaultDecisionStage(value string) string {
+	if value == "" {
+		return "legacy"
+	}
+	return value
 }
 
 func (s *Store) AppendAudit(ctx context.Context, v domain.AuditEvent) error {

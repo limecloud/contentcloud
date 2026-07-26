@@ -52,6 +52,7 @@ type Store struct {
 	submissionRevisions  map[string]domain.SubmissionRevision
 	approvedSnapshots    map[string]domain.ApprovedSnapshot
 	artifacts            map[string]domain.Artifact
+	deliveryPackages     map[string]domain.DeliveryPackage
 	artifactOpenRequests map[string]domain.ArtifactOpenRequest
 	performanceBatches   map[string]domain.PerformanceImportBatch
 	observations         map[string]domain.PerformanceObservation
@@ -67,7 +68,7 @@ func New() *Store {
 		sources: map[string]domain.Source{}, revisions: map[string]domain.SourceRevision{}, evidence: map[string]domain.EvidenceSpan{}, assets: map[string]domain.Asset{}, rightsRecords: map[string]domain.RightsRecord{}, knowledge: map[string]domain.KnowledgeItem{}, knowledgeConflicts: map[string]domain.KnowledgeConflict{}, decisionRequests: map[string]domain.DecisionRequest{},
 		benchmarks: map[string]domain.BenchmarkContent{}, frameworks: map[string]domain.ContentFramework{}, shotPatterns: map[string]domain.ShotPattern{}, sellingPoints: map[string]domain.SellingPoint{}, visualizationPlans: map[string]domain.VisualizationPlan{},
 		briefs: map[string]domain.BriefVersion{}, snapshots: map[string]domain.ContextSnapshot{}, runs: map[string]domain.TaskRun{}, runAttempts: map[string]domain.RunAttempt{}, logicalScripts: map[string]domain.Script{},
-		scripts: map[string]domain.ScriptVersion{}, approvals: map[string]domain.ApprovalDecision{}, reviewCycles: map[string]domain.ReviewCycle{}, reviewComments: map[string]domain.ReviewComment{}, reviewGrants: map[string]domain.ReviewGrant{}, submissions: map[string]domain.Submission{}, submissionRevisions: map[string]domain.SubmissionRevision{}, approvedSnapshots: map[string]domain.ApprovedSnapshot{}, artifacts: map[string]domain.Artifact{}, artifactOpenRequests: map[string]domain.ArtifactOpenRequest{}, performanceBatches: map[string]domain.PerformanceImportBatch{}, observations: map[string]domain.PerformanceObservation{}, ratingDecisions: map[string]domain.RatingDecision{}, audits: []domain.AuditEvent{},
+		scripts: map[string]domain.ScriptVersion{}, approvals: map[string]domain.ApprovalDecision{}, reviewCycles: map[string]domain.ReviewCycle{}, reviewComments: map[string]domain.ReviewComment{}, reviewGrants: map[string]domain.ReviewGrant{}, submissions: map[string]domain.Submission{}, submissionRevisions: map[string]domain.SubmissionRevision{}, approvedSnapshots: map[string]domain.ApprovedSnapshot{}, artifacts: map[string]domain.Artifact{}, deliveryPackages: map[string]domain.DeliveryPackage{}, artifactOpenRequests: map[string]domain.ArtifactOpenRequest{}, performanceBatches: map[string]domain.PerformanceImportBatch{}, observations: map[string]domain.PerformanceObservation{}, ratingDecisions: map[string]domain.RatingDecision{}, audits: []domain.AuditEvent{},
 	}
 }
 
@@ -980,6 +981,9 @@ func (s *Store) SaveScript(_ context.Context, v domain.ScriptVersion) error {
 func (s *Store) CreateApproval(_ context.Context, v domain.ApprovalDecision) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if v.DecisionStage == "" {
+		v.DecisionStage = "legacy"
+	}
 	s.approvals[v.ID] = v
 	return nil
 }

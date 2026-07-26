@@ -581,13 +581,42 @@ func (s *Server) handleUserDispatch(w http.ResponseWriter, r *http.Request, req 
 		s.dispatchResult(w, r, req.Command, v, err)
 	case "artifact.export":
 		var in struct {
-			ScriptID string `json:"script_id"`
-			Format   string `json:"format"`
+			SnapshotID string `json:"snapshot_id"`
+			ScriptID   string `json:"script_id"`
+			Format     string `json:"format"`
 		}
 		if !decodeParams(w, r, s, req, &in) {
 			return true
 		}
-		v, err := s.service.ExportScript(r.Context(), actor, in.ScriptID, in.Format, requestID)
+		v, err := s.service.ExportApprovedSnapshot(r.Context(), actor, in.SnapshotID, in.ScriptID, in.Format, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "delivery.create":
+		var in struct {
+			SnapshotID string `json:"snapshot_id"`
+			ScriptID   string `json:"script_id"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.CreateDeliveryPackage(r.Context(), actor, in.SnapshotID, in.ScriptID, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "delivery.list":
+		var in struct {
+			ProjectID string `json:"project_id"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.DeliveryPackages(r.Context(), actor, in.ProjectID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "delivery.show":
+		var in struct {
+			ID string `json:"id"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.DeliveryPackage(r.Context(), actor, in.ID)
 		s.dispatchResult(w, r, req.Command, v, err)
 	case "artifact.download":
 		var in struct {
@@ -604,22 +633,31 @@ func (s *Server) handleUserDispatch(w http.ResponseWriter, r *http.Request, req 
 		s.ok(w, r, req.Command, map[string]any{"artifact": artifact, "content_base64": base64.StdEncoding.EncodeToString(data)})
 	case "review.create":
 		var in struct {
-			ScriptID      string `json:"script_id"`
+			RevisionID    string `json:"revision_id"`
 			ReviewerEmail string `json:"reviewer_email"`
 		}
 		if !decodeParams(w, r, s, req, &in) {
 			return true
 		}
-		v, err := s.service.CreateReviewGrant(r.Context(), actor, in.ScriptID, in.ReviewerEmail, requestID)
+		v, err := s.service.CreateReviewGrant(r.Context(), actor, in.RevisionID, in.ReviewerEmail, requestID)
 		s.dispatchResult(w, r, req.Command, v, err)
 	case "review.list":
 		var in struct {
-			ScriptID string `json:"script_id"`
+			RevisionID string `json:"revision_id"`
 		}
 		if !decodeParams(w, r, s, req, &in) {
 			return true
 		}
-		v, err := s.service.ReviewGrants(r.Context(), actor, in.ScriptID)
+		v, err := s.service.ReviewGrants(r.Context(), actor, in.RevisionID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "review.status":
+		var in struct {
+			RevisionID string `json:"revision_id"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.SubmissionReviewStatus(r.Context(), actor, in.RevisionID)
 		s.dispatchResult(w, r, req.Command, v, err)
 	case "review.revoke":
 		var in struct {

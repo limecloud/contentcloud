@@ -212,16 +212,18 @@ func TestSourceLifecycleWithPostgres(t *testing.T) {
 		t.Fatalf("review grant list must persist the grant without exposing secrets: %#v", persistedGrants)
 	}
 	revokedAt := now.Add(3 * time.Minute).Truncate(time.Microsecond)
-	reviewGrant.RevokedAt = &revokedAt
-	if err := store.SaveReviewGrant(ctx, reviewGrant); err != nil {
+	if err := store.RevokeReviewGrant(ctx, reviewGrant.TenantID, reviewGrant.ID, revokedAt); err != nil {
 		t.Fatal(err)
+	}
+	if err := store.MarkReviewGrantVerified(ctx, reviewGrant.TenantID, reviewGrant.ID, revokedAt.Add(time.Second)); err == nil {
+		t.Fatal("late verification must not restore a revoked review grant")
 	}
 	persistedGrant, err := store.ReviewGrant(ctx, actor.TenantID, reviewGrant.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if persistedGrant.RevokedAt == nil || !persistedGrant.RevokedAt.Equal(revokedAt) {
-		t.Fatalf("review grant revocation was not persisted: %#v", persistedGrant)
+	if persistedGrant.RevokedAt == nil || !persistedGrant.RevokedAt.Equal(revokedAt) || persistedGrant.VerifiedAt != nil {
+		t.Fatalf("review grant revocation was overwritten by late verification: %#v", persistedGrant)
 	}
 	artifactEnvelope := domain.ExtensionArtifactEnvelopeV1{EnvelopeVersion: "1.0", ProjectID: project.ID, ScriptVersionID: secondVersion.ID, Capability: domain.ArtifactCapabilityRef{ID: domain.ArtifactExportCapability, Version: "1.0.0", Digest: "postgres-artifact-digest"}, SchemaID: "test.timeline/1.0", MediaType: "application/octet-stream", SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Size: 128, Renditions: []domain.ArtifactRenditionRef{}, Metadata: map[string]any{"variant": "A"}}
 	artifact := domain.Artifact{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, ScriptVersionID: secondVersion.ID, Kind: "extension", CapabilityID: artifactEnvelope.Capability.ID, CapabilityVersion: artifactEnvelope.Capability.Version, CapabilityDigest: artifactEnvelope.Capability.Digest, SchemaID: artifactEnvelope.SchemaID, MediaType: artifactEnvelope.MediaType, FileName: "timeline.bin", SHA256: artifactEnvelope.SHA256, ByteSize: artifactEnvelope.Size, Visibility: "internal", RetentionClass: "project", Purpose: "primary", SourceDeviceID: device.ID, ValidationStatus: "valid", Envelope: &artifactEnvelope, PresentationTier: "metadata_only", Metadata: artifactEnvelope.Metadata, CreatedAt: now}

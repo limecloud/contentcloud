@@ -4,7 +4,7 @@ import { buildBootstrapPrompt, connectStateCopy, isActiveConnectState } from './
 describe('ContentCloud Agent bootstrap',()=>{
   it('builds one stable prompt for rendering and clipboard use',()=>{
     expect(buildBootstrapPrompt({serverURL:'https://content.example.com/',connectKey:'cck_test',projectName:'金陵古都香 / 古法线香'})).toBe(
-      'Fetch https://content.example.com/api/bootstrap and initialize this ContentCloud project.\n\nserver-url: https://content.example.com\nconnect-key: cck_test\nproject: "金陵古都香 / 古法线香"'
+      'Fetch https://content.example.com/api/bootstrap and help me initialize this ContentCloud project on this machine.\n\nserver-url: https://content.example.com\nconnect-key: cck_test\nproject: "金陵古都香 / 古法线香"'
     );
   });
 

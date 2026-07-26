@@ -98,7 +98,7 @@ V1 的 `ScriptVersion` 曾同时是内容载体和审批主体。V2 保留它的
 3. 回填不重算 hash：影子快照沿用 V1 `content_hash`，`schema_version` 标记为 `1.x`。
 4. 切换完成并观察稳定后，停止创建新的 ScriptVersion 记录及其 ReviewCycle；读路径按 `12-migration-and-delivery-plan.md` 的退役节奏保留至少一个稳定版本周期。
 
-> 实现现状：`internal/app/review_cycles.go` 与 `internal/app/review_export.go` 目前仍以 `script_version` 为 subject，改挂 `submission_revision` 是波次一的 P0 改造项，见 `14-implementation-status.md`。
+> 实现现状：新客户审批、交付与结果链已统一使用 `submission_revision` / `approved_snapshot`；V1 `script_version` 仅保留历史读取与旧链接兼容。实现和验收边界见 `14-implementation-status.md`。
 
 ## 3. 通用字段与版本规则
 

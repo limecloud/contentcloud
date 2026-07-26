@@ -11,15 +11,21 @@ flowchart LR
     L --> X[local source register/ingest]
     X --> K[knowledge import/lint/diagnose/pack]
     K --> P[knowledge publish preflight]
-    P --> S[不可变 SubmissionRevision + 人工审核]
-    S --> R[Web 审核]
+    P --> S[不可变 SubmissionRevision]
+    S --> R[Web 内部审核]
     R -->|修改要求| F[pull feedback/decisions]
-    R -->|批准| A[ApprovedSnapshot]
+    R -->|内部批准| G[客户 OTP 审批]
+    G -->|修改要求| F
+    G -->|客户批准| A[ApprovedSnapshot]
     A --> C[pull approved 只读缓存]
+    A --> D[JSON/Markdown/XLSX DeliveryPackage]
+    D --> O[PerformanceObservation]
+    O --> T[Rating + Lineage]
     F --> K
     C --> B[local Brief/CreativeBatch/ScriptPackage V2]
     B --> SP[script lint/diff/publish]
     SP --> R
+    T --> B
 ```
 
 该路径以客户端为主。服务端只接收显式提交、保存治理事实并提供人工审核；普通本地操作不会创建 `TaskRun`。
@@ -39,8 +45,12 @@ flowchart LR
 | 发布 | knowledge/research/strategy/brief/script/delivery/performance；本地 JSON/lint/hash/大小/路径/preflight；`--review`/`--yes` 确认 |
 | 拉取 | feedback/decisions 写 inbox，ApprovedSnapshot 写只读 cache，不覆盖业务正文 |
 | 云端治理 | Submission、不可变 Revision、SourceDisclosure、ReviewFeedbackBundle、DecisionDelta、ApprovedSnapshot |
-| 审核 | Web 列表/详情/revision 切换/来源披露/批注/修改要求/批准；不提供正文编辑控件 |
-| 数据库 | `00013_v2_workspace_submissions.sql`、Workspace token lookup、RLS、revision/snapshot immutable trigger、审批事务 |
+| 内部审核 | Web 列表/详情/revision 切换/来源披露/批注/修改要求/内部批准；不提供正文编辑控件，内部批准不提前生成快照 |
+| 客户审批 | ReviewGrant 绑定 SubmissionRevision；OTP 验证、客户批准/修改要求、新 revision 撤销旧未决 Grant；公开页兼容 V1 历史链接 |
+| 交付 | 客户批准原子生成 ApprovedSnapshot；从快照生成 JSON/Markdown/XLSX Artifact 与不可变 DeliveryPackage |
+| 结果学习 | PerformanceObservation 绑定 ApprovedSnapshot；RatingDecision 支持 `approved_snapshot`；Lineage 串联提交、快照、交付和结果 |
+| Brief 策略血缘 | `strategy_version_id` 必填，且必须引用已 pull 的 strategy ApprovedSnapshot 对象 |
+| 数据库 | `00013`-`00015`；Workspace token lookup、RLS、revision/snapshot/package immutable trigger、两阶段审批事务、V1 影子快照幂等回填报告 |
 
 核心代码入口：
 
@@ -48,40 +58,46 @@ flowchart LR
 - `internal/cli/workspace_commands.go`
 - `internal/cli/v2_commands.go`
 - `internal/app/submissions.go`
+- `internal/app/review_export.go`
+- `internal/app/artifacts.go`
+- `internal/app/performance_results.go`
 - `internal/store/postgres/submissions.go`
+- `internal/store/postgres/delivery.go`
 - `internal/httpapi/submission_handlers.go`
 - `web/src/views/SubmissionsView.tsx`
+- `web/src/views/PublicViews.tsx`
+- `web/src/views/AssetViews.tsx`
 
 ## 3. 已验证规则
 
 - publish 时服务端复算 canonical hash；篡改 payload 会被拒绝。
 - 同一幂等键和相同内容返回原 Revision；相同幂等键不同内容冲突。
 - 高风险对象使用 metadata-only 或无披露时标记 `evidence_limited`，不能远程批准。
-- 批准固定 Revision hash 并创建不可变 ApprovedSnapshot。
+- 内部批准只把 Submission 推进到 `internally_approved`；不会提前创建 ApprovedSnapshot。
+- ReviewGrant 绑定具体 SubmissionRevision；新 revision 会撤销同一 Submission 上旧 revision 的未决 Grant。
+- 客户 OTP 批准要求同一 revision 已完成内部批准，并在同一事务内写客户决定、Grant、Submission 和不可变 ApprovedSnapshot。
+- ApprovedSnapshot 固定 Revision hash；JSON/Markdown/XLSX Artifact、DeliveryPackage 和 PerformanceObservation 均引用该快照。
 - 修改要求在同一事务中写 Decision、Comment 和 `changes_requested` 状态。
 - Workspace Credential 只能访问绑定工作区；Web 用户角色负责 approve/request-changes。
 - 普通 publish 不创建 TaskRun；服务端没有 LLM、Agent、Skill、MCP 或 Renderer 执行入口。
 - Web 审核动作不改写 Revision 正文。
 - Brief publish 会强制执行 Brief V2 lint；Script publish 会识别批次目录中的 `script_package` 并强制执行完整 ScriptPackage V2 lint，batch/context 不会被误发布；多个候选必须通过重复 `--file` 明确范围。
 - 阻断剧本允许没有镜头，但必须使用 blocked 状态并给出结构化 blocked reasons；review_ready 必须有连续镜头、必要角色、引用、权利和实验声明。
+- Brief 必须声明 `strategy_version_id`，且该对象必须存在于已 pull 的 strategy ApprovedSnapshot 中。
+- V1 已批准 ScriptVersion 可幂等回填为 `origin=v1_import` 的只读影子快照；有效历史 hash 原值保留，无效 hash 只计入报告、不伪造或重算。
+- HTTP Golden Path 已自动验证 revision 内审、Grant、公开 OTP、客户批准、快照查询、三格式交付包和快照结果绑定。
+- 真实 PostgreSQL 已验证 migration、Workspace token lookup、Revision/ApprovedSnapshot 不可变、审批事务、V1 回填幂等和跨租户 RLS。
 - 金陵古都香一个真实 DOCX 已自动走通来源登记、DOCX ingest、知识候选导入、lint、15 维诊断、七层 pack 和 publish preflight，且不上传 raw。
 
-以下规则**尚未成立**，属于 §4 的 P0 缺口，不要据 §2 的"已实现"推断：
-
-- 云端审核目前只覆盖内部决定。客户 OTP 审批、导出、DeliveryPackage 和 PerformanceObservation 仍绑定 V1 `script_version`（`internal/app/review_cycles.go:36,135`、`internal/app/review_export.go:105,232`），与 Submission 轨没有连接。
-- 因此从 publish 到"客户批准并三格式交付"这一段目前跑不通，Golden Journey 第 9-11 步无法执行。
+以上证明代码状态为 `implemented`，不等于真实业务场景已经 `accepted`。剩余验收项见 §4。
 
 ## 4. 尚未完成
 
 | 优先级 | 缺口 | 完成条件 |
 | --- | --- | --- |
-| P0 | **审批单轨收敛（代码缺口，非 UAT 缺口）** | ReviewCycle/ApprovalDecision/ReviewGrant 的 subject 从 `script_version` 改为 `submission_revision`；DeliveryPackage 与 PerformanceObservation 改引用 ApprovedSnapshot；V1 记录回填 `origin=v1_import` 影子快照。见 `03-domain-and-data-model.md` §2.1/§2.2 |
-| P0 | 客户 OTP 审批链接接入 Submission | ReviewGrant 绑定具体 SubmissionRevision，新 revision 使旧链接失效；内部/客户两阶段决定写入同一 revision |
-| P0 | 三格式导出改由 ApprovedSnapshot 驱动 | 导出与 DeliveryPackage 从批准快照的 canonical 内容生成，hash 与 revision 一致 |
-| P0 | Brief 策略血缘 | `LocalBrief` 增加 `StrategyVersionID` 字段并加入 `internal/localworkspace/script.go` 的必填校验；校验其落在已 pull 的 strategy ApprovedSnapshot 的 eligible IDs 内（契约已改，实现待补） |
-| P0 | 金陵古都香迁移/UAT | 现有资料保留 stable ref/status/locator，完成 knowledge -> strategy -> brief -> script -> approval Golden Journey |
-| P0 | 金陵全量客户端迁移 | 迁移 source registry、232 个对象、冲突/权利候选和十条旧稿；输出 dry-run 与核对报告 |
-| P0 | 真实审批剧本闭环 | 上述单轨改造完成后，真实 publish/人工审批/pull，从 Approved Brief 生成至少三候选、修订、批准并三格式交付 |
+| P0 | 金陵全量客户端迁移 | 迁移 source registry、232 个对象、冲突/权利候选和十条旧稿；输出 dry-run、错误清单和人工核对报告，保留 stable ref/status/locator |
+| P0 | 金陵 Golden Journey UAT | 由真实业务角色完成 knowledge -> strategy -> brief -> 三候选 script -> 内审 -> 客户 OTP -> 三格式交付 -> 结果导入 -> rating/lineage，并保存验收证据 |
+| P0 | 浏览器与生产前验收 | 桌面/移动端执行内部审核、公开 OTP、下载和结果录入；验证错误恢复、链接撤销/过期和生产数据库迁移演练，由责任人签署 |
 | P1 | Client/Brand/Product 与四层上下文 | 正式聚合、版本继承、override/rebase 和第二客户隔离验收 |
 | P1 | StrategyVersion 扩展能力 | 候选比较、采纳与跨域 lineage；最小可用审批已随波次一的 Brief 策略血缘一起交付 |
 | P1 | 九域工作台 | 研究、策略、内容计划、创意、交付、学习等真实对象和页面，不建设在线正文编辑器 |
@@ -123,11 +139,31 @@ contentcloud pull decisions
 contentcloud pull approved --type script
 ```
 
-审批是人工治理动作，使用 User Credential：
+内部与客户审批是人工治理动作，使用 User Credential 创建客户授权；客户本人通过一次性 OTP 公开页决定：
 
 ```bash
 contentcloud submission approve <revision-id> --reason <结论> --yes
 contentcloud submission request-changes <revision-id> --reason <要求> --json-pointer /0/shots/0 --yes
+contentcloud review create <submission-revision-id> --email <customer@example.com>
+contentcloud review status <submission-revision-id>
+contentcloud review list <submission-revision-id>
+```
+
+客户批准后，以 ApprovedSnapshot 为唯一交付和结果入口：
+
+```bash
+contentcloud artifact export <approved-snapshot-id> --format json
+contentcloud artifact export <approved-snapshot-id> --format markdown
+contentcloud artifact export <approved-snapshot-id> --format xlsx
+contentcloud artifact package <approved-snapshot-id>
+contentcloud artifact packages --project <project-id>
+contentcloud artifact package-show <delivery-package-id>
+contentcloud artifact download <artifact-id> --out <path>
+
+contentcloud result import <json-csv-or-xlsx-file> --project <project-id>
+contentcloud result list --project <project-id>
+contentcloud result rate approved_snapshot <approved-snapshot-id> --project <project-id> --observation <observation-id> --rating <rating> --reason <reason> --next-action <action>
+contentcloud lineage show --project <project-id> --type approved_snapshot --id <approved-snapshot-id> --direction both
 ```
 
 ## 6. 自动化验证
@@ -141,9 +177,9 @@ pnpm --dir web build
 node --check packages/contentcloud/bin/contentcloud.js
 ```
 
-设置 `CONTENTCLOUD_TEST_DATABASE_URL` 后，Go 测试会执行真实 PostgreSQL migration，并验证 Workspace token lookup、Revision 不可变、修改/批准事务和跨租户 RLS。当前环境未设置该变量，因此本轮不能提供新的真实 PostgreSQL 执行记录。
+本轮已使用本机隔离测试库设置 `CONTENTCLOUD_TEST_DATABASE_URL`，执行真实 PostgreSQL migration，并验证 Workspace token lookup、Revision/ApprovedSnapshot 不可变、修改/两阶段批准事务、V1 影子回填和跨租户 RLS。该结论只代表自动化测试通过，不代表生产数据迁移演练完成。
 
-代码实现只能标记 `implemented`。发布前仍需南京业务角色 Golden Journey、第二客户场景、浏览器桌面/移动交互和真实 PostgreSQL 验证，完成责任人签署后才能标记 `accepted`。
+代码主链只能标记 `implemented`。发布前仍需金陵业务角色 Golden Journey、第二客户场景、浏览器桌面/移动交互和生产数据迁移演练，完成责任人签署后才能标记 `accepted`。
 
 ## 7. 永久边界
 

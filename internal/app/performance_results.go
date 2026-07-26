@@ -46,21 +46,22 @@ var performanceRateMetrics = map[string]bool{
 }
 
 type CreateObservationInput struct {
-	RowNumber       int                `json:"row_number,omitempty"`
-	ProjectID       string             `json:"project_id,omitempty"`
-	ScriptVersionID string             `json:"script_version_id"`
-	Platform        string             `json:"platform"`
-	AccountAlias    string             `json:"account_alias"`
-	PublishedAt     time.Time          `json:"published_at"`
-	WindowHours     int                `json:"window_hours"`
-	SampleStatus    string             `json:"sample_status"`
-	Metrics         map[string]float64 `json:"metrics"`
-	Currency        string             `json:"currency,omitempty"`
-	Spend           float64            `json:"spend,omitempty"`
-	GMV             float64            `json:"gmv,omitempty"`
-	SubmittedROI    *float64           `json:"roi,omitempty"`
-	IssueCategory   string             `json:"issue_category"`
-	Notes           string             `json:"notes"`
+	RowNumber          int                `json:"row_number,omitempty"`
+	ProjectID          string             `json:"project_id,omitempty"`
+	ApprovedSnapshotID string             `json:"approved_snapshot_id,omitempty"`
+	ScriptVersionID    string             `json:"script_version_id,omitempty"`
+	Platform           string             `json:"platform"`
+	AccountAlias       string             `json:"account_alias"`
+	PublishedAt        time.Time          `json:"published_at"`
+	WindowHours        int                `json:"window_hours"`
+	SampleStatus       string             `json:"sample_status"`
+	Metrics            map[string]float64 `json:"metrics"`
+	Currency           string             `json:"currency,omitempty"`
+	Spend              float64            `json:"spend,omitempty"`
+	GMV                float64            `json:"gmv,omitempty"`
+	SubmittedROI       *float64           `json:"roi,omitempty"`
+	IssueCategory      string             `json:"issue_category"`
+	Notes              string             `json:"notes"`
 }
 
 type ImportPerformanceInput struct {
@@ -130,6 +131,7 @@ func (s *Service) ImportPerformanceObservations(ctx context.Context, actor Actor
 	dedupRows := map[string]int{}
 	batchCurrency := ""
 	scriptCache := map[string]domain.ScriptVersion{}
+	snapshotCache := map[string]domain.ApprovedSnapshot{}
 
 	for index, raw := range in.Observations {
 		rowNumber := raw.RowNumber
@@ -137,19 +139,36 @@ func (s *Service) ImportPerformanceObservations(ctx context.Context, actor Actor
 			rowNumber = index + 1
 		}
 		rowErrors := validatePerformanceInput(rowNumber, in.ProjectID, raw)
-		script, cached := scriptCache[raw.ScriptVersionID]
+		var script domain.ScriptVersion
+		var snapshot domain.ApprovedSnapshot
+		if strings.TrimSpace(raw.ApprovedSnapshotID) != "" {
+			cachedSnapshot, cached := snapshotCache[raw.ApprovedSnapshotID]
+			var loadErr error
+			if !cached {
+				cachedSnapshot, loadErr = s.store.ApprovedSnapshot(ctx, actor.TenantID, strings.TrimSpace(raw.ApprovedSnapshotID))
+				if loadErr == nil {
+					snapshotCache[raw.ApprovedSnapshotID] = cachedSnapshot
+				}
+			}
+			snapshot = cachedSnapshot
+			if loadErr != nil || snapshot.ProjectID != in.ProjectID || snapshot.SubmissionType != "script" {
+				rowErrors = append(rowErrors, importRowError(rowNumber, "approved_snapshot_id", "RESULT_SNAPSHOT_NOT_FOUND", "批准快照不存在、不属于当前项目或不是 script 快照"))
+			}
+		}
+		cachedScript, cached := scriptCache[raw.ScriptVersionID]
 		if !cached && strings.TrimSpace(raw.ScriptVersionID) != "" {
 			var err error
-			script, err = s.store.Script(ctx, actor.TenantID, strings.TrimSpace(raw.ScriptVersionID))
+			cachedScript, err = s.store.Script(ctx, actor.TenantID, strings.TrimSpace(raw.ScriptVersionID))
 			if err == nil {
-				scriptCache[raw.ScriptVersionID] = script
+				scriptCache[raw.ScriptVersionID] = cachedScript
 			}
-			if err != nil || script.ProjectID != in.ProjectID {
+			if err != nil || cachedScript.ProjectID != in.ProjectID {
 				rowErrors = append(rowErrors, importRowError(rowNumber, "script_version_id", "RESULT_SCRIPT_NOT_FOUND", "剧本版本不存在或不属于当前项目"))
 			}
-		} else if cached && script.ProjectID != in.ProjectID {
+		} else if cached && cachedScript.ProjectID != in.ProjectID {
 			rowErrors = append(rowErrors, importRowError(rowNumber, "script_version_id", "RESULT_SCRIPT_NOT_FOUND", "剧本版本不存在或不属于当前项目"))
 		}
+		script = cachedScript
 
 		currency := strings.ToUpper(strings.TrimSpace(raw.Currency))
 		if currency != "" {
@@ -161,7 +180,11 @@ func (s *Service) ImportPerformanceObservations(ctx context.Context, actor Actor
 		}
 
 		publishedAt := raw.PublishedAt.UTC()
-		dedupKey := performanceDedupKey(in.ProjectID, raw.ScriptVersionID, raw.Platform, raw.AccountAlias, publishedAt, raw.WindowHours)
+		versionID := strings.TrimSpace(raw.ApprovedSnapshotID)
+		if versionID == "" {
+			versionID = strings.TrimSpace(raw.ScriptVersionID)
+		}
+		dedupKey := performanceDedupKey(in.ProjectID, versionID, raw.Platform, raw.AccountAlias, publishedAt, raw.WindowHours)
 		if previousRow, duplicate := dedupRows[dedupKey]; duplicate {
 			rowErrors = append(rowErrors, importRowError(rowNumber, "", "RESULT_DUPLICATE_ROW", fmt.Sprintf("与第 %d 行重复", previousRow)))
 		} else {
@@ -182,25 +205,26 @@ func (s *Service) ImportPerformanceObservations(ctx context.Context, actor Actor
 			roi = &value
 		}
 		observations = append(observations, domain.PerformanceObservation{
-			ID:              domain.NewID(),
-			TenantID:        actor.TenantID,
-			ProjectID:       in.ProjectID,
-			RowNumber:       rowNumber,
-			ScriptVersionID: script.ID,
-			Platform:        strings.TrimSpace(raw.Platform),
-			AccountAlias:    strings.TrimSpace(raw.AccountAlias),
-			PublishedAt:     publishedAt,
-			WindowHours:     raw.WindowHours,
-			SampleStatus:    strings.TrimSpace(raw.SampleStatus),
-			Metrics:         metrics,
-			Currency:        currency,
-			Spend:           raw.Spend,
-			GMV:             raw.GMV,
-			ROI:             roi,
-			DedupKey:        dedupKey,
-			IssueCategory:   strings.TrimSpace(raw.IssueCategory),
-			Notes:           strings.TrimSpace(raw.Notes),
-			CreatedAt:       now,
+			ID:                 domain.NewID(),
+			TenantID:           actor.TenantID,
+			ProjectID:          in.ProjectID,
+			RowNumber:          rowNumber,
+			ApprovedSnapshotID: snapshot.ID,
+			ScriptVersionID:    script.ID,
+			Platform:           strings.TrimSpace(raw.Platform),
+			AccountAlias:       strings.TrimSpace(raw.AccountAlias),
+			PublishedAt:        publishedAt,
+			WindowHours:        raw.WindowHours,
+			SampleStatus:       strings.TrimSpace(raw.SampleStatus),
+			Metrics:            metrics,
+			Currency:           currency,
+			Spend:              raw.Spend,
+			GMV:                raw.GMV,
+			ROI:                roi,
+			DedupKey:           dedupKey,
+			IssueCategory:      strings.TrimSpace(raw.IssueCategory),
+			Notes:              strings.TrimSpace(raw.Notes),
+			CreatedAt:          now,
 		})
 	}
 
@@ -285,8 +309,10 @@ func validatePerformanceInput(rowNumber int, projectID string, in CreateObservat
 	if in.ProjectID != "" && in.ProjectID != projectID {
 		add("project_id", "RESULT_PROJECT_MISMATCH", "行内项目与导入项目不一致")
 	}
-	if strings.TrimSpace(in.ScriptVersionID) == "" {
-		add("script_version_id", "RESULT_FIELD_REQUIRED", "剧本版本必填")
+	hasSnapshot := strings.TrimSpace(in.ApprovedSnapshotID) != ""
+	hasLegacyScript := strings.TrimSpace(in.ScriptVersionID) != ""
+	if hasSnapshot == hasLegacyScript {
+		add("approved_snapshot_id", "RESULT_VERSION_REQUIRED", "approved_snapshot_id 必填，且不能与兼容字段 script_version_id 同时使用")
 	}
 	for field, value := range map[string]string{"platform": in.Platform, "account_alias": in.AccountAlias, "sample_status": in.SampleStatus, "issue_category": in.IssueCategory, "notes": in.Notes} {
 		if dangerousSpreadsheetText(value) {
@@ -399,6 +425,9 @@ func (s *Service) CreateRatingDecision(ctx context.Context, actor Actor, in Crea
 		if err != nil || observation.ProjectID != in.ProjectID {
 			return result, domain.NotFound("结果观察")
 		}
+		if (in.SubjectType == "approved_snapshot" && observation.ApprovedSnapshotID != in.SubjectID) || (in.SubjectType == "script_version" && observation.ScriptVersionID != in.SubjectID) {
+			return result, domain.Conflict("RATING_OBSERVATION_SUBJECT_MISMATCH", "评级引用的结果观察不属于当前版本主体")
+		}
 	}
 	decision := domain.RatingDecision{
 		ID:             domain.NewID(),
@@ -435,6 +464,11 @@ func (s *Service) validateRatingSubject(ctx context.Context, actor Actor, projec
 		return domain.Invalid("RATING_SUBJECT_REQUIRED", "评级对象必填")
 	}
 	switch subjectType {
+	case "approved_snapshot":
+		value, err := s.store.ApprovedSnapshot(ctx, actor.TenantID, subjectID)
+		if err != nil || value.ProjectID != projectID || value.SubmissionType != "script" {
+			return domain.NotFound("评级对象")
+		}
 	case "script_version":
 		v, err := s.store.Script(ctx, actor.TenantID, subjectID)
 		if err != nil || v.ProjectID != projectID {
@@ -457,7 +491,7 @@ func (s *Service) validateRatingSubject(ctx context.Context, actor Actor, projec
 		}
 		return domain.NotFound("评级对象")
 	default:
-		return domain.Invalid("RATING_SUBJECT_TYPE_INVALID", "评级对象类型必须是 script_version、content_framework 或 shot_pattern")
+		return domain.Invalid("RATING_SUBJECT_TYPE_INVALID", "评级对象类型必须是 approved_snapshot、script_version、content_framework 或 shot_pattern")
 	}
 	return nil
 }

@@ -9,11 +9,13 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/localworkspace"
 	storepg "github.com/limecloud/contentcloud/internal/store/postgres"
 )
 
@@ -114,10 +116,14 @@ func TestV2WorkspaceSubmissionGovernanceWithPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := service.ApproveSubmission(ctx, admin, secondRevision.ID, "事实与来源披露已审核", "req-v2-approve")
+	approval, err := service.ApproveSubmission(ctx, admin, secondRevision.ID, "事实与来源披露已审核", "req-v2-approve")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if approval.ApprovedSnapshot == nil {
+		t.Fatal("knowledge approval must create an ApprovedSnapshot")
+	}
+	snapshot := *approval.ApprovedSnapshot
 	persistedSnapshot, err := store.ApprovedSnapshot(ctx, admin.TenantID, snapshot.ID)
 	if err != nil || persistedSnapshot.SubmissionRevisionID != secondRevision.ID || persistedSnapshot.ContentHash != secondRevision.ContentHash {
 		t.Fatalf("approval snapshot transaction failed: snapshot=%#v err=%v", persistedSnapshot, err)
@@ -125,6 +131,44 @@ func TestV2WorkspaceSubmissionGovernanceWithPostgres(t *testing.T) {
 	persistedSubmission, err := store.Submission(ctx, admin.TenantID, secondRevision.SubmissionID)
 	if err != nil || persistedSubmission.Status != "approved" || persistedSubmission.CurrentRevisionID != secondRevision.ID {
 		t.Fatalf("approved submission state was not committed atomically: submission=%#v err=%v", persistedSubmission, err)
+	}
+
+	scriptBundle := postgresScriptSubmissionBundle(t, project.ID, binding.ID, "postgres-script-v1", "postgres-script")
+	scriptRevision, err := service.CreateSubmission(ctx, workspaceActor, binding, scriptBundle, "req-script-publish")
+	if err != nil {
+		t.Fatal(err)
+	}
+	internalApproval, err := service.ApproveSubmission(ctx, admin, scriptRevision.ID, "script internal approval", "req-script-internal")
+	if err != nil || internalApproval.ApprovedSnapshot != nil || internalApproval.Submission.Status != "internally_approved" {
+		t.Fatalf("script internal approval did not stop before snapshot creation: %#v err=%v", internalApproval, err)
+	}
+	grant, err := service.CreateReviewGrant(ctx, admin, scriptRevision.ID, "postgres-client@example.com", "req-script-grant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.VerifyReviewGrant(ctx, grant.PlaintextToken, grant.PlaintextOTP); err != nil {
+		t.Fatal(err)
+	}
+	clientApproval, err := service.DecideReviewGrant(ctx, grant.PlaintextToken, "approve", "client approved", "", "req-script-client")
+	if err != nil || clientApproval.ApprovedSnapshot == nil {
+		t.Fatalf("client approval did not atomically create snapshot: %#v err=%v", clientApproval, err)
+	}
+	scriptSnapshot := *clientApproval.ApprovedSnapshot
+	persistedScriptSnapshot, err := store.ApprovedSnapshot(ctx, admin.TenantID, scriptSnapshot.ID)
+	if err != nil || persistedScriptSnapshot.CreatedBy != "client:postgres-client@example.com" || persistedScriptSnapshot.Origin != "current" {
+		t.Fatalf("client snapshot was not persisted with current lineage: %#v err=%v", persistedScriptSnapshot, err)
+	}
+	delivery, err := service.CreateDeliveryPackage(ctx, admin, scriptSnapshot.ID, "postgres-script", "req-delivery")
+	if err != nil || len(delivery.Manifest) != 3 {
+		t.Fatalf("delivery package transaction failed: %#v err=%v", delivery, err)
+	}
+	persistedDelivery, err := store.DeliveryPackage(ctx, admin.TenantID, delivery.ID)
+	if err != nil || len(persistedDelivery.Manifest) != 3 || persistedDelivery.ApprovedSnapshotIDs[0] != scriptSnapshot.ID {
+		t.Fatalf("delivery relations were not persisted: %#v err=%v", persistedDelivery, err)
+	}
+	performance, err := service.ImportPerformanceObservations(ctx, admin, app.ImportPerformanceInput{ProjectID: project.ID, SourceName: "postgres-results.csv", SourceFormat: "csv", Observations: []app.CreateObservationInput{{RowNumber: 2, ApprovedSnapshotID: scriptSnapshot.ID, Platform: "douyin", AccountAlias: "brand-main", PublishedAt: time.Now().UTC().Add(-24 * time.Hour), WindowHours: 24, SampleStatus: "seed_candidate", Metrics: map[string]float64{"impressions": 1000}, Currency: "CNY", Spend: 100, GMV: 300, IssueCategory: "creative"}}}, "req-results")
+	if err != nil || performance.Observations[0].ApprovedSnapshotID != scriptSnapshot.ID {
+		t.Fatalf("performance observation did not bind the snapshot: %#v err=%v", performance, err)
 	}
 
 	otherSession, err := service.Register(ctx, fmt.Sprintf("submission-other-%s@example.com", suffix), "long-enough-password", "Other Owner", "Other Tenant "+suffix)
@@ -162,6 +206,20 @@ func TestV2WorkspaceSubmissionGovernanceWithPostgres(t *testing.T) {
 			t.Fatalf("tenant B saw tenant A %s row through RLS", table)
 		}
 	}
+}
+
+func postgresScriptSubmissionBundle(t *testing.T, projectID, workspaceID, idempotencyKey, scriptID string) domain.SubmissionBundle {
+	t.Helper()
+	pkg := localworkspace.ScriptPackageV2{ID: scriptID, Kind: "script_package", Status: "review_ready", SchemaVersion: "2.0", Deliverability: "review_ready", ProjectID: projectID, ScriptID: scriptID, Title: "PostgreSQL script", Channel: "douyin", DurationMS: 15000, AspectRatio: "9:16", Shots: []localworkspace.ScriptShotV2{}, Citations: []localworkspace.ScriptCitationV2{}, AssetRequirements: []localworkspace.ScriptAssetRequirement{}, BlockedReasons: []localworkspace.ScriptBlockedReason{}, MissingInputs: []string{}}
+	objects, err := json.Marshal([]localworkspace.ScriptPackageV2{pkg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := domain.SubmissionBundle{BundleVersion: "1.0", SchemaVersion: localworkspace.ScriptPackageV2Schema, SubmissionType: "script", ProjectID: projectID, WorkspaceID: workspaceID, Objects: objects, SourceDisclosures: []domain.SourceDisclosure{}, Artifacts: []domain.SubmissionArtifact{}, LocalRunSummary: domain.LocalRunSummary{Checks: []domain.LocalRunCheck{{Name: "script-lint", Status: "passed"}}}, IdempotencyKey: idempotencyKey}
+	if err := bundle.SetComputedHash(); err != nil {
+		t.Fatal(err)
+	}
+	return bundle
 }
 
 func postgresSubmissionBundle(t *testing.T, projectID, workspaceID, idempotencyKey, factID string) domain.SubmissionBundle {

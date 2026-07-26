@@ -67,10 +67,14 @@ func TestWorkspaceSubmissionApprovalCreatesImmutableSnapshotWithoutTaskRun(t *te
 	if err != nil || replayed.ID != revision.ID {
 		t.Fatalf("idempotent retry failed: %#v %v", replayed, err)
 	}
-	snapshot, err := service.ApproveSubmission(ctx, admin, revision.ID, "facts and citations reviewed", "req-approve")
+	approval, err := service.ApproveSubmission(ctx, admin, revision.ID, "facts and citations reviewed", "req-approve")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if approval.ApprovedSnapshot == nil {
+		t.Fatal("knowledge approval must create an ApprovedSnapshot")
+	}
+	snapshot := *approval.ApprovedSnapshot
 	if snapshot.SubmissionRevisionID != revision.ID || snapshot.ContentHash != revision.ContentHash || len(snapshot.EligibleIDs) != 1 || snapshot.EligibleIDs[0] != "fact-1" {
 		t.Fatalf("unexpected approved snapshot: %#v", snapshot)
 	}

@@ -324,6 +324,20 @@ type ScriptDeliveryManifest struct {
 	CreatedAt          time.Time            `json:"created_at"`
 }
 
+type RenderedScriptFile struct {
+	Format    string
+	Name      string
+	MediaType string
+	Body      []byte
+	SHA256    string
+}
+
+type RenderedScriptDelivery struct {
+	Package    ScriptPackageV2
+	ScriptHash string
+	Files      []RenderedScriptFile
+}
+
 func LintBrief(root, file string) (KnowledgeLintReport, LocalBrief, error) {
 	resolved, err := FindRoot(root)
 	if err != nil {
@@ -742,13 +756,11 @@ func ExportApprovedScript(root, scriptID, outputDirectory string, now time.Time)
 	if err != nil {
 		return ScriptDeliveryManifest{}, err
 	}
-	var pkg ScriptPackageV2
-	if err := strictUnmarshal(raw, &pkg); err != nil {
-		return ScriptDeliveryManifest{}, domain.Invalid("APPROVED_SCRIPT_INVALID", "批准快照中的 ScriptPackage V2 无效："+err.Error())
+	rendered, err := RenderScriptPackageV2(raw)
+	if err != nil {
+		return ScriptDeliveryManifest{}, err
 	}
-	if pkg.Deliverability != "review_ready" {
-		return ScriptDeliveryManifest{}, domain.Policy("APPROVED_SCRIPT_BLOCKED", "blocked 剧本不能生成正式交付包", "修订并批准 review_ready ScriptPackage")
-	}
+	pkg := rendered.Package
 	outputRoot := outputDirectory
 	if strings.TrimSpace(outputRoot) == "" {
 		outputRoot = filepath.Join(resolved, "outputs", "delivery", localSafeName(pkg.ID))
@@ -763,41 +775,49 @@ func ExportApprovedScript(root, scriptID, outputDirectory string, now time.Time)
 		}
 		outputRoot = absolute
 	}
-	jsonBody, err := json.MarshalIndent(pkg, "", "  ")
-	if err != nil {
-		return ScriptDeliveryManifest{}, err
-	}
-	jsonBody = append(jsonBody, '\n')
-	markdown := []byte(renderScriptV2Markdown(pkg))
-	xlsx, err := renderScriptV2XLSX(pkg)
-	if err != nil {
-		return ScriptDeliveryManifest{}, err
-	}
-	formats := []struct {
-		name, media string
-		body        []byte
-	}{
-		{"script.json", "application/json", jsonBody},
-		{"script.md", "text/markdown", markdown},
-		{"script.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsx},
-	}
 	files := []ScriptDeliveryFile{}
-	for _, format := range formats {
-		path := filepath.Join(outputRoot, format.name)
-		if err := replaceFile(path, format.body, 0o600); err != nil {
+	for _, file := range rendered.Files {
+		path := filepath.Join(outputRoot, file.Name)
+		if err := replaceFile(path, file.Body, 0o600); err != nil {
 			return ScriptDeliveryManifest{}, err
 		}
-		files = append(files, ScriptDeliveryFile{Format: strings.TrimPrefix(filepath.Ext(format.name), "."), Path: relativeWorkspacePath(resolved, path), SHA256: digest(format.body), ByteSize: int64(len(format.body)), MediaType: format.media})
+		files = append(files, ScriptDeliveryFile{Format: file.Format, Path: relativeWorkspacePath(resolved, path), SHA256: file.SHA256, ByteSize: int64(len(file.Body)), MediaType: file.MediaType})
 	}
-	hash, err := domain.CanonicalHash(pkg)
-	if err != nil {
-		return ScriptDeliveryManifest{}, err
-	}
-	manifest := ScriptDeliveryManifest{SchemaVersion: "1.0", ScriptID: pkg.ID, ApprovedSnapshotID: snapshot.ID, ScriptHash: "sha256:" + hash, Files: files, CreatedAt: localNow(now)}
+	manifest := ScriptDeliveryManifest{SchemaVersion: "1.0", ScriptID: pkg.ID, ApprovedSnapshotID: snapshot.ID, ScriptHash: rendered.ScriptHash, Files: files, CreatedAt: localNow(now)}
 	if err := replaceJSON(filepath.Join(outputRoot, "manifest.json"), manifest, 0o600); err != nil {
 		return ScriptDeliveryManifest{}, err
 	}
 	return manifest, nil
+}
+
+func RenderScriptPackageV2(raw json.RawMessage) (RenderedScriptDelivery, error) {
+	var pkg ScriptPackageV2
+	if err := strictUnmarshal(raw, &pkg); err != nil {
+		return RenderedScriptDelivery{}, domain.Invalid("APPROVED_SCRIPT_INVALID", "批准快照中的 ScriptPackage V2 无效："+err.Error())
+	}
+	if pkg.Deliverability != "review_ready" {
+		return RenderedScriptDelivery{}, domain.Policy("APPROVED_SCRIPT_BLOCKED", "blocked 剧本不能生成正式交付包", "修订并批准 review_ready ScriptPackage")
+	}
+	jsonBody, err := json.MarshalIndent(pkg, "", "  ")
+	if err != nil {
+		return RenderedScriptDelivery{}, err
+	}
+	jsonBody = append(jsonBody, '\n')
+	xlsx, err := renderScriptV2XLSX(pkg)
+	if err != nil {
+		return RenderedScriptDelivery{}, err
+	}
+	hash, err := domain.CanonicalHash(pkg)
+	if err != nil {
+		return RenderedScriptDelivery{}, err
+	}
+	files := []RenderedScriptFile{
+		{Format: "json", Name: "script.json", MediaType: "application/json", Body: jsonBody, SHA256: digest(jsonBody)},
+		{Format: "markdown", Name: "script.md", MediaType: "text/markdown", Body: []byte(renderScriptV2Markdown(pkg))},
+		{Format: "xlsx", Name: "script.xlsx", MediaType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Body: xlsx, SHA256: digest(xlsx)},
+	}
+	files[1].SHA256 = digest(files[1].Body)
+	return RenderedScriptDelivery{Package: pkg, ScriptHash: "sha256:" + hash, Files: files}, nil
 }
 
 func lintScriptPackage(pkg ScriptPackageV2, batch CreativeBatch, query KnowledgeQueryResult, refs map[string]LocalKnowledgeItem) ScriptLintReport {

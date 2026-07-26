@@ -218,26 +218,27 @@ type VisualizationPlan struct {
 }
 
 type PerformanceObservation struct {
-	ID              string             `json:"id"`
-	TenantID        string             `json:"tenant_id"`
-	ProjectID       string             `json:"project_id"`
-	ImportBatchID   string             `json:"import_batch_id"`
-	RowNumber       int                `json:"row_number"`
-	ScriptVersionID string             `json:"script_version_id"`
-	Platform        string             `json:"platform"`
-	AccountAlias    string             `json:"account_alias"`
-	PublishedAt     time.Time          `json:"published_at"`
-	WindowHours     int                `json:"window_hours"`
-	SampleStatus    string             `json:"sample_status"`
-	Metrics         map[string]float64 `json:"metrics"`
-	Currency        string             `json:"currency,omitempty"`
-	Spend           float64            `json:"spend"`
-	GMV             float64            `json:"gmv"`
-	ROI             *float64           `json:"roi,omitempty"`
-	DedupKey        string             `json:"dedup_key"`
-	IssueCategory   string             `json:"issue_category"`
-	Notes           string             `json:"notes"`
-	CreatedAt       time.Time          `json:"created_at"`
+	ID                 string             `json:"id"`
+	TenantID           string             `json:"tenant_id"`
+	ProjectID          string             `json:"project_id"`
+	ImportBatchID      string             `json:"import_batch_id"`
+	RowNumber          int                `json:"row_number"`
+	ApprovedSnapshotID string             `json:"approved_snapshot_id,omitempty"`
+	ScriptVersionID    string             `json:"script_version_id,omitempty"`
+	Platform           string             `json:"platform"`
+	AccountAlias       string             `json:"account_alias"`
+	PublishedAt        time.Time          `json:"published_at"`
+	WindowHours        int                `json:"window_hours"`
+	SampleStatus       string             `json:"sample_status"`
+	Metrics            map[string]float64 `json:"metrics"`
+	Currency           string             `json:"currency,omitempty"`
+	Spend              float64            `json:"spend"`
+	GMV                float64            `json:"gmv"`
+	ROI                *float64           `json:"roi,omitempty"`
+	DedupKey           string             `json:"dedup_key"`
+	IssueCategory      string             `json:"issue_category"`
+	Notes              string             `json:"notes"`
+	CreatedAt          time.Time          `json:"created_at"`
 }
 
 type PerformanceImportRowError struct {
@@ -319,7 +320,8 @@ type Artifact struct {
 	ID                    string                       `json:"id"`
 	TenantID              string                       `json:"tenant_id"`
 	ProjectID             string                       `json:"project_id"`
-	ScriptVersionID       string                       `json:"script_version_id"`
+	ApprovedSnapshotID    string                       `json:"approved_snapshot_id,omitempty"`
+	ScriptVersionID       string                       `json:"script_version_id,omitempty"`
 	Kind                  string                       `json:"kind"`
 	CapabilityID          string                       `json:"capability_id"`
 	CapabilityVersion     string                       `json:"capability_version"`
@@ -341,6 +343,18 @@ type Artifact struct {
 	PresentationTier      string                       `json:"presentation_tier"`
 	Metadata              map[string]any               `json:"metadata"`
 	CreatedAt             time.Time                    `json:"created_at"`
+}
+
+type DeliveryPackage struct {
+	ID                  string     `json:"id"`
+	TenantID            string     `json:"tenant_id"`
+	ProjectID           string     `json:"project_id"`
+	ApprovedSnapshotIDs []string   `json:"approved_snapshot_ids"`
+	ScriptID            string     `json:"script_id"`
+	Status              string     `json:"status"`
+	Manifest            []Artifact `json:"manifest"`
+	CreatedBy           string     `json:"created_by"`
+	CreatedAt           time.Time  `json:"created_at"`
 }
 
 type ArtifactCapabilityRef struct {

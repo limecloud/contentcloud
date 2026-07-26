@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -205,14 +206,59 @@ func (s *Store) ReviewGrantByTokenHash(ctx context.Context, hash string) (domain
 	})
 	return result, err
 }
-func (s *Store) SaveReviewGrant(ctx context.Context, v domain.ReviewGrant) error {
-	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE review_grants SET verified_at=$3,revoked_at=$4,decision_at=$5 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.VerifiedAt, v.RevokedAt, v.DecisionAt)
+func (s *Store) MarkReviewGrantVerified(ctx context.Context, tenantID, id string, verifiedAt time.Time) error {
+	return s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		result, err := tx.Exec(ctx, `UPDATE review_grants SET verified_at=COALESCE(verified_at,$3) WHERE tenant_id=$1 AND id=$2 AND revoked_at IS NULL AND decision_at IS NULL AND expires_at>$3`, tenantID, id, verifiedAt)
 		if err != nil {
 			return dbError(err)
 		}
 		if result.RowsAffected() == 0 {
-			return domain.NotFound("客户审批授权")
+			return domain.Conflict("REVIEW_GRANT_STATE_INVALID", "客户审批授权已撤销、已完成或已过期")
+		}
+		return nil
+	})
+}
+
+func (s *Store) RevokeReviewGrant(ctx context.Context, tenantID, id string, revokedAt time.Time) error {
+	return s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		result, err := tx.Exec(ctx, `UPDATE review_grants SET revoked_at=COALESCE(revoked_at,$3) WHERE tenant_id=$1 AND id=$2 AND decision_at IS NULL`, tenantID, id, revokedAt)
+		if err != nil {
+			return dbError(err)
+		}
+		if result.RowsAffected() == 0 {
+			return domain.Conflict("REVIEW_GRANT_STATE_INVALID", "客户审批授权不存在或已完成")
+		}
+		return nil
+	})
+}
+
+func (s *Store) CompleteLegacyClientReview(ctx context.Context, script domain.ScriptVersion, grant domain.ReviewGrant, decision domain.ApprovalDecision, comment *domain.ReviewComment) error {
+	return s.withTenant(ctx, grant.TenantID, func(tx pgx.Tx) error {
+		var verifiedAt, revokedAt, decisionAt *time.Time
+		var expiresAt time.Time
+		if err := tx.QueryRow(ctx, `SELECT verified_at,revoked_at,decision_at,expires_at FROM review_grants WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, grant.TenantID, grant.ID).Scan(&verifiedAt, &revokedAt, &decisionAt, &expiresAt); err != nil {
+			return dbError(err)
+		}
+		if verifiedAt == nil || revokedAt != nil || decisionAt != nil || !decision.CreatedAt.Before(expiresAt) {
+			return domain.Conflict("REVIEW_GRANT_STATE_INVALID", "客户审批授权未验证、已撤销、已完成或已过期")
+		}
+		result, err := tx.Exec(ctx, `UPDATE script_versions SET status=$3 WHERE tenant_id=$1 AND id=$2 AND content_hash=$4 AND status='client_review'`, script.TenantID, script.ID, script.Status, script.ContentHash)
+		if err != nil {
+			return dbError(err)
+		}
+		if result.RowsAffected() == 0 {
+			return domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效或状态已变化")
+		}
+		if err := insertApprovalDecision(ctx, tx, decision); err != nil {
+			return err
+		}
+		if comment != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO review_comments(id,tenant_id,project_id,review_cycle_id,subject_type,subject_id,carried_from_comment_id,shot_id,json_pointer,body,visibility,author_id,resolved_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, comment.ID, comment.TenantID, comment.ProjectID, nullable(comment.ReviewCycleID), comment.SubjectType, comment.SubjectID, nullable(comment.CarriedFromID), comment.ShotID, comment.JSONPointer, comment.Body, comment.Visibility, comment.AuthorID, comment.ResolvedAt, comment.CreatedAt); err != nil {
+				return dbError(err)
+			}
+		}
+		if _, err := tx.Exec(ctx, `UPDATE review_grants SET decision_at=$3 WHERE tenant_id=$1 AND id=$2`, grant.TenantID, grant.ID, decision.CreatedAt); err != nil {
+			return dbError(err)
 		}
 		return nil
 	})
@@ -220,18 +266,22 @@ func (s *Store) SaveReviewGrant(ctx context.Context, v domain.ReviewGrant) error
 
 func (s *Store) CreateArtifact(ctx context.Context, v domain.Artifact) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		var envelope any
-		if v.Envelope != nil {
-			envelope = jsonValue(v.Envelope)
-		}
-		_, err := tx.Exec(ctx, `INSERT INTO artifacts(id,tenant_id,project_id,script_version_id,kind,capability_id,capability_version,capability_digest,schema_id,media_type,file_name,sha256,byte_size,object_key,visibility,retention_class,derived_from_artifact_id,purpose,source_device_id,validation_status,validation_error,artifact_envelope,presentation_tier,metadata,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`, v.ID, v.TenantID, v.ProjectID, v.ScriptVersionID, v.Kind, v.CapabilityID, v.CapabilityVersion, v.CapabilityDigest, v.SchemaID, v.MediaType, v.FileName, v.SHA256, v.ByteSize, v.ObjectKey, v.Visibility, v.RetentionClass, nullable(v.DerivedFromArtifactID), v.Purpose, nullable(v.SourceDeviceID), v.ValidationStatus, v.ValidationError, envelope, v.PresentationTier, jsonValue(v.Metadata), v.CreatedAt)
-		return dbError(err)
+		return insertArtifact(ctx, tx, v)
 	})
+}
+
+func insertArtifact(ctx context.Context, tx pgx.Tx, value domain.Artifact) error {
+	var envelope any
+	if value.Envelope != nil {
+		envelope = jsonValue(value.Envelope)
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO artifacts(id,tenant_id,project_id,script_version_id,approved_snapshot_id,kind,capability_id,capability_version,capability_digest,schema_id,media_type,file_name,sha256,byte_size,object_key,visibility,retention_class,derived_from_artifact_id,purpose,source_device_id,validation_status,validation_error,artifact_envelope,presentation_tier,metadata,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`, value.ID, value.TenantID, value.ProjectID, nullable(value.ScriptVersionID), nullable(value.ApprovedSnapshotID), value.Kind, value.CapabilityID, value.CapabilityVersion, value.CapabilityDigest, value.SchemaID, value.MediaType, value.FileName, value.SHA256, value.ByteSize, value.ObjectKey, value.Visibility, value.RetentionClass, nullable(value.DerivedFromArtifactID), value.Purpose, nullable(value.SourceDeviceID), value.ValidationStatus, value.ValidationError, envelope, value.PresentationTier, jsonValue(value.Metadata), value.CreatedAt)
+	return dbError(err)
 }
 func scanArtifact(row pgx.Row) (domain.Artifact, error) {
 	var v domain.Artifact
 	var envelope, metadata []byte
-	err := row.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.ScriptVersionID, &v.Kind, &v.CapabilityID, &v.CapabilityVersion, &v.CapabilityDigest, &v.SchemaID, &v.MediaType, &v.FileName, &v.SHA256, &v.ByteSize, &v.ObjectKey, &v.Visibility, &v.RetentionClass, &v.DerivedFromArtifactID, &v.Purpose, &v.SourceDeviceID, &v.ValidationStatus, &v.ValidationError, &envelope, &v.PresentationTier, &metadata, &v.CreatedAt)
+	err := row.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.ScriptVersionID, &v.ApprovedSnapshotID, &v.Kind, &v.CapabilityID, &v.CapabilityVersion, &v.CapabilityDigest, &v.SchemaID, &v.MediaType, &v.FileName, &v.SHA256, &v.ByteSize, &v.ObjectKey, &v.Visibility, &v.RetentionClass, &v.DerivedFromArtifactID, &v.Purpose, &v.SourceDeviceID, &v.ValidationStatus, &v.ValidationError, &envelope, &v.PresentationTier, &metadata, &v.CreatedAt)
 	if err == nil && len(envelope) > 0 {
 		var value domain.ExtensionArtifactEnvelopeV1
 		if decodeErr := json.Unmarshal(envelope, &value); decodeErr != nil {
@@ -245,7 +295,7 @@ func scanArtifact(row pgx.Row) (domain.Artifact, error) {
 	return v, err
 }
 
-const artifactSelect = `SELECT id,tenant_id,project_id,script_version_id,kind,capability_id,capability_version,capability_digest,schema_id,media_type,file_name,sha256,byte_size,object_key,visibility,retention_class,COALESCE(derived_from_artifact_id::text,''),purpose,COALESCE(source_device_id::text,''),validation_status,validation_error,artifact_envelope,presentation_tier,metadata,created_at FROM artifacts`
+const artifactSelect = `SELECT id,tenant_id,project_id,COALESCE(script_version_id::text,''),COALESCE(approved_snapshot_id::text,''),kind,capability_id,capability_version,capability_digest,schema_id,media_type,file_name,sha256,byte_size,object_key,visibility,retention_class,COALESCE(derived_from_artifact_id::text,''),purpose,COALESCE(source_device_id::text,''),validation_status,validation_error,artifact_envelope,presentation_tier,metadata,created_at FROM artifacts`
 
 func (s *Store) Artifacts(ctx context.Context, tenantID, scriptVersionID string) ([]domain.Artifact, error) {
 	out := []domain.Artifact{}
@@ -268,6 +318,26 @@ func (s *Store) Artifacts(ctx context.Context, tenantID, scriptVersionID string)
 				return err
 			}
 			out = append(out, v)
+		}
+		return rows.Err()
+	})
+	return out, err
+}
+
+func (s *Store) ArtifactsByApprovedSnapshot(ctx context.Context, tenantID, snapshotID string) ([]domain.Artifact, error) {
+	out := []domain.Artifact{}
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, artifactSelect+` WHERE tenant_id=$1 AND approved_snapshot_id=$2 ORDER BY created_at DESC`, tenantID, snapshotID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			value, err := scanArtifact(rows)
+			if err != nil {
+				return err
+			}
+			out = append(out, value)
 		}
 		return rows.Err()
 	})

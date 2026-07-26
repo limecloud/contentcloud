@@ -22,7 +22,7 @@ export interface ConnectStateCopy {
 export function buildBootstrapPrompt({serverURL,connectKey,projectName}:BootstrapPromptInput):string {
   const origin=serverURL.replace(/\/+$/,'');
   const safeProject=singleLine(projectName)||'ContentCloud project';
-  return `Fetch ${origin}/api/bootstrap and initialize this ContentCloud project.\n\nserver-url: ${origin}\nconnect-key: ${singleLine(connectKey)}\nproject: ${JSON.stringify(safeProject)}`;
+  return `Fetch ${origin}/api/bootstrap and help me initialize this ContentCloud project on this machine.\n\nserver-url: ${origin}\nconnect-key: ${singleLine(connectKey)}\nproject: ${JSON.stringify(safeProject)}`;
 }
 
 export function buildManualInstallCommand({serverURL,connectKey}:Omit<BootstrapPromptInput,'projectName'>):string {

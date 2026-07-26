@@ -9,7 +9,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
-const performanceObservationSelect = `SELECT id,tenant_id,project_id,COALESCE(import_batch_id::text,''),COALESCE(row_number,0),script_version_id,platform,account_alias,published_at,window_hours,sample_status,metrics,currency,spend,gmv,roi,COALESCE(dedup_key,''),issue_category,notes,created_at FROM performance_observations`
+const performanceObservationSelect = `SELECT id,tenant_id,project_id,COALESCE(import_batch_id::text,''),COALESCE(row_number,0),COALESCE(approved_snapshot_id::text,''),COALESCE(script_version_id::text,''),platform,account_alias,published_at,window_hours,sample_status,metrics,currency,spend,gmv,roi,COALESCE(dedup_key,''),issue_category,notes,created_at FROM performance_observations`
 
 func (s *Store) CreatePerformanceImportBatch(ctx context.Context, batch domain.PerformanceImportBatch, observations []domain.PerformanceObservation) error {
 	return s.withTenant(ctx, batch.TenantID, func(tx pgx.Tx) error {
@@ -18,7 +18,7 @@ func (s *Store) CreatePerformanceImportBatch(ctx context.Context, batch domain.P
 			return dbError(err)
 		}
 		for _, v := range observations {
-			_, err = tx.Exec(ctx, `INSERT INTO performance_observations(id,tenant_id,project_id,import_batch_id,row_number,script_version_id,platform,account_alias,published_at,window_hours,sample_status,metrics,currency,spend,gmv,roi,dedup_key,issue_category,notes,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`, v.ID, v.TenantID, v.ProjectID, v.ImportBatchID, v.RowNumber, v.ScriptVersionID, v.Platform, v.AccountAlias, v.PublishedAt, v.WindowHours, v.SampleStatus, jsonValue(v.Metrics), v.Currency, v.Spend, v.GMV, v.ROI, v.DedupKey, v.IssueCategory, v.Notes, v.CreatedAt)
+			_, err = tx.Exec(ctx, `INSERT INTO performance_observations(id,tenant_id,project_id,import_batch_id,row_number,approved_snapshot_id,script_version_id,platform,account_alias,published_at,window_hours,sample_status,metrics,currency,spend,gmv,roi,dedup_key,issue_category,notes,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`, v.ID, v.TenantID, v.ProjectID, v.ImportBatchID, v.RowNumber, nullable(v.ApprovedSnapshotID), nullable(v.ScriptVersionID), v.Platform, v.AccountAlias, v.PublishedAt, v.WindowHours, v.SampleStatus, jsonValue(v.Metrics), v.Currency, v.Spend, v.GMV, v.ROI, v.DedupKey, v.IssueCategory, v.Notes, v.CreatedAt)
 			if err != nil {
 				return dbError(err)
 			}
@@ -118,7 +118,7 @@ func (s *Store) PerformanceObservations(ctx context.Context, tenantID, projectID
 func scanPerformanceObservation(row pgx.Row) (domain.PerformanceObservation, error) {
 	var v domain.PerformanceObservation
 	var metrics []byte
-	err := row.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.ImportBatchID, &v.RowNumber, &v.ScriptVersionID, &v.Platform, &v.AccountAlias, &v.PublishedAt, &v.WindowHours, &v.SampleStatus, &metrics, &v.Currency, &v.Spend, &v.GMV, &v.ROI, &v.DedupKey, &v.IssueCategory, &v.Notes, &v.CreatedAt)
+	err := row.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.ImportBatchID, &v.RowNumber, &v.ApprovedSnapshotID, &v.ScriptVersionID, &v.Platform, &v.AccountAlias, &v.PublishedAt, &v.WindowHours, &v.SampleStatus, &metrics, &v.Currency, &v.Spend, &v.GMV, &v.ROI, &v.DedupKey, &v.IssueCategory, &v.Notes, &v.CreatedAt)
 	if err != nil {
 		return v, err
 	}
