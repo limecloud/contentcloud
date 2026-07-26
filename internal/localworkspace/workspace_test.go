@@ -45,10 +45,17 @@ func TestInitializeCreatesLocalFirstWorkspace(t *testing.T) {
 		".mcp.json",
 		"raw/.gitignore",
 		"raw/source-registry.yaml",
+		"schemas/knowledge-candidates-1.0.schema.json",
+		"schemas/brief-2.0.schema.json",
+		"schemas/creative-directions-2.0.schema.json",
+		"schemas/script-package-2.0.schema.json",
 	} {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); err != nil {
 			t.Fatalf("expected %s: %v", path, err)
 		}
+	}
+	if info, err := os.Stat(filepath.Join(root, "outputs", "delivery")); err != nil || !info.IsDir() {
+		t.Fatalf("expected outputs/delivery directory: %v", err)
 	}
 	report, err := Doctor(root)
 	if err != nil {

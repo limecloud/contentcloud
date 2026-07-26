@@ -239,7 +239,7 @@ func (r SubmissionRevision) EligibleObjectIDs() []string {
 		if id == "" {
 			continue
 		}
-		if status == "" || status == "approved" || status == "verified" || status == "review_ready" {
+		if status == "" || status == "candidate" || status == "approved" || status == "verified" || status == "review_ready" {
 			ids = append(ids, id)
 		}
 	}

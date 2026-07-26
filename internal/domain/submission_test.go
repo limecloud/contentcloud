@@ -34,3 +34,16 @@ func TestHighRiskMetadataOnlySubmissionIsEvidenceLimited(t *testing.T) {
 		t.Fatal("high-risk claim with evidence pack should pass the coarse disclosure gate")
 	}
 }
+
+func TestApprovedRevisionMakesNonBlockedCandidatesEligible(t *testing.T) {
+	revision := SubmissionRevision{Objects: json.RawMessage(`[
+        {"id":"fact-candidate","status":"candidate"},
+        {"id":"claim-review-ready","status":"review_ready"},
+        {"id":"claim-blocked","status":"blocked"},
+        {"id":"manifest","status":"informational"}
+    ]`)}
+	ids := revision.EligibleObjectIDs()
+	if len(ids) != 2 || ids[0] != "claim-review-ready" || ids[1] != "fact-candidate" {
+		t.Fatalf("unexpected eligible IDs: %#v", ids)
+	}
+}

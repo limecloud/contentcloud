@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -95,6 +96,9 @@ func buildPublishCheckpoint(options publishBuildOptions) (domain.SubmissionBundl
 	if err != nil {
 		return domain.SubmissionBundle{}, publishPreflight{}, err
 	}
+	if err := validatePublishDomainFiles(options.Root, options.SubmissionType, resolvedFiles); err != nil {
+		return domain.SubmissionBundle{}, publishPreflight{}, err
+	}
 	objects, fileBytes, blocked, inputHash, err := readPublishObjects(options.Root, options.SubmissionType, resolvedFiles)
 	if err != nil {
 		return domain.SubmissionBundle{}, publishPreflight{}, err
@@ -110,7 +114,7 @@ func buildPublishCheckpoint(options publishBuildOptions) (domain.SubmissionBundl
 	bundle := domain.SubmissionBundle{
 		BundleVersion: "1.0", SchemaVersion: publishSchemaVersion(options.SubmissionType), SubmissionType: options.SubmissionType,
 		ProjectID: status.Binding.ProjectID, WorkspaceID: status.Binding.WorkspaceID, BaseApprovedSnapshotID: status.Sync.ApprovedSnapshotID,
-		LocalRunSummary: domain.LocalRunSummary{Stage: "publish_preflight", Checks: []domain.LocalRunCheck{{Name: options.SubmissionType + "-json", Status: "passed"}, {Name: options.SubmissionType + "-lint", Status: "passed"}}, InputHash: inputHash, OutputHash: inputHash, Versions: map[string]string{"cli": Version, "template": status.Template.TemplateVersion}},
+		LocalRunSummary: domain.LocalRunSummary{Stage: "publish_preflight", Checks: publishChecks(options.SubmissionType), InputHash: inputHash, OutputHash: inputHash, Versions: map[string]string{"cli": Version, "template": status.Template.TemplateVersion}},
 		Objects:         objects, SourceDisclosures: disclosures, Artifacts: []domain.SubmissionArtifact{}, Message: strings.TrimSpace(options.Message), IdempotencyKey: options.IdempotencyKey,
 	}
 	if err := bundle.SetComputedHash(); err != nil {
@@ -333,6 +337,9 @@ func resolvePublishFiles(root, submissionType string, explicit []string) ([]stri
 		}
 		return values, nil
 	}
+	if submissionType == "script" {
+		return discoverScriptPublishFiles(root)
+	}
 	directory := map[string]string{"knowledge": "knowledge/packs", "brief": "outputs/briefs", "script": "outputs/scripts"}[submissionType]
 	if directory == "" {
 		directory = filepath.Join("outputs", submissionType)
@@ -348,19 +355,94 @@ func resolvePublishFiles(root, submissionType string, explicit []string) ([]stri
 	return values, nil
 }
 
+func discoverScriptPublishFiles(root string) ([]string, error) {
+	directory := filepath.Join(root, "outputs", "scripts")
+	values := []string{}
+	err := filepath.WalkDir(directory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
+			return nil
+		}
+		resolved, err := localworkspace.ResolveWorkspaceFile(root, path)
+		if err != nil {
+			return err
+		}
+		body, err := os.ReadFile(resolved)
+		if err != nil {
+			return err
+		}
+		var identity struct {
+			Kind string `json:"kind"`
+		}
+		if json.Unmarshal(body, &identity) == nil && identity.Kind == "script_package" {
+			values = append(values, resolved)
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	sort.Strings(values)
+	if len(values) == 0 {
+		return nil, domain.Invalid("PUBLISH_FILE_REQUIRED", "没有找到可发布 ScriptPackage V2；使用 --file 明确指定检查点文件")
+	}
+	if len(values) > 1 {
+		return nil, domain.Invalid("PUBLISH_FILE_AMBIGUOUS", "发现多个 ScriptPackage V2；请为本次审核使用重复 --file 明确列出候选")
+	}
+	return values, nil
+}
+
+func validatePublishDomainFiles(root, submissionType string, files []string) error {
+	switch submissionType {
+	case "brief":
+		for _, file := range files {
+			report, _, err := localworkspace.LintBrief(root, file)
+			if err != nil {
+				return err
+			}
+			if !report.Valid {
+				lintErr := domain.Invalid("BRIEF_LINT_FAILED", "Brief V2 发布前校验失败："+file)
+				lintErr.Details = report
+				return lintErr
+			}
+		}
+	case "script":
+		for _, file := range files {
+			report, _, err := localworkspace.LintScriptPackage(root, file, "")
+			if err != nil {
+				return err
+			}
+			if !report.Valid {
+				lintErr := domain.Invalid("SCRIPT_PACKAGE_LINT_FAILED", "ScriptPackage V2 发布前校验失败："+report.File)
+				lintErr.Details = report
+				return lintErr
+			}
+		}
+	}
+	return nil
+}
+
+func publishChecks(submissionType string) []domain.LocalRunCheck {
+	checks := []domain.LocalRunCheck{{Name: submissionType + "-json", Status: "passed"}, {Name: submissionType + "-preflight", Status: "passed"}}
+	if submissionType == "script" {
+		checks[1].Name = "script-package-v2-lint"
+	} else if submissionType == "brief" {
+		checks[1].Name = "brief-v2-lint"
+	}
+	return checks
+}
+
 func readPublishObjects(root, submissionType string, files []string) (json.RawMessage, int64, int, string, error) {
 	objects := []json.RawMessage{}
 	var total int64
 	hasher := sha256.New()
 	blocked := 0
 	for _, path := range files {
-		absolute, err := filepath.Abs(path)
+		absolute, relative, err := resolvePublishReadPath(root, path, "PUBLISH_PATH_OUTSIDE_WORKSPACE", "publish 文件必须位于当前工作区", "将结构化检查点写入 outputs 或 knowledge 后重试")
 		if err != nil {
 			return nil, 0, 0, "", err
-		}
-		relative, err := filepath.Rel(root, absolute)
-		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return nil, 0, 0, "", domain.Policy("PUBLISH_PATH_OUTSIDE_WORKSPACE", "publish 文件必须位于当前工作区", "将结构化检查点写入 outputs 或 knowledge 后重试")
 		}
 		body, err := os.ReadFile(absolute)
 		if err != nil {
@@ -419,9 +501,16 @@ func validatePublishObject(submissionType string, body json.RawMessage) (bool, e
 		if stringField(object, "schema_version") == "" || stringField(object, "title") == "" {
 			return false, fmt.Errorf("script 需要 schema_version 和 title")
 		}
+		blocked := stringField(object, "deliverability") == "blocked" || stringField(object, "status") == "blocked"
 		shots, ok := object["shots"].([]any)
-		if !ok || len(shots) == 0 {
+		if !ok || (!blocked && len(shots) == 0) {
 			return false, fmt.Errorf("script 需要至少一个 shot")
+		}
+		if blocked {
+			reasons, ok := object["blocked_reasons"].([]any)
+			if !ok || len(reasons) == 0 {
+				return false, fmt.Errorf("blocked script 需要 blocked_reasons")
+			}
 		}
 	}
 	deliverability := stringField(object, "deliverability")
@@ -433,16 +522,9 @@ func readDisclosures(root, path string) ([]domain.SourceDisclosure, int64, error
 	if strings.TrimSpace(path) == "" {
 		return []domain.SourceDisclosure{}, 0, nil
 	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(root, path)
-	}
-	absolute, err := filepath.Abs(path)
+	absolute, _, err := resolvePublishReadPath(root, path, "DISCLOSURE_PATH_OUTSIDE_WORKSPACE", "来源披露文件必须位于当前工作区", "将披露 manifest 放入工作区后重试")
 	if err != nil {
 		return nil, 0, err
-	}
-	relative, err := filepath.Rel(root, absolute)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return nil, 0, domain.Policy("DISCLOSURE_PATH_OUTSIDE_WORKSPACE", "来源披露文件必须位于当前工作区", "将披露 manifest 放入工作区后重试")
 	}
 	body, err := os.ReadFile(absolute)
 	if err != nil {
@@ -455,9 +537,33 @@ func readDisclosures(root, path string) ([]domain.SourceDisclosure, int64, error
 	return values, int64(len(body)), nil
 }
 
+func resolvePublishReadPath(root, path, code, message, hint string) (string, string, error) {
+	resolved, err := localworkspace.ResolveWorkspaceFile(root, path)
+	if err != nil {
+		var domainError *domain.Error
+		if errors.As(err, &domainError) && domainError.Code == "LOCAL_FILE_OUTSIDE_WORKSPACE" {
+			return "", "", domain.Policy(code, message, hint)
+		}
+		return "", "", err
+	}
+	rootAbsolute, err := filepath.Abs(root)
+	if err != nil {
+		return "", "", err
+	}
+	rootResolved, err := filepath.EvalSymlinks(rootAbsolute)
+	if err != nil {
+		return "", "", err
+	}
+	relative, err := filepath.Rel(rootResolved, resolved)
+	if err != nil {
+		return "", "", err
+	}
+	return resolved, relative, nil
+}
+
 func publishSchemaVersion(submissionType string) string {
 	if submissionType == "script" {
-		return "script-package/1.1"
+		return localworkspace.ScriptPackageV2Schema
 	}
 	return "contentcloud." + submissionType + "/2.0"
 }
