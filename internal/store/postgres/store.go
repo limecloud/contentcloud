@@ -224,7 +224,11 @@ func (s *Store) SaveMembership(ctx context.Context, v domain.Membership) error {
 }
 
 func pendingMembershipInvite(ctx context.Context, tx pgx.Tx, tokenHash, email string, now time.Time) (domain.MembershipInvite, error) {
-	invite, err := scanMembershipInvite(tx.QueryRow(ctx, membershipInviteSelect+` WHERE token_hash=$1 FOR UPDATE`, tokenHash))
+	var tenantID, inviteID string
+	if err := tx.QueryRow(ctx, `SELECT tenant_id,invite_id FROM contentcloud_lookup_membership_invite($1)`, tokenHash).Scan(&tenantID, &inviteID); err != nil {
+		return domain.MembershipInvite{}, domain.Conflict("INVITE_INVALID", "邀请无效、已撤销、邮箱不匹配或已过期")
+	}
+	invite, err := scanMembershipInvite(tx.QueryRow(ctx, membershipInviteSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, inviteID))
 	if err != nil {
 		return domain.MembershipInvite{}, domain.Conflict("INVITE_INVALID", "邀请无效、已撤销、邮箱不匹配或已过期")
 	}
