@@ -33,12 +33,12 @@ func TestLocalCLIExecutesClientFirstKnowledgeFlow(t *testing.T) {
 		Scope: domain.KnowledgeScope{Regions: []string{}, Channels: []string{}, Audiences: []string{}, ProductVariants: []string{}}, RiskLevel: "low", AllowedChannels: []string{}, Evidence: []domain.EvidenceRef{{SourceRevisionID: "source:product", LocatorKind: bundle.Evidence[0].LocatorKind, Locator: string(locator), Quote: bundle.Evidence[0].Quote}}, ForbiddenExtensions: []string{}, DependsOnFactIDs: []string{},
 	}}, Warnings: []string{}}
 	body, _ := json.Marshal(pkg)
-	packagePath := filepath.Join(workspace, "work", "candidates.json")
+	packagePath := filepath.Join(workspace, "40-work", "candidates.json")
 	if err := os.WriteFile(packagePath, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	assertLocalCLI_OK(t, "local", "run", "init", "--directory", workspace, "--id", "local-run-cli", "--intent", "content")
-	assertLocalCLI_OK(t, "local", "knowledge", "import", "work/candidates.json", "--directory", workspace, "--run", "local-run-cli")
+	assertLocalCLI_OK(t, "local", "run", "init", "--directory", workspace, "--id", "local-run-cli", "--intent", "intent:content")
+	assertLocalCLI_OK(t, "local", "knowledge", "import", "40-work/candidates.json", "--directory", workspace, "--run", "local-run-cli")
 	assertLocalCLI_OK(t, "local", "knowledge", "lint", "--directory", workspace)
 	assertLocalCLI_OK(t, "local", "knowledge", "query", "--directory", workspace)
 	assertLocalCLI_OK(t, "local", "knowledge", "diagnose", "--directory", workspace)
@@ -50,7 +50,7 @@ func TestLocalCLIExecutesClientFirstKnowledgeFlow(t *testing.T) {
 		"local.run.claim", "local.run.renew", "local.run.release", "local.run.claim-status",
 		"local.handoff.create-ready", "local.handoff.list-ready", "local.handoff.accept", "local.handoff.complete", "local.handoff.supersede",
 		"local.knowledge.import", "local.knowledge.lint", "local.knowledge.query", "local.knowledge.diagnose", "local.knowledge.pack",
-		"local.brief.lint", "local.script.batch.init", "local.script.batch.lint", "local.script.batch.finalize", "local.script.lint", "local.script.diff", "local.script.export",
+		"local.brief.lint", "local.content.batch.init", "local.content.batch.lint", "local.content.batch.finalize", "local.content.item.lint", "local.content.item.diff", "local.content.delivery.export",
 	} {
 		if commandSchemas()[name] == nil {
 			t.Fatalf("missing command schema %s", name)

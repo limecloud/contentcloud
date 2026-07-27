@@ -1,0 +1,167 @@
+{
+  "schema_version": "contentcloud.project-pages/1.0",
+  "order": [
+    "setup",
+    "overview",
+    "context",
+    "knowledge",
+    "intelligence",
+    "strategy",
+    "planning",
+    "creative",
+    "review",
+    "delivery",
+    "learning",
+    "automation"
+  ],
+  "views": {
+    "setup": {
+      "route": "setup",
+      "label": "接入与初始化",
+      "eyebrow": "Workspace",
+      "title": "连接本地创作 Workspace",
+      "description": "检查项目绑定、Codex 创作环境和 V3 Workspace 是否已经就绪。",
+      "section": "onboarding",
+      "submission_types": [],
+      "snapshot_types": [],
+      "focus_kinds": [
+        {"kind": "bootstrap_attempt", "query_key": "bootstrap_attempt"},
+        {"kind": "support_code", "query_key": "support_code"},
+        {"kind": "workspace_binding"},
+        {"kind": "environment_health"}
+      ]
+    },
+    "overview": {
+      "route": "overview",
+      "label": "项目总览",
+      "eyebrow": "Project Control",
+      "title": "项目控制台",
+      "description": "从正式 Revision、Snapshot、Delivery 和 Automation 事实查看项目状态。",
+      "section": null,
+      "submission_types": ["context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"],
+      "snapshot_types": ["context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"],
+      "focus_kinds": [{"kind": "next_action"}]
+    },
+    "context": {
+      "route": "context",
+      "label": "方法论与上下文",
+      "eyebrow": "Context",
+      "title": "方法论与客户上下文",
+      "description": "方法论决定收集什么，Context Revision 决定本轮项目采用什么约束。",
+      "section": "methodology",
+      "submission_types": ["context"],
+      "snapshot_types": ["context"],
+      "focus_kinds": [{"kind": "context_version"}, {"kind": "methodology_dimension"}]
+    },
+    "knowledge": {
+      "route": "knowledge",
+      "label": "可信知识",
+      "eyebrow": "Knowledge Governance",
+      "title": "可信知识",
+      "description": "查看已提交的知识 Revision、证据治理状态和正式批准快照。",
+      "section": "knowledge",
+      "submission_types": ["knowledge"],
+      "snapshot_types": ["knowledge"],
+      "focus_kinds": [
+        {"kind": "source"},
+        {"kind": "evidence"},
+        {"kind": "fact"},
+        {"kind": "claim"},
+        {"kind": "asset"},
+        {"kind": "rights"},
+        {"kind": "conflict"}
+      ]
+    },
+    "intelligence": {
+      "route": "intelligence",
+      "label": "市场情报",
+      "eyebrow": "Intelligence",
+      "title": "市场与内容情报",
+      "description": "只展示已提交洞察及采纳状态，不把市场观察当成客户事实。",
+      "section": "intelligence",
+      "submission_types": ["context"],
+      "snapshot_types": ["context"],
+      "focus_kinds": [{"kind": "insight"}, {"kind": "intelligence_revision"}]
+    },
+    "strategy": {
+      "route": "strategy",
+      "label": "营销策略",
+      "eyebrow": "Strategy",
+      "title": "产品营销策略",
+      "description": "查看由正式上下文和知识快照支撑的策略投影及阻断。",
+      "section": "strategy",
+      "submission_types": ["context"],
+      "snapshot_types": ["context"],
+      "focus_kinds": [{"kind": "strategy_subject"}, {"kind": "adopted_insight"}]
+    },
+    "planning": {
+      "route": "planning",
+      "label": "内容策划",
+      "eyebrow": "Planning",
+      "title": "内容策划",
+      "description": "Campaign、Experiment 与 Brief 在本地形成版本，云端审核不可变提交。",
+      "section": "planning",
+      "submission_types": ["brief"],
+      "snapshot_types": ["brief"],
+      "focus_kinds": [{"kind": "campaign"}, {"kind": "brief"}, {"kind": "experiment"}]
+    },
+    "creative": {
+      "route": "creative",
+      "label": "创意与剧本",
+      "eyebrow": "Creative Production",
+      "title": "创意与剧本",
+      "description": "区分本地候选、待审 Revision、批准快照和被阻断的 ContentBatch。",
+      "section": "creative",
+      "submission_types": ["content_batch", "asset_batch"],
+      "snapshot_types": ["content_batch", "asset_batch"],
+      "focus_kinds": [{"kind": "content_batch"}, {"kind": "script"}, {"kind": "media_candidate"}]
+    },
+    "review": {
+      "route": "review",
+      "label": "审核协作",
+      "eyebrow": "Revision Governance",
+      "title": "审核与客户协作",
+      "description": "所有评论和决定绑定 SubmissionRevision，正文修订回到本地 Workspace。",
+      "section": "review",
+      "submission_types": ["context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"],
+      "snapshot_types": ["context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"],
+      "focus_kinds": [
+        {"kind": "submission_revision", "digest_required": true},
+        {"kind": "review_cycle"}
+      ]
+    },
+    "delivery": {
+      "route": "delivery",
+      "label": "交付制作",
+      "eyebrow": "Delivery",
+      "title": "交付与外部制作",
+      "description": "只有仍然有效的 ApprovedSnapshot 可以进入交付包。",
+      "section": "delivery",
+      "submission_types": ["delivery"],
+      "snapshot_types": ["content_batch", "asset_batch", "delivery"],
+      "focus_kinds": [{"kind": "delivery_package"}, {"kind": "snapshot", "digest_required": true}]
+    },
+    "learning": {
+      "route": "learning",
+      "label": "结果学习",
+      "eyebrow": "Learning",
+      "title": "投放结果与学习",
+      "description": "结果绑定已批准内容版本，候选 Learning 经人工采纳后进入下一轮。",
+      "section": "learning",
+      "submission_types": ["result"],
+      "snapshot_types": ["result"],
+      "focus_kinds": [{"kind": "observation"}, {"kind": "learning_candidate"}]
+    },
+    "automation": {
+      "route": "automation",
+      "label": "Automation 与运行",
+      "eyebrow": "Automation",
+      "title": "Automation 与运行",
+      "description": "机器任务使用冻结输入和隔离 Attempt，输出仍需转为 Submission 审核。",
+      "section": "automation",
+      "submission_types": [],
+      "snapshot_types": [],
+      "focus_kinds": [{"kind": "automation_plan"}, {"kind": "task_run"}, {"kind": "attempt"}]
+    }
+  }
+}

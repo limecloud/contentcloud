@@ -25,7 +25,7 @@ func TestEnvironmentStateStoresAndVerifiesSignedManifestAndExactLock(t *testing.
 	if _, err := StoreEnvironmentRegistry(root, registry, registryVerifier); err != nil {
 		t.Fatal(err)
 	}
-	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.6.0", Digest: "sha256:" + strings.Repeat("a", 64), Installed: true}}
+	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.7.0", Digest: "sha256:" + strings.Repeat("a", 64), Installed: true}}
 	state, err := StoreEnvironment(root, manifest, installed, verifier, now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestEnvironmentStateFailsClosedForWrongProjectMissingPluginAndTampering(t *
 	assertEnvironmentCode(t, storeEnvironmentError(root, wrongProject, nil, verifier, now), "ENVIRONMENT_PROJECT_MISMATCH")
 	assertEnvironmentCode(t, storeEnvironmentError(root, manifest, nil, verifier, now), "ENVIRONMENT_REQUIRED_PLUGIN_MISSING")
 
-	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.6.0", Digest: "sha256:" + strings.Repeat("a", 64), Installed: true}}
+	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.7.0", Digest: "sha256:" + strings.Repeat("a", 64), Installed: true}}
 	if _, err := StoreEnvironment(root, manifest, installed, verifier, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestEnvironmentStateFailsClosedForWrongProjectMissingPluginAndTampering(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := strings.Replace(string(body), "contentcloud.script.generate", "contentcloud.script.tampered", 1)
+	tampered := strings.Replace(string(body), domain.KnowledgeExtractCapability, "contentcloud.knowledge.tampered", 1)
 	if err := os.WriteFile(path, []byte(tampered), 0o400); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestEnvironmentLockCompareAndSwapRejectsConcurrentChange(t *testing.T) {
 	if _, err := StoreEnvironmentRegistry(root, registry, registryVerifier); err != nil {
 		t.Fatal(err)
 	}
-	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.6.0", Digest: "sha256:" + strings.Repeat("a", 64), Installed: true}}
+	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.7.0", Digest: "sha256:" + strings.Repeat("a", 64), Installed: true}}
 	state, err := StoreEnvironment(root, manifest, installed, verifier, now)
 	if err != nil {
 		t.Fatal(err)
@@ -118,13 +118,13 @@ func workspaceEnvironmentFixture(t *testing.T, now time.Time) (environment.Manif
 	}
 	profile := environment.Profile{
 		ID: "contentcloud.video-production", Version: "1.0.0", EnvironmentVersion: "2026.7.1", Harness: "codex", Marketplace: "contentcloud",
-		Plugins:           []environment.ProfilePlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.6.0", Required: true, Scope: "environment", Capabilities: []string{"contentcloud.script.generate"}}},
-		WorkspaceTemplate: environment.WorkspaceTemplateRef{ID: "workspace_marketing_video", Version: "2.2.0", Digest: "sha256:" + strings.Repeat("c", 64)}, Capabilities: []string{"contentcloud.script.generate"}, Policies: environment.Policies{PublishRequiresConfirmation: true},
+		Plugins:           []environment.ProfilePlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.7.0", Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}}},
+		WorkspaceTemplate: environment.WorkspaceTemplateRef{ID: "workspace_marketing_video", Version: "2.2.0", Digest: "sha256:" + strings.Repeat("c", 64)}, Capabilities: []string{domain.KnowledgeExtractCapability}, Policies: environment.Policies{PublishRequiresConfirmation: true},
 	}
 	registry := environment.Registry{SchemaVersion: "1.0", Entries: []environment.RegistryEntry{{
-		ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.6.0", Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v0.6.0"}, License: "Apache-2.0", Digest: "sha256:" + strings.Repeat("a", 64),
+		ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.7.0", Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v0.7.0"}, License: "Apache-2.0", Digest: "sha256:" + strings.Repeat("a", 64),
 		Signature: environment.RegistrySignature{Status: "verified", Algorithm: "ed25519", KeyID: "plugin-release-workspace-test"}, CompatibleProfiles: []string{profile.ID}, Permissions: []string{"workspace:read"},
-		DataFlow: environment.RegistryDataFlow{LocalByDefault: true, CloudActions: []string{}}, OutputSchemas: []string{"contracts/script-package-2.0.schema.json"},
+		DataFlow: environment.RegistryDataFlow{LocalByDefault: true, CloudActions: []string{}}, OutputSchemas: []string{"contracts/content-item-3.0.schema.json"},
 		Cost:       environment.RegistryCost{Model: "included", Notice: "Included in tests."},
 		Evaluation: environment.RegistryEvaluation{Status: "passed", Report: ".agents/plugins/evaluations/test.json", Digest: "sha256:" + strings.Repeat("e", 64), Evidence: []string{"test"}}, Lifecycle: "published", Revocation: environment.RegistryRevocation{Status: "active"},
 	}}}

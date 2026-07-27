@@ -19,7 +19,7 @@ func TestResolveWorkspaceRootPrefersExplicitDirectory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	resolution, err := ResolveWorkspaceRoot(filepath.Join(explicit, "work", "runs"), cwdWorkspace)
+	resolution, err := ResolveWorkspaceRoot(filepath.Join(explicit, "40-work", "runs"), cwdWorkspace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestResolveWorkspaceRootUsesCWDWithoutScanningChildren(t *testing.T) {
 	if _, err := Initialize(InitOptions{Root: workspace, ProjectID: "project-1", Target: "none", CLIVersion: "test"}); err != nil {
 		t.Fatal(err)
 	}
-	resolution, err := ResolveWorkspaceRoot("", filepath.Join(workspace, "outputs", "scripts"))
+	resolution, err := ResolveWorkspaceRoot("", filepath.Join(workspace, "50-production", "scripts"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestConversationContextReadsPersistedOfflineState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-1", Intent: "content", Now: now.Add(time.Minute)}); err != nil {
+	if _, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-1", Intent: "intent:content", Now: now.Add(time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 	canonical, err := json.Marshal(map[string]any{"schema_version": "contentcloud.knowledge/2.0", "submission_type": "knowledge", "objects": []map[string]any{{"id": "fact-1"}}})
@@ -107,10 +107,10 @@ func TestConversationContextReadsPersistedOfflineState(t *testing.T) {
 func TestConversationContextCarriesBootstrapHandoffUntilWorkStarts(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "workspace")
 	now := time.Date(2026, 7, 27, 11, 0, 0, 0, time.UTC)
-	if _, err := Initialize(InitOptions{Root: root, WorkspaceID: "workspace-1", ProjectID: "project-1", Target: "codex-plugin", CLIVersion: "0.6.0", Now: now}); err != nil {
+	if _, err := Initialize(InitOptions{Root: root, WorkspaceID: "workspace-1", ProjectID: "project-1", Target: "codex-plugin", CLIVersion: "0.7.0", Now: now}); err != nil {
 		t.Fatal(err)
 	}
-	handoff, path, err := StoreBootstrapHandoff(root, "contentcloud-video-production@contentcloud", "0.6.0", "v0.6.0", now.Add(time.Minute))
+	handoff, path, err := StoreBootstrapHandoff(root, "contentcloud-video-production@contentcloud", "0.7.0", "v0.7.0", now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestConversationContextCarriesBootstrapHandoffUntilWorkStarts(t *testing.T)
 	if context.BootstrapHandoff == nil || context.BootstrapHandoff.PluginID != handoff.PluginID || len(context.SuggestedIntents) == 0 || context.SuggestedIntents[0] != "bootstrap_continue" {
 		t.Fatalf("bootstrap handoff missing from initial context: %#v", context)
 	}
-	if _, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-after-bootstrap", Intent: "content", Now: now.Add(3 * time.Minute)}); err != nil {
+	if _, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-after-bootstrap", Intent: "intent:content", Now: now.Add(3 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 	context, err = ConversationContext(root, "", now.Add(4*time.Minute))

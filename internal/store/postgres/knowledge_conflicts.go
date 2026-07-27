@@ -11,11 +11,11 @@ import (
 
 func (s *Store) CreateKnowledgeConflict(ctx context.Context, conflict domain.KnowledgeConflict, request domain.DecisionRequest) error {
 	return s.withTenant(ctx, conflict.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO knowledge_conflicts(id,tenant_id,project_id,subject,predicate,knowledge_item_ids,reason,status,resolved_by,resolved_at,resolution,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, conflict.ID, conflict.TenantID, conflict.ProjectID, conflict.Subject, conflict.Predicate, jsonValue(conflict.KnowledgeItemIDs), conflict.Reason, conflict.Status, nullable(conflict.ResolvedBy), conflict.ResolvedAt, conflict.Resolution, conflict.CreatedAt, conflict.UpdatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO knowledge_conflicts(id,tenant_id,project_id,subject,predicate,knowledge_item_ids,reason,status,resolved_by,resolved_at,resolution,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, conflict.ID, conflict.TenantID, conflict.ProjectID, conflict.Subject, conflict.Predicate, jsonArrayValue(conflict.KnowledgeItemIDs), conflict.Reason, conflict.Status, nullable(conflict.ResolvedBy), conflict.ResolvedAt, conflict.Resolution, conflict.CreatedAt, conflict.UpdatedAt)
 		if err != nil {
 			return dbError(err)
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO decision_requests(id,tenant_id,project_id,conflict_id,question,knowledge_item_ids,status,requested_by,resolved_by,resolved_at,selected_knowledge_id,notes,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, request.ID, request.TenantID, request.ProjectID, request.ConflictID, request.Question, jsonValue(request.KnowledgeItemIDs), request.Status, request.RequestedBy, nullable(request.ResolvedBy), request.ResolvedAt, nullable(request.SelectedKnowledgeID), request.Notes, request.CreatedAt)
+		_, err = tx.Exec(ctx, `INSERT INTO decision_requests(id,tenant_id,project_id,conflict_id,question,knowledge_item_ids,status,requested_by,resolved_by,resolved_at,selected_knowledge_id,notes,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, request.ID, request.TenantID, request.ProjectID, request.ConflictID, request.Question, jsonArrayValue(request.KnowledgeItemIDs), request.Status, request.RequestedBy, nullable(request.ResolvedBy), request.ResolvedAt, nullable(request.SelectedKnowledgeID), request.Notes, request.CreatedAt)
 		return dbError(err)
 	})
 }
@@ -67,7 +67,7 @@ func (s *Store) KnowledgeConflict(ctx context.Context, tenantID, id string) (dom
 
 func (s *Store) SaveKnowledgeConflict(ctx context.Context, value domain.KnowledgeConflict) error {
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE knowledge_conflicts SET knowledge_item_ids=$3,reason=$4,status=$5,resolved_by=$6,resolved_at=$7,resolution=$8,updated_at=$9 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, jsonValue(value.KnowledgeItemIDs), value.Reason, value.Status, nullable(value.ResolvedBy), value.ResolvedAt, value.Resolution, value.UpdatedAt)
+		result, err := tx.Exec(ctx, `UPDATE knowledge_conflicts SET knowledge_item_ids=$3,reason=$4,status=$5,resolved_by=$6,resolved_at=$7,resolution=$8,updated_at=$9 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, jsonArrayValue(value.KnowledgeItemIDs), value.Reason, value.Status, nullable(value.ResolvedBy), value.ResolvedAt, value.Resolution, value.UpdatedAt)
 		if err != nil {
 			return dbError(err)
 		}

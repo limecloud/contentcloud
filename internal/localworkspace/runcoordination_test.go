@@ -14,7 +14,7 @@ import (
 func TestRunClaimIsSingleWriterAndExpiredTakeoverIsExplicit(t *testing.T) {
 	root := newCoordinationWorkspace(t)
 	now := time.Date(2026, 7, 27, 4, 0, 0, 0, time.UTC)
-	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-claim", Intent: "content", Now: now})
+	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-claim", Intent: "intent:content", Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestRunClaimIsSingleWriterAndExpiredTakeoverIsExplicit(t *testing.T) {
 func TestLocalRunSaveRejectsStaleRevision(t *testing.T) {
 	root := newCoordinationWorkspace(t)
 	now := time.Date(2026, 7, 27, 4, 30, 0, 0, time.UTC)
-	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-cas", Intent: "content", Now: now})
+	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-cas", Intent: "intent:content", Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestLocalRunSaveRejectsStaleRevision(t *testing.T) {
 func TestClaimedLocalRunWriteRequiresTokenAndCurrentRevision(t *testing.T) {
 	root := newCoordinationWorkspace(t)
 	now := time.Date(2026, 7, 27, 4, 45, 0, 0, time.UTC)
-	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-guarded", Intent: "content", Now: now})
+	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-guarded", Intent: "intent:content", Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,11 +102,11 @@ func TestClaimedLocalRunWriteRequiresTokenAndCurrentRevision(t *testing.T) {
 func TestHandoffAcceptIsAtomicAcrossConversations(t *testing.T) {
 	root := newCoordinationWorkspace(t)
 	now := time.Date(2026, 7, 27, 5, 0, 0, 0, time.UTC)
-	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-handoff", Intent: "content", Now: now})
+	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-handoff", Intent: "intent:content", Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputPath := filepath.Join(root, "outputs", "scripts", "checkpoint.json")
+	inputPath := filepath.Join(root, "50-production", "scripts", "checkpoint.json")
 	if err := os.WriteFile(inputPath, []byte("{\"version\":1}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestHandoffAcceptIsAtomicAcrossConversations(t *testing.T) {
 		ExpectedRevision: run.ContextRevision,
 		NextCapabilityID: "contentcloud.marketing-video-script",
 		NextAction:       "继续生成逐镜头剧本",
-		InputPaths:       []string{"outputs/scripts/checkpoint.json"},
+		InputPaths:       []string{"50-production/scripts/checkpoint.json"},
 		Now:              now.Add(time.Minute),
 	})
 	if err != nil {
@@ -173,11 +173,11 @@ func TestHandoffAcceptIsAtomicAcrossConversations(t *testing.T) {
 func TestHandoffRejectsChangedInputDigest(t *testing.T) {
 	root := newCoordinationWorkspace(t)
 	now := time.Date(2026, 7, 27, 6, 0, 0, 0, time.UTC)
-	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-digest", Intent: "content", Now: now})
+	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-digest", Intent: "intent:content", Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputPath := filepath.Join(root, "outputs", "scripts", "checkpoint.json")
+	inputPath := filepath.Join(root, "50-production", "scripts", "checkpoint.json")
 	if err := os.WriteFile(inputPath, []byte("{\"version\":1}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestHandoffRejectsChangedInputDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handoff, err := CreateReadyHandoff(CreateReadyHandoffOptions{Root: root, HandoffID: "handoff-digest", RunID: run.RunID, ClaimToken: claim.Token, ExpectedRevision: run.ContextRevision, NextCapabilityID: "contentcloud.marketing-video-script", NextAction: "continue", InputPaths: []string{"outputs/scripts/checkpoint.json"}, Now: now.Add(time.Minute)})
+	handoff, err := CreateReadyHandoff(CreateReadyHandoffOptions{Root: root, HandoffID: "handoff-digest", RunID: run.RunID, ClaimToken: claim.Token, ExpectedRevision: run.ContextRevision, NextCapabilityID: "contentcloud.marketing-video-script", NextAction: "continue", InputPaths: []string{"50-production/scripts/checkpoint.json"}, Now: now.Add(time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}

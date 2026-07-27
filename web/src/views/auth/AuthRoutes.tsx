@@ -1,18 +1,15 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LoginView } from './LoginView';
 import { RegisterView } from './RegisterView';
-import { consolePath } from '../../consoleRoutes';
-
-function safeNext(value:string|null):string {
-  return value?.startsWith('/')&&!value.startsWith('//')?value:consolePath.dashboard;
-}
+import { safeReturnPath } from './returnPath';
 
 export function LoginRoute() {
-  const navigate=useNavigate();const location=useLocation();const next=safeNext(new URLSearchParams(location.search).get('next'));
-  return <LoginView onSuccess={async()=>navigate(next,{replace:true})} onNavigate={path=>navigate(path)}/>;
+  const navigate=useNavigate();const location=useLocation();const next=safeReturnPath(new URLSearchParams(location.search).get('next'));
+  return <LoginView onSuccess={async()=>navigate(next,{replace:true})} onNavigate={path=>navigate(path)} registerPath={`/register?next=${encodeURIComponent(next)}`}/>;
 }
 
 export function RegisterRoute() {
   const navigate=useNavigate();const location=useLocation();const params=new URLSearchParams(location.search);
-  return <RegisterView onSuccess={async()=>navigate(consolePath.dashboard,{replace:true})} onNavigate={path=>navigate(path)} initialInviteToken={params.get('invite')||undefined}/>;
+  const next=safeReturnPath(params.get('next'));
+  return <RegisterView onSuccess={async()=>navigate(next,{replace:true})} onNavigate={path=>navigate(path)} initialInviteToken={params.get('invite')||undefined} loginPath={`/login?next=${encodeURIComponent(next)}`}/>;
 }

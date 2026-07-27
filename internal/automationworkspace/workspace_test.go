@@ -146,9 +146,9 @@ func TestAttemptWorkspaceRenewsExclusiveLeaseFromServerExpiry(t *testing.T) {
 
 func testContract() domain.TaskContract {
 	return domain.TaskContract{
-		ContractVersion: "1.0", ContractID: "snapshot-1", RunID: "run-1", TaskType: "script_generate",
-		Project: domain.Project{ID: "project-1"}, InputSnapshotID: "snapshot-1", OutputSchema: domain.ScriptPackageSchema,
-		Capability:   domain.Capability{ID: domain.ScriptCapability, Version: "1.1.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.ScriptPackageSchema, Digest: "sha256:" + strings.Repeat("a", 64), LocalOnly: true},
+		ContractVersion: "1.0", ContractID: "snapshot-1", RunID: "run-1", TaskType: "knowledge_extract",
+		Project: domain.Project{ID: "project-1"}, Sources: []domain.ContractSource{}, InputSnapshotID: "snapshot-1", OutputSchema: domain.KnowledgeCandidatesSchema,
+		Capability:   domain.Capability{ID: domain.KnowledgeExtractCapability, Version: "1.0.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, Digest: "sha256:" + strings.Repeat("a", 64), LocalOnly: true},
 		ManifestHash: "sha256:" + strings.Repeat("c", 64),
 	}
 }

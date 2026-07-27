@@ -19,6 +19,9 @@ func TestBootstrapAuthorizationRequiresApprovalAndMatchingVerifier(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if started.VerificationURL != "https://content.example.com/projects/"+connect.ProjectID+"/setup?bootstrap_attempt="+started.AttemptID {
+		t.Fatalf("bootstrap verification URL did not use the shared setup contract: %q", started.VerificationURL)
+	}
 	_, err = service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: verifier, Device: ConnectDeviceInput{Hostname: "test-mac"}})
 	assertBootstrapError(t, err, "BOOTSTRAP_AUTHORIZATION_PENDING")
 	if _, err := service.ApproveBootstrapAuthorization(t.Context(), actor, connect.ID, started.AttemptID, "approve"); err != nil {
@@ -30,6 +33,9 @@ func TestBootstrapAuthorizationRequiresApprovalAndMatchingVerifier(t *testing.T)
 	if err != nil || connected.ProjectID != connect.ProjectID || connected.WorkspaceToken == "" || connected.DeviceToken == "" {
 		t.Fatalf("complete authorization failed: result=%#v error=%v", connected, err)
 	}
+	if connected.Device.Capabilities == nil || len(connected.Device.Capabilities) != 0 {
+		t.Fatalf("missing device capabilities must normalize to an empty array: %#v", connected.Device.Capabilities)
+	}
 	workspaceActor, binding, err := service.WorkspaceActor(t.Context(), connected.WorkspaceToken)
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +45,7 @@ func TestBootstrapAuthorizationRequiresApprovalAndMatchingVerifier(t *testing.T)
 		AttemptID:     started.AttemptID,
 		Platform:      "darwin",
 		Arch:          "arm64",
-		Versions:      map[string]string{"contentcloud_cli": "0.6.0"},
+		Versions:      map[string]string{"contentcloud_cli": "0.7.0"},
 		Checks:        []domain.BootstrapDiagnosticCheck{{CheckID: "runtime.node.version", Status: "passed"}},
 	}
 	diagnostic, err := service.UploadBootstrapDiagnostic(t.Context(), workspaceActor, binding, summary)

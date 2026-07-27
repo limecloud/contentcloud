@@ -37,7 +37,7 @@ func TestPlanIsReadOnlyAndPinsMarketplaceAndPlugin(t *testing.T) {
 		{stdout: `{"marketplaces":[]}`},
 		{stdout: `{"installed":[],"available":[]}`},
 	}}
-	adapter := mustAdapter(t, DefaultSpec("0.6.0"), runner)
+	adapter := mustAdapter(t, DefaultSpec("0.7.0"), runner)
 	plan, err := adapter.Plan(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestPlanIsReadOnlyAndPinsMarketplaceAndPlugin(t *testing.T) {
 	if plan.State != "ready" || !plan.RequiresConfirmation || len(plan.Actions) != 2 {
 		t.Fatalf("unexpected plan: %#v", plan)
 	}
-	wantMarketplace := []string{"codex", "plugin", "marketplace", "add", "limecloud/contentcloud", "--ref", "v0.6.0", "--json"}
+	wantMarketplace := []string{"codex", "plugin", "marketplace", "add", "limecloud/contentcloud", "--ref", "v0.7.0", "--json"}
 	if !reflect.DeepEqual(plan.Actions[0].Arguments, wantMarketplace[1:]) {
 		t.Fatalf("marketplace action is not pinned: %#v", plan.Actions[0])
 	}
@@ -63,8 +63,8 @@ func TestDetectClassifiesCurrentOutdatedAndBroken(t *testing.T) {
 	}{
 		{
 			name:        "current",
-			marketplace: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"https://github.com/limecloud/contentcloud.git","ref":"v0.6.0"}}]}`,
-			plugin:      `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.6.0","installed":true,"enabled":true}],"available":[]}`,
+			marketplace: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"https://github.com/limecloud/contentcloud.git","ref":"v0.7.0"}}]}`,
+			plugin:      `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.7.0","installed":true,"enabled":true}],"available":[]}`,
 			want:        "current",
 		},
 		{
@@ -75,15 +75,15 @@ func TestDetectClassifiesCurrentOutdatedAndBroken(t *testing.T) {
 		},
 		{
 			name:        "disabled plugin",
-			marketplace: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.6.0"}}]}`,
-			plugin:      `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.6.0","installed":true,"enabled":false}],"available":[]}`,
+			marketplace: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.7.0"}}]}`,
+			plugin:      `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.7.0","installed":true,"enabled":false}],"available":[]}`,
 			want:        "broken",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			runner := &fakeRunner{responses: []fakeResponse{{stdout: test.marketplace}, {stdout: test.plugin}}}
-			adapter := mustAdapter(t, DefaultSpec("0.6.0"), runner)
+			adapter := mustAdapter(t, DefaultSpec("0.7.0"), runner)
 			state, err := adapter.Detect(t.Context())
 			if err != nil {
 				t.Fatal(err)
@@ -101,7 +101,7 @@ func TestApplyRequiresConfirmation(t *testing.T) {
 		{stdout: `{"marketplaces":[]}`}, {stdout: `{"installed":[],"available":[]}`},
 	}
 	runner := &fakeRunner{responses: responses}
-	adapter := mustAdapter(t, DefaultSpec("0.6.0"), runner)
+	adapter := mustAdapter(t, DefaultSpec("0.7.0"), runner)
 	plan, err := adapter.Plan(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -117,16 +117,16 @@ func TestApplyRequiresConfirmation(t *testing.T) {
 func TestApplyInstallsAndValidates(t *testing.T) {
 	missingMarketplace := `{"marketplaces":[]}`
 	missingPlugin := `{"installed":[],"available":[]}`
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.6.0"}}]}`
-	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.6.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.7.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.7.0","installed":true,"enabled":true}],"available":[]}`
 	runner := &fakeRunner{responses: []fakeResponse{
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
-		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.6.0","installedPath":"/tmp/plugin"}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.7.0","installedPath":"/tmp/plugin"}`},
 		{stdout: currentMarketplace}, {stdout: currentPlugin},
 	}}
-	adapter := mustAdapter(t, DefaultSpec("0.6.0"), runner)
+	adapter := mustAdapter(t, DefaultSpec("0.7.0"), runner)
 	plan, err := adapter.Plan(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestApplyRollsBackOnlyMarketplaceAddedByThisRun(t *testing.T) {
 		{stderr: "plugin unavailable", exitCode: 1},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":null}`},
 	}}
-	adapter := mustAdapter(t, DefaultSpec("0.6.0"), runner)
+	adapter := mustAdapter(t, DefaultSpec("0.7.0"), runner)
 	plan, err := adapter.Plan(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -183,11 +183,11 @@ func TestApplyRollsBackActualPluginIdentityReturnedByCodex(t *testing.T) {
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
-		{stdout: `{"pluginId":"unexpected-plugin@contentcloud","name":"unexpected-plugin","marketplaceName":"contentcloud","version":"0.6.0","installedPath":"/tmp/unexpected"}`},
+		{stdout: `{"pluginId":"unexpected-plugin@contentcloud","name":"unexpected-plugin","marketplaceName":"contentcloud","version":"0.7.0","installedPath":"/tmp/unexpected"}`},
 		{stdout: `{"removed":true}`},
 		{stdout: `{"removed":true}`},
 	}}
-	adapter := mustAdapter(t, DefaultSpec("0.6.0"), runner)
+	adapter := mustAdapter(t, DefaultSpec("0.7.0"), runner)
 	plan, err := adapter.Plan(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -217,7 +217,7 @@ func TestApplyRollsBackActualMarketplaceIdentityReturnedByCodex(t *testing.T) {
 		{stdout: `{"marketplaceName":"unexpected-marketplace","installedRoot":"/tmp/cache","alreadyAdded":false}`},
 		{stdout: `{"removed":true}`},
 	}}
-	adapter := mustAdapter(t, DefaultSpec("0.6.0"), runner)
+	adapter := mustAdapter(t, DefaultSpec("0.7.0"), runner)
 	plan, err := adapter.Plan(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestBlockedPlanNeverReplacesExistingInstall(t *testing.T) {
 		{stdout: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/other","marketplaceSource":{"sourceType":"git","source":"someone/else","ref":"main"}}]}`},
 		{stdout: `{"installed":[],"available":[]}`},
 	}}
-	adapter := mustAdapter(t, DefaultSpec("0.6.0"), runner)
+	adapter := mustAdapter(t, DefaultSpec("0.7.0"), runner)
 	plan, err := adapter.Plan(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -251,7 +251,7 @@ func TestBlockedPlanNeverReplacesExistingInstall(t *testing.T) {
 }
 
 func TestNewChatDeepLinkContainsWorkspaceAndPluginMention(t *testing.T) {
-	spec := DefaultSpec("0.6.0")
+	spec := DefaultSpec("0.7.0")
 	prompt := RecoveryPrompt(spec)
 	link, err := NewChatDeepLink(spec, t.TempDir(), prompt)
 	if err != nil {
@@ -261,13 +261,13 @@ func TestNewChatDeepLinkContainsWorkspaceAndPluginMention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed["path"] == "" || parsed["prompt"] != prompt || !strings.Contains(parsed["prompt"], "plugin://contentcloud-video-production@contentcloud") {
+	if parsed["path"] == "" || parsed["prompt"] != prompt || !strings.Contains(parsed["prompt"], "plugin://contentcloud-video-production@contentcloud") || !strings.Contains(parsed["prompt"], "workspace_context") || strings.Contains(parsed["prompt"], "contentcloud_workspace_conversation_context") {
 		t.Fatalf("unexpected deep link: %s", link)
 	}
 }
 
 func TestNewChatDeepLinkRejectsNonCanonicalRecoveryPrompt(t *testing.T) {
-	spec := DefaultSpec("0.6.0")
+	spec := DefaultSpec("0.7.0")
 	if _, err := NewChatDeepLink(spec, t.TempDir(), "continue without a plugin mention"); err == nil {
 		t.Fatal("new-chat link accepted a non-canonical recovery prompt")
 	}
@@ -278,7 +278,7 @@ func TestLaunchNewChatFallsBackToWorkspaceCommand(t *testing.T) {
 		{stderr: "URL scheme unavailable", exitCode: 1},
 		{stdout: "opened"},
 	}}
-	adapter := mustAdapter(t, DefaultSpec("0.6.0"), runner)
+	adapter := mustAdapter(t, DefaultSpec("0.7.0"), runner)
 	adapter.GOOS = "darwin"
 	workspace := t.TempDir()
 	result := adapter.LaunchNewChat(t.Context(), workspace)
@@ -295,7 +295,7 @@ func TestLaunchNewChatReportsBothLaunchFailures(t *testing.T) {
 		{stderr: "URL scheme unavailable", exitCode: 1},
 		{stderr: "desktop app unavailable", exitCode: 2},
 	}}
-	adapter := mustAdapter(t, DefaultSpec("0.6.0"), runner)
+	adapter := mustAdapter(t, DefaultSpec("0.7.0"), runner)
 	adapter.GOOS = "darwin"
 	result := adapter.LaunchNewChat(t.Context(), t.TempDir())
 	if result.Opened || !strings.Contains(result.Error, "open exited with 1") || !strings.Contains(result.Error, "codex app exited with 2") {

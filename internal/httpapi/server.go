@@ -18,6 +18,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/fixturev3"
 )
 
 type Server struct {
@@ -49,6 +50,7 @@ func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, s.securityHeaders, s.accessLog)
 	r.Get("/healthz", s.health)
+	r.Get("/codex", codex)
 	r.Get("/api/bootstrap", s.bootstrap)
 	r.Get("/api/bootstrap/actions", s.bootstrapActions)
 	r.Route("/api/v1", func(r chi.Router) {
@@ -86,6 +88,8 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/projects", s.projects)
 		r.Post("/projects", s.createProject)
 		r.Get("/projects/{projectID}", s.project)
+		r.Get("/projects/{projectID}/projection", s.projectProjection)
+		r.Get("/projects/{projectID}/codex-handoff", s.projectCodexHandoff)
 		r.Patch("/projects/{projectID}", s.updateProject)
 		r.Post("/projects/{projectID}/archive", s.archiveProject)
 		r.Post("/projects/{projectID}/restore", s.restoreProject)
@@ -103,82 +107,24 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/projects/{projectID}/devices/{id}/detach", s.detachDevice)
 		r.Post("/devices/{id}/revoke", s.revokeDevice)
 		r.Post("/device-auth/approve", s.approveDeviceAuth)
-		r.Get("/projects/{projectID}/sources", s.sources)
-		r.Post("/projects/{projectID}/sources/upload", s.uploadSource)
-		r.Get("/sources/{sourceID}/revisions", s.sourceRevisions)
-		r.Post("/sources/{sourceID}/revisions/upload", s.uploadSourceRevision)
-		r.Get("/sources/{sourceID}/impact", s.sourceImpact)
-		r.Get("/source-revisions/{id}/evidence", s.evidence)
-		r.Get("/source-revisions/{id}", s.sourceRevision)
-		r.Post("/evidence/{id}/review", s.reviewEvidence)
-		r.Get("/projects/{projectID}/assets", s.assets)
-		r.Post("/projects/{projectID}/assets", s.createAsset)
-		r.Get("/assets/{id}/rights", s.rightsRecords)
-		r.Post("/assets/{id}/rights", s.createRightsRecord)
-		r.Post("/rights/{id}/review", s.reviewRightsRecord)
-		r.Get("/projects/{projectID}/knowledge", s.knowledge)
-		r.Post("/projects/{projectID}/knowledge", s.createKnowledge)
-		r.Post("/projects/{projectID}/knowledge-extraction-runs", s.createKnowledgeExtractionRun)
-		r.Post("/knowledge/{id}/review", s.reviewKnowledge)
-		r.Get("/projects/{projectID}/knowledge-conflicts", s.knowledgeConflicts)
-		r.Get("/projects/{projectID}/decision-requests", s.decisionRequests)
-		r.Post("/decision-requests/{id}/resolve", s.resolveDecisionRequest)
-		r.Get("/projects/{projectID}/benchmarks", s.benchmarks)
-		r.Post("/projects/{projectID}/benchmarks", s.createBenchmark)
-		r.Get("/projects/{projectID}/frameworks", s.frameworks)
-		r.Post("/benchmarks/{id}/frameworks", s.createFramework)
-		r.Get("/projects/{projectID}/shot-patterns", s.shotPatterns)
-		r.Post("/frameworks/{id}/shot-patterns", s.createShotPattern)
-		r.Get("/projects/{projectID}/selling-points", s.sellingPoints)
-		r.Post("/projects/{projectID}/selling-points", s.createSellingPoint)
-		r.Get("/projects/{projectID}/visualization-plans", s.visualizationPlans)
-		r.Post("/selling-points/{id}/visualization-plans", s.createVisualizationPlan)
-		r.Post("/visualization-plans/{id}/review", s.reviewVisualizationPlan)
-		r.Get("/projects/{projectID}/briefs", s.briefs)
-		r.Post("/projects/{projectID}/briefs", s.createBrief)
-		r.Post("/briefs/{id}/versions", s.reviseBrief)
-		r.Post("/briefs/{id}/review", s.reviewBrief)
-		r.Post("/briefs/{id}/runs", s.createRun)
 		r.Get("/projects/{projectID}/runs", s.runs)
 		r.Get("/runs/{id}", s.run)
 		r.Get("/runs/{id}/attempts", s.runAttempts)
 		r.Post("/runs/{id}/cancel", s.cancelRun)
-		r.Get("/projects/{projectID}/scripts", s.scripts)
-		r.Get("/scripts/{id}", s.script)
-		r.Post("/scripts/{id}/runs", s.createScriptChangeRun)
-		r.Post("/scripts/{id}/review", s.reviewScript)
-		r.Get("/scripts/{id}/comments", s.reviewComments)
-		r.Post("/scripts/{id}/comments", s.createReviewComment)
-		r.Get("/scripts/{id}/review-cycles", s.reviewCycles)
 		r.Post("/comments/{id}/resolve", s.resolveReviewComment)
-		r.Get("/scripts/{id}/review-grants", s.legacyReviewGrants)
 		r.Get("/submission-revisions/{id}/review-grants", s.reviewGrants)
 		r.Post("/submission-revisions/{id}/review-grants", s.createReviewGrant)
 		r.Post("/review-grants/{id}/revoke", s.revokeReviewGrant)
-		r.Get("/scripts/{id}/artifacts", s.artifacts)
-		r.Post("/scripts/{id}/exports", s.exportScript)
-		r.Get("/artifacts/{id}/presentation", s.artifactPresentation)
-		r.Post("/artifacts/{id}/local-open", s.createArtifactOpenRequest)
-		r.Get("/artifact-open-requests/{id}", s.artifactOpenRequest)
 		r.Get("/artifacts/{id}/download", s.downloadArtifact)
-		r.Get("/projects/{projectID}/results", s.performanceObservations)
-		r.Post("/projects/{projectID}/results", s.createPerformanceObservation)
-		r.Get("/projects/{projectID}/performance-imports", s.performanceImportBatches)
-		r.Post("/projects/{projectID}/performance-imports", s.createPerformanceImport)
-		r.Get("/performance-imports/{id}", s.performanceImportDetails)
-		r.Get("/projects/{projectID}/rating-decisions", s.ratingDecisions)
-		r.Post("/projects/{projectID}/rating-decisions", s.createRatingDecision)
-		r.Get("/projects/{projectID}/lineage", s.projectLineage)
-		r.Get("/projects/{projectID}/impact", s.projectImpact)
 		r.Get("/projects/{projectID}/audit", s.audit)
 		r.Get("/projects/{projectID}/submissions", s.submissions)
+		r.Get("/projects/{projectID}/submission-revisions/{id}", s.projectSubmissionRevision)
+		r.Get("/projects/{projectID}/submission-revisions/{id}/codex-handoff", s.reviewFeedbackCodexHandoff)
 		r.Get("/submissions/{id}", s.submissionDetails)
 		r.Post("/submission-revisions/{id}/approve", s.approveSubmission)
 		r.Post("/submission-revisions/{id}/request-changes", s.requestSubmissionChanges)
 		r.Get("/projects/{projectID}/approved-snapshots", s.approvedSnapshots)
 		r.Get("/approved-snapshots/{id}/artifacts", s.approvedSnapshotArtifacts)
-		r.Post("/approved-snapshots/{id}/exports", s.exportApprovedSnapshot)
-		r.Post("/approved-snapshots/{id}/delivery-packages", s.createDeliveryPackage)
 		r.Get("/projects/{projectID}/delivery-packages", s.deliveryPackages)
 		r.Get("/delivery-packages/{id}", s.deliveryPackage)
 	})
@@ -260,19 +206,20 @@ func (s *Server) devBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setSession(w, r, session)
 	actor, _, _ := s.service.SessionActor(r.Context(), session.ID)
-	projects, _ := s.service.Projects(r.Context(), actor)
-	if len(projects) == 0 {
-		p, createErr := s.service.CreateProject(r.Context(), actor, app.CreateProjectInput{BrandName: "金陵古都香", ProductName: "金陵古法线香", Channel: "douyin", StageObjective: "验证传统香文化的年轻化内容表达", OwnerName: "陈汐", ReviewerName: "周岚", ClientApprover: "金陵古香品牌部"}, middleware.GetReqID(r.Context()))
-		if createErr != nil {
-			s.fail(w, r, "dev.bootstrap", createErr)
+	data := map[string]any{"ready": true}
+	fixture, err := fixturev3.Decode(r.Body)
+	if err == nil {
+		result, importErr := s.service.ImportFixtureV3(r.Context(), actor, fixture, middleware.GetReqID(r.Context()))
+		if importErr != nil {
+			s.fail(w, r, "dev.bootstrap", importErr)
 			return
 		}
-		if seedErr := s.seedDemo(r.Context(), actor, p.ID); seedErr != nil {
-			s.fail(w, r, "dev.bootstrap", seedErr)
-			return
-		}
+		data["fixture"] = result
+	} else if !errors.Is(err, io.EOF) {
+		s.fail(w, r, "dev.bootstrap", domain.Invalid("FIXTURE_V3_INVALID", err.Error()))
+		return
 	}
-	s.ok(w, r, "dev.bootstrap", map[string]any{"ready": true})
+	s.ok(w, r, "dev.bootstrap", data)
 }
 func (s *Server) setSession(w http.ResponseWriter, r *http.Request, v domain.Session) {
 	http.SetCookie(w, &http.Cookie{Name: "cc_session", Value: v.ID, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: requestIsHTTPS(r), Expires: v.ExpiresAt})
@@ -385,133 +332,6 @@ func (s *Server) devices(w http.ResponseWriter, r *http.Request) {
 	s.ok(w, r, "device.list", v)
 }
 
-func (s *Server) knowledge(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	v, err := s.service.Knowledge(r.Context(), actor, chi.URLParam(r, "projectID"))
-	if err != nil {
-		s.fail(w, r, "knowledge.list", err)
-		return
-	}
-	s.ok(w, r, "knowledge.list", v)
-}
-func (s *Server) createKnowledge(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	var in app.CreateKnowledgeInput
-	if !s.decode(w, r, &in) {
-		return
-	}
-	in.ProjectID = chi.URLParam(r, "projectID")
-	v, err := s.service.CreateKnowledge(r.Context(), actor, in, middleware.GetReqID(r.Context()))
-	if err != nil {
-		s.fail(w, r, "knowledge.create", err)
-		return
-	}
-	s.ok(w, r, "knowledge.create", v)
-}
-func (s *Server) createKnowledgeExtractionRun(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	var in app.CreateKnowledgeExtractionRunInput
-	if !s.decode(w, r, &in) {
-		return
-	}
-	in.ProjectID = chi.URLParam(r, "projectID")
-	v, err := s.service.CreateKnowledgeExtractionRun(r.Context(), actor, in, middleware.GetReqID(r.Context()))
-	if err != nil {
-		s.fail(w, r, "knowledge.extract", err)
-		return
-	}
-	s.ok(w, r, "knowledge.extract", v)
-}
-func (s *Server) reviewKnowledge(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	var in struct {
-		Decision string `json:"decision"`
-	}
-	if !s.decode(w, r, &in) {
-		return
-	}
-	v, err := s.service.ReviewKnowledge(r.Context(), actor, chi.URLParam(r, "id"), in.Decision, middleware.GetReqID(r.Context()))
-	if err != nil {
-		s.fail(w, r, "knowledge.review", err)
-		return
-	}
-	s.ok(w, r, "knowledge.review", v)
-}
-
-func (s *Server) briefs(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	v, err := s.service.Briefs(r.Context(), actor, chi.URLParam(r, "projectID"))
-	if err != nil {
-		s.fail(w, r, "brief.list", err)
-		return
-	}
-	s.ok(w, r, "brief.list", v)
-}
-func (s *Server) createBrief(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	var in app.CreateBriefInput
-	if !s.decode(w, r, &in) {
-		return
-	}
-	in.ProjectID = chi.URLParam(r, "projectID")
-	v, err := s.service.CreateBrief(r.Context(), actor, in, middleware.GetReqID(r.Context()))
-	if err != nil {
-		s.fail(w, r, "brief.create", err)
-		return
-	}
-	s.ok(w, r, "brief.create", v)
-}
-func (s *Server) reviseBrief(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	previous, err := s.service.Brief(r.Context(), actor, chi.URLParam(r, "id"))
-	if err != nil {
-		s.fail(w, r, "brief.revise", err)
-		return
-	}
-	var in app.CreateBriefInput
-	if !s.decode(w, r, &in) {
-		return
-	}
-	in.ProjectID = previous.ProjectID
-	in.SupersedesID = previous.ID
-	v, err := s.service.CreateBrief(r.Context(), actor, in, middleware.GetReqID(r.Context()))
-	if err != nil {
-		s.fail(w, r, "brief.revise", err)
-		return
-	}
-	s.ok(w, r, "brief.revise", v)
-}
-func (s *Server) reviewBrief(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	var in struct {
-		Decision string `json:"decision"`
-		Reason   string `json:"reason"`
-	}
-	if !s.decode(w, r, &in) {
-		return
-	}
-	v, err := s.service.ReviewBriefWithReason(r.Context(), actor, chi.URLParam(r, "id"), in.Decision, in.Reason, middleware.GetReqID(r.Context()))
-	if err != nil {
-		s.fail(w, r, "brief.review", err)
-		return
-	}
-	s.ok(w, r, "brief.review", v)
-}
-func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	var in struct {
-		IdempotencyKey string `json:"idempotency_key"`
-	}
-	if r.ContentLength > 0 && !s.decode(w, r, &in) {
-		return
-	}
-	v, err := s.service.CreateScriptRun(r.Context(), actor, chi.URLParam(r, "id"), in.IdempotencyKey, middleware.GetReqID(r.Context()))
-	if err != nil {
-		s.fail(w, r, "run.create", err)
-		return
-	}
-	s.ok(w, r, "run.create", v)
-}
 func (s *Server) runs(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	v, err := s.service.Runs(r.Context(), actor, chi.URLParam(r, "projectID"))
@@ -538,56 +358,6 @@ func (s *Server) runAttempts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.ok(w, r, "run.attempts", v)
-}
-func (s *Server) scripts(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	v, err := s.service.Scripts(r.Context(), actor, chi.URLParam(r, "projectID"))
-	if err != nil {
-		s.fail(w, r, "script.list", err)
-		return
-	}
-	s.ok(w, r, "script.list", v)
-}
-func (s *Server) script(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	v, err := s.service.Script(r.Context(), actor, chi.URLParam(r, "id"))
-	if err != nil {
-		s.fail(w, r, "script.show", err)
-		return
-	}
-	s.ok(w, r, "script.show", v)
-}
-func (s *Server) createScriptChangeRun(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	var in app.CreateScriptChangeRunInput
-	if !s.decode(w, r, &in) {
-		return
-	}
-	v, err := s.service.CreateScriptChangeRun(r.Context(), actor, chi.URLParam(r, "id"), in, middleware.GetReqID(r.Context()))
-	if err != nil {
-		s.fail(w, r, "script.change.create", err)
-		return
-	}
-	s.ok(w, r, "script.change.create", v)
-}
-func (s *Server) reviewScript(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	var in struct {
-		app.ReviewScriptInput
-		Reason string `json:"reason"`
-	}
-	if !s.decode(w, r, &in) {
-		return
-	}
-	if in.Conclusion == "" {
-		in.Conclusion = in.Reason
-	}
-	v, err := s.service.ReviewScriptWithInput(r.Context(), actor, chi.URLParam(r, "id"), in.ReviewScriptInput, middleware.GetReqID(r.Context()))
-	if err != nil {
-		s.fail(w, r, "script.review", err)
-		return
-	}
-	s.ok(w, r, "script.review", v)
 }
 func (s *Server) audit(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
@@ -797,68 +567,6 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		}
 		value, err := s.service.WorkspaceDecisions(r.Context(), actor, binding)
 		s.dispatchResult(w, r, req.Command, value, err)
-	case "artifact.register":
-		actor, device, err := s.deviceFromRequest(r)
-		if err != nil {
-			s.fail(w, r, req.Command, err)
-			return
-		}
-		var in app.RegisterArtifactInput
-		if err := strictDecodeParams(req.Params, &in); err != nil {
-			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Artifact Envelope 参数错误"))
-			return
-		}
-		value, err := s.service.RegisterArtifact(r.Context(), actor, device, in, middleware.GetReqID(r.Context()))
-		if err != nil {
-			s.fail(w, r, req.Command, err)
-			return
-		}
-		s.ok(w, r, req.Command, value)
-	case "artifact.open.poll":
-		actor, device, err := s.deviceFromRequest(r)
-		if err != nil {
-			s.fail(w, r, req.Command, err)
-			return
-		}
-		var in struct {
-			Capabilities []domain.Capability `json:"capabilities"`
-		}
-		if err := strictDecodeParams(req.Params, &in); err != nil {
-			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Artifact 打开轮询参数错误"))
-			return
-		}
-		value, err := s.service.PollArtifactOpen(r.Context(), actor, device, in.Capabilities)
-		if err != nil {
-			var domainError *domain.Error
-			if errors.As(err, &domainError) && domainError.Code == "RESOURCE_NOT_FOUND" {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			s.fail(w, r, req.Command, err)
-			return
-		}
-		s.ok(w, r, req.Command, value)
-	case "artifact.open.finish":
-		actor, device, err := s.deviceFromRequest(r)
-		if err != nil {
-			s.fail(w, r, req.Command, err)
-			return
-		}
-		var in struct {
-			OpenRequestID string `json:"open_request_id"`
-			State         string `json:"state"`
-			Reason        string `json:"reason"`
-		}
-		if err := strictDecodeParams(req.Params, &in); err != nil {
-			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Artifact 打开结果参数错误"))
-			return
-		}
-		value, err := s.service.FinishArtifactOpen(r.Context(), actor, device, in.OpenRequestID, in.State, in.Reason)
-		if err != nil {
-			s.fail(w, r, req.Command, err)
-			return
-		}
-		s.ok(w, r, req.Command, value)
 	case "daemon.poll":
 		actor, device, err := s.deviceFromRequest(r)
 		if err != nil {
@@ -1044,69 +752,4 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, index)
-}
-
-func (s *Server) seedDemo(ctx context.Context, actor app.Actor, projectID string) error {
-	type demoKnowledge struct {
-		name, sourceType, fileName, quote, locatorKind, locator string
-		input                                                   app.CreateKnowledgeInput
-	}
-	items := []demoKnowledge{
-		{name: "产品使用说明", sourceType: "product_spec", fileName: "product-manual.txt", quote: "本品为线香，建议在通风良好的室内空间使用。", locatorKind: "paragraph", locator: `{"paragraph":1}`, input: app.CreateKnowledgeInput{ProjectID: projectID, Kind: "fact", Title: "产品形制", Statement: "线香为细长条状香品，适合书房、茶席等室内场景。", RiskLevel: "low", AllowedChannels: []string{"douyin"}}},
-		{name: "品牌传播边界", sourceType: "brand_manual", fileName: "brand-guide.txt", quote: "对外传播不得使用医疗、保健或改善疾病相关表述。", locatorKind: "paragraph", locator: `{"paragraph":1}`, input: app.CreateKnowledgeInput{ProjectID: projectID, Kind: "claim", Title: "品牌表达边界", Statement: "内容可表达传统制香工艺与日常仪式感，不宣称治疗或保健功效。", RiskLevel: "high", AllowedChannels: []string{"douyin"}}},
-		{name: "视觉资产规范", sourceType: "visual_asset", fileName: "visual-guide.txt", quote: "商标和包装文字须使用品牌提供的原始视觉素材。", locatorKind: "paragraph", locator: `{"paragraph":1}`, input: app.CreateKnowledgeInput{ProjectID: projectID, Kind: "visual_rule", Title: "产品视觉真实性", Statement: "包装、Logo 和可读文字必须使用真实素材合成，不依赖生成模型重绘。", RiskLevel: "high", AllowedChannels: []string{"douyin"}}},
-	}
-	ids := make([]string, 0, len(items))
-	worker := actor
-	worker.Type = "worker"
-	for _, item := range items {
-		revision, err := s.service.UploadSource(ctx, actor, projectID, item.name, item.sourceType, item.fileName, "text/plain", []byte(item.quote), "")
-		if err != nil {
-			return err
-		}
-		_, err = s.service.CompleteSource(ctx, worker, revision.ID, app.CompleteSourceInput{DetectedMIME: "text/plain", Status: "ready", ParserVersion: "demo-seed/v1", Evidence: []app.CreateEvidenceInput{{LocatorKind: item.locatorKind, Locator: map[string]any{"paragraph": 1}, QuoteText: item.quote}}}, "")
-		if err != nil {
-			return err
-		}
-		item.input.Evidence = []domain.EvidenceRef{{SourceRevisionID: revision.ID, LocatorKind: item.locatorKind, Locator: item.locator, Quote: item.quote}}
-		knowledge, err := s.service.CreateKnowledge(ctx, actor, item.input, "")
-		if err != nil {
-			return err
-		}
-		knowledge, err = s.service.ReviewKnowledge(ctx, actor, knowledge.ID, "approve", "")
-		if err != nil {
-			return err
-		}
-		ids = append(ids, knowledge.ID)
-	}
-	benchmark, err := s.service.CreateBenchmark(ctx, actor, app.CreateBenchmarkInput{ProjectID: projectID, Title: "安静书房场景内容拆解", Platform: "douyin", OriginalURL: "https://example.com/reference/quiet-study", RightsMode: "analysis_only", ValidationLevel: "observed", ValidationNote: "仅用于演示结构拆解"}, "")
-	if err != nil {
-		return err
-	}
-	framework, err := s.service.CreateFramework(ctx, actor, app.CreateFrameworkInput{BenchmarkID: benchmark.ID, Name: "噪音切换到香事仪式", VisualSequence: []string{"工作噪音", "点香动作", "烟迹与书房", "产品与引导"}, CopySequence: []string{"钩子", "需求时刻", "工艺证据", "行动引导"}}, "")
-	if err != nil {
-		return err
-	}
-	point, err := s.service.CreateSellingPoint(ctx, actor, app.CreateSellingPointInput{ProjectID: projectID, Title: "传统制香工艺带来的日常仪式感", Description: "用可观察的点香动作与真实产品素材呈现", Priority: 1, KnowledgeIDs: ids}, "")
-	if err != nil {
-		return err
-	}
-	plan, err := s.service.CreateVisualizationPlan(ctx, actor, app.CreateVisualizationPlanInput{SellingPointID: point.ID, Title: "真实线香与书房光影", ProofType: "process", Subjects: []string{"线香", "使用者的手"}, Setting: "傍晚书房", Props: []string{"香插", "书册"}, Implementation: "环境可生成，包装与 Logo 使用真实素材合成", ProductTruthStrategy: "real_asset_composite", Risks: []string{"生成文字变形"}, PlanB: "避开包装正面，只展示真实产品近景", AcceptanceCriteria: []string{"线香形制正确", "手部无畸变", "包装文字来自真实素材"}}, "")
-	if err != nil {
-		return err
-	}
-	plan, err = s.service.ReviewVisualizationPlan(ctx, actor, plan.ID, "approve", "")
-	if err != nil {
-		return err
-	}
-	brief, err := s.service.CreateBrief(ctx, actor, app.CreateBriefInput{ProjectID: projectID, Objective: "建立金陵古法线香的文化认知并引导收藏", Audience: "重视居家氛围与传统文化的 25-40 岁城市用户", DemandMoment: "结束一天工作，希望从信息噪音切换到安静独处", Scene: "晚间居家书桌，以真实线香完成安静仪式", Conflict: "高强度信息输入与恢复专注的需求冲突", PrimarySellingPoint: point.Title, EvidenceSummary: "使用已批准产品事实和真实点香过程证明日常仪式感", CTA: "进入品牌主页查看香事指南", Channel: "douyin", AspectRatio: "9:16", TargetDurationSeconds: 30, PrimaryTestVariable: "开场钩子", ApprovedKnowledgeIDs: ids, FrameworkIDs: []string{framework.ID}, VisualizationPlanIDs: []string{plan.ID}, Viewpoint: "user", Constraints: []string{"不得宣称医疗或保健功效"}}, "")
-	if err != nil {
-		return err
-	}
-	brief, err = s.service.ReviewBrief(ctx, actor, brief.ID, "submit", "")
-	if err != nil {
-		return err
-	}
-	_, err = s.service.ReviewBrief(ctx, actor, brief.ID, "approve", "")
-	return err
 }

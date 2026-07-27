@@ -15,6 +15,12 @@ type SubmissionDetails struct {
 	Comments   []domain.ReviewComment      `json:"comments"`
 }
 
+type SubmissionRevisionView struct {
+	Submission domain.Submission         `json:"submission"`
+	Revision   domain.SubmissionRevision `json:"revision"`
+	Comments   []domain.ReviewComment    `json:"comments"`
+}
+
 type SubmissionApprovalResult struct {
 	Submission       domain.Submission        `json:"submission"`
 	Decision         domain.ApprovalDecision  `json:"decision"`
@@ -35,7 +41,7 @@ func (s *Service) RegisterWorkspace(ctx context.Context, actor Actor, binding do
 	}
 	binding.TemplateID = templateID
 	binding.TemplateVersion = templateVersion
-	binding.Targets = append([]string(nil), targets...)
+	binding.Targets = append([]string{}, targets...)
 	binding.LastSeenAt = s.now().UTC()
 	if err := s.store.SaveWorkspaceBinding(ctx, binding); err != nil {
 		return binding, err
@@ -57,7 +63,7 @@ func (s *Service) RegisterWorkspace(ctx context.Context, actor Actor, binding do
 
 func (s *Service) CreateSubmission(ctx context.Context, actor Actor, binding domain.WorkspaceBinding, bundle domain.SubmissionBundle, requestID string) (domain.SubmissionRevision, error) {
 	if actor.Type != "workspace" || actor.WorkspaceID != binding.ID || bundle.WorkspaceID != binding.ID || bundle.ProjectID != binding.ProjectID {
-		return domain.SubmissionRevision{}, domain.Policy("WORKSPACE_SCOPE_DENIED", "提交不属于当前工作区和项目", "检查本地 project.yaml 后重试")
+		return domain.SubmissionRevision{}, domain.Policy("WORKSPACE_SCOPE_DENIED", "提交不属于当前工作区和项目", "检查本地 .contentcloud/workspace.yaml 后重试")
 	}
 	if err := bundle.Validate(); err != nil {
 		return domain.SubmissionRevision{}, err
@@ -65,13 +71,13 @@ func (s *Service) CreateSubmission(ctx context.Context, actor Actor, binding dom
 	if _, err := s.store.Project(ctx, binding.TenantID, binding.ProjectID); err != nil {
 		return domain.SubmissionRevision{}, err
 	}
-	if bundle.BaseApprovedSnapshotID != "" {
-		snapshot, err := s.store.ApprovedSnapshot(ctx, binding.TenantID, bundle.BaseApprovedSnapshotID)
+	for _, snapshotID := range bundle.BaseSnapshotIDs {
+		snapshot, err := s.store.ApprovedSnapshot(ctx, binding.TenantID, snapshotID)
 		if err != nil {
 			return domain.SubmissionRevision{}, err
 		}
-		if snapshot.ProjectID != binding.ProjectID || snapshot.SubmissionType != bundle.SubmissionType {
-			return domain.SubmissionRevision{}, domain.Conflict("BASE_SNAPSHOT_MISMATCH", "批准基线与当前项目或提交类型不匹配")
+		if snapshot.ProjectID != binding.ProjectID {
+			return domain.SubmissionRevision{}, domain.Conflict("BASE_SNAPSHOT_MISMATCH", "批准基线不属于当前项目")
 		}
 	}
 	now := s.now().UTC()
@@ -108,8 +114,8 @@ func (s *Service) CreateSubmission(ctx context.Context, actor Actor, binding dom
 	}
 	revision := domain.SubmissionRevision{
 		ID: domain.NewID(), TenantID: binding.TenantID, ProjectID: binding.ProjectID, WorkspaceID: binding.ID, SubmissionID: submission.ID,
-		RevisionNo: revisionNo, SchemaVersion: bundle.SchemaVersion, ContentHash: normalizeSubmissionHash(bundle.ContentHash), BaseApprovedSnapshotID: bundle.BaseApprovedSnapshotID,
-		LocalRunSummary: bundle.LocalRunSummary, Objects: append(json.RawMessage(nil), bundle.Objects...), Artifacts: append([]domain.SubmissionArtifact{}, bundle.Artifacts...), Message: strings.TrimSpace(bundle.Message),
+		RevisionNo: revisionNo, SchemaVersion: domain.SubmissionSchemaVersion(bundle.SubmissionType), ContentHash: normalizeSubmissionHash(bundle.ContentHash), BaseSnapshotIDs: append([]string{}, bundle.BaseSnapshotIDs...), EnvironmentDigest: bundle.EnvironmentDigest,
+		LocalRunSummary: bundle.LocalRunSummary, Objects: cloneSubmissionObjects(bundle.Objects), Artifacts: append([]domain.SubmissionArtifact{}, bundle.Artifacts...), Message: strings.TrimSpace(bundle.Message),
 		IdempotencyKey: bundle.IdempotencyKey, EvidenceLimited: domain.EvidenceLimited(bundle.Objects, disclosures), CreatedBy: binding.ID, CreatedAt: now, SourceDisclosures: disclosures,
 	}
 	submission.Status = "submitted"
@@ -170,6 +176,34 @@ func (s *Service) SubmissionDetails(ctx context.Context, actor Actor, id string)
 	return SubmissionDetails{Submission: submission, Revisions: revisions, Comments: comments}, nil
 }
 
+func (s *Service) ProjectSubmissionRevision(ctx context.Context, actor Actor, projectID, revisionID string) (SubmissionRevisionView, error) {
+	if _, err := s.store.Project(ctx, actor.TenantID, projectID); err != nil {
+		return SubmissionRevisionView{}, err
+	}
+	revision, err := s.store.SubmissionRevision(ctx, actor.TenantID, revisionID)
+	if err != nil || revision.ProjectID != projectID {
+		if err == nil {
+			err = domain.NotFound("SubmissionRevision")
+		}
+		return SubmissionRevisionView{}, err
+	}
+	submission, err := s.store.Submission(ctx, actor.TenantID, revision.SubmissionID)
+	if err != nil || submission.ProjectID != projectID {
+		if err == nil {
+			err = domain.NotFound("Submission")
+		}
+		return SubmissionRevisionView{}, err
+	}
+	if actor.Type == "workspace" && submission.WorkspaceID != actor.WorkspaceID {
+		return SubmissionRevisionView{}, domain.NotFound("SubmissionRevision")
+	}
+	comments, err := s.store.ReviewComments(ctx, actor.TenantID, revision.ID)
+	if err != nil {
+		return SubmissionRevisionView{}, err
+	}
+	return SubmissionRevisionView{Submission: submission, Revision: revision, Comments: comments}, nil
+}
+
 func (s *Service) ApproveSubmission(ctx context.Context, actor Actor, revisionID, reason, requestID string) (SubmissionApprovalResult, error) {
 	if err := requireRole(actor, "tenant_admin", "project_manager", "reviewer"); err != nil {
 		return SubmissionApprovalResult{}, err
@@ -196,14 +230,14 @@ func (s *Service) ApproveSubmission(ctx context.Context, actor Actor, revisionID
 	}
 	now := s.now().UTC()
 	resultingState := "approved"
-	if submission.SubmissionType == "script" {
+	if submission.SubmissionType == "content_batch" {
 		resultingState = "internally_approved"
 	}
 	decision := domain.ApprovalDecision{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: revision.ProjectID, SubjectType: "submission_revision", SubjectID: revision.ID, SubjectHash: revision.ContentHash, DecisionStage: "internal", ActorID: actor.UserID, Decision: "approve", Reason: strings.TrimSpace(reason), PreviousState: submission.Status, ResultingState: resultingState, CreatedAt: now}
 	submission.Status = resultingState
 	submission.UpdatedAt = now
 	result := SubmissionApprovalResult{Submission: submission, Decision: decision}
-	if submission.SubmissionType == "script" {
+	if submission.SubmissionType == "content_batch" {
 		if err := s.store.RecordSubmissionApproval(ctx, submission, decision); err != nil {
 			return SubmissionApprovalResult{}, err
 		}
@@ -214,7 +248,7 @@ func (s *Service) ApproveSubmission(ctx context.Context, actor Actor, revisionID
 	if err != nil {
 		return SubmissionApprovalResult{}, err
 	}
-	snapshot := domain.ApprovedSnapshot{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: revision.ProjectID, WorkspaceID: revision.WorkspaceID, SubmissionID: submission.ID, SubmissionRevisionID: revision.ID, SubmissionType: submission.SubmissionType, SchemaVersion: revision.SchemaVersion, ContentHash: revision.ContentHash, SubjectHash: revision.ContentHash, CanonicalContent: canonical, EligibleIDs: revision.EligibleObjectIDs(), Artifacts: revision.Artifacts, DecisionID: decision.ID, CreatedBy: actor.UserID, CreatedAt: now, Origin: "current"}
+	snapshot := domain.ApprovedSnapshot{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: revision.ProjectID, WorkspaceID: revision.WorkspaceID, SubmissionID: submission.ID, SubmissionRevisionID: revision.ID, SubmissionType: submission.SubmissionType, SchemaVersion: revision.SchemaVersion, ContentHash: revision.ContentHash, SubjectHash: revision.ContentHash, CanonicalContent: canonical, EligibleIDs: revision.EligibleObjectIDs(), Artifacts: revision.Artifacts, DecisionID: decision.ID, CreatedBy: actor.UserID, CreatedAt: now}
 	if err := s.store.ApproveSubmissionRevision(ctx, submission, snapshot, decision); err != nil {
 		return SubmissionApprovalResult{}, err
 	}
@@ -274,9 +308,27 @@ func (s *Service) RequestSubmissionChanges(ctx context.Context, actor Actor, rev
 
 func canonicalSubmissionContent(submission domain.Submission, revision domain.SubmissionRevision) (json.RawMessage, error) {
 	return json.Marshal(map[string]any{
-		"schema_version": revision.SchemaVersion, "submission_type": submission.SubmissionType, "objects": revision.Objects,
+		"schema_version": revision.SchemaVersion, "submission_type": submission.SubmissionType, "objects": submissionObjectContents(revision.Objects), "object_refs": revision.Objects,
+		"base_snapshot_ids": revision.BaseSnapshotIDs, "environment_digest": revision.EnvironmentDigest,
 		"source_disclosures": revision.SourceDisclosures, "artifacts": revision.Artifacts, "local_run_summary": revision.LocalRunSummary,
 	})
+}
+
+func submissionObjectContents(values []domain.SubmissionObjectRef) []json.RawMessage {
+	contents := make([]json.RawMessage, len(values))
+	for index := range values {
+		contents[index] = append(json.RawMessage(nil), values[index].Content...)
+	}
+	return contents
+}
+
+func cloneSubmissionObjects(values []domain.SubmissionObjectRef) []domain.SubmissionObjectRef {
+	cloned := make([]domain.SubmissionObjectRef, len(values))
+	copy(cloned, values)
+	for index := range cloned {
+		cloned[index].Content = append(json.RawMessage(nil), values[index].Content...)
+	}
+	return cloned
 }
 
 func (s *Service) ApprovedSnapshots(ctx context.Context, actor Actor, projectID, submissionType string) ([]domain.ApprovedSnapshot, error) {
@@ -349,11 +401,25 @@ func (s *Service) WorkspaceDecisions(ctx context.Context, actor Actor, binding d
 	return domain.DecisionDelta{BundleVersion: "1.0", ProjectID: binding.ProjectID, Decisions: decisions, CreatedAt: s.now().UTC()}, nil
 }
 
+func (s *Service) requireResolvedComments(ctx context.Context, tenantID, subjectID, visibility string) error {
+	comments, err := s.store.ReviewComments(ctx, tenantID, subjectID)
+	if err != nil {
+		return err
+	}
+	for _, comment := range comments {
+		if comment.ResolvedAt == nil && (visibility == "" || comment.Visibility == visibility) {
+			return domain.Policy("REVIEW_COMMENTS_UNRESOLVED", "仍有未解决审核批注，不能批准", "先解决所有适用批注")
+		}
+	}
+	return nil
+}
+
 func isNotFound(err error) bool {
 	var domainError *domain.Error
 	return errors.As(err, &domainError) && domainError.Type == "not_found"
 }
 
 func normalizeSubmissionHash(value string) string {
-	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), "sha256:")
+	normalized := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), "sha256:")
+	return "sha256:" + normalized
 }

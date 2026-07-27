@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.goodvision.cn/schemas/content-batch-3.0.schema.json",
+  "title": "ContentCloud ContentBatch 3.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "intent_id", "brief_ref", "knowledge_snapshot_refs", "status", "publishable", "content_item_refs", "blocked_reasons", "checks"],
+  "properties": {
+    "schema_version": {"const": "contentcloud.content-batch/3.0"},
+    "id": {"type": "string", "minLength": 1},
+    "intent_id": {"type": "string", "minLength": 1},
+    "brief_ref": {"type": "string", "minLength": 1},
+    "knowledge_snapshot_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "status": {"enum": ["candidate", "blocked", "review_ready", "approved", "delivered"]},
+    "publishable": {"type": "boolean"},
+    "content_item_refs": {"type": "array", "items": {"type": "string"}},
+    "blocked_reasons": {"type": "array", "items": {"type": "string"}},
+    "checks": {"type": "array", "items": {"type": "object", "required": ["name", "status"], "properties": {"name": {"type": "string"}, "status": {"enum": ["passed", "failed"]}}}}
+  },
+  "allOf": [
+    {"if": {"properties": {"publishable": {"const": false}}}, "then": {"properties": {"blocked_reasons": {"minItems": 1}}}},
+    {"if": {"properties": {"publishable": {"const": true}}}, "then": {"properties": {"status": {"enum": ["review_ready", "approved", "delivered"]}, "blocked_reasons": {"maxItems": 0}}}}
+  ]
+}

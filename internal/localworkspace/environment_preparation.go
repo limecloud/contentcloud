@@ -102,7 +102,7 @@ func ensureEnvironmentPreparationIdle(root string, now time.Time) error {
 }
 
 func activeRunClaims(root string, now time.Time) ([]ActiveRunClaim, error) {
-	directory := filepath.Join(root, "work", "claims")
+	directory := filepath.Join(root, ".contentcloud", "locks", "runs")
 	entries, err := os.ReadDir(directory)
 	if errors.Is(err, os.ErrNotExist) {
 		return []ActiveRunClaim{}, nil
@@ -112,7 +112,7 @@ func activeRunClaims(root string, now time.Time) ([]ActiveRunClaim, error) {
 	}
 	claims := []ActiveRunClaim{}
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".claim.json") {
 			continue
 		}
 		claim, err := loadRunClaimPath(filepath.Join(directory, entry.Name()))

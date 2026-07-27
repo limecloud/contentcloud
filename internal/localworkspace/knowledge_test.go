@@ -33,12 +33,12 @@ func TestKnowledgeCandidateFlowToApprovedQueryAndPack(t *testing.T) {
 		Scope: domain.KnowledgeScope{Regions: []string{}, Channels: []string{}, Audiences: []string{}, ProductVariants: []string{}}, RiskLevel: "low", AllowedChannels: []string{},
 		Evidence: []domain.EvidenceRef{{SourceRevisionID: "source:product", LocatorKind: bundle.Evidence[0].LocatorKind, Locator: string(locator), Quote: bundle.Evidence[0].Quote}}, ForbiddenExtensions: []string{}, DependsOnFactIDs: []string{},
 	}}, Warnings: []string{}}
-	packagePath := filepath.Join(root, "work", "knowledge-candidates.json")
+	packagePath := filepath.Join(root, "40-work", "knowledge-candidates.json")
 	packageBody, _ := json.Marshal(pkg)
 	if err := os.WriteFile(packagePath, packageBody, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	imported, err := ImportKnowledgeCandidates(ImportKnowledgeOptions{Root: root, PackageFile: "work/knowledge-candidates.json", OriginRunID: "local-run-1"})
+	imported, err := ImportKnowledgeCandidates(ImportKnowledgeOptions{Root: root, PackageFile: "40-work/knowledge-candidates.json", OriginRunID: "local-run-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,11 +65,11 @@ func TestKnowledgeCandidateFlowToApprovedQueryAndPack(t *testing.T) {
 			t.Fatalf("missing pack output %s: %v", relative, err)
 		}
 	}
-	objects, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(pack.PackPath)))
+	objects, err := json.Marshal([]LocalKnowledgeItem{imported.Imported[0]})
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonical, _ := json.Marshal(map[string]any{"schema_version": "knowledge-pack/2.0", "submission_type": "knowledge", "objects": json.RawMessage(objects)})
+	canonical, _ := json.Marshal(map[string]any{"schema_version": KnowledgePackSchemaVersion, "submission_type": "knowledge", "objects": json.RawMessage(objects)})
 	now := time.Date(2026, 7, 26, 11, 0, 0, 0, time.UTC)
 	snapshot := domain.ApprovedSnapshot{ID: "snapshot-1", SubmissionType: "knowledge", CanonicalContent: canonical, EligibleIDs: []string{imported.Imported[0].ID}, CreatedAt: now}
 	if _, err := StoreApprovedSnapshot(root, snapshot, now); err != nil {
@@ -106,11 +106,11 @@ func TestKnowledgeImportRejectsInventedEvidence(t *testing.T) {
 		Evidence: []domain.EvidenceRef{{SourceRevisionID: "source:product", LocatorKind: "paragraph", Locator: `{"paragraph":1}`, Quote: "伪造原文"}}, ForbiddenExtensions: []string{}, DependsOnFactIDs: []string{},
 	}}, Warnings: []string{}}
 	body, _ := json.Marshal(pkg)
-	path := filepath.Join(root, "work", "bad-candidates.json")
+	path := filepath.Join(root, "40-work", "bad-candidates.json")
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ImportKnowledgeCandidates(ImportKnowledgeOptions{Root: root, PackageFile: "work/bad-candidates.json"}); err == nil {
+	if _, err := ImportKnowledgeCandidates(ImportKnowledgeOptions{Root: root, PackageFile: "40-work/bad-candidates.json"}); err == nil {
 		t.Fatal("invented evidence must be rejected")
 	}
 }
@@ -128,11 +128,11 @@ func TestKnowledgeImportRejectsSymlinkOutsideWorkspace(t *testing.T) {
 	if err := os.WriteFile(outside, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	linked := filepath.Join(root, "work", "linked-candidates.json")
+	linked := filepath.Join(root, "40-work", "linked-candidates.json")
 	if err := os.Symlink(outside, linked); err != nil {
 		t.Skipf("当前文件系统不支持符号链接：%v", err)
 	}
-	_, err = ImportKnowledgeCandidates(ImportKnowledgeOptions{Root: root, PackageFile: "work/linked-candidates.json"})
+	_, err = ImportKnowledgeCandidates(ImportKnowledgeOptions{Root: root, PackageFile: "40-work/linked-candidates.json"})
 	var domainError *domain.Error
 	if !errors.As(err, &domainError) || domainError.Code != "LOCAL_FILE_OUTSIDE_WORKSPACE" {
 		t.Fatalf("expected LOCAL_FILE_OUTSIDE_WORKSPACE, got %v", err)
@@ -175,7 +175,7 @@ func TestKnowledgeImportRejectsInvalidCandidatePackageShapes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			body := cloneJSONMap(t, base)
 			tc.edit(body)
-			path := filepath.Join(root, "work", "invalid-"+tc.name+".json")
+			path := filepath.Join(root, "40-work", "invalid-"+tc.name+".json")
 			encoded, err := json.Marshal(body)
 			if err != nil {
 				t.Fatal(err)

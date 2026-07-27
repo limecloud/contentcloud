@@ -1,0 +1,163 @@
+{
+  "fixture_version": "3.0",
+  "environment_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "project": {
+    "brand_name": "金陵古都脱敏演示",
+    "product_name": "城市香氛伴手礼",
+    "channel": "douyin",
+    "stage_objective": "验证来源到十条内容批次的 V3 闭环",
+    "owner_name": "项目负责人",
+    "reviewer_name": "内部审核人",
+    "client_approver": "客户审批人"
+  },
+  "workspace": {
+    "template_id": "workspace_marketing_agent",
+    "template_version": "3.0.0",
+    "targets": ["codex"],
+    "device_name": "V3 Fixture Device"
+  },
+  "scenario": {
+    "generated_at": "2026-07-27T08:00:00Z",
+    "sources": [
+      {"id":"source:customer-pain","title":"访谈摘要：伴手礼选择阻力","file_name":"01-customer-pain.txt","source_kind":"customer_interview","content":"脱敏访谈显示，旅行者担心普通纪念品离开景区后缺少持续使用场景。"},
+      {"id":"source:customer-solution","title":"需求方案研究摘要","file_name":"02-customer-solution.txt","source_kind":"customer_research","content":"脱敏研究建议把城市记忆与日常香氛使用连接，形成可持续的购买理由。"},
+      {"id":"source:benchmark","title":"标杆内容观察","file_name":"03-benchmark.txt","source_kind":"benchmark_research","content":"标杆短视频常以旅行结束时刻开场，并在首屏提供明确的城市识别信号。"},
+      {"id":"source:competitors","title":"竞品观察摘要","file_name":"04-competitors.txt","source_kind":"competitive_research","content":"同类产品多强调城市符号，较少解释产品在日常空间中的具体使用方式。"},
+      {"id":"source:sales-channel","title":"渠道约束摘要","file_name":"05-sales-channel.txt","source_kind":"channel_report","content":"抖音渠道需要竖屏画幅、清晰首屏信号和单一行动指令。"},
+      {"id":"source:theme-subbrand","title":"品牌主题说明","file_name":"06-theme-subbrand.txt","source_kind":"brand_manual","content":"演示品牌主题为把城市文化带回日常，不使用未经授权的官方背书。"},
+      {"id":"source:culture-story","title":"城市文化故事摘要","file_name":"07-culture-story.txt","source_kind":"culture_research","content":"脱敏文化材料以城墙、街巷和季节记忆作为叙事线索，不对应具体历史断言。"},
+      {"id":"source:scent-formula","title":"香型说明摘要","file_name":"08-scent-formula.txt","source_kind":"product_spec","content":"演示香型采用清新木质调的概念描述，具体配方和功效均未在 Fixture 中披露。"},
+      {"id":"source:usage-scenario","title":"使用场景研究","file_name":"09-usage-scenario.txt","source_kind":"scenario_research","content":"推荐场景包括旅行归来整理照片、居家阅读和赠礼后的日常使用。"},
+      {"id":"source:solution-value","title":"价值主张草案","file_name":"10-solution-value.txt","source_kind":"positioning_draft","content":"候选价值主张是让一次旅行记忆进入日常空间，该表达仍需客户审核。"},
+      {"id":"source:category","title":"品类定义摘要","file_name":"11-category.txt","source_kind":"product_spec","content":"演示产品归入非功效型家居香氛伴手礼，不表达医疗或健康用途。"},
+      {"id":"source:form","title":"产品形态摘要","file_name":"12-form.txt","source_kind":"product_spec","content":"演示产品形态为便携礼盒，外观细节必须以授权实拍为准。"},
+      {"id":"source:materials-factories","title":"材料与生产说明","file_name":"13-materials-factories.txt","source_kind":"supply_note","content":"材料与生产信息仅记录为待核验项目，Fixture 不包含真实供应商名称。"},
+      {"id":"source:packaging-assembly","title":"包装与组装风险说明","file_name":"14-packaging-assembly.txt","source_kind":"production_note","content":"包装组装画面在取得授权实拍前不得由生成内容冒充产品事实。"},
+      {"id":"source:spec-cost-price","title":"规格价格说明","file_name":"15-spec-cost-price.txt","source_kind":"commercial_note","content":"Fixture 中的规格和价格均为演示占位，正式发布前必须由客户确认有效版本。"},
+      {"id":"source:product-photo","title":"产品实拍登记说明","file_name":"16-product-photo.txt","source_kind":"asset_metadata","content":"产品实拍当前只登记元数据，原始图片和授权证明尚未进入演示数据包。"},
+      {"id":"source:city-photo","title":"城市照片登记说明","file_name":"17-city-photo.txt","source_kind":"asset_metadata","content":"城市照片可作为氛围参考，但许可期限需要在每次交付前重新核验。"},
+      {"id":"source:rights-proof","title":"权利证明核验摘要","file_name":"18-rights-proof.txt","source_kind":"rights_proof","content":"权利证明采用脱敏元数据，仅用于验证 valid、expired 等治理状态。"},
+      {"id":"source:price-conflict","title":"价格冲突记录","file_name":"19-price-conflict.txt","source_kind":"conflict_record","content":"两个历史演示版本给出不同价格，因此价格事实保持 open 冲突状态。"},
+      {"id":"source:scent-decision","title":"香型冲突决定摘要","file_name":"20-scent-decision.txt","source_kind":"decision_record","content":"审核决定仅保留清新木质调这一概念描述，旧的冲突表达标记为 resolved。"}
+    ],
+    "methodology": {
+      "version_id": "methodology:jinling-demo:v3",
+      "dimensions": [
+        {"key":"customer-pain","label":"客户痛点","source_id":"source:customer-pain","kind":"fact","status":"candidate","title":"伴手礼缺少日常使用场景","statement":"旅行者担心普通纪念品离开景区后缺少持续使用场景。","layer":"market"},
+        {"key":"customer-solution","label":"客户方案","source_id":"source:customer-solution","kind":"fact","status":"needs_review","title":"城市记忆进入日常空间","statement":"研究建议把城市记忆与日常香氛使用连接。","layer":"market"},
+        {"key":"benchmark","label":"标杆内容","source_id":"source:benchmark","kind":"fact","status":"candidate","title":"旅行收尾型首屏","statement":"标杆内容常以旅行结束时刻和城市信号构成首屏。","layer":"content_engine"},
+        {"key":"competitors","label":"竞品","source_id":"source:competitors","kind":"fact","status":"candidate","title":"同类内容的场景缺口","statement":"同类内容较少解释产品在日常空间中的具体使用方式。","layer":"market"},
+        {"key":"sales-channel","label":"销售渠道","source_id":"source:sales-channel","kind":"fact","status":"candidate","title":"抖音内容约束","statement":"抖音内容采用竖屏、明确首屏信号和单一行动指令。","layer":"operations"},
+        {"key":"theme-subbrand","label":"主题与子品牌","source_id":"source:theme-subbrand","kind":"fact","status":"candidate","title":"把城市文化带回日常","statement":"演示品牌主题是把城市文化带回日常。","layer":"identity"},
+        {"key":"culture-story","label":"文化故事","source_id":"source:culture-story","kind":"fact","status":"candidate","title":"城市记忆叙事线索","statement":"内容以城墙、街巷和季节记忆作为非断言式叙事线索。","layer":"identity"},
+        {"key":"scent-formula","label":"香型与配方","source_id":"source:scent-formula","kind":"fact","status":"candidate","title":"清新木质调概念","statement":"演示香型使用清新木质调的概念描述。","layer":"product"},
+        {"key":"usage-scenario","label":"使用场景","source_id":"source:usage-scenario","kind":"fact","status":"candidate","title":"旅行归来整理照片","statement":"旅行归来整理照片是一个可观察的日常使用场景。","layer":"expression"},
+        {"key":"solution-value","label":"方案价值","source_id":"source:solution-value","kind":"claim","status":"candidate","title":"旅行记忆进入日常","statement":"候选表达为让一次旅行记忆进入日常空间。","layer":"expression"},
+        {"key":"category","label":"品类","source_id":"source:category","kind":"fact","status":"candidate","title":"家居香氛伴手礼","statement":"演示产品归入非功效型家居香氛伴手礼。","layer":"product"},
+        {"key":"form","label":"产品形态","source_id":"source:form","kind":"fact","status":"candidate","title":"便携礼盒形态","statement":"演示产品形态为便携礼盒，细节以授权实拍为准。","layer":"product"},
+        {"key":"materials-factories","label":"材料与工厂","source_id":"source:materials-factories","kind":"fact","status":"candidate","title":"供应信息待核验","statement":"材料和生产信息在本场景中保持待核验。","layer":"operations"},
+        {"key":"packaging-assembly","label":"包装与组装","source_id":"source:packaging-assembly","kind":"claim","status":"needs_review","title":"包装画面真实性约束","statement":"未取得授权实拍前不得生成包装细节并冒充产品事实。","layer":"compliance"},
+        {"key":"spec-cost-price","label":"规格成本价格","source_id":"source:spec-cost-price","kind":"fact","status":"candidate","title":"价格需要版本确认","statement":"正式发布前必须由客户确认当前有效的规格和价格版本。","layer":"compliance"}
+      ],
+      "stages": [
+        {"id":"stage:research","title":"资料研究","status":"completed"},
+        {"id":"stage:knowledge","title":"知识整理","status":"completed"},
+        {"id":"stage:content","title":"内容生产","status":"blocked"},
+        {"id":"stage:delivery","title":"交付学习","status":"pending"}
+      ]
+    },
+    "knowledge_pack": {
+      "id": "knowledge-pack:jinling-demo:v3",
+      "name": "金陵古都脱敏七层知识包",
+      "approved_snapshot_id": "snapshot-knowledge-jinling-demo-v3",
+      "layers": ["identity","product","market","expression","operations","content_engine","compliance"]
+    },
+    "governance": [
+      {"id":"asset:product-packshot","kind":"asset","status":"candidate","title":"产品实拍","statement":"产品实拍仅完成元数据登记。"},
+      {"id":"asset:city-photo","kind":"asset","status":"available","title":"城市氛围照片","statement":"城市氛围照片可用于内部方向评审。"},
+      {"id":"rights:product-packshot","kind":"rights","status":"candidate","title":"产品实拍权利记录","statement":"授权证明仍待客户补充。"},
+      {"id":"rights:city-photo","kind":"rights","status":"expired","title":"城市照片权利记录","statement":"现有许可已过期，不能进入交付。"},
+      {"id":"conflict:price","kind":"conflict","status":"open","title":"价格版本冲突","statement":"历史演示价格不一致，等待客户决定。"},
+      {"id":"conflict:scent","kind":"conflict","status":"resolved","title":"香型表达冲突","statement":"审核已决定保留清新木质调概念描述。"}
+    ],
+    "completed_run": {
+      "id": "run:jinling-demo:content-v3",
+      "intent": "intent:jinling-demo-content"
+    },
+    "content_batch": {
+      "id": "content-batch:jinling-demo:v3",
+      "brief": {
+        "id": "brief:jinling-demo:v3",
+        "approved_snapshot_id": "snapshot-brief-jinling-demo-v3",
+        "objective": "建立城市香氛伴手礼认知",
+        "audience": "旅行结束后挑选伴手礼的人群",
+        "scenario": "旅行归来整理照片",
+        "demand_moment": "希望把旅行记忆带回日常",
+        "pain_point": "普通纪念品缺少持续使用场景",
+        "primary_selling_point": "城市记忆与日常香氛场景连接",
+        "positioning": "克制可信的城市文化伴手礼",
+        "tone": "克制、清晰、可核验",
+        "cta": "查看经确认的产品信息"
+      },
+      "direction": {
+        "id": "direction:travel-memory",
+        "title": "把旅行记忆带回日常",
+        "angle": "从旅行结束时刻切入日常使用场景",
+        "hook_type": "旅行收尾场景直入",
+        "visual_motif": "旅行照片、城市线索与室内自然光",
+        "narrative": ["旅行收尾","城市记忆","日常场景","明确行动"],
+        "tone": "克制",
+        "target_emotion": "留恋与期待"
+      },
+      "blocked_reason": {
+        "code": "AUTHORIZED_PRODUCT_ASSET_MISSING",
+        "message": "缺少可用于产品细节和包装展示的授权实拍",
+        "owner_role": "客户资料负责人",
+        "next_action": "补充当前有效的产品实拍和权利证明"
+      },
+      "items": [
+        {"id":"content-item-version:jinling:01","content_id":"content-item:jinling:01","title":"旅行收尾开场 A","missing_input":"产品正面授权实拍"},
+        {"id":"content-item-version:jinling:02","content_id":"content-item:jinling:02","title":"旅行收尾开场 B","missing_input":"产品侧面授权实拍"},
+        {"id":"content-item-version:jinling:03","content_id":"content-item:jinling:03","title":"整理照片场景 A","missing_input":"包装开启授权实拍"},
+        {"id":"content-item-version:jinling:04","content_id":"content-item:jinling:04","title":"整理照片场景 B","missing_input":"包装内页授权实拍"},
+        {"id":"content-item-version:jinling:05","content_id":"content-item:jinling:05","title":"城市线索开场 A","missing_input":"城市照片有效许可"},
+        {"id":"content-item-version:jinling:06","content_id":"content-item:jinling:06","title":"城市线索开场 B","missing_input":"城市照片有效许可"},
+        {"id":"content-item-version:jinling:07","content_id":"content-item:jinling:07","title":"日常空间开场 A","missing_input":"居家场景产品实拍"},
+        {"id":"content-item-version:jinling:08","content_id":"content-item:jinling:08","title":"日常空间开场 B","missing_input":"居家场景产品实拍"},
+        {"id":"content-item-version:jinling:09","content_id":"content-item:jinling:09","title":"赠礼场景开场 A","missing_input":"赠礼场景产品实拍"},
+        {"id":"content-item-version:jinling:10","content_id":"content-item:jinling:10","title":"赠礼场景开场 B","missing_input":"赠礼场景产品实拍"}
+      ]
+    }
+  },
+  "submissions": [
+    {
+      "submission_type": "context",
+      "outcome": "approved",
+      "base_snapshot_types": [],
+      "message": "批准脱敏项目上下文",
+      "objects": [
+        {"id":"context:jinling-demo:v3","type":"project_context","version":1,"path":"10-context/project.yaml","content":{"status":"approved","methodology_version_id":"methodology:jinling-demo:v3","source_count":20}}
+      ]
+    },
+    {
+      "submission_type": "knowledge",
+      "outcome": "submitted",
+      "base_snapshot_types": ["context"],
+      "message": "提交十五维七层知识包供审核",
+      "objects": [
+        {"id":"knowledge-pack:jinling-demo:v3","type":"knowledge_pack","version":1,"path":"30-knowledge/packs/knowledge-pack-jinling-demo-v3.yaml","content":{"status":"candidate","dimension_count":15,"source_count":20,"layers":["identity","product","market","expression","operations","content_engine","compliance"]}}
+      ]
+    },
+    {
+      "submission_type": "content_batch",
+      "outcome": "changes_requested",
+      "base_snapshot_types": ["context"],
+      "message": "十条内容已形成结构，但授权素材不足",
+      "change_reason": "补充当前有效的产品实拍和权利证明后再提交",
+      "change_pointer": "/objects/0/content/blocked_reasons",
+      "objects": [
+        {"id":"content-batch:jinling-demo:v3","type":"content_batch","version":1,"path":"50-production/batches/content-batch-jinling-demo-v3/manifest.yaml","content":{"status":"blocked","publishable":false,"requested_count":10,"received_count":10,"blocked_reasons":["缺少授权产品实拍和有效权利证明"]}}
+      ]
+    }
+  ]
+}

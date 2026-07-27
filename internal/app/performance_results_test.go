@@ -3,7 +3,6 @@ package app_test
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -13,8 +12,8 @@ import (
 )
 
 func TestPerformanceImportIsAtomicAndRejectsMixedCurrency(t *testing.T) {
-	ctx, service, store, actor, project, script := performanceFixture(t)
-	input := validPerformanceImport(project.ID, script.ID)
+	ctx, service, store, actor, project, snapshot := performanceFixture(t)
+	input := validPerformanceImport(project.ID, snapshot.ID)
 	second := input.Observations[0]
 	second.RowNumber = 3
 	second.AccountAlias = "second-account"
@@ -41,8 +40,8 @@ func TestPerformanceImportIsAtomicAndRejectsMixedCurrency(t *testing.T) {
 }
 
 func TestPerformanceImportComputesROIAndRejectsDuplicate(t *testing.T) {
-	ctx, service, store, actor, project, script := performanceFixture(t)
-	input := validPerformanceImport(project.ID, script.ID)
+	ctx, service, store, actor, project, snapshot := performanceFixture(t)
+	input := validPerformanceImport(project.ID, snapshot.ID)
 
 	result, err := service.ImportPerformanceObservations(ctx, actor, input, "req-import")
 	if err != nil {
@@ -68,15 +67,15 @@ func TestPerformanceImportComputesROIAndRejectsDuplicate(t *testing.T) {
 }
 
 func TestRatingDecisionIsManualAndDoesNotMutateSubject(t *testing.T) {
-	ctx, service, store, actor, project, script := performanceFixture(t)
-	imported, err := service.ImportPerformanceObservations(ctx, actor, validPerformanceImport(project.ID, script.ID), "req-import")
+	ctx, service, store, actor, project, snapshot := performanceFixture(t)
+	imported, err := service.ImportPerformanceObservations(ctx, actor, validPerformanceImport(project.ID, snapshot.ID), "req-import")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result, err := service.CreateRatingDecision(ctx, actor, app.CreateRatingDecisionInput{
 		ProjectID:      project.ID,
-		SubjectType:    "script_version",
-		SubjectID:      script.ID,
+		SubjectType:    "approved_snapshot",
+		SubjectID:      snapshot.ID,
 		ObservationIDs: []string{imported.Observations[0].ID},
 		Rating:         "seed_candidate",
 		Reason:         "完播与成交指标达到本轮人工判断阈值",
@@ -88,9 +87,9 @@ func TestRatingDecisionIsManualAndDoesNotMutateSubject(t *testing.T) {
 	if result.Decision.Rating != "seed_candidate" || result.Decision.CreatedBy != actor.UserID {
 		t.Fatalf("unexpected decision: %#v", result.Decision)
 	}
-	unchanged, err := store.Script(ctx, actor.TenantID, script.ID)
-	if err != nil || unchanged.Status != "approved" {
-		t.Fatalf("rating decision mutated the script: %#v, %v", unchanged, err)
+	unchanged, err := store.ApprovedSnapshot(ctx, actor.TenantID, snapshot.ID)
+	if err != nil || unchanged.ContentHash != snapshot.ContentHash {
+		t.Fatalf("rating decision mutated the approved snapshot: %#v, %v", unchanged, err)
 	}
 	decisions, _ := store.RatingDecisions(ctx, actor.TenantID, project.ID)
 	if len(decisions) != 1 || decisions[0].ID != result.Decision.ID {
@@ -99,8 +98,8 @@ func TestRatingDecisionIsManualAndDoesNotMutateSubject(t *testing.T) {
 }
 
 func TestPerformanceImportDryRunDoesNotPersist(t *testing.T) {
-	ctx, service, store, actor, project, script := performanceFixture(t)
-	input := validPerformanceImport(project.ID, script.ID)
+	ctx, service, store, actor, project, snapshot := performanceFixture(t)
+	input := validPerformanceImport(project.ID, snapshot.ID)
 	input.DryRun = true
 	result, err := service.ImportPerformanceObservations(ctx, actor, input, "req-dry-run")
 	if err != nil {
@@ -115,44 +114,51 @@ func TestPerformanceImportDryRunDoesNotPersist(t *testing.T) {
 	}
 }
 
-func performanceFixture(t *testing.T) (context.Context, *app.Service, *memory.Store, app.Actor, domain.Project, domain.ScriptVersion) {
+func performanceFixture(t *testing.T) (context.Context, *app.Service, *memory.Store, app.Actor, domain.Project, domain.ApprovedSnapshot) {
 	t.Helper()
-	ctx := context.Background()
-	store := memory.New()
-	now := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)
-	project := domain.Project{ID: domain.NewID(), TenantID: domain.NewID(), BrandName: "Brand", ProductName: "Product", Status: "active", RowVersion: 1, CreatedAt: now, UpdatedAt: now}
-	if err := store.CreateProject(ctx, project); err != nil {
+	ctx, service, store, actor, binding := v3ContentFixture(t)
+	revision := publishV3ContentItem(t, ctx, service, binding, "content-item-performance", "publish-performance")
+	if _, err := service.ApproveSubmission(ctx, actor, revision.ID, "internal review passed", "internal-approve"); err != nil {
 		t.Fatal(err)
 	}
-	logical := domain.Script{ID: domain.NewID(), TenantID: project.TenantID, ProjectID: project.ID, Title: "Script", CreatedAt: now}
-	script, err := store.CreateScript(ctx, logical, domain.ScriptVersion{ID: domain.NewID(), TenantID: project.TenantID, ProjectID: project.ID, Status: "approved", CreatedAt: now})
+	grant, err := service.CreateReviewGrant(ctx, actor, revision.ID, "client@example.com", "create-client-review")
 	if err != nil {
 		t.Fatal(err)
 	}
-	actor := app.Actor{UserID: domain.NewID(), TenantID: project.TenantID, Role: "strategist", Type: "user"}
-	return ctx, app.New(store, slog.Default()), store, actor, project, script
+	if _, err := service.VerifyReviewGrant(ctx, grant.PlaintextToken, grant.PlaintextOTP); err != nil {
+		t.Fatal(err)
+	}
+	decision, err := service.DecideReviewGrant(ctx, grant.PlaintextToken, "approve", "client approved", "", "client-approve")
+	if err != nil || decision.ApprovedSnapshot == nil {
+		t.Fatalf("approved snapshot was not created: %#v, %v", decision, err)
+	}
+	project, err := service.Project(ctx, actor, binding.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ctx, service, store, actor, project, *decision.ApprovedSnapshot
 }
 
-func validPerformanceImport(projectID, scriptID string) app.ImportPerformanceInput {
+func validPerformanceImport(projectID, approvedSnapshotID string) app.ImportPerformanceInput {
 	return app.ImportPerformanceInput{
 		ProjectID:    projectID,
 		SourceName:   "results.csv",
 		SourceFormat: "csv",
 		Observations: []app.CreateObservationInput{{
-			RowNumber:       2,
-			ProjectID:       projectID,
-			ScriptVersionID: scriptID,
-			Platform:        "douyin",
-			AccountAlias:    "brand-main",
-			PublishedAt:     time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC),
-			WindowHours:     24,
-			SampleStatus:    "seed_candidate",
-			Metrics:         map[string]float64{"impressions": 12000, "completion_rate": 0.42},
-			Currency:        "CNY",
-			Spend:           100,
-			GMV:             300,
-			IssueCategory:   "creative",
-			Notes:           "人工复盘",
+			RowNumber:          2,
+			ProjectID:          projectID,
+			ApprovedSnapshotID: approvedSnapshotID,
+			Platform:           "douyin",
+			AccountAlias:       "brand-main",
+			PublishedAt:        time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC),
+			WindowHours:        24,
+			SampleStatus:       "seed_candidate",
+			Metrics:            map[string]float64{"impressions": 12000, "completion_rate": 0.42},
+			Currency:           "CNY",
+			Spend:              100,
+			GMV:                300,
+			IssueCategory:      "creative",
+			Notes:              "人工复盘",
 		}},
 	}
 }

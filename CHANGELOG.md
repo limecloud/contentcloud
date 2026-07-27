@@ -2,6 +2,31 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.7.0] - 2026-07-27
+
+### Added
+
+- 增加 V3 Workspace、Source Registry、Markdown Knowledge Page/Pack、Brief、ContentBatch/ContentItem、LocalRun 和 Handoff 契约，并提供可重复生成完整项目状态的脱敏 Fixture。
+- 增加统一的 SubmissionRevision、Decision、ApprovedSnapshot 和 ProjectProjection 主链，覆盖七类 Submission、两阶段审批、交付、结果回流及 12 个 Web 项目视图。
+- 增加 Page Contract、项目与 Revision 深链、`/codex` 双模接入、Web 到 Codex 恢复入口及只读 Browser 导航安全评测。
+- 增加 PostgreSQL V3 空库基线、RLS/不可变约束集成测试和旧事实源回流治理守卫。
+
+### Changed
+
+- 本地创作事实源统一为 V3 数字目录和 `.contentcloud` 状态；云端正式事实统一为 Revision、Decision、Snapshot 与投影。
+- Plugin Skills、MCP、CLI、Web、Environment Profile 和 npm 安装器统一升级到 `0.7.0`，内容生产从 ScriptPackage 收敛为 ContentBatch/ContentItem。
+- Delivery、Artifact、Result 和 Learning 只绑定 ApprovedSnapshot；导出选择统一使用 `content_item_id`。
+- Web 项目工作台改为消费服务端 ProjectProjection，并使用共享 Page Contract 校验 view、focus、digest 和登录返回路径。
+
+### Fixed
+
+- 将 Submission 内审批准、退回修改和客户审批前置状态切换收紧为基于当前 Revision 与预期旧状态的原子更新，避免并发决定生成互相矛盾的 ApprovedSnapshot 与 Submission 状态。
+
+### Removed
+
+- 移除 V1/V2 Strategy、Brief、ScriptVersion、ReviewCycle、Artifact Presentation/local-open 等平行运行时与兼容入口。
+- 移除累计旧迁移并改为唯一 `00001_v3_baseline.sql`。这是破坏性数据库边界：`0.7.0` 只支持新建 V3 数据库，不提供现有 V1/V2/`0.6.0` 数据库的在线升级或回填。
+
 ## [0.6.0] - 2026-07-27
 
 ### Added

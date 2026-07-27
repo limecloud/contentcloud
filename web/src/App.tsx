@@ -4,6 +4,7 @@ import { api, post } from './api';
 import type { Dashboard, Session, Tenant } from './types';
 import { Banner, Button, Loading } from './components/ui';
 import { WorkspaceContext, type WorkspaceContextValue } from './workspace/context';
+import { loginPath } from './views/auth/returnPath';
 
 export function App() {
   const location=useLocation();
@@ -31,7 +32,7 @@ export function App() {
 
   if(loading)return <div className="splash"><div className="brand-mark">CC</div><Loading/></div>;
   if(error&&!session)return <div className="fatal"><Banner kind="error">{error}</Banner><Button onClick={load}>重试</Button></div>;
-  if(authRequired||!session)return <Navigate to={`/login?next=${encodeURIComponent(location.pathname+location.search)}`} replace/>;
+  if(authRequired||!session)return <Navigate to={loginPath(location.pathname+location.search)} replace/>;
   if(!value)return <div className="fatal"><Banner kind="error">{error||'工作台暂不可用'}</Banner><Button onClick={load}>重试</Button></div>;
   return <WorkspaceContext.Provider value={value}><Outlet/></WorkspaceContext.Provider>;
 }

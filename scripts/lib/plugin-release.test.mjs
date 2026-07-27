@@ -23,7 +23,7 @@ const entry = {
   permissions: ['workspace:read'],
   data_flow: { local_by_default: true, cloud_actions: [] },
   cost: { model: 'included', notice: 'Included with the ContentCloud subscription.' },
-  output_schemas: ['contracts/script-package-2.0.schema.json'],
+  output_schemas: ['contracts/content-item-3.0.schema.json'],
   evaluation: {
     status: 'passed',
     report: '.agents/plugins/evaluations/contentcloud-video-production-0.4.0.json',

@@ -7,11 +7,18 @@ import (
 
 func TestEmbeddedSchemasAreValidJSON(t *testing.T) {
 	for name, body := range map[string][]byte{
+		"workspace-3.0":                     WorkspaceV3Schema,
+		"source-registry-3.0":               SourceRegistryV3Schema,
+		"knowledge-page-3.0":                KnowledgePageV3Schema,
+		"knowledge-pack-3.0":                KnowledgePackV3Schema,
+		"local-run-3.0":                     LocalRunV3Schema,
+		"handoff-1.0":                       HandoffV1Schema,
+		"content-batch-3.0":                 ContentBatchV3Schema,
+		"content-item-3.0":                  ContentItemV3Schema,
+		"brief-3.0":                         BriefV3Schema,
+		"creative-directions-3.0":           CreativeDirectionsV3Schema,
+		"submission-bundle-3.0":             SubmissionBundleV3Schema,
 		"knowledge-candidates-1.0":          KnowledgeCandidatesSchema,
-		"brief-2.0":                         BriefV2Schema,
-		"creative-directions-2.0":           CreativeDirectionsV2Schema,
-		"script-package-1.1":                ScriptPackageSchema,
-		"script-package-2.0":                ScriptPackageV2Schema,
 		"task-contract-1.0":                 TaskContractSchema,
 		"creative-environment-manifest-1.0": CreativeEnvironmentManifestSchema,
 		"creative-environment-profile-1.0":  CreativeEnvironmentProfileSchema,
@@ -24,6 +31,25 @@ func TestEmbeddedSchemasAreValidJSON(t *testing.T) {
 		var schema map[string]any
 		if len(body) == 0 || json.Unmarshal(body, &schema) != nil || schema["$id"] == "" {
 			t.Fatalf("embedded schema %s is missing or invalid", name)
+		}
+	}
+}
+
+func TestEmbeddedProjectPageContractIsValidJSON(t *testing.T) {
+	var contract struct {
+		SchemaVersion string                     `json:"schema_version"`
+		Order         []string                   `json:"order"`
+		Views         map[string]json.RawMessage `json:"views"`
+	}
+	if err := json.Unmarshal(ProjectPagesV1Contract, &contract); err != nil {
+		t.Fatal(err)
+	}
+	if contract.SchemaVersion != "contentcloud.project-pages/1.0" || len(contract.Order) == 0 || len(contract.Order) != len(contract.Views) {
+		t.Fatalf("embedded project page contract is incomplete: %#v", contract)
+	}
+	for _, view := range contract.Order {
+		if len(contract.Views[view]) == 0 {
+			t.Fatalf("project page %q is missing from views", view)
 		}
 	}
 }

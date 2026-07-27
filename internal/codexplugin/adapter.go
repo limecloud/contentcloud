@@ -300,7 +300,7 @@ func (a *Adapter) LaunchNewChat(ctx context.Context, workspace string) LaunchRes
 }
 
 func RecoveryPrompt(spec Spec) string {
-	return fmt.Sprintf("[@ContentCloud Video Production](plugin://%s) Call contentcloud_workspace_conversation_context for this workspace, then show the available next tasks and ready handoffs.", spec.PluginID)
+	return fmt.Sprintf("[@ContentCloud Video Production](plugin://%s) Call workspace_context for this workspace, then show the available next tasks and ready handoffs.", spec.PluginID)
 }
 
 func NewChatDeepLink(spec Spec, workspace, prompt string) (string, error) {

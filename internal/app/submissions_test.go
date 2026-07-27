@@ -2,7 +2,6 @@ package app_test
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
@@ -51,8 +50,8 @@ func TestWorkspaceSubmissionApprovalCreatesImmutableSnapshotWithoutTaskRun(t *te
 		t.Fatalf("workspace registration must not invalidate the optional Device Credential: %v", err)
 	}
 	bundle := domain.SubmissionBundle{
-		BundleVersion: "1.0", SchemaVersion: "contentcloud.knowledge/2.0", SubmissionType: "knowledge", ProjectID: project.ID, WorkspaceID: connected.WorkspaceID,
-		Objects: json.RawMessage(`[{"id":"fact-1","kind":"fact","status":"verified","risk_level":"low"}]`), SourceDisclosures: []domain.SourceDisclosure{}, Artifacts: []domain.SubmissionArtifact{}, LocalRunSummary: domain.LocalRunSummary{Checks: []domain.LocalRunCheck{{Name: "knowledge-lint", Status: "passed"}}}, IdempotencyKey: "knowledge-v1",
+		BundleVersion: "3.0", SubmissionType: "knowledge", ProjectID: project.ID, WorkspaceID: connected.WorkspaceID, BaseSnapshotIDs: []string{}, EnvironmentDigest: submissionEnvironmentDigest,
+		Objects: []domain.SubmissionObjectRef{mustSubmissionObject(t, "fact-1", "Fact", "30-knowledge/pages/facts/fact-1.json", map[string]any{"id": "fact-1", "kind": "fact", "status": "verified", "risk_level": "low"})}, SourceDisclosures: []domain.SourceDisclosure{}, Artifacts: []domain.SubmissionArtifact{}, LocalRunSummary: domain.LocalRunSummary{Checks: []domain.LocalRunCheck{{Name: "knowledge-lint", Status: "passed"}}}, IdempotencyKey: "knowledge-v1",
 	}
 	if err := bundle.SetComputedHash(); err != nil {
 		t.Fatal(err)
@@ -79,7 +78,7 @@ func TestWorkspaceSubmissionApprovalCreatesImmutableSnapshotWithoutTaskRun(t *te
 	if snapshot.SubmissionRevisionID != revision.ID || snapshot.ContentHash != revision.ContentHash || len(snapshot.EligibleIDs) != 1 || snapshot.EligibleIDs[0] != "fact-1" {
 		t.Fatalf("unexpected approved snapshot: %#v", snapshot)
 	}
-	bundle.Objects = json.RawMessage(`[{"id":"fact-2","kind":"fact","status":"verified","risk_level":"low"}]`)
+	bundle.Objects = []domain.SubmissionObjectRef{mustSubmissionObject(t, "fact-2", "Fact", "30-knowledge/pages/facts/fact-2.json", map[string]any{"id": "fact-2", "kind": "fact", "status": "verified", "risk_level": "low"})}
 	bundle.IdempotencyKey = "knowledge-v2"
 	if err := bundle.SetComputedHash(); err != nil {
 		t.Fatal(err)
@@ -115,7 +114,7 @@ func TestEvidenceLimitedSubmissionCannotBeRemotelyApproved(t *testing.T) {
 	connect, _ := service.CreateConnectSession(ctx, admin, project.ID, "")
 	connected, _ := testsupport.ConnectBootstrap(ctx, service, admin, connect, app.ConnectDeviceInput{Hostname: "local"})
 	workspaceActor, binding, _ := service.WorkspaceActor(ctx, connected.WorkspaceToken)
-	bundle := domain.SubmissionBundle{BundleVersion: "1.0", SchemaVersion: "contentcloud.knowledge/2.0", SubmissionType: "knowledge", ProjectID: project.ID, WorkspaceID: binding.ID, Objects: json.RawMessage(`[{"id":"claim-1","kind":"claim","status":"approved","risk_level":"high"}]`), SourceDisclosures: []domain.SourceDisclosure{{SourceRef: "source-1", Level: "metadata_only", SHA256: strings.Repeat("a", 64)}}, Artifacts: []domain.SubmissionArtifact{}, LocalRunSummary: domain.LocalRunSummary{Checks: []domain.LocalRunCheck{}}, IdempotencyKey: "risk-v1"}
+	bundle := domain.SubmissionBundle{BundleVersion: "3.0", SubmissionType: "knowledge", ProjectID: project.ID, WorkspaceID: binding.ID, BaseSnapshotIDs: []string{}, EnvironmentDigest: submissionEnvironmentDigest, Objects: []domain.SubmissionObjectRef{mustSubmissionObject(t, "claim-1", "Claim", "30-knowledge/pages/claims/claim-1.json", map[string]any{"id": "claim-1", "kind": "claim", "status": "approved", "risk_level": "high"})}, SourceDisclosures: []domain.SourceDisclosure{{SourceRef: "source-1", Level: "metadata_only", SHA256: strings.Repeat("a", 64)}}, Artifacts: []domain.SubmissionArtifact{}, LocalRunSummary: domain.LocalRunSummary{Checks: []domain.LocalRunCheck{}}, IdempotencyKey: "risk-v1"}
 	if err := bundle.SetComputedHash(); err != nil {
 		t.Fatal(err)
 	}
@@ -125,4 +124,15 @@ func TestEvidenceLimitedSubmissionCannotBeRemotelyApproved(t *testing.T) {
 	}
 	_, err = service.ApproveSubmission(ctx, admin, revision.ID, "approve", "")
 	assertDomainCode(t, err, "EVIDENCE_LEVEL_INSUFFICIENT")
+}
+
+const submissionEnvironmentDigest = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+
+func mustSubmissionObject(t *testing.T, id, objectType, path string, content any) domain.SubmissionObjectRef {
+	t.Helper()
+	value, err := domain.NewSubmissionObjectRef(id, objectType, 1, path, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
 }

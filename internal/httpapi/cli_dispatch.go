@@ -408,52 +408,6 @@ func (s *Server) handleUserDispatch(w http.ResponseWriter, r *http.Request, req 
 		}
 		v, err := s.service.CreateKnowledgeExtractionRun(r.Context(), actor, in, requestID)
 		s.dispatchResult(w, r, req.Command, v, err)
-	case "brief.list":
-		var in struct {
-			ProjectID string `json:"project_id"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.Briefs(r.Context(), actor, in.ProjectID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "brief.show":
-		var in struct {
-			ID string `json:"id"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.Brief(r.Context(), actor, in.ID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "brief.create":
-		var in app.CreateBriefInput
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.CreateBrief(r.Context(), actor, in, requestID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "brief.review":
-		var in struct {
-			ID       string `json:"id"`
-			Decision string `json:"decision"`
-			Reason   string `json:"reason"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.ReviewBriefWithReason(r.Context(), actor, in.ID, in.Decision, in.Reason, requestID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "run.create":
-		var in struct {
-			BriefID        string `json:"brief_id"`
-			IdempotencyKey string `json:"idempotency_key"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.CreateScriptRun(r.Context(), actor, in.BriefID, in.IdempotencyKey, requestID)
-		s.dispatchResult(w, r, req.Command, v, err)
 	case "run.list":
 		var in struct {
 			ProjectID string `json:"project_id"`
@@ -490,115 +444,26 @@ func (s *Server) handleUserDispatch(w http.ResponseWriter, r *http.Request, req 
 		}
 		v, err := s.service.CancelRun(r.Context(), actor, in.ID, requestID)
 		s.dispatchResult(w, r, req.Command, v, err)
-	case "script.list":
-		var in struct {
-			ProjectID string `json:"project_id"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.Scripts(r.Context(), actor, in.ProjectID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "script.show":
-		var in struct {
-			ID string `json:"id"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.Script(r.Context(), actor, in.ID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "script.change.create":
-		var in struct {
-			BaselineVersionID string `json:"baseline_script_version_id"`
-			app.CreateScriptChangeRunInput
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.CreateScriptChangeRun(r.Context(), actor, in.BaselineVersionID, in.CreateScriptChangeRunInput, requestID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "script.review":
-		var in struct {
-			ID string `json:"id"`
-			app.ReviewScriptInput
-			Reason string `json:"reason"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		if in.Conclusion == "" {
-			in.Conclusion = in.Reason
-		}
-		v, err := s.service.ReviewScriptWithInput(r.Context(), actor, in.ID, in.ReviewScriptInput, requestID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "review_cycle.list":
-		var in struct {
-			ScriptID string `json:"script_id"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.ReviewCycles(r.Context(), actor, in.ScriptID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "artifact.list":
-		var in struct {
-			ScriptID string `json:"script_id"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.ArtifactPresentations(r.Context(), actor, in.ScriptID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "artifact.presentation":
-		var in struct {
-			ID string `json:"id"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.ArtifactPresentation(r.Context(), actor, in.ID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "artifact.open":
-		var in struct {
-			ID       string `json:"id"`
-			DeviceID string `json:"device_id"`
-			DryRun   bool   `json:"dry_run"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.CreateArtifactOpenRequest(r.Context(), actor, in.ID, in.DeviceID, in.DryRun, requestID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "artifact.open.status":
-		var in struct {
-			OpenRequestID string `json:"open_request_id"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.ArtifactOpenRequest(r.Context(), actor, in.OpenRequestID)
-		s.dispatchResult(w, r, req.Command, v, err)
 	case "artifact.export":
 		var in struct {
-			SnapshotID string `json:"snapshot_id"`
-			ScriptID   string `json:"script_id"`
-			Format     string `json:"format"`
+			SnapshotID    string `json:"snapshot_id"`
+			ContentItemID string `json:"content_item_id"`
+			Format        string `json:"format"`
 		}
 		if !decodeParams(w, r, s, req, &in) {
 			return true
 		}
-		v, err := s.service.ExportApprovedSnapshot(r.Context(), actor, in.SnapshotID, in.ScriptID, in.Format, requestID)
+		v, err := s.service.ExportApprovedSnapshot(r.Context(), actor, in.SnapshotID, in.ContentItemID, in.Format, requestID)
 		s.dispatchResult(w, r, req.Command, v, err)
 	case "delivery.create":
 		var in struct {
-			SnapshotID string `json:"snapshot_id"`
-			ScriptID   string `json:"script_id"`
+			SnapshotID    string `json:"snapshot_id"`
+			ContentItemID string `json:"content_item_id"`
 		}
 		if !decodeParams(w, r, s, req, &in) {
 			return true
 		}
-		v, err := s.service.CreateDeliveryPackage(r.Context(), actor, in.SnapshotID, in.ScriptID, requestID)
+		v, err := s.service.CreateDeliveryPackage(r.Context(), actor, in.SnapshotID, in.ContentItemID, requestID)
 		s.dispatchResult(w, r, req.Command, v, err)
 	case "delivery.list":
 		var in struct {

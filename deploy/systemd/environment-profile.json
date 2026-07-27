@@ -8,13 +8,11 @@
     {
       "id": "contentcloud-video-production",
       "kind": "scene_plugin",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "required": true,
       "scope": "environment",
       "capabilities": [
-        "contentcloud.artifact.export",
-        "contentcloud.knowledge.extract",
-        "contentcloud.script.generate"
+        "contentcloud.knowledge.extract"
       ]
     }
   ],
@@ -24,9 +22,7 @@
     "digest": "sha256:05c1eb41fc549a493bdc8fd077273682e23576d41d759b30773a1a0c84333723"
   },
   "capabilities": [
-    "contentcloud.artifact.export",
-    "contentcloud.knowledge.extract",
-    "contentcloud.script.generate"
+    "contentcloud.knowledge.extract"
   ],
   "policies": {
     "publish_requires_confirmation": true,

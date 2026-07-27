@@ -6,7 +6,7 @@ import { AuthLayout } from './AuthLayout';
 import { IconInput, PasswordInput, Submit } from './fields';
 import { hasErrors, validateLogin, type AuthErrors } from './validate';
 
-export function LoginView({onSuccess, onNavigate, notice}: {onSuccess: () => Promise<void>; onNavigate: (path: string) => void; notice?: string}) {
+export function LoginView({onSuccess, onNavigate, notice, registerPath='/register'}: {onSuccess: () => Promise<void>; onNavigate: (path: string) => void; notice?: string; registerPath?:string}) {
   const [form, setForm] = useState({email: '', password: ''});
   const [errors, setErrors] = useState<AuthErrors>({});
   const [failure, setFailure] = useState('');
@@ -38,7 +38,7 @@ export function LoginView({onSuccess, onNavigate, notice}: {onSuccess: () => Pro
   };
 
   return (
-    <AuthLayout footer={<>还没有团队？ <button type="button" className="auth-link" onClick={() => onNavigate('/register')}>创建团队</button></>}>
+    <AuthLayout footer={<>还没有团队？ <button type="button" className="auth-link" onClick={() => onNavigate(registerPath)}>创建团队</button></>}>
       <h2>欢迎回来</h2>
       <p>登录以继续你的工作台</p>
       {notice && <Banner kind="warning">{notice}</Banner>}

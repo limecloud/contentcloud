@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	RunClaimSchemaVersion = "1.0"
-	HandoffSchemaVersion  = "1.0"
+	RunClaimSchemaVersion = "contentcloud.run-claim/1.0"
+	HandoffSchemaVersion  = "contentcloud.handoff/1.0"
 	defaultClaimTTL       = 30 * time.Minute
 	maximumClaimTTL       = 4 * time.Hour
 )
@@ -47,8 +47,9 @@ type ClaimRunOptions struct {
 }
 
 type HandoffInputDigest struct {
+	ID     string `json:"id"`
 	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
+	Digest string `json:"digest"`
 }
 
 type HandoffHistory struct {
@@ -67,8 +68,9 @@ type HandoffRecord struct {
 	ClaimedBy        string               `json:"claimed_by,omitempty"`
 	NextCapabilityID string               `json:"next_capability_id"`
 	NextAction       string               `json:"next_action"`
-	InputDigests     []HandoffInputDigest `json:"input_digests"`
-	OutputPaths      []string             `json:"output_paths"`
+	InputDigests     []HandoffInputDigest `json:"input_refs"`
+	OutputPaths      []string             `json:"output_refs"`
+	CompletedChecks  []string             `json:"completed_checks"`
 	Blockers         []string             `json:"blockers"`
 	PendingDecisions []string             `json:"pending_decisions"`
 	History          []HandoffHistory     `json:"history"`
@@ -233,7 +235,7 @@ func CreateReadyHandoff(options CreateReadyHandoffOptions) (HandoffRecord, error
 	}
 	handoffID := strings.TrimSpace(options.HandoffID)
 	if handoffID == "" {
-		handoffID = "handoff-" + domain.NewID()
+		handoffID = "hnd_" + strings.ReplaceAll(domain.NewID(), "-", "")
 	}
 	if !localSourceIDPattern.MatchString(handoffID) {
 		return HandoffRecord{}, domain.Invalid("HANDOFF_ID_INVALID", "handoff ID 无效")
@@ -258,6 +260,7 @@ func CreateReadyHandoff(options CreateReadyHandoffOptions) (HandoffRecord, error
 		NextAction:       strings.TrimSpace(options.NextAction),
 		InputDigests:     inputs,
 		OutputPaths:      append([]string(nil), run.OutputPaths...),
+		CompletedChecks:  passedRunChecks(run),
 		Blockers:         uniqueStrings(options.Blockers),
 		PendingDecisions: uniqueStrings(options.PendingDecisions),
 		History:          []HandoffHistory{{To: "draft", At: now}, {From: "draft", To: "ready", At: now}},
@@ -376,7 +379,7 @@ func ListReadyHandoffs(root string) ([]HandoffRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	paths, err := filepath.Glob(filepath.Join(resolved, "work", "handoffs", "*.json"))
+	paths, err := filepath.Glob(filepath.Join(resolved, "40-work", "handoffs", "*.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +499,7 @@ func loadHandoffPath(path string) (HandoffRecord, error) {
 	if err := readJSON(path, &record); err != nil {
 		return HandoffRecord{}, err
 	}
-	if record.SchemaVersion != HandoffSchemaVersion || record.HandoffID == "" || record.RunID == "" || record.ContextRevision == 0 || record.InputDigests == nil || record.History == nil || !validHandoffStatus(record.Status) {
+	if record.SchemaVersion != HandoffSchemaVersion || record.HandoffID == "" || record.RunID == "" || record.ContextRevision == 0 || record.InputDigests == nil || record.CompletedChecks == nil || record.History == nil || !validHandoffStatus(record.Status) {
 		return HandoffRecord{}, domain.Invalid("HANDOFF_INVALID", "HandoffRecord 文件无效")
 	}
 	return record, nil
@@ -523,7 +526,7 @@ func handoffInputDigests(root string, paths []string) ([]HandoffInputDigest, err
 			continue
 		}
 		seen[relative] = true
-		inputs = append(inputs, HandoffInputDigest{Path: relative, SHA256: digest(body)})
+		inputs = append(inputs, HandoffInputDigest{ID: "file:" + relative, Path: relative, Digest: "sha256:" + digest(body)})
 	}
 	sort.Slice(inputs, func(i, j int) bool { return inputs[i].Path < inputs[j].Path })
 	return inputs, nil
@@ -535,9 +538,10 @@ func verifyHandoffDigests(root string, inputs []HandoffInputDigest) error {
 		if err != nil {
 			return err
 		}
-		if relative != input.Path || digest(body) != input.SHA256 {
+		actual := "sha256:" + digest(body)
+		if input.ID == "" || relative != input.Path || actual != input.Digest {
 			conflict := domain.Conflict("HANDOFF_INPUT_DIGEST_MISMATCH", "Handoff 输入在交接后已变化")
-			conflict.Details = map[string]any{"path": input.Path, "expected_sha256": input.SHA256, "actual_sha256": digest(body)}
+			conflict.Details = map[string]any{"path": input.Path, "expected_digest": input.Digest, "actual_digest": actual}
 			return conflict
 		}
 	}
@@ -594,9 +598,19 @@ func writeExclusiveJSON(path string, value any) error {
 }
 
 func runClaimPath(root, runID string) string {
-	return filepath.Join(root, "work", "claims", runID+".json")
+	return filepath.Join(root, ".contentcloud", "locks", "runs", runID+".claim.json")
 }
 
 func handoffPath(root, handoffID string) string {
-	return filepath.Join(root, "work", "handoffs", handoffID+".json")
+	return filepath.Join(root, "40-work", "handoffs", handoffID+".json")
+}
+
+func passedRunChecks(run LocalRunContext) []string {
+	checks := []string{}
+	for _, check := range run.Checks {
+		if check.Status == "passed" {
+			checks = append(checks, check.Name)
+		}
+	}
+	return uniqueStrings(checks)
 }

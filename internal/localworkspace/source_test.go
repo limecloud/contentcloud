@@ -21,7 +21,7 @@ func TestRegisterIngestAndVerifyLocalSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if source.ID != "source:product" || source.StorageMode != "copy" || filepath.IsAbs(source.FilePath) {
+	if source.ID != "source:product" || source.Location.Kind != "workspace_file" || filepath.IsAbs(source.Location.Path) {
 		t.Fatalf("unexpected source: %+v", source)
 	}
 	second, err := RegisterLocalSource(RegisterLocalSourceOptions{Root: root, File: material, ID: "source:product", StorageMode: "copy", Now: now})

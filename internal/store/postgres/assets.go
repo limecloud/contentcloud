@@ -90,7 +90,7 @@ func scanRightsRecord(row pgx.Row) (domain.RightsRecord, error) {
 
 func (s *Store) CreateRightsRecord(ctx context.Context, value domain.RightsRecord) error {
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO rights_records(id,tenant_id,project_id,asset_id,rights_holder,rights_type,territories,channels,valid_from,valid_until,proof_source_revision_id,restrictions,status,reviewed_by,reviewed_at,row_version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, value.ID, value.TenantID, value.ProjectID, value.AssetID, value.RightsHolder, value.RightsType, jsonValue(value.Territories), jsonValue(value.Channels), value.ValidFrom, value.ValidUntil, value.ProofSourceRevisionID, jsonValue(value.Restrictions), value.Status, nullable(value.ReviewedBy), value.ReviewedAt, value.RowVersion, value.CreatedAt, value.UpdatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO rights_records(id,tenant_id,project_id,asset_id,rights_holder,rights_type,territories,channels,valid_from,valid_until,proof_source_revision_id,restrictions,status,reviewed_by,reviewed_at,row_version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, value.ID, value.TenantID, value.ProjectID, value.AssetID, value.RightsHolder, value.RightsType, jsonArrayValue(value.Territories), jsonArrayValue(value.Channels), value.ValidFrom, value.ValidUntil, value.ProofSourceRevisionID, jsonArrayValue(value.Restrictions), value.Status, nullable(value.ReviewedBy), value.ReviewedAt, value.RowVersion, value.CreatedAt, value.UpdatedAt)
 		return dbError(err)
 	})
 }
@@ -137,7 +137,7 @@ func (s *Store) RightsRecord(ctx context.Context, tenantID, id string) (domain.R
 
 func (s *Store) SaveRightsRecord(ctx context.Context, value domain.RightsRecord) error {
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE rights_records SET rights_holder=$3,rights_type=$4,territories=$5,channels=$6,valid_from=$7,valid_until=$8,proof_source_revision_id=$9,restrictions=$10,status=$11,reviewed_by=$12,reviewed_at=$13,row_version=$14,updated_at=$15 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.RightsHolder, value.RightsType, jsonValue(value.Territories), jsonValue(value.Channels), value.ValidFrom, value.ValidUntil, value.ProofSourceRevisionID, jsonValue(value.Restrictions), value.Status, nullable(value.ReviewedBy), value.ReviewedAt, value.RowVersion, value.UpdatedAt)
+		result, err := tx.Exec(ctx, `UPDATE rights_records SET rights_holder=$3,rights_type=$4,territories=$5,channels=$6,valid_from=$7,valid_until=$8,proof_source_revision_id=$9,restrictions=$10,status=$11,reviewed_by=$12,reviewed_at=$13,row_version=$14,updated_at=$15 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.RightsHolder, value.RightsType, jsonArrayValue(value.Territories), jsonArrayValue(value.Channels), value.ValidFrom, value.ValidUntil, value.ProofSourceRevisionID, jsonArrayValue(value.Restrictions), value.Status, nullable(value.ReviewedBy), value.ReviewedAt, value.RowVersion, value.UpdatedAt)
 		if err != nil {
 			return dbError(err)
 		}

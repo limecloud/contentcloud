@@ -1,7 +1,7 @@
 {
   "name": "contentcloud-video-production",
-  "version": "0.6.0",
-  "description": "Governed local knowledge and marketing-video production for ContentCloud workspaces.",
+  "version": "0.7.0",
+  "description": "Governed V3 workspace, knowledge, content, handoff, and review workflows for ContentCloud.",
   "author": {
     "name": "GoodVision",
     "url": "https://github.com/limecloud/contentcloud"
@@ -18,20 +18,21 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "ContentCloud Video Production",
-    "shortDescription": "Build governed knowledge and AI-video scripts locally.",
-    "longDescription": "Turn local source material into cited knowledge, briefs, and review-ready marketing-video scripts while ContentCloud keeps versions, approvals, and handoffs auditable.",
+    "shortDescription": "Run governed content workflows across Codex conversations.",
+    "longDescription": "Turn local source material into cited Markdown knowledge, governed ContentBatches, review checkpoints, deliveries, and results while ContentCloud keeps versions, approvals, and cross-conversation handoffs auditable.",
     "developerName": "GoodVision",
     "category": "Productivity",
     "capabilities": [
-      "Local workspace",
-      "Knowledge extraction",
-      "Marketing-video scripts",
-      "Review handoff"
+      "V3 workspace routing",
+      "Markdown knowledge",
+      "Governed content batches",
+      "Cross-conversation handoff",
+      "Review and delivery"
     ],
     "defaultPrompt": [
-      "Inspect this ContentCloud workspace and show the next available creative tasks.",
-      "Turn the selected local evidence into review-ready knowledge candidates.",
-      "Continue a ready ContentCloud handoff in this workspace."
+      "Inspect this workspace and show the eligible next actions.",
+      "Turn the selected evidence into governed knowledge pages.",
+      "Continue the selected ContentCloud handoff in this conversation."
     ],
     "brandColor": "#16705A"
   },

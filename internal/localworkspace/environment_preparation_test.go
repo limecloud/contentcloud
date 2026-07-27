@@ -11,7 +11,7 @@ func TestEnvironmentPreparationAndRunClaimAreMutuallyExclusive(t *testing.T) {
 	if _, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", WorkspaceID: "workspace-1", Target: "codex-plugin", CLIVersion: "test", Now: now}); err != nil {
 		t.Fatal(err)
 	}
-	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-preparation", Intent: "content", Now: now})
+	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-preparation", Intent: "intent:content", Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}

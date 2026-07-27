@@ -239,7 +239,7 @@ func loadBootstrapHandoff(root string) (*BootstrapHandoff, error) {
 }
 
 func activeLocalRuns(root string, now time.Time) ([]WorkspaceRunSummary, error) {
-	paths, err := filepath.Glob(filepath.Join(root, "work", "runs", "*.json"))
+	paths, err := filepath.Glob(filepath.Join(root, "40-work", "runs", "*", "context.json"))
 	if err != nil {
 		return nil, err
 	}

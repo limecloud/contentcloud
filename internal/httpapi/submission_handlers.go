@@ -21,6 +21,12 @@ func (s *Server) submissionDetails(w http.ResponseWriter, r *http.Request) {
 	s.dispatchResult(w, r, "submission.show", value, err)
 }
 
+func (s *Server) projectSubmissionRevision(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.ProjectSubmissionRevision(r.Context(), actor, chi.URLParam(r, "projectID"), chi.URLParam(r, "id"))
+	s.dispatchResult(w, r, "submission.revision.show", value, err)
+}
+
 func (s *Server) approveSubmission(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	var input struct {

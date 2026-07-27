@@ -15,10 +15,8 @@ import (
 )
 
 const (
-	ScriptPackageSchema       = "script-package/1.1"
 	KnowledgeCandidatesSchema = "knowledge-candidates/1.0"
 	TaskContractSchema        = "task-contract/1.0"
-	ScriptCapability          = "contentcloud.script.generate"
 )
 
 type Tenant struct {
@@ -230,48 +228,12 @@ type DecisionRequest struct {
 	CreatedAt           time.Time  `json:"created_at"`
 }
 
-type BriefVersion struct {
-	ID                     string     `json:"id"`
-	TenantID               string     `json:"tenant_id"`
-	ProjectID              string     `json:"project_id"`
-	Version                int        `json:"version"`
-	Status                 string     `json:"status"`
-	Objective              string     `json:"objective"`
-	Audience               string     `json:"audience"`
-	DemandMoment           string     `json:"demand_moment"`
-	Scene                  string     `json:"scene"`
-	Conflict               string     `json:"conflict"`
-	PrimarySellingPoint    string     `json:"primary_selling_point"`
-	SecondarySellingPoints []string   `json:"secondary_selling_points"`
-	CTA                    string     `json:"cta"`
-	Channel                string     `json:"channel"`
-	AspectRatio            string     `json:"aspect_ratio"`
-	EvidenceSummary        string     `json:"evidence_summary"`
-	TargetDurationSeconds  int        `json:"target_duration_seconds"`
-	PrimaryTestVariable    string     `json:"primary_test_variable"`
-	ApprovedKnowledgeIDs   []string   `json:"approved_knowledge_ids"`
-	FrameworkIDs           []string   `json:"framework_ids"`
-	VisualizationPlanIDs   []string   `json:"visualization_plan_ids"`
-	Viewpoint              string     `json:"viewpoint"`
-	Constraints            []string   `json:"constraints"`
-	SupersedesID           string     `json:"supersedes_id,omitempty"`
-	RevisionReason         string     `json:"revision_reason,omitempty"`
-	CreatedBy              string     `json:"created_by"`
-	ApprovedBy             string     `json:"approved_by,omitempty"`
-	ApprovedAt             *time.Time `json:"approved_at,omitempty"`
-	ContentHash            string     `json:"content_hash"`
-	CreatedAt              time.Time  `json:"created_at"`
-}
-
 type ContextSnapshot struct {
 	ID             string            `json:"id"`
 	TenantID       string            `json:"tenant_id"`
 	ProjectID      string            `json:"project_id"`
-	BriefVersionID string            `json:"brief_version_id"`
 	BuilderVersion string            `json:"builder_version"`
 	SchemaVersion  string            `json:"schema_version"`
-	Knowledge      []KnowledgeItem   `json:"knowledge"`
-	Assets         []AssetBundle     `json:"assets"`
 	Sources        []ContractSource  `json:"sources,omitempty"`
 	InputVersions  map[string]string `json:"input_versions"`
 	ManifestHash   string            `json:"manifest_hash"`
@@ -279,28 +241,22 @@ type ContextSnapshot struct {
 }
 
 type TaskContract struct {
-	ContractVersion       string               `json:"contract_version"`
-	ContractID            string               `json:"contract_id"`
-	RunID                 string               `json:"run_id"`
-	TaskType              string               `json:"task_type"`
-	Project               Project              `json:"project"`
-	Brief                 BriefVersion         `json:"brief"`
-	Knowledge             []KnowledgeItem      `json:"knowledge"`
-	Assets                []AssetBundle        `json:"assets"`
-	Sources               []ContractSource     `json:"sources,omitempty"`
-	BaselineScriptVersion *ScriptVersion       `json:"baseline_script_version,omitempty"`
-	ChangeRequest         *ScriptChangeRequest `json:"change_request,omitempty"`
-	InputSnapshotID       string               `json:"input_snapshot_id"`
-	OutputSchema          string               `json:"output_schema"`
-	Capability            Capability           `json:"required_capability"`
-	ManifestHash          string               `json:"manifest_hash"`
+	ContractVersion string           `json:"contract_version"`
+	ContractID      string           `json:"contract_id"`
+	RunID           string           `json:"run_id"`
+	TaskType        string           `json:"task_type"`
+	Project         Project          `json:"project"`
+	Sources         []ContractSource `json:"sources"`
+	InputSnapshotID string           `json:"input_snapshot_id"`
+	OutputSchema    string           `json:"output_schema"`
+	Capability      Capability       `json:"required_capability"`
+	ManifestHash    string           `json:"manifest_hash"`
 }
 
 type TaskRun struct {
 	ID                string     `json:"id"`
 	TenantID          string     `json:"tenant_id"`
 	ProjectID         string     `json:"project_id"`
-	BriefVersionID    string     `json:"brief_version_id"`
 	InputSnapshotID   string     `json:"input_snapshot_id"`
 	IdempotencyKey    string     `json:"idempotency_key"`
 	TaskType          string     `json:"task_type"`
@@ -310,13 +266,6 @@ type TaskRun struct {
 	OutputSchema      string     `json:"output_schema"`
 	OutputCount       int        `json:"output_count"`
 	DeliveryProfiles  []string   `json:"delivery_profiles"`
-	ScriptID          string     `json:"script_id,omitempty"`
-	BaselineVersionID string     `json:"baseline_script_version_id,omitempty"`
-	ChangeType        string     `json:"change_type,omitempty"`
-	InvariantFields   []string   `json:"invariant_fields,omitempty"`
-	ExpectedChanges   []string   `json:"expected_changed_fields,omitempty"`
-	Hypothesis        string     `json:"hypothesis,omitempty"`
-	RevisionReason    string     `json:"revision_reason,omitempty"`
 	State             string     `json:"state"`
 	Priority          int        `json:"priority"`
 	AttemptCount      int        `json:"attempt_count"`
@@ -366,156 +315,11 @@ func (r TaskRun) AcceptsCapability(capability Capability) bool {
 		capability.LocalOnly
 }
 
-type ProductionBible struct {
-	Subjects        []SubjectLock `json:"subjects"`
-	SceneLock       string        `json:"scene_lock"`
-	VisualStyleLock string        `json:"visual_style_lock"`
-	AssetIDs        []string      `json:"asset_ids"`
-}
-
-type SubjectLock struct {
-	ID               string   `json:"id"`
-	Name             string   `json:"name"`
-	IdentityAnchors  []string `json:"identity_anchors"`
-	WardrobeAndProps []string `json:"wardrobe_and_props"`
-}
-
-type FrameSpec struct {
-	VisualState string `json:"visual_state"`
-	PromptZH    string `json:"prompt_zh"`
-}
-
-type Continuity struct {
-	IncomingState string `json:"incoming_state"`
-	OutgoingState string `json:"outgoing_state"`
-	MovementAxis  string `json:"movement_axis"`
-	LightingLock  string `json:"lighting_lock"`
-	ProductLock   string `json:"product_lock"`
-}
-
-type Shot struct {
-	ShotID               string     `json:"shot_id"`
-	StartMS              int        `json:"start_ms"`
-	EndMS                int        `json:"end_ms"`
-	Role                 string     `json:"role"`
-	NarrativePurpose     string     `json:"narrative_purpose"`
-	Subject              string     `json:"subject"`
-	VisualIntent         string     `json:"visual_intent"`
-	SubjectAction        string     `json:"subject_action"`
-	Composition          string     `json:"composition"`
-	CameraMotion         string     `json:"camera_motion"`
-	FirstFrame           FrameSpec  `json:"first_frame"`
-	MotionSpec           string     `json:"motion_spec"`
-	EndFrame             FrameSpec  `json:"end_frame"`
-	Voiceover            string     `json:"voiceover,omitempty"`
-	OnScreenText         string     `json:"on_screen_text,omitempty"`
-	SoundIntent          string     `json:"sound_intent"`
-	KnowledgeRefs        []string   `json:"knowledge_refs"`
-	ReferenceAssetIDs    []string   `json:"reference_asset_ids"`
-	NegativeConstraints  []string   `json:"negative_constraints"`
-	Continuity           Continuity `json:"continuity"`
-	ProductTruthStrategy string     `json:"product_truth_strategy"`
-	VisualizationPlanID  string     `json:"visualization_plan_id,omitempty"`
-	AcceptanceCriteria   []string   `json:"acceptance_criteria"`
-	PlanB                string     `json:"plan_b,omitempty"`
-}
-
-type Citation struct {
-	KnowledgeID string `json:"knowledge_id"`
-	ShotID      string `json:"shot_id"`
-	Usage       string `json:"usage"`
-}
-
-type BlockReason struct {
-	Code       string `json:"code"`
-	ObjectID   string `json:"object_id,omitempty"`
-	Message    string `json:"message"`
-	NextAction string `json:"next_action"`
-}
-
-type ScriptPackage struct {
-	SchemaVersion         string           `json:"schema_version"`
-	Deliverability        string           `json:"deliverability"`
-	Title                 string           `json:"title"`
-	Channel               string           `json:"channel"`
-	TargetDurationSeconds int              `json:"target_duration_seconds"`
-	AspectRatio           string           `json:"aspect_ratio"`
-	CreativeStrategy      CreativeStrategy `json:"creative_strategy"`
-	ProductionBible       ProductionBible  `json:"production_bible"`
-	Narrative             []string         `json:"narrative"`
-	Shots                 []Shot           `json:"shots"`
-	Citations             []Citation       `json:"citations"`
-	BlockedReasons        []BlockReason    `json:"blocked_reasons"`
-	MissingInputs         []string         `json:"missing_inputs"`
-}
-
-type CreativeStrategy struct {
-	Objective              string   `json:"objective"`
-	Audience               string   `json:"audience"`
-	DemandMoment           string   `json:"demand_moment"`
-	PrimarySellingPoint    string   `json:"primary_selling_point"`
-	SecondarySellingPoints []string `json:"secondary_selling_points"`
-	CTA                    string   `json:"cta"`
-	Hypothesis             string   `json:"hypothesis"`
-	PrimaryTestVariable    string   `json:"primary_test_variable"`
-	InvariantFields        []string `json:"invariant_fields"`
-}
-
-type Script struct {
-	ID        string    `json:"id"`
-	TenantID  string    `json:"tenant_id"`
-	ProjectID string    `json:"project_id"`
-	Title     string    `json:"title"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type ScriptChangeRequest struct {
-	ChangeType      string   `json:"change_type"`
-	InvariantFields []string `json:"invariant_fields"`
-	ChangedFields   []string `json:"changed_fields"`
-	Hypothesis      string   `json:"hypothesis,omitempty"`
-	RevisionReason  string   `json:"revision_reason"`
-}
-
-type ScriptVersion struct {
-	ID              string           `json:"id"`
-	TenantID        string           `json:"tenant_id"`
-	ProjectID       string           `json:"project_id"`
-	ScriptID        string           `json:"script_id"`
-	RunID           string           `json:"run_id"`
-	Version         int              `json:"version"`
-	SupersedesID    string           `json:"supersedes_id,omitempty"`
-	BaselineID      string           `json:"baseline_script_version_id,omitempty"`
-	ChangeType      string           `json:"change_type"`
-	InvariantFields []string         `json:"invariant_fields"`
-	ChangedFields   []string         `json:"changed_fields"`
-	Hypothesis      string           `json:"hypothesis,omitempty"`
-	RevisionReason  string           `json:"revision_reason,omitempty"`
-	Status          string           `json:"status"`
-	InputSnapshotID string           `json:"input_snapshot_id"`
-	ContentHash     string           `json:"content_hash"`
-	Package         ScriptPackage    `json:"package"`
-	Validation      ValidationReport `json:"validation"`
-	CreatedAt       time.Time        `json:"created_at"`
-}
-
 type RunHeartbeat struct {
 	Sequence int    `json:"sequence"`
 	Phase    string `json:"phase"`
 	Step     int    `json:"step"`
 	Label    string `json:"label"`
-}
-
-type ValidationReport struct {
-	Valid    bool              `json:"valid"`
-	Errors   []ValidationIssue `json:"errors"`
-	Warnings []ValidationIssue `json:"warnings"`
-}
-
-type ValidationIssue struct {
-	Path    string `json:"path"`
-	Code    string `json:"code"`
-	Message string `json:"message"`
 }
 
 type ApprovalDecision struct {
@@ -580,35 +384,6 @@ func CanonicalHash(value any) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func CompileSnapshot(project Project, brief BriefVersion, knowledge []KnowledgeItem, now time.Time) (ContextSnapshot, error) {
-	return CompileSnapshotWithAssets(project, brief, knowledge, nil, now)
-}
-
-func CompileSnapshotWithAssets(project Project, brief BriefVersion, knowledge []KnowledgeItem, assets []AssetBundle, now time.Time) (ContextSnapshot, error) {
-	sort.Slice(knowledge, func(i, j int) bool { return knowledge[i].ID < knowledge[j].ID })
-	sort.Slice(assets, func(i, j int) bool { return assets[i].Asset.ID < assets[j].Asset.ID })
-	versions := map[string]string{"brief:" + brief.ID: brief.ContentHash}
-	for _, item := range knowledge {
-		versions["knowledge:"+item.ID] = fmt.Sprintf("%d", item.RowVersion)
-	}
-	for _, bundle := range assets {
-		versions["asset:"+bundle.Asset.ID] = bundle.Asset.Status
-		versions["rights:"+bundle.Rights.ID] = fmt.Sprintf("%d", bundle.Rights.RowVersion)
-	}
-	manifest := struct {
-		ProjectID string            `json:"project_id"`
-		BriefID   string            `json:"brief_id"`
-		Versions  map[string]string `json:"versions"`
-		Builder   string            `json:"builder"`
-		Schema    string            `json:"schema"`
-	}{project.ID, brief.ID, versions, "context-compiler/1.0.0", TaskContractSchema}
-	hash, err := CanonicalHash(manifest)
-	if err != nil {
-		return ContextSnapshot{}, err
-	}
-	return ContextSnapshot{ID: NewID(), TenantID: project.TenantID, ProjectID: project.ID, BriefVersionID: brief.ID, BuilderVersion: "1.0.0", SchemaVersion: TaskContractSchema, Knowledge: knowledge, Assets: assets, InputVersions: versions, ManifestHash: hash, CreatedAt: now.UTC()}, nil
-}
-
 func CompileKnowledgeSnapshot(project Project, sources []ContractSource, now time.Time) (ContextSnapshot, error) {
 	if len(sources) == 0 {
 		return ContextSnapshot{}, fmt.Errorf("knowledge extraction requires at least one source revision")
@@ -626,116 +401,10 @@ func CompileKnowledgeSnapshot(project Project, sources []ContractSource, now tim
 		Sources   []ContractSource  `json:"sources"`
 		Builder   string            `json:"builder"`
 		Schema    string            `json:"schema"`
-	}{project.ID, versions, ordered, "context-compiler/1.0.0", TaskContractSchema}
+	}{project.ID, versions, ordered, "knowledge-contract/1.0.0", TaskContractSchema}
 	hash, err := CanonicalHash(payload)
 	if err != nil {
 		return ContextSnapshot{}, err
 	}
-	return ContextSnapshot{ID: NewID(), TenantID: project.TenantID, ProjectID: project.ID, BuilderVersion: "1.0.0", SchemaVersion: TaskContractSchema, Sources: ordered, InputVersions: versions, ManifestHash: hash, CreatedAt: now.UTC()}, nil
-}
-
-func ValidateScript(pkg ScriptPackage, contract TaskContract) ValidationReport {
-	report := ValidationReport{Valid: true, Errors: []ValidationIssue{}, Warnings: []ValidationIssue{}}
-	add := func(path, code, message string) {
-		report.Valid = false
-		report.Errors = append(report.Errors, ValidationIssue{Path: path, Code: code, Message: message})
-	}
-	if pkg.SchemaVersion != "1.1" {
-		add("/schema_version", "SCHEMA_VERSION_UNSUPPORTED", "仅接受 Script Package 1.1")
-	}
-	if pkg.Deliverability != "blocked" && pkg.Deliverability != "review_ready" {
-		add("/deliverability", "DELIVERABILITY_INVALID", "deliverability 必须为 blocked 或 review_ready")
-	}
-	if pkg.Deliverability == "blocked" && len(pkg.BlockedReasons) == 0 {
-		add("/blocked_reasons", "BLOCK_REASON_REQUIRED", "阻断结果必须说明原因")
-	}
-	if pkg.Deliverability == "review_ready" && len(pkg.Shots) == 0 {
-		add("/shots", "SHOTS_REQUIRED", "可审核剧本至少包含一个镜头")
-	}
-	if pkg.Deliverability == "review_ready" && pkg.AspectRatio != "9:16" {
-		add("/aspect_ratio", "ASPECT_RATIO_INVALID", "抖音 V1 正式剧本必须使用 9:16")
-	}
-	allowedAssets := map[string]bool{}
-	for _, bundle := range contract.Assets {
-		allowedAssets[bundle.Asset.ID] = true
-	}
-	for index, assetID := range pkg.ProductionBible.AssetIDs {
-		if !allowedAssets[assetID] {
-			add(fmt.Sprintf("/production_bible/asset_ids/%d", index), "ASSET_RIGHTS_BLOCKED", "素材不在当前权利有效的 Task Contract 中")
-		}
-	}
-	if pkg.Channel != contract.Brief.Channel {
-		add("/channel", "CHANNEL_MISMATCH", "剧本渠道必须与 Brief 一致")
-	}
-	if pkg.CreativeStrategy.PrimarySellingPoint != contract.Brief.PrimarySellingPoint {
-		add("/creative_strategy/primary_selling_point", "SELLING_POINT_MISMATCH", "主卖点必须与 Brief 一致")
-	}
-	if pkg.CreativeStrategy.PrimaryTestVariable != contract.Brief.PrimaryTestVariable {
-		add("/creative_strategy/primary_test_variable", "TEST_VARIABLE_MISMATCH", "主要测试变量必须与 Brief 一致")
-	}
-	allowedKnowledge := map[string]bool{}
-	for _, item := range contract.Knowledge {
-		if item.Status == "approved" {
-			allowedKnowledge[item.ID] = true
-		}
-	}
-	lastEnd := 0
-	roles := map[string]bool{}
-	shotIDs := map[string]bool{}
-	allowedPlans := map[string]bool{}
-	for _, id := range contract.Brief.VisualizationPlanIDs {
-		allowedPlans[id] = true
-	}
-	for i, shot := range pkg.Shots {
-		path := fmt.Sprintf("/shots/%d", i)
-		if shot.StartMS != lastEnd || shot.EndMS <= shot.StartMS {
-			add(path, "TIMECODE_INVALID", "镜头时码必须连续递增")
-		}
-		lastEnd = shot.EndMS
-		roles[shot.Role] = true
-		if shot.ShotID == "" || shotIDs[shot.ShotID] {
-			add(path+"/shot_id", "SHOT_ID_INVALID", "镜头 ID 必须存在且版本内唯一")
-		}
-		shotIDs[shot.ShotID] = true
-		if strings.TrimSpace(shot.FirstFrame.PromptZH) == "" || strings.TrimSpace(shot.MotionSpec) == "" || strings.TrimSpace(shot.EndFrame.PromptZH) == "" {
-			add(path, "GENERATION_SPEC_REQUIRED", "镜头必须包含首帧、动态和尾帧中文生成规格")
-		}
-		if len(shot.NegativeConstraints) == 0 || strings.TrimSpace(shot.ProductTruthStrategy) == "" {
-			add(path, "GENERATION_GUARD_REQUIRED", "镜头必须包含负面约束和产品真实性策略")
-		}
-		if shot.Role == "proof" && !allowedPlans[shot.VisualizationPlanID] {
-			add(path+"/visualization_plan_id", "VISUALIZATION_PLAN_REQUIRED", "proof 镜头必须引用 Brief 内已批准可视化方案")
-		}
-		if strings.TrimSpace(shot.AcceptanceCriteriaString()) == "" {
-			add(path+"/acceptance_criteria", "ACCEPTANCE_CRITERIA_REQUIRED", "镜头必须有可观察验收条件")
-		}
-		for _, ref := range shot.KnowledgeRefs {
-			if !allowedKnowledge[ref] {
-				add(path+"/knowledge_refs", "KNOWLEDGE_REF_NOT_ALLOWED", "镜头引用了快照外或未批准知识")
-			}
-		}
-	}
-	for i, citation := range pkg.Citations {
-		if !allowedKnowledge[citation.KnowledgeID] {
-			add(fmt.Sprintf("/citations/%d/knowledge_id", i), "CITATION_NOT_ALLOWED", "引用必须来自任务快照内已批准知识")
-		}
-		if !shotIDs[citation.ShotID] {
-			add(fmt.Sprintf("/citations/%d/shot_id", i), "CITATION_SHOT_NOT_FOUND", "引用的镜头不存在")
-		}
-	}
-	if pkg.Deliverability == "review_ready" {
-		for _, role := range []string{"hook", "product_solution", "proof", "cta"} {
-			if !roles[role] {
-				add("/shots", "NARRATIVE_ROLE_MISSING", "缺少必要叙事功能: "+role)
-			}
-		}
-		if lastEnd != pkg.TargetDurationSeconds*1000 {
-			add("/target_duration_seconds", "DURATION_MISMATCH", "镜头总时长必须等于目标时长")
-		}
-	}
-	return report
-}
-
-func (s Shot) AcceptanceCriteriaString() string {
-	return strings.Join(s.AcceptanceCriteria, " ")
+	return ContextSnapshot{ID: NewID(), TenantID: project.TenantID, ProjectID: project.ID, BuilderVersion: "knowledge-contract/1.0.0", SchemaVersion: TaskContractSchema, Sources: ordered, InputVersions: versions, ManifestHash: hash, CreatedAt: now.UTC()}, nil
 }

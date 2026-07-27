@@ -5,18 +5,18 @@
     {
       "id": "contentcloud-video-production",
       "kind": "scene_plugin",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "source": {
         "repository": "https://github.com/limecloud/contentcloud",
-        "ref": "v0.6.0"
+        "ref": "v0.7.0"
       },
       "license": "Apache-2.0",
-      "digest": "sha256:14076c0a2dd8031589e6e5904cc13bd63f14fe8ad23d54b208aa4dbde7bbb326",
+      "digest": "sha256:59c80e26a2d0161f28f309d6f1b909d7261e9d933508f7398600f1d40de36bc9",
       "signature": {
         "status": "verified",
         "algorithm": "ed25519",
         "key_id": "contentcloud-plugin-release-2026-07",
-        "value": "Gl1+uaUsqYUQ13Rsm+8jVEPs5u7rb3nwTkVaRc9gutHeOSTz+xdjCKdR2EQ5+eePcEMxesO3dzEK5yyxZCNfBw=="
+        "value": "2isc7SsECz2dgNTvJJQ4myNlAO3RrQeFfVG7+0iEF1gu5+8GxxxuMt83xK/tImzwRwvWLLfJg8dbmTcm0vzhBw=="
       },
       "compatible_profiles": [
         "contentcloud.video-production"
@@ -32,7 +32,8 @@
         "cloud_actions": [
           "bootstrap.authorization.complete",
           "workspace.register",
-          "explicit publish and review synchronization"
+          "explicit publish and review synchronization",
+          "trusted project-view navigation"
         ]
       },
       "cost": {
@@ -41,12 +42,15 @@
       },
       "output_schemas": [
         "contracts/knowledge-candidates-1.0.schema.json",
-        "contracts/script-package-2.0.schema.json"
+        "contracts/knowledge-page-3.0.schema.json",
+        "contracts/content-batch-3.0.schema.json",
+        "contracts/content-item-3.0.schema.json",
+        "contracts/handoff-1.0.schema.json"
       ],
       "evaluation": {
         "status": "passed",
-        "report": ".agents/plugins/evaluations/contentcloud-video-production-0.6.0.json",
-        "digest": "sha256:63eda3784fca5467e5c7ef066986ebc18f439988848ae0e3926b91b542772d28",
+        "report": ".agents/plugins/evaluations/contentcloud-video-production-0.7.0.json",
+        "digest": "sha256:a9e5603a116a18526437a3990bf66b696729f728f7eb9395a8028976f674c39c",
         "evidence": [
           "codex-plugin-transaction",
           "bootstrap-confirmation",
@@ -54,7 +58,8 @@
           "governed-publish",
           "review-and-approved-resume",
           "knowledge-contract",
-          "script-contract",
+          "content-contract",
+          "browser-navigation-safety",
           "environment-control-plane"
         ]
       },

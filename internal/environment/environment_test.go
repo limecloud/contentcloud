@@ -27,7 +27,7 @@ func TestManifestSignatureBindsPayloadProjectExpiryAndTrust(t *testing.T) {
 
 	tampered := manifest
 	tampered.Capabilities = append([]string(nil), manifest.Capabilities...)
-	tampered.Capabilities[0] = "contentcloud.script.tampered"
+	tampered.Capabilities[0] = "contentcloud.knowledge.tampered"
 	assertCode(t, verifier.Verify(tampered, environment.VerifyOptions{ProjectID: "project-1", Harness: "codex", Now: now}), "ENVIRONMENT_MANIFEST_DIGEST_MISMATCH")
 	assertCode(t, verifier.Verify(manifest, environment.VerifyOptions{ProjectID: "project-2", Harness: "codex", Now: now}), "ENVIRONMENT_PROJECT_MISMATCH")
 	assertCode(t, verifier.Verify(manifest, environment.VerifyOptions{ProjectID: "project-1", Harness: "codex", Now: manifest.ExpiresAt}), "ENVIRONMENT_MANIFEST_EXPIRED")
@@ -46,7 +46,7 @@ func TestBuildManifestUsesOnlyExactPublishedCompatibleRegistryEntries(t *testing
 	if len(manifest.Distribution.Plugins) != 2 || manifest.Distribution.Plugins[0].ID != "contentcloud-video-production" || manifest.Distribution.Plugins[1].ID != "contentcloud-visual-storytelling" {
 		t.Fatalf("resolved plugins = %#v", manifest.Distribution.Plugins)
 	}
-	if manifest.Distribution.Plugins[0].SourceRef != "v0.6.0" || manifest.Distribution.Plugins[1].SourceRef != "v1.2.0" {
+	if manifest.Distribution.Plugins[0].SourceRef != "v0.7.0" || manifest.Distribution.Plugins[1].SourceRef != "v1.2.0" {
 		t.Fatalf("registry refs were not preserved: %#v", manifest.Distribution.Plugins)
 	}
 
@@ -156,15 +156,15 @@ func fixtureProfileAndRegistry() (environment.Profile, environment.Registry) {
 	profile := environment.Profile{
 		ID: "contentcloud.video-production", Version: "1.0.0", EnvironmentVersion: "2026.7.1", Harness: "codex", Marketplace: "contentcloud",
 		Plugins: []environment.ProfilePlugin{
-			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.6.0", Required: true, Scope: "environment", Capabilities: []string{"contentcloud.script.generate"}},
+			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.7.0", Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}},
 			{ID: "contentcloud-visual-storytelling", Kind: "skill_pack", Version: "1.2.0", Required: false, Scope: "task", Capabilities: []string{"contentcloud.asset.generate"}},
 		},
 		WorkspaceTemplate: environment.WorkspaceTemplateRef{ID: "workspace_marketing_video", Version: "2.2.0", Digest: "sha256:" + repeat("c", 64)},
-		Capabilities:      []string{"contentcloud.script.generate", "contentcloud.asset.generate"},
+		Capabilities:      []string{domain.KnowledgeExtractCapability, "contentcloud.asset.generate"},
 		Policies:          environment.Policies{PublishRequiresConfirmation: true},
 	}
 	registry := environment.Registry{SchemaVersion: "1.0", Entries: []environment.RegistryEntry{
-		registryEntry("contentcloud-video-production", "scene_plugin", "0.6.0", "https://github.com/limecloud/contentcloud", "v0.6.0", sceneDigest, []string{profile.ID}),
+		registryEntry("contentcloud-video-production", "scene_plugin", "0.7.0", "https://github.com/limecloud/contentcloud", "v0.7.0", sceneDigest, []string{profile.ID}),
 		registryEntry("contentcloud-visual-storytelling", "skill_pack", "1.2.0", "https://github.com/limecloud/contentcloud-packs", "v1.2.0", packDigest, []string{profile.ID}),
 		registryEntry("contentcloud-unrelated", "skill_pack", "9.0.0", "https://example.invalid/unrelated", "v9.0.0", "sha256:"+repeat("d", 64), []string{"contentcloud.other"}),
 	}}
@@ -204,7 +204,7 @@ func registryEntry(id, kind, version, repository, ref, digest string, profiles [
 	return environment.RegistryEntry{
 		ID: id, Kind: kind, Version: version, Source: environment.RegistrySource{Repository: repository, Ref: ref}, License: "Apache-2.0", Digest: digest,
 		Signature: environment.RegistrySignature{Status: "pending"}, CompatibleProfiles: profiles, Permissions: []string{"workspace:read"},
-		DataFlow: environment.RegistryDataFlow{LocalByDefault: true, CloudActions: []string{}}, OutputSchemas: []string{"contracts/script-package-2.0.schema.json"},
+		DataFlow: environment.RegistryDataFlow{LocalByDefault: true, CloudActions: []string{}}, OutputSchemas: []string{"contracts/content-item-3.0.schema.json"},
 		Cost:       environment.RegistryCost{Model: "included", Notice: "Included in tests."},
 		Evaluation: environment.RegistryEvaluation{Status: "passed", Report: ".agents/plugins/evaluations/test.json", Digest: "sha256:" + repeat("e", 64), Evidence: []string{"test"}},
 		Lifecycle:  "published", Revocation: environment.RegistryRevocation{Status: "active"},

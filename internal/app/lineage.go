@@ -166,6 +166,7 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 	}
 	for _, item := range knowledge {
 		b.node("knowledge_item", item.ID, firstNonEmpty(item.Title, item.Statement), item.Status, "knowledge", item.CreatedAt, map[string]any{"kind": item.Kind, "risk_level": item.RiskLevel})
+		b.edge("task_run", item.OriginRunID, "knowledge_item", item.ID, "produces", "Automation Run 产出待审核知识候选")
 		for _, evidence := range item.Evidence {
 			b.edge("source_revision", evidence.SourceRevisionID, "knowledge_item", item.ID, "supports", "来源证据支持知识项")
 		}
@@ -174,94 +175,15 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 		}
 	}
 
-	benchmarks, err := s.store.Benchmarks(ctx, tenantID, projectID)
-	if err != nil {
-		return nil, err
-	}
-	for _, benchmark := range benchmarks {
-		b.node("benchmark", benchmark.ID, benchmark.Title, benchmark.ValidationLevel, "strategy", benchmark.CreatedAt, map[string]any{"platform": benchmark.Platform, "rights_mode": benchmark.RightsMode})
-	}
-	frameworks, err := s.store.Frameworks(ctx, tenantID, projectID)
-	if err != nil {
-		return nil, err
-	}
-	for _, framework := range frameworks {
-		b.node("content_framework", framework.ID, framework.Name, framework.Status, "strategy", framework.CreatedAt, nil)
-		b.edge("benchmark", framework.BenchmarkID, "content_framework", framework.ID, "abstracted_as", "对标内容抽象为内容框架")
-	}
-	patterns, err := s.store.ShotPatterns(ctx, tenantID, projectID)
-	if err != nil {
-		return nil, err
-	}
-	for _, pattern := range patterns {
-		b.node("shot_pattern", pattern.ID, firstNonEmpty(pattern.Purpose, pattern.Role), "active", "strategy", pattern.CreatedAt, map[string]any{"role": pattern.Role, "proof_type": pattern.ProofType})
-		b.edge("content_framework", pattern.FrameworkID, "shot_pattern", pattern.ID, "contains", "框架拆解为镜头模式")
-	}
-	points, err := s.store.SellingPoints(ctx, tenantID, projectID)
-	if err != nil {
-		return nil, err
-	}
-	for _, point := range points {
-		b.node("selling_point", point.ID, point.Title, point.Status, "strategy", point.CreatedAt, map[string]any{"priority": point.Priority})
-		for _, knowledgeID := range point.KnowledgeIDs {
-			b.edge("knowledge_item", knowledgeID, "selling_point", point.ID, "substantiates", "知识事实支撑卖点")
-		}
-	}
-	plans, err := s.store.VisualizationPlans(ctx, tenantID, projectID)
-	if err != nil {
-		return nil, err
-	}
-	for _, plan := range plans {
-		b.node("visualization_plan", plan.ID, plan.Title, plan.Status, "strategy", plan.CreatedAt, map[string]any{"proof_type": plan.ProofType})
-		b.edge("selling_point", plan.SellingPointID, "visualization_plan", plan.ID, "visualized_by", "卖点由可视化方案表达")
-		b.edge("shot_pattern", plan.ShotPatternID, "visualization_plan", plan.ID, "implements", "可视化方案采用镜头模式")
-	}
-
-	briefs, err := s.store.Briefs(ctx, tenantID, projectID)
-	if err != nil {
-		return nil, err
-	}
-	for _, brief := range briefs {
-		b.node("brief_version", brief.ID, fmt.Sprintf("Brief v%d · %s", brief.Version, brief.Objective), brief.Status, "brief", brief.CreatedAt, map[string]any{"version": brief.Version, "content_hash": brief.ContentHash})
-		b.edge("brief_version", brief.SupersedesID, "brief_version", brief.ID, "supersedes", "Brief 新版本替代旧版本")
-		for _, id := range brief.ApprovedKnowledgeIDs {
-			b.edge("knowledge_item", id, "brief_version", brief.ID, "frozen_into", "批准知识被冻结到 Brief")
-		}
-		for _, id := range brief.FrameworkIDs {
-			b.edge("content_framework", id, "brief_version", brief.ID, "selected_by", "Brief 选择内容框架")
-		}
-		for _, id := range brief.VisualizationPlanIDs {
-			b.edge("visualization_plan", id, "brief_version", brief.ID, "selected_by", "Brief 选择可视化方案")
-		}
-	}
-
 	runs, err := s.store.Runs(ctx, tenantID, projectID)
 	if err != nil {
 		return nil, err
 	}
 	for _, run := range runs {
-		b.node("task_run", run.ID, runLabel(run), run.State, "generation", run.CreatedAt, map[string]any{"task_type": run.TaskType, "change_type": run.ChangeType, "error_code": run.ErrorCode})
-		b.edge("brief_version", run.BriefVersionID, "task_run", run.ID, "starts", "冻结 Brief 启动本地任务")
-		b.edge("script_version", run.BaselineVersionID, "task_run", run.ID, "baseline_for", "剧本版本作为修订或变体基线")
-	}
-	scripts, err := s.store.Scripts(ctx, tenantID, projectID)
-	if err != nil {
-		return nil, err
-	}
-	for _, script := range scripts {
-		b.node("script_version", script.ID, scriptLabel(script), script.Status, "script", script.CreatedAt, map[string]any{"version": script.Version, "change_type": script.ChangeType, "content_hash": script.ContentHash})
-		b.edge("task_run", script.RunID, "script_version", script.ID, "produces", "本地 Agent 任务产出结构化剧本")
-		b.edge("script_version", script.SupersedesID, "script_version", script.ID, "supersedes", "剧本新版本替代旧版本")
-		for _, citation := range script.Package.Citations {
-			b.edge("knowledge_item", citation.KnowledgeID, "script_version", script.ID, "cited_by", "剧本引用知识事实")
-		}
-		for _, assetID := range script.Package.ProductionBible.AssetIDs {
-			b.edge("asset", assetID, "script_version", script.ID, "used_by", "剧本制作圣经引用素材")
-		}
-		for _, shot := range script.Package.Shots {
-			b.edge("visualization_plan", shot.VisualizationPlanID, "script_version", script.ID, "realized_by", "剧本镜头实现可视化方案")
-			for _, assetID := range shot.ReferenceAssetIDs {
-				b.edge("asset", assetID, "script_version", script.ID, "referenced_by", "剧本镜头引用素材")
+		b.node("task_run", run.ID, runLabel(run), run.State, "automation", run.CreatedAt, map[string]any{"task_type": run.TaskType, "capability_id": run.CapabilityID, "error_code": run.ErrorCode})
+		if snapshot, loadErr := s.store.Snapshot(ctx, tenantID, run.InputSnapshotID); loadErr == nil {
+			for _, source := range snapshot.Sources {
+				b.edge("source_revision", source.RevisionID, "task_run", run.ID, "frozen_into", "来源修订被冻结到 Automation Contract")
 			}
 		}
 	}
@@ -270,33 +192,26 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 		return nil, err
 	}
 	for _, snapshot := range approvedSnapshots {
-		b.node("approved_snapshot", snapshot.ID, fmt.Sprintf("%s snapshot", snapshot.SubmissionType), "approved", "approval", snapshot.CreatedAt, map[string]any{"origin": snapshot.Origin, "content_hash": snapshot.ContentHash, "external_ref": snapshot.ExternalRef})
+		b.node("approved_snapshot", snapshot.ID, fmt.Sprintf("%s snapshot", snapshot.SubmissionType), "approved", "approval", snapshot.CreatedAt, map[string]any{"content_hash": snapshot.ContentHash})
 		b.edge("submission_revision", snapshot.SubmissionRevisionID, "approved_snapshot", snapshot.ID, "approved_as", "客户批准将不可变 revision 固化为快照")
-		b.edge("script_version", snapshot.ExternalRef, "approved_snapshot", snapshot.ID, "represented_as", "V1 剧本版本映射为只读影子快照")
 	}
 
-	artifacts, err := s.store.Artifacts(ctx, tenantID, "")
-	if err != nil {
-		return nil, err
-	}
-	for _, artifact := range artifacts {
-		if artifact.ProjectID != projectID {
-			continue
+	for _, snapshot := range approvedSnapshots {
+		artifacts, loadErr := s.store.ArtifactsByApprovedSnapshot(ctx, tenantID, snapshot.ID)
+		if loadErr != nil {
+			return nil, loadErr
 		}
-		b.node("artifact", artifact.ID, artifact.FileName, firstNonEmpty(artifact.ValidationStatus, artifact.PresentationTier), "delivery", artifact.CreatedAt, map[string]any{"kind": artifact.Kind, "media_type": artifact.MediaType, "presentation_tier": artifact.PresentationTier})
-		if artifact.ApprovedSnapshotID != "" {
+		for _, artifact := range artifacts {
+			b.node("artifact", artifact.ID, artifact.FileName, artifact.Kind, "delivery", artifact.CreatedAt, map[string]any{"kind": artifact.Kind, "media_type": artifact.MediaType, "schema_id": artifact.SchemaID})
 			b.edge("approved_snapshot", artifact.ApprovedSnapshotID, "artifact", artifact.ID, "exported_as", "批准快照确定性导出为交付工件")
-		} else {
-			b.edge("script_version", artifact.ScriptVersionID, "artifact", artifact.ID, "exported_as", "V1 剧本版本导出为历史工件")
 		}
-		b.edge("artifact", artifact.DerivedFromArtifactID, "artifact", artifact.ID, "derived_as", "工件派生安全预览或 rendition")
 	}
 	deliveryPackages, err := s.store.DeliveryPackages(ctx, tenantID, projectID)
 	if err != nil {
 		return nil, err
 	}
 	for _, delivery := range deliveryPackages {
-		b.node("delivery_package", delivery.ID, "DeliveryPackage · "+delivery.ScriptID, delivery.Status, "delivery", delivery.CreatedAt, map[string]any{"script_id": delivery.ScriptID, "artifact_count": len(delivery.Manifest)})
+		b.node("delivery_package", delivery.ID, "DeliveryPackage · "+delivery.ContentItemID, delivery.Status, "delivery", delivery.CreatedAt, map[string]any{"content_item_id": delivery.ContentItemID, "artifact_count": len(delivery.Manifest)})
 		for _, snapshotID := range delivery.ApprovedSnapshotIDs {
 			b.edge("approved_snapshot", snapshotID, "delivery_package", delivery.ID, "delivered_as", "客户批准快照组成正式交付包")
 		}
@@ -319,11 +234,7 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 	for _, observation := range observations {
 		b.node("performance_observation", observation.ID, observationLabel(observation), observation.SampleStatus, "results", observation.CreatedAt, map[string]any{"platform": observation.Platform, "window_hours": observation.WindowHours, "roi": observation.ROI})
 		b.edge("performance_import_batch", observation.ImportBatchID, "performance_observation", observation.ID, "imports", "导入批次包含效果观察")
-		if observation.ApprovedSnapshotID != "" {
-			b.edge("approved_snapshot", observation.ApprovedSnapshotID, "performance_observation", observation.ID, "measured_by", "效果数据度量已批准快照")
-		} else {
-			b.edge("script_version", observation.ScriptVersionID, "performance_observation", observation.ID, "measured_by", "效果数据度量 V1 剧本版本")
-		}
+		b.edge("approved_snapshot", observation.ApprovedSnapshotID, "performance_observation", observation.ID, "measured_by", "效果数据度量已批准快照")
 	}
 	ratings, err := s.store.RatingDecisions(ctx, tenantID, projectID)
 	if err != nil {
@@ -463,14 +374,14 @@ func lineageReviewAction(objectType string) string {
 		return "复核素材权利范围和有效期"
 	case "knowledge_item":
 		return "重新审核知识项及其证据"
-	case "brief_version":
-		return "创建新的 Brief 修订并重新批准"
+	case "submission_revision":
+		return "创建新的 SubmissionRevision 并重新提交审核"
+	case "approved_snapshot":
+		return "基于新的批准决策创建 ApprovedSnapshot"
 	case "task_run":
 		return "检查本地客户端状态后重试任务"
-	case "script_version":
-		return "发起剧本修订并重新走内审"
 	case "artifact":
-		return "基于有效剧本版本重新导出"
+		return "基于有效 ApprovedSnapshot 重新导出"
 	case "performance_observation":
 		return "补足样本窗口后重新导入结果"
 	case "rating_decision":
@@ -481,27 +392,14 @@ func lineageReviewAction(objectType string) string {
 }
 
 func lineageStageOrder(stage string) int {
-	order := map[string]int{"sources": 0, "knowledge": 1, "strategy": 2, "brief": 3, "generation": 4, "script": 5, "delivery": 6, "results": 7, "learning": 8}
+	order := map[string]int{"sources": 0, "knowledge": 1, "automation": 2, "submission": 3, "approval": 4, "delivery": 5, "results": 6, "learning": 7}
 	if value, ok := order[stage]; ok {
 		return value
 	}
 	return 99
 }
 
-func runLabel(run domain.TaskRun) string {
-	if run.ChangeType != "" {
-		return fmt.Sprintf("%s · %s", run.TaskType, run.ChangeType)
-	}
-	return run.TaskType
-}
-
-func scriptLabel(script domain.ScriptVersion) string {
-	title := strings.TrimSpace(script.Package.Title)
-	if title == "" {
-		title = "未命名剧本"
-	}
-	return fmt.Sprintf("%s · v%d", title, script.Version)
-}
+func runLabel(run domain.TaskRun) string { return run.TaskType }
 
 func observationLabel(observation domain.PerformanceObservation) string {
 	return fmt.Sprintf("%s · %dh · %s", observation.Platform, observation.WindowHours, observation.AccountAlias)

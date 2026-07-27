@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.goodvision.cn/schemas/knowledge-pack-3.0.schema.json",
+  "title": "ContentCloud KnowledgePack 3.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "status", "layers", "quality"],
+  "properties": {
+    "schema_version": {"const": "contentcloud.knowledge-pack/3.0"},
+    "id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["candidate", "review_ready", "approved", "blocked", "superseded"]},
+    "name": {"type": "string"},
+    "methodology_version_id": {"type": "string"},
+    "layers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "product", "market", "expression", "operations", "content_engine", "compliance"],
+      "properties": {
+        "identity": {"$ref": "#/$defs/refs"},
+        "product": {"$ref": "#/$defs/refs"},
+        "market": {"$ref": "#/$defs/refs"},
+        "expression": {"$ref": "#/$defs/refs"},
+        "operations": {"$ref": "#/$defs/refs"},
+        "content_engine": {"$ref": "#/$defs/refs"},
+        "compliance": {"$ref": "#/$defs/refs"}
+      }
+    },
+    "quality": {"type": "object", "additionalProperties": true},
+    "content_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {"refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}}
+}

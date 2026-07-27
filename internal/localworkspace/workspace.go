@@ -20,21 +20,28 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
 	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
+	"gopkg.in/yaml.v3"
 )
 
 const (
-	SchemaVersion   = "2.0"
-	TemplateID      = "workspace_marketing_video"
-	TemplateVersion = "2.2.0"
+	WorkspaceSchemaVersion    = "contentcloud.workspace/3.0"
+	TemplateLockSchemaVersion = "contentcloud.template-lock/3.0"
+	SyncStateSchemaVersion    = "contentcloud.sync-state/3.0"
+	TemplateID                = "workspace_marketing_agent"
+	TemplateVersion           = "3.0.0"
+	LayoutVersion             = 3
 )
 
 type Binding struct {
-	SchemaVersion string    `json:"schema_version"`
-	WorkspaceID   string    `json:"workspace_id"`
-	ProjectID     string    `json:"project_id"`
-	DeviceID      string    `json:"device_id,omitempty"`
-	ServerURL     string    `json:"server_url"`
-	InitializedAt time.Time `json:"initialized_at"`
+	SchemaVersion     string    `json:"schema_version" yaml:"schema_version"`
+	WorkspaceID       string    `json:"workspace_id" yaml:"workspace_id"`
+	ProjectID         string    `json:"project_id" yaml:"project_id"`
+	LayoutVersion     int       `json:"layout_version" yaml:"layout_version"`
+	ContextVersionID  string    `json:"context_version_id,omitempty" yaml:"context_version_id,omitempty"`
+	EnvironmentDigest string    `json:"environment_digest,omitempty" yaml:"environment_digest,omitempty"`
+	DeviceID          string    `json:"device_id,omitempty" yaml:"device_id,omitempty"`
+	ServerURL         string    `json:"server_url,omitempty" yaml:"server_url,omitempty"`
+	CreatedAt         time.Time `json:"created_at" yaml:"created_at"`
 }
 
 type ManagedFile struct {
@@ -97,14 +104,15 @@ type InitPlan struct {
 }
 
 type InitOptions struct {
-	Root        string
-	WorkspaceID string
-	ProjectID   string
-	DeviceID    string
-	ServerURL   string
-	CLIVersion  string
-	Target      string
-	Now         time.Time
+	Root              string
+	WorkspaceID       string
+	ProjectID         string
+	DeviceID          string
+	ServerURL         string
+	CLIVersion        string
+	Target            string
+	EnvironmentDigest string
+	Now               time.Time
 }
 
 type Status struct {
@@ -160,7 +168,7 @@ func Plan(root, target string) (InitPlan, error) {
 	for _, file := range files {
 		actions = append(actions, FileAction{Path: file.path, Action: "create", Mode: file.mode})
 	}
-	for _, path := range []string{".contentcloud/project.yaml", ".contentcloud/template.lock", ".contentcloud/sync-state.json"} {
+	for _, path := range []string{".contentcloud/workspace.yaml", ".contentcloud/template.lock", ".contentcloud/sync-state.json"} {
 		actions = append(actions, FileAction{Path: path, Action: "create", Mode: "local_state"})
 	}
 	if state == "workspace" {
@@ -222,10 +230,18 @@ func Initialize(options InitOptions) (Status, error) {
 	if workspaceID == "" {
 		workspaceID = domain.NewID()
 	}
-	binding := Binding{SchemaVersion: SchemaVersion, WorkspaceID: workspaceID, ProjectID: options.ProjectID, DeviceID: options.DeviceID, ServerURL: strings.TrimRight(options.ServerURL, "/"), InitializedAt: options.Now}
-	lock := TemplateLock{SchemaVersion: SchemaVersion, TemplateID: TemplateID, TemplateVersion: TemplateVersion, CLIVersion: options.CLIVersion, Targets: plan.Targets, Files: managed, Skills: skillComponents, MCPServers: []InstalledComponent{{Name: "contentcloud-local", Version: options.CLIVersion}}, InstalledAt: options.Now}
-	syncState := SyncState{SchemaVersion: SchemaVersion, Published: map[string]PublishedCheckpoint{}, UpdatedAt: options.Now}
-	if err := writeJSON(filepath.Join(plan.Root, ".contentcloud", "project.yaml"), binding); err != nil {
+	lock := TemplateLock{SchemaVersion: TemplateLockSchemaVersion, TemplateID: TemplateID, TemplateVersion: TemplateVersion, CLIVersion: options.CLIVersion, Targets: plan.Targets, Files: managed, Skills: skillComponents, MCPServers: []InstalledComponent{{Name: "contentcloud-local", Version: options.CLIVersion}}, InstalledAt: options.Now}
+	environmentDigest := strings.TrimSpace(options.EnvironmentDigest)
+	if environmentDigest == "" {
+		hash, hashErr := domain.CanonicalHash(lock)
+		if hashErr != nil {
+			return Status{}, hashErr
+		}
+		environmentDigest = "sha256:" + hash
+	}
+	binding := Binding{SchemaVersion: WorkspaceSchemaVersion, WorkspaceID: workspaceID, ProjectID: options.ProjectID, LayoutVersion: LayoutVersion, EnvironmentDigest: environmentDigest, DeviceID: options.DeviceID, ServerURL: strings.TrimRight(options.ServerURL, "/"), CreatedAt: options.Now}
+	syncState := SyncState{SchemaVersion: SyncStateSchemaVersion, Published: map[string]PublishedCheckpoint{}, UpdatedAt: options.Now}
+	if err := writeYAML(filepath.Join(plan.Root, ".contentcloud", "workspace.yaml"), binding); err != nil {
 		return Status{}, err
 	}
 	if err := writeJSON(filepath.Join(plan.Root, ".contentcloud", "template.lock"), lock); err != nil {
@@ -249,12 +265,15 @@ func FindRoot(start string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if resolved, resolveErr := filepath.EvalSymlinks(absolute); resolveErr == nil {
+		absolute = resolved
+	}
 	info, err := os.Stat(absolute)
 	if err == nil && !info.IsDir() {
 		absolute = filepath.Dir(absolute)
 	}
 	for dir := absolute; ; dir = filepath.Dir(dir) {
-		if _, err := os.Stat(filepath.Join(dir, ".contentcloud", "project.yaml")); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, ".contentcloud", "workspace.yaml")); err == nil {
 			return dir, nil
 		}
 		parent := filepath.Dir(dir)
@@ -271,8 +290,11 @@ func LoadStatus(root string) (Status, error) {
 		return Status{}, err
 	}
 	var binding Binding
-	if err := readJSON(filepath.Join(resolved, ".contentcloud", "project.yaml"), &binding); err != nil {
+	if err := readYAML(filepath.Join(resolved, ".contentcloud", "workspace.yaml"), &binding); err != nil {
 		return Status{}, fmt.Errorf("read workspace binding: %w", err)
+	}
+	if binding.SchemaVersion != WorkspaceSchemaVersion || binding.LayoutVersion != LayoutVersion || binding.WorkspaceID == "" || binding.ProjectID == "" {
+		return Status{}, domain.Conflict("WORKSPACE_LAYOUT_UNSUPPORTED", "工作区不是 ContentCloud V3 布局")
 	}
 	var lock TemplateLock
 	if err := readJSON(filepath.Join(resolved, ".contentcloud", "template.lock"), &lock); err != nil {
@@ -289,7 +311,7 @@ func LoadStatus(root string) (Status, error) {
 		Binding:              binding,
 		Template:             lock,
 		Sync:                 syncState,
-		SourceCount:          countFiles(filepath.Join(resolved, "raw", "inbox")),
+		SourceCount:          sourceCount(resolved),
 		PendingFeedbackCount: countFiles(filepath.Join(resolved, ".contentcloud", "inbox", "review-feedback")),
 		PendingDecisionCount: countFiles(filepath.Join(resolved, ".contentcloud", "inbox", "decision-deltas")),
 		ModifiedManagedFiles: modified,
@@ -307,7 +329,8 @@ func Doctor(root string) (DoctorReport, error) {
 	mcpOK, mcpMessage := installedMCPCheck(status.Root, status.Template)
 	routingInspection, _ := InspectCapabilityRouting(status.Root)
 	checks := map[string]Check{
-		"workspace_binding":  {OK: status.Binding.ProjectID != "" && status.Binding.WorkspaceID != "", Required: true, Message: "项目与工作区绑定可读"},
+		"workspace_binding":  {OK: status.Binding.SchemaVersion == WorkspaceSchemaVersion && status.Binding.LayoutVersion == LayoutVersion && status.Binding.ProjectID != "" && status.Binding.WorkspaceID != "", Required: true, Message: "V3 项目与工作区绑定可读"},
+		"workspace_writable": bindingWriteProbe(status.Root),
 		"template_lock":      {OK: status.Template.TemplateVersion != "", Required: true, Message: "模板锁文件可读"},
 		"managed_files":      {OK: len(status.ModifiedManagedFiles) == 0 && len(status.MissingManagedFiles) == 0, Required: true, Message: managedMessage(status)},
 		"skills":             {OK: skillsOK, Required: true, Message: skillsMessage},
@@ -349,7 +372,7 @@ func ProjectBinding(root string) (Binding, error) {
 		return Binding{}, err
 	}
 	var binding Binding
-	if err := readJSON(filepath.Join(resolved, ".contentcloud", "project.yaml"), &binding); err != nil {
+	if err := readYAML(filepath.Join(resolved, ".contentcloud", "workspace.yaml"), &binding); err != nil {
 		return Binding{}, err
 	}
 	return binding, nil
@@ -468,53 +491,46 @@ func replaceFile(path string, body []byte, mode fs.FileMode) error {
 
 func template(targets []string) ([]templateFile, []string, error) {
 	dirs := []string{
-		".contentcloud/inbox/review-feedback", ".contentcloud/inbox/decision-deltas", ".contentcloud/cache/approved", ".contentcloud/skills", ".contentcloud/mcp",
-		"methodology", "ontology/rules", "ontology/vocabularies", "schemas", "knowledge/index", "knowledge/sources", "knowledge/evidence", "knowledge/facts", "knowledge/claims", "knowledge/assets", "knowledge/rights", "knowledge/conflicts", "knowledge/packs",
-		"raw/inbox", "work/runs", "work/claims", "work/handoffs", "workflows", "scripts", "outputs/briefs", "outputs/scripts", "outputs/storyboards", "outputs/reports", "outputs/delivery",
+		".contentcloud/inbox/assignments", ".contentcloud/inbox/review-feedback", ".contentcloud/inbox/decisions", ".contentcloud/cache/approved", ".contentcloud/cache/schemas", ".contentcloud/locks/runs", ".contentcloud/mcp", ".contentcloud/tmp",
+		"00-inbox/ideas", "00-inbox/unregistered-sources",
+		"10-context/intents",
+		"20-sources/originals", "20-sources/extracts",
+		"30-knowledge/schema", "30-knowledge/pages/sources", "30-knowledge/pages/evidence", "30-knowledge/pages/facts", "30-knowledge/pages/claims", "30-knowledge/pages/assets", "30-knowledge/pages/rights", "30-knowledge/pages/conflicts", "30-knowledge/pages/domain", "30-knowledge/imports", "30-knowledge/packs",
+		"40-work/queues", "40-work/runs", "40-work/handoffs",
+		"50-production/plans", "50-production/campaigns", "50-production/briefs", "50-production/batches", "50-production/scripts", "50-production/media",
+		"60-delivery/packages", "60-delivery/exports",
+		"70-results/imports", "70-results/observations", "70-results/learnings",
+		"90-archive", "workflows", "scripts",
 	}
 	files := []templateFile{
 		{path: "AGENTS.md", mode: "managed_block", body: []byte(capabilityrouting.ManagedBlock())},
-		{path: "methodology/README.md", mode: "managed_merge", body: []byte(methodologyReadme)},
-		{path: "ontology/classes.yaml", mode: "managed_replace", body: []byte(classesYAML)},
-		{path: "ontology/properties.yaml", mode: "managed_replace", body: []byte(propertiesYAML)},
-		{path: "raw/.gitignore", mode: "managed_replace", body: []byte("inbox/*\n!inbox/.gitkeep\n")},
-		{path: "raw/inbox/.gitkeep", mode: "managed_replace", body: []byte{}},
-		{path: "raw/source-registry.yaml", mode: "seed_once", body: []byte("{\n  \"schema_version\": \"2.0\",\n  \"sources\": []\n}\n")},
-		{path: "schemas/knowledge-candidates-1.0.schema.json", mode: "managed_replace", body: contracts.KnowledgeCandidatesSchema},
-		{path: "schemas/brief-2.0.schema.json", mode: "managed_replace", body: contracts.BriefV2Schema},
-		{path: "schemas/creative-directions-2.0.schema.json", mode: "managed_replace", body: contracts.CreativeDirectionsV2Schema},
-		{path: "schemas/script-package-2.0.schema.json", mode: "managed_replace", body: contracts.ScriptPackageV2Schema},
-		{path: "work/current-focus.md", mode: "seed_once", body: []byte("# 当前焦点\n\n")},
-		{path: "work/conflicts.md", mode: "seed_once", body: []byte("# 待解决冲突\n\n")},
-		{path: "work/knowledge-gaps.md", mode: "seed_once", body: []byte("# 知识缺口\n\n")},
-		{path: "work/review-queue.md", mode: "seed_once", body: []byte("# 本地审核队列\n\n")},
-		{path: "workflows/knowledge-to-script.md", mode: "managed_merge", body: []byte(workflowReadme)},
+		{path: "00-inbox/.gitignore", mode: "managed_replace", body: []byte("unregistered-sources/*\n!unregistered-sources/.gitkeep\n")},
+		{path: "00-inbox/unregistered-sources/.gitkeep", mode: "managed_replace", body: []byte{}},
+		{path: "10-context/client.yaml", mode: "seed_once", body: []byte(contextClientYAML)},
+		{path: "10-context/project.yaml", mode: "seed_once", body: []byte(contextProjectYAML)},
+		{path: "10-context/methodology.yaml", mode: "seed_once", body: []byte(contextMethodologyYAML)},
+		{path: "10-context/service-plan.yaml", mode: "seed_once", body: []byte(contextServicePlanYAML)},
+		{path: "20-sources/registry.yaml", mode: "seed_once", body: []byte(sourceRegistryYAML)},
+		{path: "30-knowledge/schema/workspace-3.0.schema.json", mode: "managed_replace", body: contracts.WorkspaceV3Schema},
+		{path: "30-knowledge/schema/source-registry-3.0.schema.json", mode: "managed_replace", body: contracts.SourceRegistryV3Schema},
+		{path: "30-knowledge/schema/knowledge-page-3.0.schema.json", mode: "managed_replace", body: contracts.KnowledgePageV3Schema},
+		{path: "30-knowledge/schema/knowledge-pack-3.0.schema.json", mode: "managed_replace", body: contracts.KnowledgePackV3Schema},
+		{path: "30-knowledge/schema/local-run-3.0.schema.json", mode: "managed_replace", body: contracts.LocalRunV3Schema},
+		{path: "30-knowledge/schema/handoff-1.0.schema.json", mode: "managed_replace", body: contracts.HandoffV1Schema},
+		{path: "30-knowledge/schema/content-batch-3.0.schema.json", mode: "managed_replace", body: contracts.ContentBatchV3Schema},
+		{path: "30-knowledge/schema/submission-bundle-3.0.schema.json", mode: "managed_replace", body: contracts.SubmissionBundleV3Schema},
+		{path: "30-knowledge/index.md", mode: "generated", body: []byte(knowledgeIndexMarkdown)},
+		{path: "40-work/focus.md", mode: "seed_once", body: []byte("# 当前焦点\n\n")},
+		{path: "40-work/queues/review.md", mode: "seed_once", body: []byte("# 本地审核队列\n\n")},
+		{path: "40-work/queues/decisions.md", mode: "seed_once", body: []byte("# 待决策项\n\n")},
+		{path: "40-work/queues/gaps.md", mode: "seed_once", body: []byte("# 知识缺口\n\n")},
+		{path: "workflows/knowledge-to-content.md", mode: "managed_replace", body: []byte(workflowReadme)},
 		{path: ".contentcloud/mcp/contentcloud-local.json", mode: "managed_replace", body: []byte(mcpDescriptor)},
-	}
-	for _, name := range builtinskills.Names() {
-		skillFiles, err := builtinskills.Files(name)
-		if err != nil {
-			return nil, nil, err
-		}
-		for _, path := range skillFiles {
-			body, err := builtinskills.Read(name, path)
-			if err != nil {
-				return nil, nil, err
-			}
-			files = append(files, templateFile{path: filepath.ToSlash(filepath.Join(".contentcloud", "skills", name, path)), mode: "managed_replace", body: body})
-			for _, target := range targets {
-				if destination, ok := agentSkillPath(target, name, path); ok {
-					files = append(files, templateFile{path: destination, mode: "managed_replace", body: body})
-				}
-			}
-		}
 	}
 	for _, target := range targets {
 		switch target {
 		case "codex":
 			files = append(files, templateFile{path: ".codex/config.toml", mode: "managed_merge", body: []byte(codexMCPConfig)})
-		case "claude":
-			files = append(files, templateFile{path: ".mcp.json", mode: "managed_merge", body: []byte(claudeMCPConfig)})
 		}
 	}
 	sort.Strings(dirs)
@@ -524,23 +540,19 @@ func template(targets []string) ([]templateFile, []string, error) {
 
 func targets(value string) ([]string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "all":
-		return []string{"codex", "claude"}, nil
+	case "", "codex-plugin":
+		return []string{"codex-plugin"}, nil
 	case "codex":
 		return []string{"codex"}, nil
-	case "codex-plugin":
-		return []string{"codex-plugin"}, nil
-	case "claude":
-		return []string{"claude"}, nil
 	case "none":
 		return []string{}, nil
 	default:
-		return nil, domain.Invalid("WORKSPACE_TARGET_INVALID", "--target 必须为 codex-plugin、codex、claude、all 或 none")
+		return nil, domain.Invalid("WORKSPACE_TARGET_INVALID", "--target 必须为 codex-plugin、codex 或 none")
 	}
 }
 
 func inspectTarget(root string) (string, []string, error) {
-	if _, err := os.Stat(filepath.Join(root, ".contentcloud", "project.yaml")); err == nil {
+	if _, err := os.Stat(filepath.Join(root, ".contentcloud", "workspace.yaml")); err == nil {
 		return "workspace", nil, nil
 	}
 	entries, err := os.ReadDir(root)
@@ -572,17 +584,6 @@ func conflictError(paths []string) error {
 	return err
 }
 
-func agentSkillPath(target, name, path string) (string, bool) {
-	switch target {
-	case "codex":
-		return filepath.ToSlash(filepath.Join(".agents", "skills", name, path)), true
-	case "claude":
-		return filepath.ToSlash(filepath.Join(".claude", "skills", name, path)), true
-	default:
-		return "", false
-	}
-}
-
 func writeNewFile(path string, body []byte) error {
 	if _, err := os.Stat(path); err == nil {
 		return domain.Conflict("WORKSPACE_FILE_EXISTS", "初始化拒绝覆盖已有文件："+path)
@@ -602,6 +603,27 @@ func writeJSON(path string, value any) error {
 	}
 	body = append(body, '\n')
 	return writeNewFile(path, body)
+}
+
+func writeYAML(path string, value any) error {
+	body, err := yaml.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return writeNewFile(path, body)
+}
+
+func readYAML(path string, value any) error {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(body))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(value); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	return nil
 }
 
 func readJSON(path string, value any) error {
@@ -654,6 +676,20 @@ func verifyManagedFiles(root string, files []ManagedFile) ([]string, []string) {
 			}
 			continue
 		}
+		if file.Mode == "seed_once" || file.Mode == "generated" {
+			continue
+		}
+		if file.Mode == "managed_merge" {
+			files, _, err := template([]string{"codex"})
+			if err == nil {
+				for _, expected := range files {
+					if expected.path == file.Path && !bytes.Contains(body, expected.body) {
+						modified = append(modified, file.Path)
+					}
+				}
+			}
+			continue
+		}
 		if digest(body) != file.SHA256 {
 			modified = append(modified, file.Path)
 		}
@@ -701,30 +737,22 @@ func UpdateCapabilityRouting(root string) (capabilityrouting.Inspection, error) 
 }
 
 func installedSkillsCheck(root string, lock TemplateLock) (bool, string) {
+	_ = root
+	locked := map[string]InstalledComponent{}
 	for _, skill := range lock.Skills {
-		body, err := os.ReadFile(filepath.Join(root, ".contentcloud", "skills", skill.Name, "SKILL.md"))
-		if err != nil || digest(body) != skill.SHA256 {
-			return false, "ContentCloud Skill 审计副本缺失或已修改"
-		}
-		for _, target := range lock.Targets {
-			path, required := agentSkillPath(target, skill.Name, "SKILL.md")
-			if !required {
-				continue
-			}
-			body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
-			if err != nil || digest(body) != skill.SHA256 {
-				return false, "项目级 Agent Skill 缺失或已修改"
-			}
-		}
+		locked[skill.Name] = skill
 	}
-	if len(lock.Skills) == 0 {
-		return false, "模板锁未记录 ContentCloud Skills"
+	for _, name := range builtinskills.Names() {
+		body, err := builtinskills.Read(name, "SKILL.md")
+		component, ok := locked[name]
+		if err != nil || !ok || component.SHA256 != digest(body) {
+			return false, "模板锁中的 Plugin Skill 摘要不完整或不一致"
+		}
 	}
 	if hasTarget(lock.Targets, "codex-plugin") {
-		return true, "Skills 由 Codex Plugin 提供，Workspace 审计副本完整"
+		return true, "Skills 由 Codex Plugin 提供，Workspace 不复制 Skill 源码"
 	}
-	return true, "项目级 Agent Skills 与 Workspace 审计副本完整"
-
+	return true, "Plugin Skill 版本摘要完整；宿主安装状态由 Bootstrap 检查"
 }
 
 func installedMCPCheck(root string, lock TemplateLock) (bool, string) {
@@ -734,13 +762,52 @@ func installedMCPCheck(root string, lock TemplateLock) (bool, string) {
 	if hasTarget(lock.Targets, "codex") && !fileExists(filepath.Join(root, ".codex", "config.toml")) {
 		return false, "Codex 项目级 MCP 配置缺失"
 	}
-	if hasTarget(lock.Targets, "claude") && !fileExists(filepath.Join(root, ".mcp.json")) {
-		return false, "Claude 项目级 MCP 配置缺失"
-	}
 	if hasTarget(lock.Targets, "codex-plugin") {
 		return true, "contentcloud-local MCP 由 Codex Plugin 提供，Workspace 审计描述完整"
 	}
 	return true, "contentcloud-local 项目级 MCP 配置完整"
+}
+
+func bindingWriteProbe(root string) Check {
+	directory := filepath.Join(root, ".contentcloud", "tmp")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return Check{OK: false, Required: true, Message: "无法创建 ContentCloud 临时目录：" + err.Error()}
+	}
+	file, err := os.CreateTemp(directory, "doctor-write-*.tmp")
+	if err != nil {
+		return Check{OK: false, Required: true, Message: "工作区不可写，请在 Codex 中信任并打开项目根目录：" + err.Error()}
+	}
+	path := file.Name()
+	destination := path + ".committed"
+	defer os.Remove(path)
+	defer os.Remove(destination)
+	if _, err := file.WriteString("contentcloud-v3-write-probe\n"); err != nil {
+		_ = file.Close()
+		return Check{OK: false, Required: true, Message: "工作区写入探针失败：" + err.Error()}
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return Check{OK: false, Required: true, Message: "工作区写入探针无法落盘：" + err.Error()}
+	}
+	if err := file.Close(); err != nil {
+		return Check{OK: false, Required: true, Message: "工作区写入探针关闭失败：" + err.Error()}
+	}
+	if err := os.Rename(path, destination); err != nil {
+		return Check{OK: false, Required: true, Message: "工作区原子替换探针失败：" + err.Error()}
+	}
+	body, err := os.ReadFile(destination)
+	if err != nil || string(body) != "contentcloud-v3-write-probe\n" {
+		return Check{OK: false, Required: true, Message: "工作区原子替换结果无法校验"}
+	}
+	return Check{OK: true, Required: true, Message: ".contentcloud 原子写入探针通过"}
+}
+
+func sourceCount(root string) int {
+	registry, err := loadSourceRegistry(root)
+	if err != nil {
+		return 0
+	}
+	return len(registry.Sources)
 }
 
 func hasTarget(targets []string, expected string) bool {
@@ -783,46 +850,54 @@ func digest(body []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-const methodologyReadme = `# 方法论
-
-本目录保存项目采用的方法论和业务规则。客户事实应写入 knowledge/，当前任务状态应写入 work/，生成结果应写入 outputs/。
-`
-
 const workflowReadme = `# 知识到剧本
 
-1. 用 contentcloud local source register/ingest 登记客户资料并生成可定位 EvidenceBundle。
-2. 初始化 LocalRunContext，由本地 Agent Skill 从已接受证据生成 knowledge-candidates/1.0。
-3. 用 contentcloud local knowledge import/lint/query/diagnose/pack 完成候选治理、15维诊断和七层知识包。
-4. 用 contentcloud publish knowledge --dry-run 检查审核可见范围，再显式提交云端审核。
-5. 用户明确要求刷新批准输入时拉取 ApprovedSnapshot；后续对话从 verified 本地 cache 读取，再基于 eligible 知识完成策略和 Brief。
-6. 生成带引用、镜头连续性和可生成性约束的 Script Package，并显式 publish。
+1. 登记 20-sources/ 原件并生成可定位 Evidence。
+2. 在独立 LocalRun 中把候选写入 30-knowledge/pages/**/*.md。
+3. 运行知识 lint、15 维诊断和七层 KnowledgePack 构建。
+4. 显式 preflight 并确认后发布 knowledge Revision。
+5. 仅在用户要求刷新时拉取 ApprovedSnapshot，后续对话优先读取本地不可变缓存。
+6. 基于 Intent、eligible/blocked 集合生成 ContentBatch；blocked 批次可评审但不可交付。
 `
 
-const classesYAML = `schema_version: "2.0"
-classes:
-  - Client
-  - Brand
-  - Product
-  - Source
-  - Evidence
-  - Fact
-  - Claim
-  - Asset
-  - Rights
-  - Brief
-  - ScriptPackage
+const contextClientYAML = `schema_version: contentcloud.client-context/3.0
+client_id: ""
+brand_refs: []
+product_refs: []
+owners: []
 `
 
-const propertiesYAML = `schema_version: "2.0"
-required:
-  Fact: [id, subject, predicate, value, evidence_refs]
-  Claim: [id, statement, risk_level, evidence_refs]
-  ScriptPackage: [schema_version, title, shots, citations]
+const contextProjectYAML = `schema_version: contentcloud.project-context/3.0
+stage: initiation
+gate: in_progress
+objectives: []
+constraints: []
+`
+
+const contextMethodologyYAML = `schema_version: contentcloud.methodology-context/3.0
+methodology_version_id: ""
+dimensions: []
+`
+
+const contextServicePlanYAML = `schema_version: contentcloud.service-plan/3.0
+phase: initiation
+roles: []
+gates: []
+deliverables: []
+`
+
+const sourceRegistryYAML = `schema_version: contentcloud.source-registry/3.0
+sources: []
+`
+
+const knowledgeIndexMarkdown = `# 可信知识索引
+
+本文件是可重建投影。唯一可编辑知识事实源位于 30-knowledge/pages/。
 `
 
 const mcpDescriptor = `{
   "name": "contentcloud-local",
-  "version": "2.0",
+  "version": "3.0",
   "transport": "stdio",
   "command": "contentcloud",
   "args": ["mcp", "serve"],
@@ -833,14 +908,4 @@ const mcpDescriptor = `{
 const codexMCPConfig = `[mcp_servers.contentcloud-local]
 command = "contentcloud"
 args = ["mcp", "serve"]
-`
-
-const claudeMCPConfig = `{
-  "mcpServers": {
-    "contentcloud-local": {
-      "command": "contentcloud",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
 `

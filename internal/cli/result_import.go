@@ -78,16 +78,16 @@ func observationsFromRows(rows [][]string) ([]app.CreateObservationInput, error)
 		headers[i] = strings.ToLower(strings.TrimSpace(header))
 	}
 	required := map[string]bool{"platform": false, "account_alias": false, "published_at": false, "window_hours": false, "sample_status": false}
-	hasVersionColumn := false
+	hasSnapshotColumn := false
 	for _, header := range headers {
-		if header == "approved_snapshot_id" || header == "script_version_id" {
-			hasVersionColumn = true
+		if header == "approved_snapshot_id" {
+			hasSnapshotColumn = true
 		}
 		if _, ok := required[header]; ok {
 			required[header] = true
 		}
 	}
-	if !hasVersionColumn {
+	if !hasSnapshotColumn {
 		return nil, domain.Invalid("RESULT_COLUMN_REQUIRED", "结果表缺少列: approved_snapshot_id")
 	}
 	for name, present := range required {
@@ -116,8 +116,6 @@ func observationsFromRows(rows [][]string) ([]app.CreateObservationInput, error)
 			switch header {
 			case "project_id":
 				input.ProjectID = value
-			case "script_version_id":
-				input.ScriptVersionID = value
 			case "approved_snapshot_id":
 				input.ApprovedSnapshotID = value
 			case "platform":

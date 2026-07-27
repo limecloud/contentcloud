@@ -90,13 +90,6 @@ func (s *Service) ReportTask(ctx context.Context, actor Actor, device domain.Dev
 		return nil, err
 	}
 	switch run.TaskType {
-	case "script_generate", "script_revise":
-		var pkg domain.ScriptPackage
-		if err := decodeStrict(body, &pkg); err != nil {
-			s.failMalformedOutput(ctx, actor, device, run, attemptID, runToken, "script_json")
-			return nil, domain.Invalid("CAPABILITY_OUTPUT_INVALID", "本地 Agent 返回的 Script Package JSON 无效: "+err.Error())
-		}
-		return s.ReportRunAttempt(ctx, actor, device, runID, attemptID, runToken, pkg, requestID)
 	case "knowledge_extract":
 		var pkg domain.KnowledgeExtractionPackage
 		if err := decodeStrict(body, &pkg); err != nil {

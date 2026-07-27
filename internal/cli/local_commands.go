@@ -12,20 +12,20 @@ import (
 
 func (r *Root) localCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "local", Short: "Run client-first source, knowledge, and LocalRun workflows"}
-	cmd.AddCommand(r.localSourceCommand(), r.localRunCommand(), r.localHandoffCommand(), r.localKnowledgeCommand(), r.localBriefCommand(), r.localScriptCommand())
+	cmd.AddCommand(r.localSourceCommand(), r.localRunCommand(), r.localHandoffCommand(), r.localKnowledgeCommand(), r.localBriefCommand(), r.localContentCommand())
 	return cmd
 }
 
 func (r *Root) localBriefCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "brief", Short: "Validate local ScriptPackage V2 Brief inputs"}
+	cmd := &cobra.Command{Use: "brief", Short: "Validate local V3 Brief inputs"}
 	var directory string
-	lint := &cobra.Command{Use: "lint <brief.json>", Args: cobra.ExactArgs(1), Short: "Validate a Brief V2 against current eligible knowledge", RunE: func(cmd *cobra.Command, args []string) error {
+	lint := &cobra.Command{Use: "lint <brief.json>", Args: cobra.ExactArgs(1), Short: "Validate a V3 Brief against current eligible knowledge", RunE: func(cmd *cobra.Command, args []string) error {
 		report, brief, err := localworkspace.LintBrief(directory, args[0])
 		if err != nil {
 			return err
 		}
 		if !report.Valid {
-			err := domain.Invalid("BRIEF_LINT_FAILED", "Brief V2 确定性校验失败")
+			err := domain.Invalid("BRIEF_LINT_FAILED", "Brief V3 确定性校验失败")
 			err.Details = report
 			return err
 		}
@@ -36,102 +36,102 @@ func (r *Root) localBriefCommand() *cobra.Command {
 	return cmd
 }
 
-func (r *Root) localScriptCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "script", Short: "Create CreativeBatch manifests and govern ScriptPackage V2"}
-	batch := &cobra.Command{Use: "batch", Short: "Create, lint, and finalize local CreativeBatch manifests"}
+func (r *Root) localContentCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "content", Short: "Create and govern V3 ContentBatch and ContentItem objects"}
+	batch := &cobra.Command{Use: "batch", Short: "Create, lint, and finalize local ContentBatch manifests"}
 
 	var initDirectory, briefID, directionsFile, variant, batchID string
 	var requestedCount int
 	var controlled []string
-	init := &cobra.Command{Use: "init", Args: cobra.NoArgs, Short: "Freeze approved Brief and Knowledge snapshots into a CreativeBatch", RunE: func(cmd *cobra.Command, args []string) error {
-		result, err := localworkspace.CreateCreativeBatch(localworkspace.CreateCreativeBatchOptions{Root: initDirectory, BriefID: briefID, DirectionsFile: directionsFile, RequestedCount: requestedCount, VariantDimension: variant, ControlledDimensions: controlled, BatchID: batchID, Now: time.Now()})
+	init := &cobra.Command{Use: "init", Args: cobra.NoArgs, Short: "Freeze approved Brief and Knowledge snapshots into a ContentBatch", RunE: func(cmd *cobra.Command, args []string) error {
+		result, err := localworkspace.CreateContentBatch(localworkspace.CreateContentBatchOptions{Root: initDirectory, BriefID: briefID, DirectionsFile: directionsFile, RequestedCount: requestedCount, VariantDimension: variant, ControlledDimensions: controlled, BatchID: batchID, Now: time.Now()})
 		if err != nil {
 			return err
 		}
-		return r.writeOK("local.script.batch.init", result)
+		return r.writeOK("local.content.batch.init", result)
 	}}
 	init.Flags().StringVar(&initDirectory, "directory", "", "workspace path; defaults to current directory")
 	init.Flags().StringVar(&briefID, "brief", "", "approved Brief object ID; defaults to the newest eligible Brief")
 	init.Flags().StringVar(&directionsFile, "directions", "", "workspace-relative CreativeDirection JSON array")
-	init.Flags().IntVar(&requestedCount, "count", 0, "number of ScriptPackage candidates; defaults to selected direction count")
+	init.Flags().IntVar(&requestedCount, "count", 0, "number of ContentItem candidates; defaults to selected direction count")
 	init.Flags().StringVar(&variant, "variant", "hook", "hook, audience, scenario, visualization, cta, or duration")
 	init.Flags().StringSliceVar(&controlled, "control", nil, "controlled experiment dimension; repeat as needed")
-	init.Flags().StringVar(&batchID, "id", "", "optional stable CreativeBatch ID")
+	init.Flags().StringVar(&batchID, "id", "", "optional stable ContentBatch ID")
 
 	var batchLintDirectory, batchLintFile string
-	var batchLintScripts []string
-	batchLint := &cobra.Command{Use: "lint", Args: cobra.NoArgs, Short: "Validate all ScriptPackage candidates in a batch", RunE: func(cmd *cobra.Command, args []string) error {
-		report, err := localworkspace.LintCreativeBatch(batchLintDirectory, batchLintFile, batchLintScripts)
+	var batchLintContent []string
+	batchLint := &cobra.Command{Use: "lint", Args: cobra.NoArgs, Short: "Validate all ContentItem candidates in a batch", RunE: func(cmd *cobra.Command, args []string) error {
+		report, err := localworkspace.LintContentBatch(batchLintDirectory, batchLintFile, batchLintContent)
 		if err != nil {
 			return err
 		}
 		if !report.Valid {
-			err := domain.Invalid("CREATIVE_BATCH_LINT_FAILED", "CreativeBatch 确定性校验失败")
+			err := domain.Invalid("CONTENT_BATCH_LINT_FAILED", "ContentBatch 确定性校验失败")
 			err.Details = report
 			return err
 		}
-		return r.writeOK("local.script.batch.lint", report)
+		return r.writeOK("local.content.batch.lint", report)
 	}}
 	batchLint.Flags().StringVar(&batchLintDirectory, "directory", "", "workspace path; defaults to current directory")
-	batchLint.Flags().StringVar(&batchLintFile, "batch", "", "workspace-relative batch.json")
-	batchLint.Flags().StringSliceVar(&batchLintScripts, "file", nil, "ScriptPackage V2 file; repeat for every candidate")
+	batchLint.Flags().StringVar(&batchLintFile, "batch", "", "workspace-relative ContentBatch manifest.yaml")
+	batchLint.Flags().StringSliceVar(&batchLintContent, "file", nil, "ContentItem JSON file; repeat for every candidate")
 
 	var finalizeDirectory, finalizeBatch string
-	var finalizeScripts []string
-	finalize := &cobra.Command{Use: "finalize", Args: cobra.NoArgs, Short: "Finalize a fully validated local CreativeBatch", RunE: func(cmd *cobra.Command, args []string) error {
-		result, err := localworkspace.FinalizeCreativeBatch(finalizeDirectory, finalizeBatch, finalizeScripts, time.Now())
+	var finalizeContent []string
+	finalize := &cobra.Command{Use: "finalize", Args: cobra.NoArgs, Short: "Finalize a fully validated local ContentBatch", RunE: func(cmd *cobra.Command, args []string) error {
+		result, err := localworkspace.FinalizeContentBatch(finalizeDirectory, finalizeBatch, finalizeContent, time.Now())
 		if err != nil {
 			return err
 		}
-		return r.writeOK("local.script.batch.finalize", result)
+		return r.writeOK("local.content.batch.finalize", result)
 	}}
 	finalize.Flags().StringVar(&finalizeDirectory, "directory", "", "workspace path; defaults to current directory")
-	finalize.Flags().StringVar(&finalizeBatch, "batch", "", "workspace-relative batch.json")
-	finalize.Flags().StringSliceVar(&finalizeScripts, "file", nil, "ScriptPackage V2 file; repeat for every candidate")
+	finalize.Flags().StringVar(&finalizeBatch, "batch", "", "workspace-relative ContentBatch manifest.yaml")
+	finalize.Flags().StringSliceVar(&finalizeContent, "file", nil, "ContentItem JSON file; repeat for every candidate")
 	batch.AddCommand(init, batchLint, finalize)
 
 	var lintDirectory, lintBatch string
-	lint := &cobra.Command{Use: "lint <script-package.json>", Args: cobra.ExactArgs(1), Short: "Validate one ScriptPackage V2 against its frozen batch context", RunE: func(cmd *cobra.Command, args []string) error {
-		report, _, err := localworkspace.LintScriptPackage(lintDirectory, args[0], lintBatch)
+	lint := &cobra.Command{Use: "lint <content-item.json>", Args: cobra.ExactArgs(1), Short: "Validate one ContentItem against its frozen ContentBatch context", RunE: func(cmd *cobra.Command, args []string) error {
+		report, _, err := localworkspace.LintContentItem(lintDirectory, args[0], lintBatch)
 		if err != nil {
 			return err
 		}
 		if !report.Valid {
-			err := domain.Invalid("SCRIPT_PACKAGE_LINT_FAILED", "ScriptPackage V2 确定性校验失败")
+			err := domain.Invalid("CONTENT_ITEM_LINT_FAILED", "ContentItem 确定性校验失败")
 			err.Details = report
 			return err
 		}
-		return r.writeOK("local.script.lint", report)
+		return r.writeOK("local.content.item.lint", report)
 	}}
 	lint.Flags().StringVar(&lintDirectory, "directory", "", "workspace path; defaults to current directory")
-	lint.Flags().StringVar(&lintBatch, "batch", "", "workspace-relative batch.json; inferred from creative_batch_id when omitted")
+	lint.Flags().StringVar(&lintBatch, "batch", "", "workspace-relative ContentBatch manifest.yaml; inferred from content_batch_id when omitted")
 
 	var diffDirectory, baselineFile, candidateFile string
 	var allowedPaths []string
 	diff := &cobra.Command{Use: "diff", Args: cobra.NoArgs, Short: "Detect undeclared drift in a revision or single-variable variant", RunE: func(cmd *cobra.Command, args []string) error {
-		result, err := localworkspace.DiffScriptPackages(diffDirectory, baselineFile, candidateFile, allowedPaths)
+		result, err := localworkspace.DiffContentItems(diffDirectory, baselineFile, candidateFile, allowedPaths)
 		if err != nil {
 			return err
 		}
 		if !result.Valid {
-			err := domain.Invalid("SCRIPT_REVISION_DRIFT", "修订包含未声明字段变化")
+			err := domain.Invalid("CONTENT_ITEM_REVISION_DRIFT", "ContentItem 修订包含未声明字段变化")
 			err.Details = result
 			return err
 		}
-		return r.writeOK("local.script.diff", result)
+		return r.writeOK("local.content.item.diff", result)
 	}}
 	diff.Flags().StringVar(&diffDirectory, "directory", "", "workspace path; defaults to current directory")
-	diff.Flags().StringVar(&baselineFile, "baseline", "", "workspace-relative immutable baseline ScriptPackage")
-	diff.Flags().StringVar(&candidateFile, "candidate", "", "workspace-relative revision ScriptPackage")
+	diff.Flags().StringVar(&baselineFile, "baseline", "", "workspace-relative immutable baseline ContentItem")
+	diff.Flags().StringVar(&candidateFile, "candidate", "", "workspace-relative revised ContentItem")
 	diff.Flags().StringSliceVar(&allowedPaths, "allow", nil, "allowed JSON Pointer prefix; repeat as needed")
 
 	var exportDirectory, outputDirectory string
-	export := &cobra.Command{Use: "export <approved-script-id>", Args: cobra.ExactArgs(1), Short: "Export an approved ScriptPackage V2 as JSON, Markdown, and XLSX", RunE: func(cmd *cobra.Command, args []string) error {
-		manifest, err := localworkspace.ExportApprovedScript(exportDirectory, args[0], outputDirectory, time.Now())
+	export := &cobra.Command{Use: "export <approved-content-item-id>", Args: cobra.ExactArgs(1), Short: "Export an approved ContentItem as JSON, Markdown, and XLSX", RunE: func(cmd *cobra.Command, args []string) error {
+		manifest, err := localworkspace.ExportApprovedContentItem(exportDirectory, args[0], outputDirectory, time.Now())
 		if err != nil {
 			return err
 		}
-		return r.writeOK("local.script.export", manifest)
+		return r.writeOK("local.content.delivery.export", manifest)
 	}}
 	export.Flags().StringVar(&exportDirectory, "directory", "", "workspace path; defaults to current directory")
 	export.Flags().StringVar(&outputDirectory, "out", "", "workspace-relative output directory")
@@ -211,7 +211,7 @@ func (r *Root) localRunCommand() *cobra.Command {
 	var sourceRefs []string
 	var withIngest bool
 	init := &cobra.Command{Use: "init", Args: cobra.NoArgs, Short: "Initialize a local ingest, query, or content run", RunE: func(cmd *cobra.Command, args []string) error {
-		value, err := localworkspace.InitLocalRun(localworkspace.InitLocalRunOptions{Root: initDirectory, RunID: runID, Intent: intent, SourceRefs: sourceRefs, WithIngest: withIngest, Now: time.Now()})
+		value, err := localworkspace.InitLocalRun(localworkspace.InitLocalRunOptions{Root: initDirectory, RunID: runID, Intent: intent, InputIDs: sourceRefs, WithIngest: withIngest, Now: time.Now()})
 		if err != nil {
 			return err
 		}
@@ -219,8 +219,8 @@ func (r *Root) localRunCommand() *cobra.Command {
 	}}
 	init.Flags().StringVar(&initDirectory, "directory", "", "workspace path; defaults to current directory")
 	init.Flags().StringVar(&runID, "id", "", "optional stable run ID")
-	init.Flags().StringVar(&intent, "intent", "content", "ingest, query, or content")
-	init.Flags().StringSliceVar(&sourceRefs, "source-ref", nil, "registered source ID; repeat as needed")
+	init.Flags().StringVar(&intent, "intent", "intent:content", "stable intent ID, such as intent:content")
+	init.Flags().StringSliceVar(&sourceRefs, "input", nil, "registered immutable source ID; repeat as needed")
 	init.Flags().BoolVar(&withIngest, "with-ingest", false, "start at the ingest stage")
 
 	var showDirectory string
@@ -237,7 +237,7 @@ func (r *Root) localRunCommand() *cobra.Command {
 	var recordRevision uint64
 	var recordSourceRefs, changedIDs, eligibleIDs, blockedIDs, findings, outputPaths []string
 	record := &cobra.Command{Use: "record", Args: cobra.NoArgs, Short: "Record immutable references and outputs in the current run", RunE: func(cmd *cobra.Command, args []string) error {
-		value, err := localworkspace.RecordClaimedLocalRun(localworkspace.RecordLocalRunOptions{Root: recordDirectory, RunID: recordRunID, ClaimToken: recordClaimToken, ExpectedRevision: recordRevision, SourceRefs: recordSourceRefs, ChangedIDs: changedIDs, EligibleIDs: eligibleIDs, BlockedIDs: blockedIDs, Findings: findings, OutputPaths: outputPaths, Now: time.Now()})
+		value, err := localworkspace.RecordClaimedLocalRun(localworkspace.RecordLocalRunOptions{Root: recordDirectory, RunID: recordRunID, ClaimToken: recordClaimToken, ExpectedRevision: recordRevision, InputIDs: recordSourceRefs, ChangedIDs: changedIDs, EligibleIDs: eligibleIDs, BlockedIDs: blockedIDs, Findings: findings, OutputPaths: outputPaths, Now: time.Now()})
 		if err != nil {
 			return err
 		}
@@ -269,7 +269,7 @@ func (r *Root) localRunCommand() *cobra.Command {
 	var advanceRevision uint64
 	var advanceSourceRefs, advanceChanged, advanceEligible, advanceBlocked, advanceFindings, advanceOutputs []string
 	advance := &cobra.Command{Use: "advance <stage>", Args: cobra.ExactArgs(1), Short: "Advance through a validated stage handoff", RunE: func(cmd *cobra.Command, args []string) error {
-		additions := localworkspace.RecordLocalRunOptions{ClaimToken: advanceClaimToken, ExpectedRevision: advanceRevision, SourceRefs: advanceSourceRefs, ChangedIDs: advanceChanged, EligibleIDs: advanceEligible, BlockedIDs: advanceBlocked, Findings: advanceFindings, OutputPaths: advanceOutputs}
+		additions := localworkspace.RecordLocalRunOptions{ClaimToken: advanceClaimToken, ExpectedRevision: advanceRevision, InputIDs: advanceSourceRefs, ChangedIDs: advanceChanged, EligibleIDs: advanceEligible, BlockedIDs: advanceBlocked, Findings: advanceFindings, OutputPaths: advanceOutputs}
 		value, err := localworkspace.AdvanceClaimedLocalRun(advanceDirectory, advanceRunID, args[0], additions, time.Now())
 		if err != nil {
 			return err

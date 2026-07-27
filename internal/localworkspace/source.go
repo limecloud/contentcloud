@@ -14,30 +14,41 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/ingest"
+	"gopkg.in/yaml.v3"
 )
 
 const localSourceSizeLimit = 100 << 20
 
+const (
+	SourceRegistrySchemaVersion = "contentcloud.source-registry/3.0"
+	EvidenceBundleSchemaVersion = "contentcloud.evidence-bundle/3.0"
+)
+
 var localSourceIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:._-]{0,199}$`)
 
 type SourceRegistry struct {
-	SchemaVersion string        `json:"schema_version"`
-	Sources       []LocalSource `json:"sources"`
+	SchemaVersion string        `json:"schema_version" yaml:"schema_version"`
+	Sources       []LocalSource `json:"sources" yaml:"sources"`
+}
+
+type SourceLocation struct {
+	Kind string `json:"kind" yaml:"kind"`
+	Path string `json:"path,omitempty" yaml:"path,omitempty"`
+	Ref  string `json:"ref,omitempty" yaml:"ref,omitempty"`
 }
 
 type LocalSource struct {
-	ID           string     `json:"id"`
-	Title        string     `json:"title"`
-	FilePath     string     `json:"file_path"`
-	SHA256       string     `json:"sha256"`
-	MIMEType     string     `json:"mime_type"`
-	SourceKind   string     `json:"source_kind"`
-	ByteSize     int64      `json:"byte_size"`
-	StorageMode  string     `json:"storage_mode"`
-	IngestStatus string     `json:"ingest_status"`
-	EvidencePath string     `json:"evidence_path,omitempty"`
-	RegisteredAt time.Time  `json:"registered_at"`
-	IngestedAt   *time.Time `json:"ingested_at,omitempty"`
+	ID            string         `json:"id" yaml:"id"`
+	Title         string         `json:"title" yaml:"title"`
+	Location      SourceLocation `json:"location" yaml:"location"`
+	SHA256        string         `json:"sha256" yaml:"sha256"`
+	MIMEType      string         `json:"mime_type" yaml:"mime_type"`
+	SourceKind    string         `json:"source_kind" yaml:"source_kind"`
+	ByteSize      int64          `json:"byte_size" yaml:"byte_size"`
+	IngestStatus  string         `json:"ingest_status" yaml:"ingest_status"`
+	ExtractionRef string         `json:"extraction_ref,omitempty" yaml:"extraction_ref,omitempty"`
+	RegisteredAt  time.Time      `json:"registered_at" yaml:"registered_at"`
+	IngestedAt    *time.Time     `json:"ingested_at,omitempty" yaml:"ingested_at,omitempty"`
 }
 
 type LocalEvidenceBundle struct {
@@ -141,13 +152,14 @@ func RegisterLocalSource(options RegisterLocalSourceOptions) (LocalSource, error
 			return LocalSource{}, domain.Conflict("LOCAL_SOURCE_DUPLICATE", "相同内容已登记为 "+existing.ID)
 		}
 	}
-	storedPath := absolute
+	location := SourceLocation{Kind: "external_readonly_ref", Ref: absolute}
 	if mode == "copy" {
-		destination := filepath.Join(root, "raw", "inbox", hash[:12]+"-"+filepath.Base(absolute))
+		fileName := hash[:12] + "-" + filepath.Base(absolute)
+		destination := filepath.Join(root, "20-sources", "originals", fileName)
 		if filepath.Clean(destination) != filepath.Clean(absolute) {
 			if existing, readErr := os.ReadFile(destination); readErr == nil {
 				if digest(existing) != hash {
-					return LocalSource{}, domain.Conflict("LOCAL_SOURCE_COPY_CONFLICT", "raw/inbox 中目标文件内容不同")
+					return LocalSource{}, domain.Conflict("LOCAL_SOURCE_COPY_CONFLICT", "20-sources/originals 中目标文件内容不同")
 				}
 			} else if !errors.Is(readErr, os.ErrNotExist) {
 				return LocalSource{}, readErr
@@ -155,16 +167,12 @@ func RegisterLocalSource(options RegisterLocalSourceOptions) (LocalSource, error
 				return LocalSource{}, err
 			}
 		}
-		storedPath = destination
-	}
-	relative, err := filepath.Rel(root, storedPath)
-	if err != nil {
-		return LocalSource{}, err
+		location = SourceLocation{Kind: "workspace_file", Path: filepath.ToSlash(filepath.Join("originals", fileName))}
 	}
 	now := localNow(options.Now)
 	value := LocalSource{
-		ID: id, Title: defaultLocalValue(options.Title, filepath.Base(absolute)), FilePath: filepath.ToSlash(relative), SHA256: hash, MIMEType: mimeType,
-		SourceKind: defaultLocalValue(options.SourceKind, "customer_material"), ByteSize: info.Size(), StorageMode: mode, IngestStatus: "registered", RegisteredAt: now,
+		ID: id, Title: defaultLocalValue(options.Title, filepath.Base(absolute)), Location: location, SHA256: hash, MIMEType: mimeType,
+		SourceKind: defaultLocalValue(options.SourceKind, "customer_material"), ByteSize: info.Size(), IngestStatus: "registered", RegisteredAt: now,
 	}
 	registry.Sources = append(registry.Sources, value)
 	sort.Slice(registry.Sources, func(i, j int) bool { return registry.Sources[i].ID < registry.Sources[j].ID })
@@ -219,7 +227,10 @@ func IngestLocalSource(root, id string, now time.Time) (LocalEvidenceBundle, err
 		return LocalEvidenceBundle{}, domain.NotFound("本地来源")
 	}
 	source := registry.Sources[index]
-	absolute := resolveLocalSourcePath(resolved, source.FilePath)
+	absolute, err := resolveLocalSourcePath(resolved, source.Location)
+	if err != nil {
+		return LocalEvidenceBundle{}, err
+	}
 	body, err := os.ReadFile(absolute)
 	if err != nil {
 		return LocalEvidenceBundle{}, err
@@ -253,15 +264,15 @@ func IngestLocalSource(root, id string, now time.Time) (LocalEvidenceBundle, err
 		})
 	}
 	bundle := LocalEvidenceBundle{
-		SchemaVersion: SchemaVersion, SourceID: source.ID, SourceSHA256: source.SHA256, MIMEType: detected, ParserVersion: ingest.ParserVersion,
+		SchemaVersion: EvidenceBundleSchemaVersion, SourceID: source.ID, SourceSHA256: source.SHA256, MIMEType: detected, ParserVersion: ingest.ParserVersion,
 		Status: parsed.Status, ErrorCode: parsed.ErrorCode, Evidence: evidence, CreatedAt: createdAt,
 	}
-	evidenceRelative := filepath.ToSlash(filepath.Join("knowledge", "evidence", localSafeName(source.ID)+".json"))
+	evidenceRelative := filepath.ToSlash(filepath.Join("20-sources", "extracts", localSafeName(source.ID)+".json"))
 	if err := replaceJSON(filepath.Join(resolved, filepath.FromSlash(evidenceRelative)), bundle, 0o600); err != nil {
 		return LocalEvidenceBundle{}, err
 	}
 	registry.Sources[index].IngestStatus = parsed.Status
-	registry.Sources[index].EvidencePath = evidenceRelative
+	registry.Sources[index].ExtractionRef = "extract:" + localSafeName(source.ID) + "@1"
 	registry.Sources[index].IngestedAt = &createdAt
 	if err := saveSourceRegistry(resolved, registry); err != nil {
 		return LocalEvidenceBundle{}, err
@@ -280,8 +291,12 @@ func VerifyLocalSources(root string) (SourceVerification, error) {
 	}
 	report := SourceVerification{Valid: true, Count: len(registry.Sources), Results: []SourceCheck{}, Warnings: []string{}}
 	for _, source := range registry.Sources {
-		check := SourceCheck{ID: source.ID, FilePath: source.FilePath}
-		body, readErr := os.ReadFile(resolveLocalSourcePath(resolved, source.FilePath))
+		check := SourceCheck{ID: source.ID, FilePath: source.Location.Path}
+		path, resolveErr := resolveLocalSourcePath(resolved, source.Location)
+		body, readErr := os.ReadFile(path)
+		if resolveErr != nil {
+			readErr = resolveErr
+		}
 		if readErr == nil {
 			check.Exists = true
 			check.ActualSHA256 = digest(body)
@@ -299,14 +314,11 @@ func VerifyLocalSources(root string) (SourceVerification, error) {
 
 func loadSourceRegistry(root string) (SourceRegistry, error) {
 	var registry SourceRegistry
-	path := filepath.Join(root, "raw", "source-registry.yaml")
-	if err := readJSON(path, &registry); err != nil {
-		return registry, domain.Invalid("LOCAL_SOURCE_REGISTRY_INVALID", "source-registry.yaml 必须使用模板提供的 JSON/YAML 子集格式")
+	path := filepath.Join(root, "20-sources", "registry.yaml")
+	if err := readYAML(path, &registry); err != nil {
+		return registry, domain.Invalid("LOCAL_SOURCE_REGISTRY_INVALID", "20-sources/registry.yaml 必须符合 V3 Source Registry")
 	}
-	if registry.SchemaVersion == "" {
-		registry.SchemaVersion = SchemaVersion
-	}
-	if registry.SchemaVersion != SchemaVersion {
+	if registry.SchemaVersion != SourceRegistrySchemaVersion {
 		return registry, domain.Conflict("LOCAL_SOURCE_REGISTRY_VERSION_UNSUPPORTED", "source registry schema version 不受支持")
 	}
 	if registry.Sources == nil {
@@ -316,15 +328,34 @@ func loadSourceRegistry(root string) (SourceRegistry, error) {
 }
 
 func saveSourceRegistry(root string, registry SourceRegistry) error {
-	registry.SchemaVersion = SchemaVersion
-	return replaceJSON(filepath.Join(root, "raw", "source-registry.yaml"), registry, 0o600)
+	registry.SchemaVersion = SourceRegistrySchemaVersion
+	body, err := yaml.Marshal(registry)
+	if err != nil {
+		return err
+	}
+	return replaceFile(filepath.Join(root, "20-sources", "registry.yaml"), body, 0o600)
 }
 
-func resolveLocalSourcePath(root, stored string) string {
-	if filepath.IsAbs(stored) {
-		return filepath.Clean(stored)
+func resolveLocalSourcePath(root string, location SourceLocation) (string, error) {
+	switch location.Kind {
+	case "workspace_file":
+		if location.Path == "" || filepath.IsAbs(location.Path) {
+			return "", domain.Invalid("LOCAL_SOURCE_LOCATION_INVALID", "workspace_file 来源需要 20-sources 相对路径")
+		}
+		path := filepath.Clean(filepath.Join(root, "20-sources", filepath.FromSlash(location.Path)))
+		base := filepath.Clean(filepath.Join(root, "20-sources")) + string(os.PathSeparator)
+		if !strings.HasPrefix(path+string(os.PathSeparator), base) {
+			return "", domain.Policy("LOCAL_SOURCE_PATH_OUTSIDE_WORKSPACE", "来源路径越过 20-sources 边界", "重新登记来源")
+		}
+		return path, nil
+	case "external_readonly_ref":
+		if !filepath.IsAbs(location.Ref) {
+			return "", domain.Invalid("LOCAL_SOURCE_LOCATION_INVALID", "external_readonly_ref 必须是绝对只读引用")
+		}
+		return filepath.Clean(location.Ref), nil
+	default:
+		return "", domain.Policy("LOCAL_SOURCE_LOCATION_UNREADABLE", "当前来源位置不能由本地 ingest 读取", "先把来源下载或复制到当前 Workspace")
 	}
-	return filepath.Clean(filepath.Join(root, filepath.FromSlash(stored)))
 }
 
 func defaultLocalSourceID(name, hash string) string {
