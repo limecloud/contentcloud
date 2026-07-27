@@ -450,7 +450,7 @@ func (r *Root) deviceCommand() *cobra.Command {
 			return r.writeOK("device.connect_session.cancel", map[string]any{"dry_run": true, "id": args[0]})
 		}
 		if !cancelConnectYes {
-			return confirmationRequired("取消连接会话会立即使当前连接码失效")
+			return confirmationRequired("取消连接会话会立即使当前浏览器设备授权失效")
 		}
 		_, client, _, err := r.userClient()
 		if err != nil {

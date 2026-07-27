@@ -240,7 +240,7 @@
     const metric = (label, value, note) => `<div class="panel metric"><span class="label">${label}</span><strong>${value}</strong><small>${note}</small></div>`;
 
     function setupView() { return `
-      ${head("连接本地创作工作区","项目已在云端创建。下一步在客户电脑初始化知识与剧本工作区。",`<button class="btn" data-action="reset-code">重新生成代码</button>`)}
+      ${head("连接本地创作工作区","项目已在云端创建。下一步在客户电脑初始化知识与剧本工作区。",`<button class="btn" data-action="reset-session">重新创建会话</button>`)}
       <div class="steps">
         <div class="step done"><span class="step-no">✓</span><strong>云端创建项目</strong><small>客户、品牌、模板和角色已锁定</small></div>
         <div class="step current"><span class="step-no">2</span><strong>初始化本地工作区</strong><small>安装模板、Skills、MCP 和校验工具</small></div>
@@ -249,7 +249,7 @@
       </div>
       <div class="grid cols-2">
         <section class="panel"><div class="panel-head"><h2>本机安装命令</h2>${status("代码 23:41 后过期","warn")}</div><div class="panel-body">
-          ${cmd("npx --yes @limecloud/contentcloud@latest init --connect cc_init_JLGD_8K4M ./jinling-gudu")}
+          ${cmd("npx --yes @limecloud/contentcloud@0.6.0 bootstrap preflight ./jinling-gudu --server-url https://content.example.com --json")}
           <div class="callout" style="margin-top:12px">初始化只创建本地项目文件并绑定云端项目。不会上传 raw 资料，也不会启动后台 Automation。</div>
           <div class="actions" style="margin-top:14px"><button class="btn primary" data-action="mark-init">我已完成初始化</button><button class="btn" data-command="contentcloud workspace doctor">查看诊断命令</button></div>
         </div></section>
@@ -360,7 +360,7 @@
       if (copy) { try { await navigator.clipboard.writeText(copy); showToast("命令已复制"); } catch { showToast("请手动选择命令复制"); } return; }
       if (e.target.closest("[data-close]")) { document.getElementById("modal").classList.remove("open"); return; }
       const action=e.target.closest("[data-action]")?.dataset.action;
-      if (action === "reset-code") showToast("已生成新的 init code");
+      if (action === "reset-session") showToast("已创建新的初始化会话");
       if (action === "mark-init") { showToast("工作区状态已刷新"); setTimeout(()=>render("overview"),500); }
     });
     document.getElementById("modal").addEventListener("click", e => { if (e.target.id === "modal") e.currentTarget.classList.remove("open"); });

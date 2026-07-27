@@ -2,6 +2,28 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.6.0] - 2026-07-27
+
+### Added
+
+- 增加面向普通客户的 bootstrap 环境预检、浏览器设备授权、实时阶段进度、版本化处置动作和显式确认流程。
+- 增加本地脱敏诊断预览与确认后上传能力，并补齐初始化流程、诊断协议和支持 Runbook。
+- 增加 Web 初始化进度与短码核对界面，支持后台等待、失败恢复和新 Codex 对话交接。
+
+### Changed
+
+- 初始化 Prompt 改用公开 ConnectSession ID，设备与 Workspace 凭据只通过 PKCE 浏览器授权换取并存入 macOS Keychain。
+- 将 CLI、Web、npm 安装器、Plugin、MCP、Environment Profile 与 bootstrap 固定版本统一为 `0.6.0`。
+- 移除旧 `cck_` 连接码通路，云端只接收版本化进度事件和用户明确同意上传的脱敏诊断摘要。
+
+### Fixed
+
+- 修复 bootstrap 匿名入口绕过 PostgreSQL 租户上下文直接读取 RLS 表，导致真实数据库无法启动授权的问题。
+- 修复生产曾登记旧 `00018` 后会跳过新 bootstrap 表结构的问题，新增兼容迁移并保留已发布迁移不变。
+- 修复同一初始化会话可并发创建多个待批准 attempt，以及 CLI 可能打开非同源验证地址的问题。
+- 修复 Environment Manifest 签发失败时授权已被提前消费、导致设备凭据无法重试的问题。
+- 修复诊断重试返回未落库 ID，以及初始化 attempt 进入终态后仍可追加进度的问题。
+
 ## [0.5.0] - 2026-07-27
 
 ### Added

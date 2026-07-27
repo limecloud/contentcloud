@@ -204,7 +204,7 @@ func TestBFFTeamProjectAndConnectionOperations(t *testing.T) {
 		t.Fatalf("unexpected project update %#v", project)
 	}
 	connect := callBFF[domain.ConnectSession](t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/connect-sessions", map[string]any{})
-	if connect.PlaintextConnectKey == "" || connect.State != "waiting_for_computer" {
+	if connect.ID == "" || connect.State != "waiting_for_computer" || connect.Progress != nil {
 		t.Fatalf("unexpected connect session %#v", connect)
 	}
 	connect = callBFF[domain.ConnectSession](t, client, http.MethodPost, server.URL+"/api/bff/connect-sessions/"+connect.ID+"/cancel", map[string]any{})

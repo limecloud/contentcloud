@@ -50,6 +50,7 @@ func (s *Server) Handler() http.Handler {
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, s.securityHeaders, s.accessLog)
 	r.Get("/healthz", s.health)
 	r.Get("/api/bootstrap", s.bootstrap)
+	r.Get("/api/bootstrap/actions", s.bootstrapActions)
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/register", s.register)
 		r.Post("/auth/login", s.login)
@@ -91,8 +92,11 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/project-templates", s.projectTemplates)
 		r.Post("/project-templates", s.createProjectTemplate)
 		r.Post("/projects/{projectID}/connect-sessions", s.createConnect)
+		r.Get("/projects/{projectID}/bootstrap-attempts/{attemptID}", s.bootstrapAuthorizationView)
 		r.Get("/connect-sessions/{id}", s.connectStatus)
 		r.Post("/connect-sessions/{id}/cancel", s.cancelConnectSession)
+		r.Post("/connect-sessions/{id}/attempts/{attemptID}/approve", s.approveBootstrapAuthorization)
+		r.Post("/connect-sessions/{id}/attempts/{attemptID}/deny", s.denyBootstrapAuthorization)
 		r.Get("/projects/{projectID}/devices", s.devices)
 		r.Get("/devices/{id}", s.device)
 		r.Post("/projects/{projectID}/devices/{id}/attach", s.attachDevice)
@@ -606,6 +610,44 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Command {
+	case "bootstrap.authorization.start":
+		var in app.StartBootstrapAuthorizationInput
+		if err := strictDecodeParams(req.Params, &in); err != nil {
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "初始化授权参数错误"))
+			return
+		}
+		v, err := s.service.StartBootstrapAuthorization(r.Context(), requestBaseURL(r), in)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "bootstrap.authorization.complete":
+		var in app.CompleteBootstrapAuthorizationInput
+		if err := strictDecodeParams(req.Params, &in); err != nil {
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "初始化授权完成参数错误"))
+			return
+		}
+		v, err := s.service.CompleteBootstrapAuthorization(r.Context(), in)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "bootstrap.progress.append":
+		var in struct {
+			AttemptToken string                        `json:"attempt_token"`
+			Event        domain.BootstrapProgressEvent `json:"event"`
+		}
+		if err := strictDecodeParams(req.Params, &in); err != nil {
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "初始化进度参数错误"))
+			return
+		}
+		v, err := s.service.AppendBootstrapProgress(r.Context(), in.AttemptToken, in.Event)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "bootstrap.attempt.complete":
+		var in struct {
+			AttemptToken string `json:"attempt_token"`
+			State        string `json:"state"`
+		}
+		if err := strictDecodeParams(req.Params, &in); err != nil {
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "初始化完成参数错误"))
+			return
+		}
+		v, err := s.service.CompleteBootstrapAttempt(r.Context(), in.AttemptToken, in.State)
+		s.dispatchResult(w, r, req.Command, v, err)
 	case "auth.login.start":
 		v, err := s.service.StartUserDeviceLogin(r.Context(), requestBaseURL(r))
 		if err != nil {
@@ -627,18 +669,6 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.ok(w, r, req.Command, v)
-	case "device.connect":
-		var in app.ConnectDeviceInput
-		if err := json.Unmarshal(req.Params, &in); err != nil {
-			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "设备连接参数错误"))
-			return
-		}
-		v, err := s.service.ConnectDevice(r.Context(), in)
-		if err != nil {
-			s.fail(w, r, req.Command, err)
-			return
-		}
-		s.ok(w, r, req.Command, v)
 	case "workspace.register":
 		actor, binding, err := s.workspaceFromRequest(r)
 		if err != nil {
@@ -655,6 +685,19 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		value, err := s.service.RegisterWorkspace(r.Context(), actor, binding, in.TemplateID, in.TemplateVersion, in.Targets, middleware.GetReqID(r.Context()))
+		s.dispatchResult(w, r, req.Command, value, err)
+	case "bootstrap.diagnostic.upload":
+		actor, binding, err := s.workspaceFromRequest(r)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		var summary domain.BootstrapDiagnosticSummary
+		if err := strictDecodeParams(req.Params, &summary); err != nil {
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "诊断摘要参数错误"))
+			return
+		}
+		value, err := s.service.UploadBootstrapDiagnostic(r.Context(), actor, binding, summary)
 		s.dispatchResult(w, r, req.Command, value, err)
 	case "environment.manifest.get":
 		actor, binding, err := s.workspaceFromRequest(r)

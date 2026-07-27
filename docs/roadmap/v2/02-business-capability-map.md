@@ -155,11 +155,11 @@ mindmap
 
 1. PM 创建客户、品牌、产品和项目，选择服务模板。
 2. 系统检查角色和客户审批人。
-3. 项目生成一次性连接码和对应安装命令。
+3. 项目创建公开 ConnectSession 和不含凭据的安装 Prompt。
 4. 用户在本机执行 CLI 安装/连接，Daemon 声明业务 capability。
 5. 服务端确认设备在线并授予项目级权限。
 
-异常：连接码过期、被消费、设备已撤销或 capability 不满足时，项目保留但 Agent 动作 blocked。
+异常：ConnectSession/attempt 过期、用户拒绝授权、设备已撤销或 capability 不满足时，项目保留但 Agent 动作 blocked。
 
 ### UC-02 完成客户素材诊断和知识包
 

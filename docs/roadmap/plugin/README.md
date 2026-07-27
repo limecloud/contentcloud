@@ -6,6 +6,8 @@
 
 执行跟踪：[PLAN.md](./PLAN.md)。
 
+客户初始化与排障：[onboarding/README.md](./onboarding/README.md)。
+
 首个目标宿主：Codex。
 
 后续目标宿主：Claude Code、OpenClaw、WorkBuddy。后续宿主的插件契约需要分别验证，本方案不假设它们与 Codex 完全兼容。
@@ -337,8 +339,8 @@ Profile 决定：
       {
         "id": "contentcloud-video-production",
         "kind": "scene_plugin",
-        "version": "0.5.0",
-        "source_ref": "v0.5.0",
+        "version": "0.6.0",
+        "source_ref": "v0.6.0",
         "digest": "sha256:...",
         "required": true,
         "scope": "environment",
@@ -384,7 +386,7 @@ Profile 决定：
 
 Manifest 禁止包含：
 
-- connect key 和长期凭据。
+- Bootstrap Attempt Token、PKCE verifier 和长期凭据。
 - 模型密钥。
 - 客户原始内容。
 - 本地绝对路径。
@@ -392,7 +394,7 @@ Manifest 禁止包含：
 
 其中 `environment` scope 表示项目基线必须安装并持续验证；`task` scope 表示该 Pack 已进入项目 allowlist，是否在某次任务中启用由 `CreativeExecutionBundle` 决定。这里的 scope 是 ContentCloud 的治理语义，不假设 Codex 能把一个已安装插件对其他会话完全隐藏。
 
-Manifest 的 canonical payload 绑定项目、Profile、Harness、Marketplace、所有 Plugin 的精确版本/ref/digest/capability、Workspace Template、策略和有效期。服务端 `device.connect` 可以返回首份 Manifest，Workspace Credential 可通过 `environment.manifest.get` 重新获取，避免一次性连接码消费后无法恢复；CLI 只有在生产公钥受信且本地 `environment.lock` 与 Manifest 完全一致时才能把环境标记为 ready。
+Manifest 的 canonical payload 绑定项目、Profile、Harness、Marketplace、所有 Plugin 的精确版本/ref/digest/capability、Workspace Template、策略和有效期。浏览器设备授权完成后，服务端随原子设备/Workspace 创建返回首份 Manifest；Workspace Credential 可通过 `environment.manifest.get` 重新获取。CLI 只有在生产公钥受信且本地 `environment.lock` 与 Manifest 完全一致时才能把环境标记为 ready。
 
 ### 5.3 Execution Bundle：任务需要什么创作能力
 
@@ -526,7 +528,7 @@ waiting_for_computer -> verifying -> connected
 [复制 Prompt] [打开 Codex]
 
 等待 Codex
-连接码于 23:12:25 失效
+初始化会话于 23:12:25 失效
 
 使用 Claude Code / 手动 CLI
 ```
@@ -547,8 +549,8 @@ assume this session can hot-load newly installed plugin capabilities.
 
 bootstrap-url: https://content.example.com/api/bootstrap
 server-url: https://content.example.com
-connect-key: cck_xxx
-bootstrap-cli: @limecloud/contentcloud@0.5.0
+session-id: 11111111-1111-4111-8111-111111111111
+bootstrap-cli: @limecloud/contentcloud@0.6.0
 project: "品牌 / 单品"
 environment-profile: contentcloud.video-production
 ```
@@ -560,7 +562,7 @@ environment-profile: contentcloud.video-production
 - CLI 完成 doctor 和工作区注册后，返回已验证 Workspace Root 与不含秘密的 bootstrap handoff，并用 `codex app <workspace-path>` 或 Deep Link 打开新的项目对话。
 - 任一必装插件不可发现：Codex 无法自动完成，Web 保持 `waiting_for_computer` 并显示具体插件的分发错误。
 
-连接码仍只用于项目绑定，不用于插件市场认证。bootstrap CLI 的包版本由服务端 Prompt 固定，并继续经过发布 checksum 验证；Agent 不得把包名、版本或 Marketplace URL 改成模型生成值。
+公开 ConnectSession ID 只用于定位项目初始化意图，不是凭据。bootstrap CLI 的包版本由服务端 Prompt 固定，并继续经过发布 checksum 验证；Agent 不得把包名、版本或 Marketplace URL 改成模型生成值。
 
 ### 6.3 Deep Link 与秘密处理
 
@@ -570,7 +572,7 @@ environment-profile: contentcloud.video-production
 2. 用不含 query 的 `codex://threads/new` 打开 Codex。
 3. 用户粘贴并发送 Prompt。
 
-不能把 connect key 放入 `codex://new?prompt=...`，否则秘密可能进入浏览器历史、系统协议记录和遥测。
+不能把 Bootstrap Attempt Token、PKCE verifier 或 Workspace Credential 放入 `codex://new?prompt=...`，否则秘密可能进入浏览器历史、系统协议记录和遥测。
 
 网页无法可靠读取本机 Codex 插件状态，因此不能显示伪造的“插件已安装”。Web 只显示自己能验证的 ConnectSession 和 WorkspaceRegistration 状态。
 
@@ -589,7 +591,7 @@ sequenceDiagram
 
     U->>W: 点击初始化本地工作区
     W->>API: 创建ConnectSession并解析项目环境Profile
-    API-->>W: connect key + Environment摘要 + plugin mention
+    API-->>W: 公开session ID + Environment摘要 + plugin mention
     W-->>U: 复制Prompt并打开Codex
     U->>B: 粘贴并发送
     alt 插件已在当前会话加载
@@ -601,8 +603,11 @@ sequenceDiagram
     CLI-->>U: 展示plan_id、目录、环境版本、Pack和权限变化
     U->>B: 确认应用
     B->>CLI: bootstrap apply --plan-id <confirmed-plan-id> --accept
+    CLI->>API: 本地PKCE challenge发起浏览器授权
+    API-->>W: user code + 待确认设备
+    U->>W: 核对短码并批准
+    CLI->>API: verifier换取设备/Workspace凭据
     CLI->>CLI: 安装并验证Marketplace/Plugin
-    CLI->>API: 消费connect key
     API->>S: waiting_for_computer -> verifying
     CLI->>CLI: 写workspace、AGENTS受管块与environment.lock
     CLI->>CLI: offline doctor
@@ -635,7 +640,7 @@ workspace-id: ws_...
 bootstrap-handoff: hnd_bootstrap_...
 ```
 
-它不再包含 connect key。Web 只知道 ConnectSession 已连接，不保存或展示本机绝对路径；打开项目文件夹的动作由本地 Agent/CLI 完成。完成这一步后，该目录才是截图中 Codex 侧边栏的项目入口，后续多个对话都绑定同一个 path。若自动打开失败，CLI 必须输出明确的本地路径和可复制恢复 Prompt，而不是要求用户重新使用连接码。
+它不包含初始化凭据。Web 只知道 ConnectSession 已连接，不保存或展示本机绝对路径；打开项目文件夹的动作由本地 Agent/CLI 完成。完成这一步后，该目录才是截图中 Codex 侧边栏的项目入口，后续多个对话都绑定同一个 path。若自动打开失败，CLI 必须输出明确的本地路径和可复制恢复 Prompt，而不是要求用户重新授权。
 
 ### 6.6 为什么需要 `codex-plugin` target
 
@@ -851,7 +856,7 @@ draft -> ready -> claimed -> completed
 先验证工作区、输入 digest 和 Run claim，再继续下一阶段。
 ```
 
-本地插件也可以生成不含秘密的 `codex://new?path=...&prompt=...` 链接，在同一文件夹创建新对话。`path` 是本地敏感元数据，默认仍优先显示“复制交接 Prompt”；只有用户允许时才放入 Deep Link，connect key 和其他凭据永远不能进入 URL。
+本地插件也可以生成不含秘密的 `codex://new?path=...&prompt=...` 链接，在同一文件夹创建新对话。`path` 是本地敏感元数据，默认仍优先显示“复制交接 Prompt”；只有用户允许时才放入 Deep Link，Bootstrap Attempt Token、PKCE verifier 和其他凭据永远不能进入 URL。
 
 新对话的接管顺序固定为：
 
@@ -909,8 +914,8 @@ stateDiagram-v2
 | intent 路由、LocalExecutionPlan | 否 | 每个本地创作任务 | 本地 Run、allowlist、已缓存兼容矩阵 |
 | 读取资料、知识、剧本，生成草稿 | 否 | 普通创作 | 本地文件和 MCP 结果 |
 | Run claim、checkpoint、handoff | 否 | 多对话协作 | 本地结构化状态 |
-| 创建 ConnectSession | 是，Web BFF | 用户点击初始化 | 项目 ID -> 一次性 connect key、Profile 摘要和 plugin mention |
-| init 交换连接码 | 是，CLI Gateway | 用户确认初始化 | connect key/设备元数据 -> Workspace Credential、项目绑定、签名 Environment Manifest |
+| 创建 ConnectSession | 是，Web BFF | 用户点击初始化 | 项目 ID -> 公开 session ID、Profile 摘要和 plugin mention |
+| 浏览器设备授权 | 是，CLI Gateway + Web BFF | 用户确认精确 plan 后 | PKCE challenge、设备元数据与浏览器批准 -> Workspace Credential、项目绑定、签名 Environment Manifest |
 | pull approved/feedback/decisions | 是，CLI Gateway | 用户明确要求，或当前任务明确缺少云端治理输入 | 拉取不可变 Bundle 到 inbox/cache，不直接改业务文件 |
 | 解析服务端下发任务 | 是，发生在 pull/lease | Web 分派、ApprovedSnapshot 配套流程或 Automation | 业务快照 + 签名 CreativeExecutionBundle |
 | 检查环境更新 | 是，CLI Gateway | 用户显式执行 online doctor/check-update、Web 已提示更新，或服务端拒绝过旧 publish/lease | 当前环境 digest -> 可用版本和策略；不上传创作正文 |
@@ -1154,7 +1159,7 @@ plugins/
     "command": "npx",
     "args": [
       "--yes",
-      "@limecloud/contentcloud@0.5.0",
+      "@limecloud/contentcloud@0.6.0",
       "mcp",
       "serve"
     ]
@@ -1212,7 +1217,7 @@ contentcloud environment reset
 
 ### 9.2 安装原则
 
-- plan 不消费 connect key、不修改文件、不安装插件。
+- plan 不发起授权、不修改文件、不安装插件。
 - Resolver 只能从签名 Environment Manifest、Execution Bundle 和 Marketplace Registry 的交集选择插件，不能接受模型自由拼出的包名或 URL。
 - apply 前展示 Scene/Skill/Provider Pack、版本、Skills/MCP、网络、文件、费用和凭据范围。
 - Harness Adapter 对每个配置目标执行 `Detect -> Plan -> Backup -> Apply -> Validate -> Report -> Reconnect`；单个目标失败必须报告并恢复其旧配置，不能用总体“成功”掩盖局部失败。
@@ -1478,7 +1483,7 @@ Codex 阶段先把 canonical Skills、Manifest 模型和验证接口设计清楚
 
 ### 13.2 凭据
 
-- connect key 只交给 ContentCloud CLI。
+- Bootstrap Attempt Token 和 PKCE verifier 只保存在 ContentCloud CLI 进程内；前者仅发送给 ContentCloud，后者只用于完成 PKCE 校验。
 - Workspace/User/Device Credential 继续进入 OS Keychain。
 - Plugin manifest、Environment Manifest、Execution Bundle 和 Skill 不含 token。
 - Provider 账号使用各自 OAuth/凭据边界，不复用 ContentCloud token。
@@ -1600,8 +1605,8 @@ Codex 阶段先把 canonical Skills、Manifest 模型和验证接口设计清楚
 - Prompt 包含服务端选择的必装插件 mention 和环境 Profile。
 - 未安装 Scene/Skill/Provider Pack 时，bootstrap 对话能准确展示能力、权限和费用变化；确认后完成安装，并以不含秘密的 Handoff 在新项目会话恢复原任务。
 - 插件已加载时可以直接初始化；插件本次才安装时不得声称当前会话已经获得 bundled Skills/MCP。
-- connect key 不进入 URL 和日志。
-- 插件不可发现、连接码过期、用户拒绝安装时，Web 状态和帮助文案准确。
+- Bootstrap Attempt Token、PKCE verifier 和 Workspace Credential 不进入 Prompt、URL 和日志。
+- 插件不可发现、ConnectSession/attempt 过期、用户拒绝授权或安装时，Web 状态和帮助文案准确。
 
 ### 15.2 环境
 
@@ -1625,7 +1630,7 @@ Codex 阶段先把 canonical Skills、Manifest 模型和验证接口设计清楚
 - 不同 Run 可以并行生成不同版本化输出，不覆盖同一路径或互相修改 LocalRunContext。
 - 输入 digest、context revision、Environment digest 任一不匹配时，接管停止并返回可操作冲突报告。
 - `work/current-run.json` 不再作为多对话权威状态，旧工作区保持只读兼容并可迁移。
-- 新对话 Deep Link 或交接 Prompt 不包含 connect key、Workspace Credential 或客户正文。
+- 新对话 Deep Link 或交接 Prompt 不包含 Bootstrap Attempt Token、PKCE verifier、Workspace Credential 或客户正文。
 
 ### 15.4 业务闭环
 
@@ -1719,7 +1724,7 @@ Codex 官方插件流程要求新 chat 或 CLI session 才能使用新安装的 
 - [OpenAI: Build an MCP server](https://developers.openai.com/plugins/build/mcp-server)
 - [OpenAI: Use plugins](https://learn.chatgpt.com/docs/plugins)
 - [OpenAI: Skills and plugins](https://learn.chatgpt.com/docs/skills-and-plugins)
-- [OpenAI: Codex app deep links](https://developers.openai.com/codex/app/deep-links)
+- [OpenAI: ChatGPT desktop app commands and deep links](https://learn.chatgpt.com/docs/reference/commands)
 - [OpenAI: Codex advanced configuration](https://developers.openai.com/codex/config-advanced)
 - [wshobson/agents](https://github.com/wshobson/agents)
 - [TapTap Maker npm package](https://www.npmjs.com/package/@taptap/maker)

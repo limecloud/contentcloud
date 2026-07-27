@@ -50,7 +50,16 @@ type Store interface {
 	CreateConnectSession(context.Context, domain.ConnectSession) error
 	ConnectSessionByID(context.Context, string, string) (domain.ConnectSession, error)
 	SaveConnectSession(context.Context, domain.ConnectSession) error
-	ConsumeConnectSession(context.Context, string, domain.Device, domain.WorkspaceBinding, time.Time) (domain.ConnectSession, error)
+	CreateBootstrapAttemptForSession(context.Context, string, domain.BootstrapAttempt, time.Time) (domain.BootstrapAttempt, error)
+	BootstrapAttempt(context.Context, string, string) (domain.BootstrapAttempt, error)
+	BootstrapAttemptByTokenHash(context.Context, string) (domain.BootstrapAttempt, error)
+	ApproveBootstrapAttempt(context.Context, string, string, string, string, time.Time) (domain.BootstrapAttempt, error)
+	DenyBootstrapAttempt(context.Context, string, string, string, string, time.Time) (domain.BootstrapAttempt, error)
+	AppendBootstrapProgress(context.Context, string, domain.BootstrapProgressEvent, time.Time) (domain.BootstrapProgressEvent, error)
+	BootstrapProgressForSession(context.Context, string, string) (*domain.BootstrapProgress, error)
+	ConsumeBootstrapAttempt(context.Context, string, domain.Device, domain.WorkspaceBinding, time.Time) (domain.ConnectSession, domain.BootstrapAttempt, error)
+	CompleteBootstrapAttempt(context.Context, string, string, time.Time) (domain.BootstrapAttempt, error)
+	CreateBootstrapDiagnostic(context.Context, domain.BootstrapDiagnostic) (domain.BootstrapDiagnostic, error)
 	SaveDevice(context.Context, domain.Device) error
 	DeviceByTokenHash(context.Context, string) (domain.Device, error)
 	Devices(context.Context, string, string) ([]domain.Device, error)

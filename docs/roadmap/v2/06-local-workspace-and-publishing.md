@@ -20,17 +20,13 @@
 1. 创建 Client、Brand、Product 和 BrandProject。
 2. 选择 TenantServiceTemplateVersion 和适用方法论。
 3. 指定内部角色和客户审批人。
-4. 生成一次性、短期有效、项目绑定的 init code。
+4. 创建短期有效、项目绑定的公开 ConnectSession。
 
-Web 显示一条可复制命令：
+Web 显示不含凭据的 Prompt；手工路径使用固定版本 CLI：
 
 ```bash
-npx --yes @limecloud/contentcloud@latest init \
-  --server-url https://content.example.com \
-  --connect <one-time-code> \
-  --target all \
-  --accept-project-config \
-  ./contentcloud-project
+npx --yes @limecloud/contentcloud@0.6.0 bootstrap preflight ./contentcloud-project --server-url https://content.example.com --json
+npx --yes @limecloud/contentcloud@0.6.0 bootstrap plan ./contentcloud-project --server-url https://content.example.com --session <session-id> --json
 ```
 
 ### 2.2 CLI 初始化
@@ -44,10 +40,13 @@ sequenceDiagram
     participant FS as 本地工作区
     participant Agent as Codex/Claude配置
 
-    U->>CLI: init --connect code ./project
+    U->>CLI: bootstrap preflight/plan ./project
     CLI->>CLI: 检查目标目录和本机依赖
-    CLI->>API: 消费init code
-    API-->>CLI: Workspace/Device Credential + 项目绑定
+    U->>CLI: 确认plan_id并执行apply
+    CLI->>API: PKCE challenge发起浏览器授权
+    U->>API: 在登录态页面核对短码并批准
+    CLI->>API: verifier完成授权
+    API-->>CLI: Workspace/Device Credential + 项目绑定 + 签名环境
     CLI->>CLI: 读取CLI内置版本化模板并计算文件hash
     CLI->>FS: 创建目录和模板文件
     CLI->>FS: 写project.yaml/template.lock/sync-state
@@ -61,12 +60,12 @@ sequenceDiagram
 
 - 目标不存在时创建；空目录可以初始化。
 - 非空且不是 ContentCloud 工作区时默认拒绝，先输出文件冲突报告。
-- 已有工作区时 `init` 幂等返回状态，不重新消费连接码。
+- 已有同项目工作区时只允许 `bootstrap resume`，不重复授权或绑定。
 - 不覆盖未知文件、用户已修改模板、现有 AGENTS.md 或 Agent 配置。
-- 支持 `--dry-run` 输出将创建、修改、跳过和冲突的文件。
-- `--target` 默认 `all`；只要目标不是 `none`，就必须显式传 `--accept-project-config`。
+- `bootstrap plan` 只读输出将创建、修改、跳过和冲突的文件，并返回确定性 `plan_id`。
+- `bootstrap apply` 必须携带刚确认的同一 `plan_id` 和 `--accept`。
 - 默认不上传任何本地文件，不注册后台 Automation Daemon。
-- init code 只用于项目绑定，不能执行用户管理、审批或读取其他项目。
+- 公开 session ID 不是凭据；浏览器批准受用户角色、租户和项目约束。
 
 ## 4. 工作区结构
 

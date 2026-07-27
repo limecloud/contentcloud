@@ -142,7 +142,7 @@ func TestProjectTemplateOptimisticLockAndArchiveReadOnly(t *testing.T) {
 		t.Fatalf("restore failed: %#v %v", restored, err)
 	}
 	connect, err := service.CreateConnectSession(ctx, actor, restored.ID, "req-connect-active")
-	if err != nil || connect.State != "waiting_for_computer" || connect.PlaintextConnectKey == "" {
+	if err != nil || connect.ID == "" || connect.State != "waiting_for_computer" || connect.Progress != nil {
 		t.Fatalf("connect session create failed: %#v %v", connect, err)
 	}
 	canceled, err := service.CancelConnectSession(ctx, actor, connect.ID, "req-connect-cancel")

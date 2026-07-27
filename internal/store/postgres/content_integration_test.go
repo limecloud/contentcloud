@@ -11,6 +11,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	storepg "github.com/limecloud/contentcloud/internal/store/postgres"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestSourceLifecycleWithPostgres(t *testing.T) {
@@ -84,7 +85,7 @@ func TestSourceLifecycleWithPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connected, err := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "postgres-local", Platform: "darwin", Arch: "arm64", Version: "test"})
+	connected, err := testsupport.ConnectBootstrap(ctx, service, actor, connect, app.ConnectDeviceInput{Hostname: "postgres-local", Platform: "darwin", Arch: "arm64", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,33 +18,6 @@ import (
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 )
 
-func TestInitDryRunDoesNotConsumeCodeOrWriteFiles(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "customer-project")
-	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
-	var stdout, stderr bytes.Buffer
-	command := (&Root{stdout: &stdout, stderr: &stderr}).command()
-	command.SetArgs([]string{"--json", "init", "--connect", "cck_not_consumed", "--target", "codex", "--dry-run", root})
-	if err := command.Execute(); err != nil {
-		t.Fatalf("init dry-run failed: %v; stderr=%s", err, stderr.String())
-	}
-	var envelope struct {
-		OK   bool `json:"ok"`
-		Data struct {
-			DryRun bool                    `json:"dry_run"`
-			Plan   localworkspace.InitPlan `json:"plan"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
-		t.Fatalf("decode output: %v; output=%s", err, stdout.String())
-	}
-	if !envelope.OK || !envelope.Data.DryRun || envelope.Data.Plan.WouldUpload || envelope.Data.Plan.WouldDaemon {
-		t.Fatalf("unexpected dry-run: %s", stdout.String())
-	}
-	if _, err := os.Stat(root); !os.IsNotExist(err) {
-		t.Fatalf("dry-run created target directory: %v", err)
-	}
-}
-
 func TestWorkspaceCommandsAndMCPUseLocalState(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-1", ServerURL: "http://localhost:8080", CLIVersion: "test", Target: "codex"}); err != nil {
@@ -68,7 +41,7 @@ func TestWorkspaceCommandsAndMCPUseLocalState(t *testing.T) {
 			t.Fatalf("unexpected output for %v: %v %s", args, err, stdout.String())
 		}
 	}
-	for _, name := range []string{"init", "workspace.status", "workspace.doctor", "workspace.conversation-context", "workspace.approved.list", "workspace.approved.show", "mcp.status", "mcp.serve"} {
+	for _, name := range []string{"workspace.status", "workspace.doctor", "workspace.conversation-context", "workspace.approved.list", "workspace.approved.show", "mcp.status", "mcp.serve"} {
 		if commandSchemas()[name] == nil {
 			t.Fatalf("command schema %q is missing", name)
 		}
@@ -347,8 +320,8 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 	if _, err := localworkspace.StoreEnvironment(root, manifest, installed, manifestVerifier, now); err != nil {
 		t.Fatal(err)
 	}
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.5.0"}}]}`
-	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.5.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.6.0"}}]}`
+	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.6.0","installed":true,"enabled":true}],"available":[]}`
 	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: currentMarketplace}, {stdout: missingPack},
@@ -388,9 +361,9 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 }
 
 func successfulTaskPackResponses() []bootstrapRunnerResponse {
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.5.0"}}]}`
-	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.5.0","installed":true,"enabled":true}],"available":[]}`
-	currentPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.5.0","installed":true,"enabled":true},{"pluginId":"contentcloud-visual-storytelling@contentcloud","name":"contentcloud-visual-storytelling","marketplaceName":"contentcloud","version":"1.2.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.6.0"}}]}`
+	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.6.0","installed":true,"enabled":true}],"available":[]}`
+	currentPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.6.0","installed":true,"enabled":true},{"pluginId":"contentcloud-visual-storytelling@contentcloud","name":"contentcloud-visual-storytelling","marketplaceName":"contentcloud","version":"1.2.0","installed":true,"enabled":true}],"available":[]}`
 	return []bootstrapRunnerResponse{
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: currentMarketplace}, {stdout: missingPack},

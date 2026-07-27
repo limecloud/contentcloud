@@ -1,25 +1,26 @@
 # ContentCloud Codex 插件实施跟踪计划
 
-状态：`v0.5.0 已签名（等待发布与宿主验收）`。W1 最小插件包、W2 Bootstrap、W3 本地上下文、W4 多对话交接、W5 Environment/Pack 准备及 W6 publish/审批/Automation 闭环均已落地；版本、生产可信公钥、Registry 签名与部署 Profile 已就绪，当前剩余 Git/npm 发布、生产部署和 Codex Desktop 实机验收。
+状态：`v0.6.0 已重新签名（等待发布与宿主验收）`。W1 最小插件包、W2 Bootstrap、W3 本地上下文、W4 多对话交接、W5 Environment/Pack、W6 publish/审批/Automation，以及 W7-01 至 W7-07 客户初始化代码与自动化测试均已落地。当前剩余 Git/npm 发布、生产部署、Codex Desktop 实机验收和 W7-08 首批客户试点。
 
 更新时间：2026-07-27。
 
-架构方案：[README.md](./README.md)。
+架构方案：[README.md](./README.md)。客户初始化方案组：[onboarding/README.md](./onboarding/README.md)。
 
 首个目标宿主：Codex Desktop 与 Codex CLI。Codex IDE Extension 当前不作为 Plugin 验收表面，因为官方文档未将 Plugins 列为其支持能力。
 
 ## 0. 当前进展
 
-完成度口径：本地可实施的代码与自动化验证为 `100%`；包含 Git/npm 发布、生产部署和 Codex Desktop 实机验收的首版交付约为 `95%`。`v0.5.0` 已统一全部版本事实源，Plugin Registry 已用仓库外发布 key 签名，独立 Environment key 与生产 Profile 已准备完成。W0 Desktop 门禁未通过前，不对外承诺 Codex Desktop 与 CLI 行为完全一致；新版本产物发布前，不对外宣称远程安装闭环可用。
+完成度分开计算：W0-W7 的本地代码与自动化验证为 `100%`；包含 Git/npm 发布、生产部署、Codex Desktop 实机验收和首批客户试点的技术交付仍约为 `95%`。`v0.6.0` 已统一全部版本事实源；清理旧初始化动作后的 Plugin Registry 已用原仓库外发布 key 重新签名，独立 Environment key 与生产 Profile 已准备完成。W0 Desktop 门禁和 W7-08 试点未通过前，不对外承诺 Codex Desktop 与 CLI 行为完全一致，也不宣称普通客户初始化已经完成生产验收。
 
 | 项目 | 当前状态 | 已有证据 | 下一检查点 |
 | --- | --- | --- | --- |
 | 方案与边界 | 已完成 | `README.md` 已覆盖创作环境、精选市场、服务端交互、多对话交接和 Maker 取舍 | 实施过程中发现假设不成立时同步修订 |
 | Codex 官方能力核验 | 进行中 | CLI `0.145.0` 单目录/`--add-dir` 探针证明未声明 Roots，仅启动 `tools/list` | 完成 Desktop 探针与安装后新会话实测 |
-| Marketplace | 发布就绪 | repo Marketplace、签名 Registry 和可信公钥均通过 source 门禁 | 发布包含 Marketplace 的 `v0.5.0` 不可变 Git tag |
-| Scene Plugin | 发布就绪 | `0.5.0` manifest、三个 Skills、MCP 和 8 场景评测已绑定同一 digest | 发布 npm `0.5.0` 后完成远程安装验收 |
+| Marketplace | 发布就绪 | repo Marketplace、清理旧初始化动作后的签名 Registry 和可信公钥均通过 source 门禁 | 发布包含 Marketplace 的 `v0.6.0` 不可变 Git tag |
+| Scene Plugin | 发布就绪 | `0.6.0` manifest、三个 Skills、MCP 和 8 场景评测已绑定同一 digest | 发布 npm `0.6.0` 后完成远程安装验收 |
 | canonical Skills | 已完成 | 三个 Skills 位于插件单一事实源；metadata、Go embed 和 Skill 校验通过 | 后续新增能力继续只进入插件目录 |
 | Bootstrap/Codex Adapter | 代码完成，宿主验收待完成 | Detect/Plan/Apply/Validate/Rollback、`plan_id`、ConnectSession、doctor 门禁、resume、bootstrap handoff、新对话入口及失败路径均有测试 | 发布新版本后做 Codex Desktop 真实安装、新会话和回退验收 |
+| 客户初始化与分步排障 | 代码完成，实机验收待完成 | 浏览器 PKCE 授权、结构化 preflight/progress/action、Web 单步引导、resume、脱敏诊断和支持码已有测试 | 执行 W7-08 macOS Desktop 首批全场景试点 |
 | Workspace Context/Routing | 已完成 | Tool-first context/status、可选 Resource、受限 cwd Resolver、canonical routing 与 doctor 已有测试 | 在 Codex Desktop 验证完整启动链 |
 | 多对话交接 | 已完成 | revision CAS、TTL RunClaim、Handoff 生命周期、digest 校验与双对话竞争测试已通过 | 在 Codex Desktop 验证真实双对话恢复流程 |
 | 服务端闭环 | 本地完成，宿主验收待完成 | publish 精确确认、反馈不可变 inbox、ApprovedSnapshot verified cache 及多对话离线读取已有测试 | 在 Codex Desktop 新会话验收真实 publish/review 恢复链 |
@@ -27,31 +28,32 @@
 
 下一检查点按以下顺序推进：
 
-1. `v0.5.0` 已统一全部版本事实源，并完成确定性评测与 Plugin/报告 digest 绑定。
-2. 两类可信公钥已登记；Registry 已使用仓库外发布私钥签署 `published` payload。
+1. `v0.6.0` 已统一全部版本事实源，并完成确定性评测与 Plugin/报告 digest 绑定。
+2. 两类可信公钥已登记；Registry 初始化动作更新后的 `published` payload 已使用原仓库外发布私钥重新签署。
 3. 生产 Environment Profile、独立 signer 和 systemd 配置已准备完成。
 4. 获得 Git/npm 发布授权后创建不可变产物，并在干净隔离环境验证远程 Marketplace、Plugin 和 npm MCP 启动。
 5. 获得生产部署授权后启用 Environment Control Plane，验证公网 bootstrap、环境落盘、required doctor、Manifest 重拉和 Automation policy。
 6. 重复 Desktop 能力探针，补齐 Codex 表面兼容矩阵和真实新会话验收。
+7. 执行 W7-08 macOS Desktop 全场景与首批客户试点，记录真实失败率和恢复率。
 
 ### 0.1 当前发布状态
 
-截至 2026-07-27，`v0.5.0` 的本地发布事实已准备完成：
+截至 2026-07-27，`v0.6.0` 的本地发布事实已准备完成：
 
-- `VERSION`、根/CLI npm 包、Go CLI、Plugin manifest、`.mcp.json`、Web 固定命令和 Marketplace ref 已统一为 `0.5.0`。
+- `VERSION`、根/CLI npm 包、Go CLI、Plugin manifest、`.mcp.json`、Web 固定命令和 Marketplace ref 已统一为 `0.6.0`。
 - Plugin digest 为 `sha256:025e6f31b491f8cd529d39dbbae31a464743dba653234be2012426631950b26a`，8 场景评测报告 digest 为 `sha256:8dbecc50bb45fee5904889d4a29b19b7ae49a10c7cb7242afb4251eb6913c93e`。
-- Registry 的 `published` payload 已由 `contentcloud-plugin-release-2026-07` 签名，内置 Go trust store 与 Marketplace PEM trust store 均可验证。
+- Registry 的当前 `published` payload 已由 `contentcloud-plugin-release-2026-07` 重新签名，内置 Go trust store 与 Marketplace PEM trust store 均可验证。
 - Environment signer `contentcloud-environment-2026-07`、内置公钥和生产 Profile 已准备；私钥始终位于仓库外受限目录。
 
-当前外部阻塞是 `v0.5.0` Git tag、GitHub Release 和 npm `0.5.0` 尚未创建，因此 tagged 门禁和远程安装验收必须在 Git/npm 发布后完成。
+当前外部阻塞是 `v0.6.0` Git tag、GitHub Release 和 npm `0.6.0` 尚未创建，因此 tagged 门禁和远程安装验收必须在 Git/npm 发布后完成。
 
 ### 0.2 2026-07-27 验证基线
 
-- 两次真实只读 `bootstrap plan` 探针均返回 `bp_d63218c67c8c99d7655dd0eed52608dfaa13f849eb1a1628bcbd39852da7b9ce`，目标目录保持不存在，连接码未进入输出。
+- 两次真实只读 `bootstrap plan` 探针均返回 `bp_d63218c67c8c99d7655dd0eed52608dfaa13f849eb1a1628bcbd39852da7b9ce`，目标目录保持不存在，初始化凭据未进入输出。
 - Plugin 通过 Codex `plugin-creator` 的 `validate_plugin.py`。
 - `contentcloud-workspace`、`contentcloud-knowledge-extraction`、`contentcloud-marketing-video-script` 均通过 `skill-creator` 的 `quick_validate.py`。
 - `go test ./...` 通过。
-- `pnpm --dir web test --run` 通过，共 3 个测试文件、19 个测试。
+- `pnpm --dir web test --run` 通过，共 3 个测试文件、21 个测试。
 - `pnpm --dir web typecheck` 与 `git diff --check` 通过。
 - `go test -race ./...`、`go vet ./...` 和 Web production build 通过。
 - Marketplace Registry 1.0 Schema 已通过 Draft 2020-12 校验；`pnpm check:plugin` source 模式通过并生成固定 Plugin digest。
@@ -61,10 +63,11 @@
 - W5 环境契约、项目绑定 Manifest、ControlPlane、Workspace verified state、Manifest 重拉接口及确定性 LocalExecutionPlan 已通过 race 测试；bootstrap 已 fail closed 接入，生产 Environment trust key 与 Profile 已准备完成。
 - CreativeExecutionBundle 1.0 Schema、确定性 `ceb_` ID、Ed25519 签发/验签、subject/capability/Pack 绑定和本地 Resolver 已实现；篡改、过期、撤销、Registry 撤回及 digest 漂移均 fail closed。
 - Automation Poll 在 Store 租约事务前验证 Run Bundle、ContextSnapshot、设备 Environment Claim 和 capability/Pack digest；三类环境失败路径均保持 Run queued 且不创建 RunAttempt，匹配后 Lease 并行返回 TaskContract 与 Bundle。
-- `check:plugin` source 模式已在 verified 签名下零 warning 通过；`check:plugin --tagged` 仅等待尚未创建的 `v0.5.0` Git ref。
+- `check:plugin` source 模式已在重新签名后的 Registry 上零 warning 通过；`check:plugin --tagged` 仅等待尚未创建的 `v0.6.0` Git ref。
 - W6 合入后重新执行 `go test -race ./...`、`go vet ./...`、Web 19 项测试/typecheck/production build 和 `git diff --check`，全部通过；新增用例覆盖 publish `plan_id` 稳定/失效、CLI/MCP 未确认零云端写入、确认后单次 SubmissionRevision 写入、反馈多版本不可变保存和新对话离线读取。
 - W6-03 增加 ApprovedSnapshot `0400` cache + digest sidecar、纯本地 CLI/MCP list/show、显式 MCP pull 和 verified conversation context；同一 Submission 的两个 revision、多对话无凭据读取、覆盖/篡改/旧缓存拒绝均有测试。
 - 最新 Plugin source 校验通过，固定 digest 为 `sha256:025e6f31b491f8cd529d39dbbae31a464743dba653234be2012426631950b26a`；Plugin 官方校验器与三个 Skill 官方校验器均通过临时隔离 `PYTHONPATH` 复跑，未修改全局 Python 环境。
+- W7 合入后 `go test -race ./...`、`go vet ./...`、Web 21 项测试和 production build、`pnpm check:plugin`、`git diff --check` 全部通过；覆盖 PKCE pending/approve/deny/expiry/verifier、sequence 幂等/冲突、ConnectSession 终态、Action/事实/诊断秘密门禁、固定 preflight/plan/resume/diagnostics 命令、浏览器授权视图和服务端注册成功门禁。
 
 本文件是 Codex 插件实施的唯一进度台账。状态更新遵循以下规则：
 
@@ -87,6 +90,7 @@
 6. 对话 A 可以创建 checkpoint/Handoff，对话 B 能校验 digest、原子 claim 并继续。
 7. ScriptPackage 可以 publish、进入人工审核，并通过新对话拉取反馈继续修订。
 8. 插件、CLI、MCP、Skills、Schema、Environment 和 Pack 均有确定版本、digest 与诊断结果。
+9. 快速初始化失败后，客户能按稳定 `check_id` 完成单步修复、resume 或提交脱敏支持码，不需要发送 Prompt、完整日志或客户文件。
 
 ## 2. 当前方案判断
 
@@ -106,6 +110,10 @@
 | D-10 | Codex CLI 使用显式 `directory` -> 受限 `cwd` 定位；不依赖 Roots | CLI 已实测 | `0.145.0` 单目录和 `--add-dir` 均未声明 Roots；Desktop 仍待实测 |
 | D-11 | 普通本地创作默认离线，服务端只参与明确节点 | 实施基线 | 保持云端 zero-exec 和本地草稿事实源 |
 | D-12 | Automation 不复用可见 Codex 对话或 Handoff | 实施基线 | 无人值守任务需要独立租约、凭据和隔离工作区 |
+| D-13 | 首版明确要求 Codex CLI、Desktop、Node 20+ 和 npx | 实施基线 | 把客户支持范围收敛到可自动预检的环境；教程不能代替检测 |
+| D-14 | 客户初始化按 L0 快速、L1 引导、L2 恢复、L3 支持逐级展开 | 已完成 | 正常路径最短，失败时只展示当前 required check |
+| D-15 | 服务端只下发签名策略和版本化 action，不下发任意 shell | 已完成 | Action Catalog 只允许固定 kind/handler，安全测试拒绝 shell/script |
+| D-16 | 首次项目绑定只使用浏览器设备授权 | 已完成 | Prompt 只有公开 session ID；CLI 本地 PKCE challenge/verifier；批准、拒绝和过期均有测试 |
 
 ## 3. `@taptap/maker` 参考结论
 
@@ -157,7 +165,7 @@
 | W0-03 | 编写最小测试 MCP，记录 Codex CLI `initialize` client capabilities 和 `roots/list` | 已完成 | `evidence/codex-cli-0.145.0-mcp-capabilities.md`；单目录与 `--add-dir` 均无 Roots |
 | W0-04 | 在 Codex Desktop 重复 Roots 测试 | 待实施 | Desktop 版本、结果与 CLI 差异 |
 | W0-05 | 验证 Plugin 安装后当前会话不可用、新会话可用 | 待实施 | 可重复的安装测试和 session 边界记录 |
-| W0-06 | 验证 Deep Link 与 `codex app <path>` 的路径、Prompt 和秘密处理 | 待实施 | macOS 实测；URL 中无 connect key |
+| W0-06 | 验证 Deep Link 与 `codex app <path>` 的路径、Prompt 和秘密处理 | 待实施 | macOS 实测；URL 中无 Attempt Token、verifier 或 Workspace Credential |
 | W0-07 | 形成 Codex 表面兼容矩阵 | 待实施 | Desktop/CLI/IDE 的 Plugin、MCP Roots、Resources、Deep Link 结论 |
 
 门禁：W0-03 到 W0-07 未完成前，不删除 `target_dir` fallback，也不承诺自动打开/恢复在所有 Codex 表面可用。
@@ -185,8 +193,8 @@ W1-05 子项按以下状态继续跟踪：
 | Registry 评测绑定 | 已完成 | source 校验重新计算报告 SHA-256，并核对 Plugin ID、版本、digest、场景状态和 evidence |
 | Ed25519 签名协议 | 已完成 | 签名固定 canonical payload；工具只从仓库外受限文件读取私钥并只输出签名结果；Registry 不保存私钥 |
 | 可信公钥验证 | 已完成 | `key_id` 解析到受控 trust store；签名、payload、key、lifecycle 或撤销状态不匹配时 fail closed；Node/Go 固定向量和临时密钥测试通过 |
-| 生产密钥登记与签名 | 已完成 | 两类生产公钥已登记；Registry `published` payload 已用仓库外发布私钥签名并通过 Node/Go 双重验证 |
-| tagged 发布门禁 | 阻塞 | verified 签名已满足；创建包含 Plugin 的 `v0.5.0` Git ref 后执行最终 tagged 门禁 |
+| 生产密钥登记与签名 | 已完成 | 两类生产公钥已登记；清理旧初始化动作后的 Registry `published` payload 已用原仓库外发布私钥重新签名并通过 Node/Go 双重验证 |
+| tagged 发布门禁 | 阻塞 | verified 签名已满足；创建包含 Plugin 的 `v0.6.0` Git ref 后执行最终 tagged 门禁 |
 
 签名 payload 固定包含 Plugin ID/类型/版本、来源 ref、license、Plugin digest、兼容 Profile、权限、数据流、输出 Schema、评测绑定、生命周期和撤回状态。实际签名命令只输出可审核的 signature block，不自动修改 Registry：
 
@@ -251,7 +259,7 @@ node scripts/sign-plugin-release.mjs --private-key <仓库外私钥路径> --key
 
 | ID | 任务 | 状态 | 验收标准 |
 | --- | --- | --- | --- |
-| W5-01 | 实现 CreativeEnvironmentManifest 签发与验证 | 已完成 | project/profile/version/digest/expiry/Ed25519、`device.connect`、Workspace Credential 重拉、bootstrap 验签落盘和服务启动配置均已实现；生产 signer/trust key 属于部署门禁 |
+| W5-01 | 实现 CreativeEnvironmentManifest 签发与验证 | 已完成 | project/profile/version/digest/expiry/Ed25519、浏览器授权完成响应、Workspace Credential 重拉、bootstrap 验签落盘和服务启动配置均已实现；生产 signer/trust key 属于部署门禁 |
 | W5-02 | 实现 Environment Resolver | 已完成 | Profile allowlist、Ed25519 verified Registry、签名 Manifest 与本地 Lock 交集、撤回保护、bootstrap Registry 拉取和 verified cache 均已实现 |
 | W5-03 | 实现 LocalExecutionPlan | 已完成 | 确定性 `lep_` plan、capability 越权拒绝、ready/environment_prepare、缺失原因，以及 CLI `workspace execution-plan` 和 MCP `environment_execution_plan` 已实现 |
 | W5-04 | 实现 CreativeExecutionBundle | 已完成 | 独立 1.0 Schema；确定性 Bundle ID/digest；Ed25519 签发验签；绑定项目、Profile/Environment、subject、capability 和任务级 Pack；Manifest/Registry/Lock/设备 digest 验证及篡改测试通过 |
@@ -287,17 +295,36 @@ node scripts/sign-plugin-release.mjs --private-key <仓库外私钥路径> --key
   -> 当前或新对话 approved_snapshot_inbox/show（纯本地读）
 ```
 
+### W7 客户初始化、诊断与支持
+
+目标：服务端给客户最短初始化路径，并在任一步失败时提供机器可验证、可恢复、可升级支持的下一动作。详细方案见 [onboarding/README.md](./onboarding/README.md)。
+
+| ID | 任务 | 状态 | 验收标准 |
+| --- | --- | --- | --- |
+| W7-01 | 定义 Bootstrap prerequisite/compatibility 检查 | 已完成 | Node 20+、npx、macOS Keychain、Codex CLI/Desktop、Host/CODEX_HOME、网络和目录权限均有稳定 `check_id` 与自动测试；Desktop 同 HOME 的实机证明归 W7-08 |
+| W7-02 | 扩展 CLI 结构化预检与 doctor | 已完成 | `--json` 输出稳定 stage/check/error/action；Web 只使用结构化进度，不解析 stderr |
+| W7-03 | 为 ConnectSession 增加 BootstrapAttempt 进度投影 | 已完成 | 顶层状态不变；事件 sequence 幂等；Web 显示真实阶段、第一个失败 check 和支持码 |
+| W7-04 | 实现 Web L0/L1 初始化体验 | 已完成 | 默认一次无秘密 Prompt；浏览器新标签页可反查 attempt；Web 展示批准/拒绝、单一 action 和固定排查命令 |
+| W7-05 | 实现受管 Action Catalog | 已完成 | action 只有固定 handler、文案和 HTTPS/站内链接；测试拒绝 shell/script/任意 URL |
+| W7-06 | 实现浏览器设备授权 | 已完成 | Prompt/Deep Link/日志无秘密；本地 PKCE challenge/verifier + 浏览器确认 + CLI 轮询；过期、拒绝、错误 verifier 有测试 |
+| W7-07 | 实现脱敏诊断包与支持码 | 已完成 | 本地 allowlist 摘要、客户预览和明确上传确认；禁止字段测试通过；服务端按 attempt 保存摘要 |
+| W7-08 | 完成支持手册、兼容矩阵和试点 | 进行中 | 手册和代码完成；macOS Desktop 首批全场景、重复失败升级和真实客户试点待执行 |
+
+W7 复用 `plan/apply/resume`、Codex Adapter 和 Workspace doctor 执行内核，并增加前置检测、服务端可观测性和客户引导。首次授权只有浏览器设备授权一条路径，不保留旧初始化协议兼容层。
+
 ## 5. 剩余实施顺序
 
 W3/W4 基础设施已经先于 W2 完成，后续不再按原始编号机械推进。以真实依赖和当前发布状态为准：
 
 ```text
-v0.5.0 版本、评测、可信公钥与 Registry 签名已完成
+v0.6.0 版本、评测、可信公钥与更新后 Registry 签名已完成
   -> Plugin/Skill/Go/Web 全量验证
   -> 获得授权后创建 Git tag、GitHub Release 与 npm 产物
   -> tagged 门禁与干净环境远程安装验收
   -> 获得授权后部署生产 Environment Control Plane
   -> Codex Desktop 实机验收
+  -> W7-01 至 W7-07 客户初始化门禁
+  -> 受支持 macOS 环境的客户试点和支持演练
   -> W1-05 tagged 门禁
   -> 干净环境远程安装与 Codex Desktop 新会话验收
   -> 首版交付完成
@@ -319,7 +346,7 @@ W5-06 的可选 Pack 与完整 Pack Console 不属于首版发布门禁；只在
 - `apply` 缺少或携带错误 `plan_id` 时，不安装、不连接、不写 Workspace。
 - 安装成功但新会话打开失败。
 - Deep Link 打开失败后回退 `codex app <path>`；两者都失败时返回路径与恢复 Prompt。
-- 安装中断、连接码过期、用户拒绝确认。
+- 安装中断、ConnectSession/attempt 过期、用户拒绝授权或计划确认。
 - 用户已有其他 Marketplace、MCP、Skills 和自定义 AGENTS 正文。
 
 ### 6.2 Workspace 与 MCP
@@ -356,10 +383,22 @@ W5-06 的可选 Pack 与完整 Pack Console 不属于首版发布门禁；只在
 
 - 非 allowlist Marketplace/Plugin/Pack 被拒绝。
 - digest、签名、版本或 Schema 任一不匹配被拒绝。
-- connect key 不进入 URL、日志、Handoff、Lock 或 Plugin manifest。
+- Bootstrap Attempt Token、PKCE verifier 和 Workspace Credential 不进入 Prompt、URL、日志、Handoff、Lock 或 Plugin manifest。
 - 配置修改失败后恢复原文件。
 - 用户修改过的受管文件产生冲突报告，不静默覆盖。
 - 来源文档中的安装指令不能改变 Resolver 结果。
+
+### 6.6 客户初始化与诊断
+
+- Node 缺失、版本过低、npx 缺失以及普通终端/Desktop PATH 不一致。
+- Codex CLI/Desktop 缺失、版本不兼容、账号未登录和 Workspace 策略阻断。
+- ContentCloud、npm、Marketplace 或 OpenAI 单点网络失败时只提示对应来源。
+- ConnectSession 顶层状态不变，BootstrapAttempt sequence 重放不改变最新进度。
+- Web 不解析 stderr，只按稳定 check/action 展示单步引导。
+- 设备/Workspace 已创建后的失败只走 resume，不重新发起授权。
+- 诊断包生成前后做秘密扫描；Prompt、token、完整 PATH、客户文件和非 ContentCloud 插件清单均不能进入上传包。
+- 服务端 Action Catalog 不能表达 shell、script 或任意下载执行。
+- 同一 check 标准动作两次失败后生成支持码并进入人工升级。
 
 ## 7. 方案确认点
 
@@ -370,6 +409,8 @@ W5-06 的可选 Pack 与完整 Pack Console 不属于首版发布门禁；只在
 3. 接受 Marketplace 对普通创作者隐藏技术选型，但安装、权限、费用和升级变化保持可见。
 4. 接受 RunClaim/Handoff 作为多对话交接基础设施，不以 Codex transcript、Memory 或自然语言摘要代替。
 5. 接受 Maker 只参考五个经验证仍有优势的局部工程模式，不成为依赖；Codex 不采用其 Roots 定位，也不采用其凭据和 Dev Kit 供应链。
+6. 接受首版要求客户安装 Codex CLI、Desktop 和 Node 20+/npx，但必须用预检和 doctor 验证，不能把安装教程当作成功证明。
+7. 接受“一键”是进入受控流程的单一入口；Codex 执行、安装计划、浏览器授权和新会话切换仍保持可见。
 
 当前已进入实施，但仍不创建分支、不提交代码、不修改用户真实 Codex 配置。涉及用户级安装的集成测试优先使用隔离的临时 `CODEX_HOME`；任何需要改动真实配置的测试必须另行明确确认。
 
@@ -388,7 +429,7 @@ W5-06 的可选 Pack 与完整 Pack Console 不属于首版发布门禁；只在
 | 2026-07-27 | 记录发布阻塞：既有 `v0.4.0` 不含 Plugin/Marketplace，npm 仅有 `0.2.0`；必须使用新不可变版本完成远程验收 |
 | 2026-07-27 | 完成 W2 协议与失败路径：apply 强制匹配 `plan_id`，补齐 Web/Bootstrap 文案、身份错配回滚、Deep Link 回退、固定恢复 Prompt 与 origin URL 测试 |
 | 2026-07-27 | Plugin/三个 Skills 官方校验、真实只读 plan 稳定性探针、全量 Go/Web 测试、typecheck 与 diff check 全部通过；W2 剩余发布和 Desktop 实机门禁 |
-| 2026-07-27 | 修正连接失败恢复：请求取消不再阻断 Plugin rollback；服务端已消费连接码但本地凭据保存失败时不再误删 Plugin |
+| 2026-07-27 | 修正初始化失败恢复：请求取消不再阻断 Plugin rollback；服务端已创建设备但本地凭据保存失败时不再误删 Plugin |
 | 2026-07-27 | 新增 Marketplace Registry 1.0、确定性 Plugin digest 与 source/tagged 双模式发布检查，接入 Make/CI；tagged 模式保持对签名、评测和无效旧 tag 的硬阻塞 |
 | 2026-07-27 | 完成 W6-01/W6-02：publish 使用精确 preflight/apply 确认协议；审核反馈按内容 hash 不可变落盘，新对话可离线读取；补齐 MCP/CLI 无副作用门禁测试与 Skill 固定流程 |
 | 2026-07-27 | 完成 W6-03：ApprovedSnapshot 使用只读 snapshot + digest cache，新增显式 pull 与纯本地 inbox/show，双对话共享不同 revision 且篡改 fail closed；路由升级至 1.1.0 |
@@ -402,7 +443,10 @@ W5-06 的可选 Pack 与完整 Pack Console 不属于首版发布门禁；只在
 | 2026-07-27 | 完成 W2-05 与 W5-01 至 W5-03：bootstrap 和服务启动配置接入可信 Environment，required doctor、Registry verified cache、LocalExecutionPlan CLI/MCP 均通过测试；生产 key 保持发布门禁 |
 | 2026-07-27 | 完成 W5-05：新增确定性 Pack preparation plan/apply、权限/费用披露、精确确认、Lock CAS、局部回滚、doctor 和新会话 handoff；CLI/MCP 共享同一实现 |
 | 2026-07-27 | 完成 W6-04/W6-05：Automation 在租约前 fail closed，并使用 Attempt 级独占隔离目录、冻结输入、服务端心跳续租和最小 Agent 环境；run token 不落盘，失败 finish 与受限清理均有集成测试；评测保持 8/8 |
-| 2026-07-27 | 确认并准备 `v0.5.0`：统一 CLI/Web/npm/Plugin/MCP 版本，重算 Plugin 与评测 digest，登记两类生产公钥，签署 `published` Registry，并增加可部署 Environment Profile |
+| 2026-07-27 | 确认并准备 `v0.6.0`：统一 CLI/Web/npm/Plugin/MCP 版本，重算 Plugin 与评测 digest，登记两类生产公钥，签署 `published` Registry，并增加可部署 Environment Profile |
+| 2026-07-27 | 新增 W7 客户初始化方案组：明确 CLI/Desktop/Node 前提，定义 L0-L3 路径、结构化 stage/check/action、ConnectSession 进度投影、浏览器设备授权目标、脱敏诊断包和客服运行手册 |
+| 2026-07-27 | 完成 W7-01 至 W7-07：移除旧初始化协议，实现 PKCE 浏览器授权、预检、进度投影、Action Catalog、Web 单步引导、resume、脱敏诊断与安全/幂等测试；W7-08 保持实机试点中 |
+| 2026-07-27 | 最终复核清理 Registry 的 `device.connect` 残留，增加 macOS Keychain 前置检查并收紧 attempt 终态转换；更新后的 `published` payload 已用原仓库外发布 key 重新签署并通过双端验证 |
 
 ## 9. 资料
 
@@ -410,7 +454,7 @@ W5-06 的可选 Pack 与完整 Pack Console 不属于首版发布门禁；只在
 - [OpenAI: Build skills](https://developers.openai.com/plugins/build/skills)
 - [OpenAI: Build an MCP server](https://developers.openai.com/plugins/build/mcp-server)
 - [OpenAI: Use plugins](https://learn.chatgpt.com/docs/plugins)
-- [OpenAI: Codex app deep links](https://developers.openai.com/codex/app/deep-links)
+- [OpenAI: ChatGPT desktop app commands and deep links](https://learn.chatgpt.com/docs/reference/commands)
 - [OpenAI: Codex CLI reference](https://developers.openai.com/codex/cli/reference)
 - [TapTap Maker npm package](https://www.npmjs.com/package/@taptap/maker)
 - [TapTap Maker source](https://github.com/taptap/instant-games-open-mcp)

@@ -9,6 +9,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/store/memory"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestKnowledgeExtractionRunsLocallyAndImportsGroundedCandidates(t *testing.T) {
@@ -23,7 +24,7 @@ func TestKnowledgeExtractionRunsLocallyAndImportsGroundedCandidates(t *testing.T
 	ref := createAcceptedEvidence(t, ctx, service, actor, project.ID, "每盒净含量为 10 克。", nil)
 	connect, err := service.CreateConnectSession(ctx, actor, project.ID, "")
 	must(t, err)
-	connected, err := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "test", Capabilities: capabilities()})
+	connected, err := testsupport.ConnectBootstrap(ctx, service, actor, connect, app.ConnectDeviceInput{Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "test", Capabilities: capabilities()})
 	must(t, err)
 	deviceActor, device, err := service.DeviceActor(ctx, connected.DeviceToken)
 	must(t, err)
@@ -66,7 +67,7 @@ func TestKnowledgeExtractionRejectsEvidenceOutsideFrozenContract(t *testing.T) {
 	project, _ := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "Brand", ProductName: "Product"}, "")
 	ref := createAcceptedEvidence(t, ctx, service, actor, project.ID, "可信原文", nil)
 	connect, _ := service.CreateConnectSession(ctx, actor, project.ID, "")
-	connected, _ := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "test", Capabilities: capabilities()})
+	connected, _ := testsupport.ConnectBootstrap(ctx, service, actor, connect, app.ConnectDeviceInput{Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "test", Capabilities: capabilities()})
 	deviceActor, device, _ := service.DeviceActor(ctx, connected.DeviceToken)
 	run, err := service.CreateKnowledgeExtractionRun(ctx, actor, app.CreateKnowledgeExtractionRunInput{ProjectID: project.ID, SourceRevisionIDs: []string{ref.SourceRevisionID}, IdempotencyKey: "extract-invalid", OutputCount: 1}, "")
 	must(t, err)

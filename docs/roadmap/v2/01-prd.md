@@ -169,7 +169,7 @@ Agent、Daemon 和 Worker 是工具或系统参与者，不进入业务责任矩
 
 ### FR-13 本地工作区、Skills、MCP 与发布
 
-- Web 创建项目后生成一次性 init code；`contentcloud init` 初始化最新签名模板并绑定项目。
+- Web 创建项目后生成公开 ConnectSession；固定版本 bootstrap CLI 通过浏览器 PKCE 授权，初始化签名环境并绑定项目。
 - 初始化项目级方法论、ontology、knowledge、raw、work、outputs、workflows、Skills 和 MCP 配置。
 - 默认不覆盖已有文件、不启动后台自动化、不上传原始资料。
 - 提供 workspace doctor/status/upgrade/diff，模板升级使用 lock 和三方差异，不静默覆盖客户修改。
@@ -224,7 +224,7 @@ Agent、Daemon 和 Worker 是工具或系统参与者，不进入业务责任矩
 ## 9. V2 总体验收
 
 1. 从 Web 创建客户、品牌、产品和项目，选择租户服务模板。
-2. 生成一次性连接码，在本机安装并连接 Creative Runtime。
+2. 创建公开 ConnectSession，通过浏览器核对短码并授权本机 Creative Runtime。
 3. 在本地导入金陵古都香来源，完成 15 维诊断、七层知识包和 lint，显式 publish 后完成人工知识决策。
 4. 创建市场研究，采纳案例结构，但不把竞品事实混入品牌知识。
 5. 完成受众、场景、卖点、可视化方案和 Brief 审批。

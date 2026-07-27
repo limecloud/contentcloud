@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -294,26 +293,36 @@ func (s *Service) CreateConnectSession(ctx context.Context, actor Actor, project
 	if _, err := s.projectForWrite(ctx, actor, projectID); err != nil {
 		return domain.ConnectSession{}, err
 	}
-	plain, hash, err := domain.NewOpaqueToken("cck_", 24)
-	if err != nil {
-		return domain.ConnectSession{}, err
-	}
 	now := s.now().UTC()
-	v := domain.ConnectSession{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: projectID, InviterUserID: actor.UserID, ConnectKeyHash: hash, State: "waiting_for_computer", ExpiresAt: now.Add(10 * time.Minute), PlaintextConnectKey: plain}
-	stored := v
-	stored.PlaintextConnectKey = ""
-	if err := s.store.CreateConnectSession(ctx, stored); err != nil {
+	v := domain.ConnectSession{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: projectID, InviterUserID: actor.UserID, State: "waiting_for_computer", ExpiresAt: now.Add(10 * time.Minute)}
+	if err := s.store.CreateConnectSession(ctx, v); err != nil {
 		return v, err
 	}
 	s.audit(ctx, actor, projectID, "connect_session.created", "connect_session", v.ID, requestID, map[string]any{"expires_at": v.ExpiresAt})
 	return v, nil
 }
 func (s *Service) ConnectSession(ctx context.Context, actor Actor, id string) (domain.ConnectSession, error) {
-	return s.store.ConnectSessionByID(ctx, actor.TenantID, id)
+	session, err := s.store.ConnectSessionByID(ctx, actor.TenantID, id)
+	if err != nil {
+		return session, err
+	}
+	if session.State == "waiting_for_computer" && s.now().UTC().After(session.ExpiresAt) {
+		session.State = "expired"
+		if err := s.store.SaveConnectSession(ctx, session); err != nil {
+			return session, err
+		}
+	}
+	progress, err := s.store.BootstrapProgressForSession(ctx, actor.TenantID, id)
+	if err != nil {
+		return session, err
+	}
+	if session.State != "expired" {
+		session.Progress = progress
+	}
+	return session, nil
 }
 
 type ConnectDeviceInput struct {
-	ConnectKey   string              `json:"connect_key"`
 	DisplayName  string              `json:"display_name"`
 	Hostname     string              `json:"hostname"`
 	Platform     string              `json:"platform"`
@@ -328,41 +337,7 @@ type ConnectDeviceResult struct {
 	WorkspaceToken      string                `json:"workspace_token"`
 	ProjectID           string                `json:"project_id"`
 	EnvironmentManifest *environment.Manifest `json:"environment_manifest,omitempty"`
-}
-
-func (s *Service) ConnectDevice(ctx context.Context, in ConnectDeviceInput) (ConnectDeviceResult, error) {
-	if !strings.HasPrefix(in.ConnectKey, "cck_") {
-		return ConnectDeviceResult{}, domain.Invalid("CONNECT_KEY_INVALID", "连接码格式错误")
-	}
-	token, tokenHash, err := domain.NewOpaqueToken("dt_", 32)
-	if err != nil {
-		return ConnectDeviceResult{}, err
-	}
-	workspaceToken, workspaceTokenHash, err := domain.NewOpaqueToken("wt_", 32)
-	if err != nil {
-		return ConnectDeviceResult{}, err
-	}
-	now := s.now().UTC()
-	d := domain.Device{ID: domain.NewID(), DisplayName: defaultString(in.DisplayName, in.Hostname), Hostname: in.Hostname, Platform: defaultString(in.Platform, runtime.GOOS), Arch: defaultString(in.Arch, runtime.GOARCH), Version: in.Version, TokenHash: tokenHash, Capabilities: in.Capabilities, LastSeenAt: now}
-	workspace := domain.WorkspaceBinding{ID: domain.NewID(), TemplateID: "workspace_marketing_video", TemplateVersion: "", Targets: []string{}, CredentialHash: workspaceTokenHash, Status: "active", InitializedAt: now, LastSeenAt: now}
-	session, err := s.store.ConsumeConnectSession(ctx, domain.TokenHash(in.ConnectKey), d, workspace, now)
-	if err != nil {
-		return ConnectDeviceResult{}, err
-	}
-	d.TenantID = session.TenantID
-	d.OwnerUserID = session.InviterUserID
-	d.ProjectIDs = []string{session.ProjectID}
-	s.audit(ctx, Actor{UserID: d.OwnerUserID, TenantID: d.TenantID, Type: "device", DeviceID: d.ID}, session.ProjectID, "device.connected", "device", d.ID, "", map[string]any{"platform": d.Platform})
-	d.TokenHash = ""
-	result := ConnectDeviceResult{Device: d, DeviceToken: token, WorkspaceID: workspace.ID, WorkspaceToken: workspaceToken, ProjectID: session.ProjectID}
-	if s.environmentControl != nil {
-		manifest, err := s.environmentControl.Issue(session.ProjectID, now)
-		if err != nil {
-			return result, err
-		}
-		result.EnvironmentManifest = &manifest
-	}
-	return result, nil
+	BootstrapAttemptID  string                `json:"bootstrap_attempt_id,omitempty"`
 }
 
 func (s *Service) DeviceActor(ctx context.Context, token string) (Actor, domain.Device, error) {

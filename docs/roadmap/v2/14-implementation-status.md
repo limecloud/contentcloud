@@ -6,7 +6,7 @@
 
 ```mermaid
 flowchart LR
-    W[Web 创建项目/init code] --> I[contentcloud init]
+    W[Web 创建项目/ConnectSession] --> I[Codex bootstrap + 浏览器授权]
     I --> L[本地模板 + Skills + MCP]
     L --> X[local source register/ingest]
     X --> K[knowledge import/lint/diagnose/pack]
@@ -34,7 +34,7 @@ flowchart LR
 
 | 范围 | 当前实现 |
 | --- | --- |
-| 初始化 | `contentcloud init --connect <code> <directory>`；空目录初始化、未知非空目录拒绝、已有工作区幂等、完全离线 dry-run |
+| 初始化 | `bootstrap preflight/plan/apply/resume/diagnostics`；浏览器 PKCE 授权、固定 Plugin、确定性 `plan_id`、未知非空目录拒绝、结构化进度和脱敏支持码 |
 | 本地模板 | `.contentcloud/project.yaml`、`template.lock`、`sync-state.json`、知识/ontology/raw/work/outputs 目录和受管文件 hash |
 | Agent 接入 | 项目级 Codex/Claude 配置；内置 `contentcloud-knowledge-extraction` 与 `contentcloud-marketing-video-script` Skills |
 | 本地来源与运行 | source register/list/show/ingest/verify；copy/reference；SHA-256/MIME/100MB；EvidenceBundle；可恢复 LocalRun 阶段门禁 |
@@ -108,7 +108,9 @@ flowchart LR
 ## 5. 当前准确命令
 
 ```bash
-contentcloud init --server-url <url> --connect <code> --target all --accept-project-config ./project
+contentcloud bootstrap preflight ./project --server-url <url> --json
+contentcloud bootstrap plan ./project --server-url <url> --session <session-id> --json
+contentcloud bootstrap apply ./project --server-url <url> --session <session-id> --plan-id <plan-id> --accept --json
 contentcloud workspace status
 contentcloud workspace doctor
 contentcloud mcp status

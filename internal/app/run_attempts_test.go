@@ -10,6 +10,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/store/memory"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestRunAttemptLeaseHeartbeatExpiryAndStaleReport(t *testing.T) {
@@ -149,7 +150,7 @@ func setupKnowledgeRun(t *testing.T, ctx context.Context, email string) (*app.Se
 	ref := createAcceptedEvidence(t, ctx, service, actor, project.ID, "可信原文", nil)
 	connect, err := service.CreateConnectSession(ctx, actor, project.ID, "")
 	must(t, err)
-	connected, err := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "test", Capabilities: capabilities()})
+	connected, err := testsupport.ConnectBootstrap(ctx, service, actor, connect, app.ConnectDeviceInput{Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "test", Capabilities: capabilities()})
 	must(t, err)
 	deviceActor, device, err := service.DeviceActor(ctx, connected.DeviceToken)
 	must(t, err)

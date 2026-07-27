@@ -42,11 +42,13 @@ sequenceDiagram
     PM->>Web: 创建客户/品牌/产品/项目
     Web->>BFF: 保存角色、模板和审批人
     BFF-->>Web: 项目 + Gate 0 检查
-    PM->>Web: 生成一次性连接码
-    Web-->>PM: 安装命令和短期连接码
-    PM->>CLI: contentcloud init --connect <code> ./project
-    CLI->>BFF: 消费init code并获取签名模板
-    BFF-->>CLI: 项目绑定 + WorkspaceTemplateManifest
+    PM->>Web: 创建ConnectSession
+    Web-->>PM: 无秘密Prompt和公开session ID
+    PM->>CLI: bootstrap preflight/plan并确认plan_id
+    CLI->>BFF: PKCE challenge发起浏览器授权
+    PM->>Web: 核对短码并批准设备
+    CLI->>BFF: verifier完成授权
+    BFF-->>CLI: 项目绑定 + 签名Environment Manifest
     CLI->>CLI: 初始化目录、Skills、MCP、lint
     CLI->>BFF: 注册WorkspaceBinding与模板版本
     BFF-->>Web: 工作区就绪，更新Gate 0

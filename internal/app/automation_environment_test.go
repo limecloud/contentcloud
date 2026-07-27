@@ -14,6 +14,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
 	"github.com/limecloud/contentcloud/internal/store/memory"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestAutomationPollRequiresVerifiedEnvironmentPackAndCapabilityBeforeLease(t *testing.T) {
@@ -38,7 +39,7 @@ func TestAutomationPollRequiresVerifiedEnvironmentPackAndCapabilityBeforeLease(t
 	capability := domain.Capability{ID: requirement.ID, Version: requirement.SchemaVersion, Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, Digest: requirement.Digest, LocalOnly: true}
 	connect, err := service.CreateConnectSession(ctx, actor, project.ID, "")
 	must(t, err)
-	connected, err := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "automation-local", Platform: "darwin", Arch: "arm64", Version: "test", Capabilities: []domain.Capability{capability}})
+	connected, err := testsupport.ConnectBootstrap(ctx, service, actor, connect, app.ConnectDeviceInput{Hostname: "automation-local", Platform: "darwin", Arch: "arm64", Version: "test", Capabilities: []domain.Capability{capability}})
 	must(t, err)
 	if connected.EnvironmentManifest == nil {
 		t.Fatal("configured control plane did not return Environment Manifest")
@@ -99,7 +100,7 @@ func automationProfile() environment.Profile {
 	return environment.Profile{
 		ID: "contentcloud.video-production", Version: "1.0.0", EnvironmentVersion: "2026.7.1", Harness: "codex", Marketplace: "contentcloud",
 		Plugins: []environment.ProfilePlugin{
-			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.5.0", Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}},
+			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.6.0", Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}},
 			{ID: "contentcloud-evidence-reasoning", Kind: "skill_pack", Version: "1.0.0", Scope: "task", Capabilities: []string{domain.KnowledgeExtractCapability}},
 		},
 		WorkspaceTemplate: environment.WorkspaceTemplateRef{ID: "workspace_marketing_video", Version: "2.2.0", Digest: "sha256:" + strings.Repeat("c", 64)},
@@ -113,7 +114,7 @@ func automationVerifiedRegistry(t *testing.T) environment.VerifiedRegistry {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	must(t, err)
 	registry := environment.Registry{SchemaVersion: "1.0", Entries: []environment.RegistryEntry{
-		automationRegistryEntry("contentcloud-video-production", "scene_plugin", "0.5.0", "v0.5.0", "a"),
+		automationRegistryEntry("contentcloud-video-production", "scene_plugin", "0.6.0", "v0.6.0", "a"),
 		automationRegistryEntry("contentcloud-evidence-reasoning", "skill_pack", "1.0.0", "v1.0.0", "b"),
 	}}
 	for index := range registry.Entries {

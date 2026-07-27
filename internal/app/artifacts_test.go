@@ -9,6 +9,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/store/memory"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestArtifactEnvelopePresentationAndDeclarativeLocalOpen(t *testing.T) {
@@ -24,7 +25,7 @@ func TestArtifactEnvelopePresentationAndDeclarativeLocalOpen(t *testing.T) {
 	capability := domain.Capability{ID: domain.ArtifactExportCapability, Version: "1.0.0", Kind: "business_capability", InputSchema: domain.ScriptPackageSchema, OutputSchema: "extension-artifact-envelope/1.0", PresentationProfiles: []string{"local_open"}, LocalOnly: true, Digest: "contentcloud-artifact-export@test"}
 	connect, err := service.CreateConnectSession(ctx, actor, project.ID, "")
 	must(t, err)
-	connected, err := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "test", Capabilities: []domain.Capability{capability}})
+	connected, err := testsupport.ConnectBootstrap(ctx, service, actor, connect, app.ConnectDeviceInput{Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "test", Capabilities: []domain.Capability{capability}})
 	must(t, err)
 	deviceActor, device, err := service.DeviceActor(ctx, connected.DeviceToken)
 	must(t, err)
@@ -76,7 +77,7 @@ func TestArtifactRegistrationRejectsCapabilityMismatch(t *testing.T) {
 	project, _ := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "Brand", ProductName: "Product"}, "")
 	connect, _ := service.CreateConnectSession(ctx, actor, project.ID, "")
 	capability := domain.Capability{ID: domain.ArtifactExportCapability, Version: "1.0.0", Digest: "trusted", PresentationProfiles: []string{"local_open"}}
-	connected, _ := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "local", Capabilities: []domain.Capability{capability}})
+	connected, _ := testsupport.ConnectBootstrap(ctx, service, actor, connect, app.ConnectDeviceInput{Hostname: "local", Capabilities: []domain.Capability{capability}})
 	deviceActor, device, _ := service.DeviceActor(ctx, connected.DeviceToken)
 	now := time.Now().UTC()
 	logical := domain.Script{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, Title: "Script", CreatedAt: now}
