@@ -2,6 +2,28 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.5.0] - 2026-07-27
+
+### Added
+
+- 增加 ContentCloud 精选 Marketplace、`contentcloud-video-production` Scene Plugin、三个 canonical Skills 与 bundled `contentcloud-local` MCP，并建立确定性评测、digest、Ed25519 签名和撤回门禁。
+- 增加项目级 Creative Environment Control Plane，覆盖签名 Manifest、可信 Registry、Environment Lock、Pack preparation、升级/重置计划及离线 doctor。
+- 增加 CreativeExecutionBundle、capability catalog、Automation 租约前环境校验与隔离执行工作区，使交互式创作和后台执行共享同一套可审计能力契约。
+- 增加 `bootstrap plan/apply/resume` 安装事务、Codex Marketplace/Plugin 状态检测、新会话 handoff、RunClaim 和跨对话原子交接。
+- 增加本地审核反馈 inbox、ApprovedSnapshot 只读缓存，以及 CLI/MCP 的显式拉取、查看和精确确认发布流程。
+
+### Changed
+
+- 将内置创作 Skills 收敛到 Scene Plugin 单一事实源，由 Go CLI、Workspace Template 和 Codex Plugin 共同引用。
+- 将 CLI、Web、npm 安装器、Plugin、MCP 与 bootstrap 固定版本统一为 `0.5.0`。
+- 服务端可通过 systemd 配置启用签名 Environment Profile 和 capability release，bootstrap 与 Automation 在缺少可信环境时 fail closed。
+
+### Fixed
+
+- 修复 Environment Preparation 超过 lease TTL 后 RunClaim 可提前进入的问题；只要 preparation 文件存在，运行领取始终保持关闭。
+- 修复 CreativeExecutionBundle 在 PostgreSQL 中可被 runtime 更新或删除的问题，增加权限撤销、不可变触发器和 RLS 集成断言。
+- 修复 Node 23 下发布签名工具无法为现有 public `KeyObject` 计算指纹的问题。
+
 ## [0.4.0] - 2026-07-27
 
 ### Added

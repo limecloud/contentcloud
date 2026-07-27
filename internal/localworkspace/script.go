@@ -1094,23 +1094,16 @@ func loadCreativeBatch(root, file, expectedID string) (CreativeBatch, error) {
 }
 
 func latestApprovedObject(root, submissionType, objectID string) (json.RawMessage, domain.ApprovedSnapshot, error) {
-	files, err := filepath.Glob(filepath.Join(root, ".contentcloud", "cache", "approved", "*", "snapshot.json"))
+	summaries, err := ApprovedSnapshotInbox(root, submissionType)
 	if err != nil {
 		return nil, domain.ApprovedSnapshot{}, err
 	}
-	type candidate struct {
-		raw      json.RawMessage
-		snapshot domain.ApprovedSnapshot
-	}
-	values := []candidate{}
-	for _, path := range files {
-		var snapshot domain.ApprovedSnapshot
-		if err := readJSON(path, &snapshot); err != nil {
-			return nil, snapshot, err
+	for _, summary := range summaries {
+		record, err := ShowApprovedSnapshot(root, summary.ID)
+		if err != nil {
+			return nil, domain.ApprovedSnapshot{}, err
 		}
-		if snapshot.SubmissionType != submissionType {
-			continue
-		}
+		snapshot := record.Snapshot
 		eligible := map[string]bool{}
 		for _, id := range snapshot.EligibleIDs {
 			eligible[id] = true
@@ -1134,15 +1127,11 @@ func latestApprovedObject(root, submissionType, objectID string) (json.RawMessag
 				continue
 			}
 			if objectID == "" || identity.ID == objectID {
-				values = append(values, candidate{raw: raw, snapshot: snapshot})
+				return raw, snapshot, nil
 			}
 		}
 	}
-	if len(values) == 0 {
-		return nil, domain.ApprovedSnapshot{}, domain.NotFound("已拉取的 " + submissionType + " ApprovedSnapshot 对象")
-	}
-	sort.Slice(values, func(i, j int) bool { return values[i].snapshot.CreatedAt.After(values[j].snapshot.CreatedAt) })
-	return values[0].raw, values[0].snapshot, nil
+	return nil, domain.ApprovedSnapshot{}, domain.NotFound("已拉取的 " + submissionType + " ApprovedSnapshot 对象")
 }
 
 func validVariantDimension(value string) bool {

@@ -1,8 +1,10 @@
 # ContentCloud 创作环境与插件控制面方案
 
-状态：`Proposal`，等待确认后实施。
+状态：`实施中`。执行事实与剩余门禁以 [PLAN.md](./PLAN.md) 为准。
 
-更新时间：2026-07-26。
+更新时间：2026-07-27。
+
+执行跟踪：[PLAN.md](./PLAN.md)。
 
 首个目标宿主：Codex。
 
@@ -40,7 +42,7 @@ ContentCloud 不是简单地“给 Codex 加一个插件”。
 | “排除乱七八糟的插件” | 用户不选插件，项目只绑定一个 `CreativeEnvironmentProfile` |
 | “服务端控制安装什么” | 服务端签发 `CreativeEnvironmentManifest`，声明受控插件集合、版本、Workspace Template 和 capability |
 | “用户就复制 Prompt 到 Codex” | Web ConnectSession 生成带 plugin mention 的一次性连接 Prompt |
-| “无感知安装需要的周边” | Codex 在同一任务中完成安装和 Continue；用户只确认业务能力与权限，不手工拼装组件 |
+| “无感知安装需要的周边” | bootstrap 对话完成受控安装和工作区绑定，再进入已加载插件的新项目对话；用户只确认业务能力与权限，不手工拼装组件 |
 | “文档 -> 知识库 -> 剧本 -> 素材 -> 视频” | 必装场景插件编排核心流程，并按任务解析少量精选 Skill Pack/Provider Pack |
 | “创作时把需要的 Skills 随剧本下发” | 剧本业务对象保持纯净；服务端并行签发 `CreativeExecutionBundle`，锁定所需 capability 和 Skill Pack 引用 |
 | “一个 Codex 文件夹下有多个对话” | 文件夹是共享 Workspace；每个对话绑定独立本地 session/Run，通过 `HandoffRecord` 和 digest 交接，不共享模型上下文 |
@@ -54,7 +56,7 @@ ContentCloud 不是简单地“给 Codex 加一个插件”。
 ### 2.1 产品结论
 
 1. 项目总览中的“初始化本地工作区”弹窗是唯一主入口。
-2. 用户只需要复制一次项目连接 Prompt 到 Codex；不需要理解 Marketplace、Skill、MCP、CLI 和版本组合。
+2. 用户只需要复制一次项目连接 Prompt 到 Codex；首次安装后允许自动打开一个新的项目对话，不要求用户理解 Marketplace、Skill、MCP、CLI 和版本组合。
 3. 初始化完成后，一个 ContentCloud Workspace 作为 Codex 项目文件夹；用户可以按资料、剧本、素材、审核等任务创建多个对话。
 4. 对话历史不是共享业务状态。跨对话交接必须落到版本化业务文件、`LocalRunContext` 和 `HandoffRecord`，同一 Run 只允许一个写入者。
 5. ContentCloud 服务端为项目选择一个经过审核的 `CreativeEnvironmentProfile`，并从自有精选市场解析出受控插件组合，不让初级用户自由拼装插件。
@@ -73,6 +75,8 @@ ContentCloud 不是简单地“给 Codex 加一个插件”。
 6. 业务层继续依赖稳定 capability ID 和 JSON Schema，不依赖 Codex、Claude、模型、Prompt 或具体 Skill 路径。
 7. Harness 差异放入 Adapter，业务对象和 Automation Plan 不按宿主分叉。
 8. 多对话并发由本地 RunClaim、context revision 和原子版本写入解决；服务端不保存或同步 Codex transcript。
+9. Codex CLI `0.145.0` 已实测不声明 MCP Roots。Codex 首版按“显式 `directory` -> MCP 进程受限 `cwd`”定位 Workspace；无法唯一识别项目时拒绝猜测。其他 Harness 只有明确声明 Roots 后才接入 Roots Resolver。
+10. CLI 负责低频安装、登录、迁移和修复；MCP 负责高频、稳定、结构化的业务读写；Skill 负责意图路由和失败恢复。
 
 ### 2.3 必须承认的宿主边界
 
@@ -88,7 +92,7 @@ ContentCloud 可以做到：
 
 - 提供一个只包含 ContentCloud 精选场景插件、Skill Pack 和 Provider Pack 的 Marketplace。
 - 由服务端决定每个项目和服务端来源任务允许使用的插件与版本；普通本地对话由本地 Resolver 在该 allowlist 内选择组合。
-- 在 Web 生成带 plugin mention 的 Prompt，让 Codex 在同一任务中处理“需要安装 -> 安装 -> Continue -> 初始化”。
+- 在 Web 生成带 plugin mention 和受控 bootstrap 指令的 Prompt；插件已加载时直接初始化，未加载时由 CLI 完成安装和绑定后进入新的项目对话。
 - 用项目级 AGENTS、Environment Lock、CLI/MCP 契约和 capability allowlist 约束 ContentCloud 项目内的工作流。
 - 在 ChatGPT Enterprise/Business 管理能力允许时，由管理员进一步限制插件可用性和本地运行策略。
 
@@ -214,7 +218,7 @@ ContentCloud Marketplace Registry
 - 借鉴第三方实现时，转化为 ContentCloud 的事实源、Schema 和治理边界，不在运行时拉取一个庞大外部 Marketplace。
 - 普通用户不在初始化流程中浏览和拼装 Marketplace 条目；服务端返回推荐组合，用户只确认能力、权限和费用变化。
 - 管理员或高级用户后续可以查看“创作能力中心”，但只能在项目 Profile 允许范围内启停受审核 Pack，不能导入任意远程代码。
-- 市场条目被撤回后禁止新安装；已有环境按风险等级提示升级、停用或阻止新的 Automation Run，不静默破坏历史产物。
+- 市场条目被撤回后禁止新安装和新 Run；历史 Run 仍可按原 ID/version/digest 审计，但不能重放。`high` 风险撤回必须硬阻止新的交互式或 Automation Run，不静默破坏历史产物。
 
 ### 4.2 市场的三个产品表面
 
@@ -229,6 +233,8 @@ ContentCloud Marketplace Registry
 ```text
 draft -> security_review -> evaluated -> published -> deprecated -> revoked
 ```
+
+`lifecycle` 与 `revocation.status/severity/reason` 属于 Registry 签名 payload。撤回或生命周期变化必须由发布 key 重新签名，Node 发布工具与 Go Resolver 使用同一个 canonical conformance vector；不能只修改一个未签名状态字段来恢复已撤回 Pack。
 
 普通创作者仍从具体项目或剧本任务进入，不先逛市场。市场负责保证“可选的东西是少而正确的”，Resolver 负责保证“这次只下发真正需要的”。
 
@@ -258,6 +264,26 @@ draft -> security_review -> evaluated -> published -> deprecated -> revoked
 3. 重新绑定 ContentCloud 的 Evidence、Knowledge、Brief、ScriptPackage、Submission 和 ApprovedSnapshot 契约。
 4. 通过 ContentCloud 自己的安全与质量评测。
 5. 作为 ContentCloud 场景能力发布，而不是直接把第三方插件市场交给用户。
+
+### 4.5 `@taptap/maker` 的取舍结论
+
+已静态分析 `@taptap/maker@0.0.26` 及其公开源码 commit `482c5db5bd4428981731f2bdfc34618bf34b83ca`。两者都采用 CLI、MCP、Skill 和项目指导文件组合业务流程，但 Maker 解决的是“一个业务工具接入多个 AI 客户端”，不是 ContentCloud 所需的精选 Marketplace、环境锁、跨对话交接和审批控制面，因此不整体迁移其架构。
+
+| 判断 | Maker 做法 | ContentCloud 决策 |
+| --- | --- | --- |
+| Codex 不采纳 | 用户级 MCP 复用，通过 MCP Roots 定位当前项目，多项目时拒绝猜测 | CLI `0.145.0` 单目录和 `--add-dir` 均未声明 Roots；Codex 使用显式 `directory` 和受限 cwd |
+| 采纳 | 低频交互留在 CLI，高频业务调用留在 MCP，Skill 只做路由与恢复 | 收敛首版命令面，不把安装细节展开成大量 MCP tools |
+| 采纳 | 同一 capability routing 注入 MCP `initialize.instructions` 和受管 `AGENTS.md`，受管块带版本与 SHA-256 | 建立一份 canonical routing，生成两种宿主入口并由 doctor 检查漂移 |
+| 调整后采纳 | `maker://status` Resource，并为兼容客户端保留轻量 Tool | Codex 使用 typed Tool-first；Resource 仅作为共用 handler 的其他宿主兼容层 |
+| 采纳 | 安装或更新后明确要求 reconnect/restart | 首次安装固定切换到新项目对话，不承诺旧会话热加载 |
+| 采纳 | 多客户端安装按目标备份、验证、恢复并分别报告结果 | Codex Adapter 使用事务化步骤；第二个 Harness 再抽取公共框架 |
+| 不采纳 | 凭据写入 `~/.taptap-maker/*.json`，写入未显式限制为 `0600` | 继续使用 OS Keychain，不增加明文 fallback |
+| 不采纳 | 下载 Dev Kit ZIP 后未按元数据校验内容，并自动执行包内安装脚本 | 继续要求固定版本、digest/签名、内容清单和受审核脚本 |
+| 不采纳 | Codex TOML 通过正则修改，MCP 启动包不锁定确定版本 | 使用结构化 parser；插件、CLI、MCP 和 Pack 均进入 Environment Lock |
+| 不采纳 | build 工具合并提交、推送和远程构建 | publish/approve/外部生成继续使用 preflight、确认、幂等和不可变 Submission |
+| 不足以参考 | 没有 RunClaim、HandoffRecord、Execution Bundle、审批或生产 Automation 协议 | 保留 ContentCloud 自有控制面，不用文件可见性代替交接与治理 |
+
+结论是只吸收五个经验证仍有优势的局部工程模式。MCP Roots 在 Codex CLI 上没有宿主支持，明确不纳入 Codex 实现；ContentCloud 也不改成“纯 MCP + Skill”，Maker 不成为运行时依赖。
 
 ## 5. 控制面的事实与控制链
 
@@ -300,21 +326,23 @@ Profile 决定：
 ```json
 {
   "schema_version": "1.0",
+  "project_id": "project_...",
   "profile_id": "contentcloud.video-production",
   "profile_version": "1.0.0",
-  "environment_version": "2026.07.1",
+  "environment_version": "2026.7.1",
   "harness": "codex",
   "distribution": {
     "marketplace": "contentcloud",
     "plugins": [
       {
         "id": "contentcloud-video-production",
-        "kind": "scene",
-        "version": "0.4.0",
-        "source_ref": "v0.4.0",
+        "kind": "scene_plugin",
+        "version": "0.5.0",
+        "source_ref": "v0.5.0",
         "digest": "sha256:...",
         "required": true,
-        "scope": "environment"
+        "scope": "environment",
+        "capabilities": ["contentcloud.script.generate"]
       },
       {
         "id": "contentcloud-visual-storytelling",
@@ -323,7 +351,8 @@ Profile 决定：
         "source_ref": "v1.2.0",
         "digest": "sha256:...",
         "required": false,
-        "scope": "task"
+        "scope": "task",
+        "capabilities": ["contentcloud.asset.generate"]
       }
     ]
   },
@@ -343,7 +372,13 @@ Profile 决定：
     "background_upgrade": false
   },
   "issued_at": "...",
-  "signature": "..."
+  "expires_at": "...",
+  "digest": "sha256:...",
+  "signature": {
+    "algorithm": "ed25519",
+    "key_id": "environment-release-2026",
+    "value": "..."
+  }
 }
 ```
 
@@ -357,6 +392,8 @@ Manifest 禁止包含：
 
 其中 `environment` scope 表示项目基线必须安装并持续验证；`task` scope 表示该 Pack 已进入项目 allowlist，是否在某次任务中启用由 `CreativeExecutionBundle` 决定。这里的 scope 是 ContentCloud 的治理语义，不假设 Codex 能把一个已安装插件对其他会话完全隐藏。
 
+Manifest 的 canonical payload 绑定项目、Profile、Harness、Marketplace、所有 Plugin 的精确版本/ref/digest/capability、Workspace Template、策略和有效期。服务端 `device.connect` 可以返回首份 Manifest，Workspace Credential 可通过 `environment.manifest.get` 重新获取，避免一次性连接码消费后无法恢复；CLI 只有在生产公钥受信且本地 `environment.lock` 与 Manifest 完全一致时才能把环境标记为 ready。
+
 ### 5.3 Execution Bundle：任务需要什么创作能力
 
 `CreativeExecutionBundle` 是服务端针对服务端来源任务或受治理快照签发的执行绑定。它可以与剧本、Brief、ApprovedSnapshot 或 Automation Task 一起返回，但不嵌入这些业务对象：
@@ -365,8 +402,9 @@ Manifest 禁止包含：
 {
   "schema_version": "1.0",
   "bundle_id": "ceb_...",
+  "project_id": "project_...",
   "profile_id": "contentcloud.video-production",
-  "environment_version": "2026.07.1",
+  "environment_version": "2026.7.1",
   "subject": {
     "type": "script_package",
     "id": "aps_...",
@@ -375,13 +413,14 @@ Manifest 禁止包含：
   "required_capabilities": [
     {
       "id": "contentcloud.asset.generate",
-      "schema_version": "1.0",
+      "schema_version": "1.0.0",
       "digest": "sha256:..."
     }
   ],
-  "skill_packs": [
+  "packs": [
     {
       "id": "contentcloud-visual-storytelling",
+      "kind": "skill_pack",
       "plugin_version": "1.2.0",
       "digest": "sha256:...",
       "scope": "task",
@@ -390,7 +429,12 @@ Manifest 禁止包含：
   ],
   "issued_at": "...",
   "expires_at": "...",
-  "signature": "..."
+  "digest": "sha256:...",
+  "signature": {
+    "algorithm": "ed25519",
+    "key_id": "environment-release-2026",
+    "value": "..."
+  }
 }
 ```
 
@@ -400,6 +444,7 @@ Manifest 禁止包含：
 - Bundle 只引用 Marketplace 中已审核、签名和版本锁定的 Pack；客户文档、剧本正文和模型输出不能动态生成可执行 Skill。
 - 如果“随脚本下发”指 Skill 自带的辅助程序，它必须位于插件自己的 `scripts/` 中，随插件版本发布和审核，不能经业务 ScriptPackage 下发。
 - Bundle 必须绑定冻结业务对象 digest 和环境版本，避免同一个剧本在未知工具组合下被重放。
+- `bundle_id` 由规范化 payload 计算，Bundle digest 再绑定该 ID；项目、subject、capability、Pack、时间或顺序规范化结果变化后，旧签名不能继续使用。
 - Provider Pack 的选择还必须满足租户策略、用户授权、地区、费用和数据流限制。
 
 普通用户在 Codex 中基于本地资料发起创作时，不为了取得 Bundle 而强制联网，也不创建云端 TaskRun；这条路径使用下一节的 `LocalExecutionPlan`。
@@ -494,23 +539,28 @@ waiting_for_computer -> verifying -> connected
 
 ```text
 [@ContentCloud Video Production](plugin://contentcloud-video-production@contentcloud)
-Initialize the ContentCloud creative environment for this project. After setup,
-continue in a Codex chat whose workspace path is the verified project root.
+Initialize the ContentCloud creative environment for this project.
+If this plugin is not already loaded in the current session, use the pinned
+ContentCloud bootstrap CLI after showing the install plan and receiving approval.
+After bootstrap, open a new Codex chat at the verified workspace root. Do not
+assume this session can hot-load newly installed plugin capabilities.
 
 bootstrap-url: https://content.example.com/api/bootstrap
 server-url: https://content.example.com
 connect-key: cck_xxx
+bootstrap-cli: @limecloud/contentcloud@0.5.0
 project: "品牌 / 单品"
 environment-profile: contentcloud.video-production
 ```
 
 行为：
 
-- 所需插件均已安装：Codex 直接调用场景插件的 workspace Skill。
-- 任一必装插件对用户可见但未安装：Codex 展示安装，用户确认后点击 Continue，继续同一任务。
+- 所需插件在当前会话启动前已安装并加载：Codex 直接调用场景插件的 workspace Skill。
+- 任一必装插件未加载：当前通用 Codex 会话调用固定版本的 bootstrap CLI。CLI 先展示 Marketplace、插件、权限和目标目录变化，用户确认后再安装并初始化。
+- CLI 完成 doctor 和工作区注册后，返回已验证 Workspace Root 与不含秘密的 bootstrap handoff，并用 `codex app <workspace-path>` 或 Deep Link 打开新的项目对话。
 - 任一必装插件不可发现：Codex 无法自动完成，Web 保持 `waiting_for_computer` 并显示具体插件的分发错误。
 
-连接码仍只用于项目绑定，不用于插件市场认证。
+连接码仍只用于项目绑定，不用于插件市场认证。bootstrap CLI 的包版本由服务端 Prompt 固定，并继续经过发布 checksum 验证；Agent 不得把包名、版本或 Marketplace URL 改成模型生成值。
 
 ### 6.3 Deep Link 与秘密处理
 
@@ -531,7 +581,8 @@ sequenceDiagram
     actor U as 用户
     participant W as ContentCloud Web
     participant S as ConnectSession
-    participant C as Codex
+    participant B as Bootstrap Codex对话
+    participant C as 项目Codex对话
     participant P as Scene Plugin + Packs
     participant CLI as contentcloud CLI
     participant API as CLI Gateway
@@ -540,35 +591,40 @@ sequenceDiagram
     W->>API: 创建ConnectSession并解析项目环境Profile
     API-->>W: connect key + Environment摘要 + plugin mention
     W-->>U: 复制Prompt并打开Codex
-    U->>C: 粘贴并发送
-    alt 所需插件未安装但可发现
-        C->>U: 展示受控插件组合和权限
-        U->>C: 确认并Continue
+    U->>B: 粘贴并发送
+    alt 插件已在当前会话加载
+        B->>P: 调用workspace初始化Skill
+        P->>CLI: environment plan + init dry-run
+    else 插件未加载
+        B->>CLI: 固定版本bootstrap plan
     end
-    C->>P: 恢复项目初始化任务
-    P->>CLI: environment plan + init dry-run
-    CLI-->>U: 展示目录、环境版本、Scene/Skill/Provider Pack和权限变化
-    U->>P: 确认应用
-    P->>CLI: init --target codex-plugin
+    CLI-->>U: 展示plan_id、目录、环境版本、Pack和权限变化
+    U->>B: 确认应用
+    B->>CLI: bootstrap apply --plan-id <confirmed-plan-id> --accept
+    CLI->>CLI: 安装并验证Marketplace/Plugin
     CLI->>API: 消费connect key
     API->>S: waiting_for_computer -> verifying
-    CLI->>CLI: 写workspace与environment.lock
+    CLI->>CLI: 写workspace、AGENTS受管块与environment.lock
+    CLI->>CLI: offline doctor
     CLI->>API: workspace.register + capability manifest digest
     API->>S: verifying -> connected
-    CLI-->>C: verified workspace root + non-secret resume context
-    C-->>U: 在该文件夹继续；必要时打开绑定path的新对话
+    CLI-->>B: verified root + non-secret bootstrap handoff
+    B-->>U: 打开该文件夹的新项目对话
+    U->>C: 进入新会话
+    C->>P: workspace probe + conversation context
+    P-->>C: 环境已就绪与可继续任务
     W->>S: 每2秒轮询
     W-->>U: 创作环境已就绪
 ```
 
 ### 6.5 从引导对话切换到项目文件夹
 
-Web 打开的第一条 Codex 对话是 bootstrap conversation，不应默认成为长期项目对话，因为它可能没有绑定最终工作目录，也可能尚未重新加载刚安装的项目配置。
+Web 打开的第一条 Codex 对话是 bootstrap conversation，不应默认成为长期项目对话，因为它可能没有绑定最终工作目录，也不会可靠热加载刚安装的 bundled Skills/MCP。Codex 官方插件流程要求安装后启动新 chat 或 CLI session，因此“安装后 Continue 原会话”不能作为主路径。
 
 初始化完成后分两种情况：
 
-- 当前 Codex 对话已经以最终 Workspace Root 为 active path，且新插件/项目配置在 Continue 后可用：原对话可以继续，但仍要重新运行 workspace probe。
-- CLI 在当前目录下创建了新的项目子目录，或宿主要求新会话加载配置：由本地 Scene Plugin 提供“在项目文件夹中新建对话”，使用已验证的绝对 `path` 和不含秘密的恢复 Prompt。
+- 当前 Codex 对话启动前已经加载所需插件，且 active path 就是最终 Workspace Root：原对话可以继续，但必须重新运行 workspace probe。
+- 其他情况，包括本次刚安装插件、刚更新 MCP/AGENTS 或新建了项目目录：固定创建新的项目对话，使用已验证的绝对 `path` 和不含秘密的恢复 Prompt。
 
 恢复 Prompt 只包含 `workspace_id` 或本地 bootstrap handoff ID，例如：
 
@@ -579,7 +635,7 @@ workspace-id: ws_...
 bootstrap-handoff: hnd_bootstrap_...
 ```
 
-它不再包含 connect key。Web 只知道 ConnectSession 已连接，不保存或展示本机绝对路径；打开项目文件夹的动作由本地 Agent/CLI 完成。完成这一步后，该目录才是截图中 Codex 侧边栏的项目入口，后续多个对话都绑定同一个 path。
+它不再包含 connect key。Web 只知道 ConnectSession 已连接，不保存或展示本机绝对路径；打开项目文件夹的动作由本地 Agent/CLI 完成。完成这一步后，该目录才是截图中 Codex 侧边栏的项目入口，后续多个对话都绑定同一个 path。若自动打开失败，CLI 必须输出明确的本地路径和可复制恢复 Prompt，而不是要求用户重新使用连接码。
 
 ### 6.6 为什么需要 `codex-plugin` target
 
@@ -589,7 +645,7 @@ bootstrap-handoff: hnd_bootstrap_...
 | --- | --- |
 | `codex` | 旧路径，CLI 向项目写 `.agents/skills` 和 `.codex/config.toml` |
 | `claude` | 项目级 Claude Code Skill/MCP |
-| `codex-plugin` | Skills/MCP 由受控插件组合提供，项目只写 Workspace、AGENTS 和环境锁 |
+| `codex-plugin` | Skills/MCP 由受控插件组合提供，项目只写 Workspace、受管 AGENTS 块和环境锁 |
 | `none` | 不配置任何 Agent Harness |
 
 `codex-plugin` 不能复用 `none`，因为服务端、doctor、升级和 Automation 需要知道该工作区由哪种交付机制提供能力。
@@ -761,7 +817,7 @@ draft -> ready -> claimed -> completed
 
 ### 7.6 新对话如何接管
 
-每个绑定该文件夹的新对话首先处于只读 bootstrap 状态。项目级 `AGENTS.md` 与 `contentcloud-workspace` 入口 Skill 约定：首个业务请求先调用本地 `workspace conversation-context`，不立即 claim Run，也不访问服务端。
+每个绑定该文件夹的新对话首先处于只读 bootstrap 状态。项目级 `AGENTS.md` 与 `contentcloud-workspace` 入口 Skill 约定：Codex 的首个业务请求调用 `contentcloud_workspace_conversation_context` typed Tool；其他宿主若明确暴露 MCP Resources，也可读取同 Schema 的 `contentcloud://workspace/conversation-context`。两者都只调用本地 `workspace conversation-context --offline`，不立即 claim Run，也不访问服务端。
 
 `WorkspaceConversationContext` 至少返回：
 
@@ -827,7 +883,8 @@ stateDiagram-v2
     input_check --> environment_prepare: Pack 缺失
     input_check --> local_work: 输入与环境就绪
     pull_pending --> input_check: 用户确认 pull 完成
-    environment_prepare --> input_check: 用户确认安装 + doctor
+    environment_prepare --> reconnect_ready: 用户确认安装 + doctor
+    reconnect_ready --> [*]: 生成Handoff并进入新会话
     local_work --> checkpoint
     checkpoint --> local_work: 继续当前对话
     checkpoint --> handoff_ready: 转交新对话
@@ -1032,7 +1089,7 @@ contentcloud local handoff accept <handoff-id> --session <id>
 contentcloud environment plan --run <id>
 ```
 
-MCP 暴露对应的 typed tools，Scene Plugin 只调用这些契约，不用 shell 文本拼装状态。所有写命令返回新的 `context_revision`、修改文件清单和下一动作；`handoff accept` 必须原子完成 handoff claim 与 Run claim，避免两个新对话同时接管。
+MCP 暴露对应的 typed tools；只读会话概览同时暴露 Resource，Resource 与 fallback Tool 必须复用同一 handler 和 Schema。Scene Plugin 只调用这些契约，不用 shell 文本拼装状态。所有写命令返回新的 `context_revision`、修改文件清单和下一动作；`handoff accept` 必须原子完成 handoff claim 与 Run claim，避免两个新对话同时接管。
 
 当前实现中的 `LocalRunContext.intent` 只允许 `ingest/query/content`。MVP 可以保留它作为粗粒度 Run 类别，但新增 `capability_id`/`next_capability_id` 表达 `script.generate`、`storyboard.generate` 等精确交接目标，避免持续扩张一个非版本化字符串枚举。
 
@@ -1084,6 +1141,8 @@ plugins/
 - Go CLI 只从 canonical 插件目录 embed 其需要离线审计或兼容交付的同一份 Skills。
 - 不在根 `skills/` 和插件目录维护两份手工副本。
 - `.contentcloud/skills` 可以继续作为已安装环境的受管审计副本，但它是生成物，不是源码。
+- `contentcloud-workspace` 的 capability routing 是宿主入口的单一事实源；构建时从它生成 MCP `initialize.instructions`、项目 `AGENTS.md` 受管块和 doctor 预期 hash，不维护三份手写路由。
+- `AGENTS.md` 受管块带独立 `routing_version` 和 SHA-256，只替换 ContentCloud 标记范围，保留用户正文；doctor 返回 `missing/outdated/current`。
 
 ### 8.2 MCP
 
@@ -1095,7 +1154,7 @@ plugins/
     "command": "npx",
     "args": [
       "--yes",
-      "@limecloud/contentcloud@0.4.0",
+      "@limecloud/contentcloud@0.5.0",
       "mcp",
       "serve"
     ]
@@ -1106,7 +1165,12 @@ plugins/
 要求：
 
 - npm、Go CLI、插件和 Environment Manifest 使用兼容版本。
-- MCP initialize 返回明确的服务器 instructions。
+- MCP 由插件安装一次并跨项目复用，不再给每个新工作区重复写 ContentCloud MCP 配置。
+- MCP initialize 返回由 canonical capability routing 生成的精简服务器 instructions。
+- Codex Workspace 定位顺序固定为：调用方显式且经边界校验的 `directory` -> MCP 进程 `cwd` fallback。fallback 只有在能唯一向上识别 `.contentcloud/project.yaml` 时可用。
+- Codex CLI `0.145.0` 的 `initialize` capabilities 在单目录和 `--add-dir` 用例均只有 elicitation，没有 Roots；证据见 [Codex CLI MCP 能力探针](./evidence/codex-cli-0.145.0-mcp-capabilities.md)。Desktop 必须独立验证。
+- 其他 Harness 只有在 `initialize` 明确声明 Roots 时才启用 Roots 输入；多个有效 ContentCloud Roots 时 fail closed，不按顺序猜测。
+- 提供 `contentcloud_workspace_conversation_context` 与 `contentcloud_workspace_status` typed Tools。`contentcloud://workspace/conversation-context` 和 `contentcloud://workspace/status` Resources 复用同一 handler，作为支持该能力宿主的可选入口，不作为 Codex 门禁。
 - 工具有准确的 read-only、write、destructive、idempotent annotations。
 - 所有 ContentCloud 云端操作仍经过 CLI Gateway。
 - Provider MCP 必须经过 allowlist、权限和数据流审核，并优先作为独立 Provider Pack 发布，避免把可选账号权限塞入场景基座。
@@ -1151,10 +1215,12 @@ contentcloud environment reset
 - plan 不消费 connect key、不修改文件、不安装插件。
 - Resolver 只能从签名 Environment Manifest、Execution Bundle 和 Marketplace Registry 的交集选择插件，不能接受模型自由拼出的包名或 URL。
 - apply 前展示 Scene/Skill/Provider Pack、版本、Skills/MCP、网络、文件、费用和凭据范围。
+- Harness Adapter 对每个配置目标执行 `Detect -> Plan -> Backup -> Apply -> Validate -> Report -> Reconnect`；单个目标失败必须报告并恢复其旧配置，不能用总体“成功”掩盖局部失败。
 - 只管理 ContentCloud namespace 和受管文件。
 - 不扫描或上传用户全部插件清单。
 - 安装失败保留可恢复状态，不伪装为 `connected`。
 - `workspace.register` 只有在 environment doctor 全部通过后执行。
+- 安装、升级 MCP/Plugin 或更新 `AGENTS.md` 路由后，结果必须明确标记 `new_session_required`；只有能力在当前会话启动前已加载时才允许继续原对话。
 
 ### 9.3 按任务准备 Skill Pack
 
@@ -1169,11 +1235,13 @@ contentcloud environment reset
   -> 缺失或不匹配：生成安装计划
 ```
 
-交互式创作中，Codex 可以向用户展示新增业务能力、权限和费用，经确认安装或升级 Pack，然后 Continue 当前任务；宿主要求新会话或刷新时必须明确提示，不能假装已经加载。
+交互式创作中，Codex 可以向用户展示新增业务能力、权限和费用，经确认安装或升级 Pack。安装只完成环境准备；若变更影响插件、Skills、MCP 或项目指导，必须生成 Handoff 并进入新会话后恢复任务，不能假装当前会话已经加载。
 
 `task` scope 只表示该 Pack 由任务选择，并不要求任务结束后立即卸载。已验证版本可以缓存以减少重复安装，但下一任务仍要重新校验 Bundle、allowlist 和 digest。
 
 Automation 不走运行中安装分支：Scheduler 只有在设备已经声明并通过所需 capability/Pack digest 校验时才下发租约。缺失 Pack 时进入 `environment_preparation_required`，先在无活动 Run 的窗口完成安装与 doctor，再允许领取任务。
+
+Daemon 的 `daemon.poll` 同时上报 capability manifests 和按项目读取的本地 Environment Claim（签名 Manifest + 精确 Lock）。服务端先从不可变 Run Bundle、冻结 ContextSnapshot 和设备声明生成 eligible run 集合，再由 Store 在同一锁/事务内复核 queued 状态、项目授权和 capability contract 后创建 `RunAttempt`。任何 Bundle、subject、Manifest、Registry、Lock、Pack 或 capability digest 不一致时，Run 保持 queued，`attempt_count` 和 `active_attempt_id` 不变。
 
 ### 9.4 升级原则
 
@@ -1342,9 +1410,11 @@ Loop 可以周期性评估：
 ```text
 Detect       检测宿主与版本
 Plan         将受控插件集合转换为宿主原生插件/Skill/MCP变化
+Backup       备份该宿主将被修改的受管配置
 Apply        经确认执行安装或项目配置
 Verify       验证实际组件和版本
-Launch       在支持时打开正确宿主和工作区
+Report       按目标报告成功、失败、回滚和重连要求
+Reconnect    在支持时打开正确宿主、工作区和新会话
 ```
 
 Adapter 还可以在宿主可靠提供时记录可选 conversation/thread ref，并生成“在同一 workspace path 新建对话”的入口；业务接管始终依赖 handoff/run ID，不能依赖某个宿主的 thread ID。
@@ -1458,6 +1528,10 @@ Codex 阶段先把 canonical Skills、Manifest 模型和验证接口设计清楚
 - `contentcloud-video-production` Codex plugin。
 - 现有两个 Skill 迁入场景插件并保持单一事实源。
 - bundled `contentcloud-local` MCP。
+- 固定版本 bootstrap CLI：插件未加载时完成 Marketplace/Plugin 安装、工作区绑定、doctor，并切换到新的项目对话。
+- MCP 能力探针与 Codex Desktop/CLI 兼容矩阵；CLI 已确认使用显式 `directory`/受限 cwd，Desktop 仍需实测。
+- canonical capability routing 生成 MCP instructions 与带版本/hash 的 `AGENTS.md` 受管块。
+- `WorkspaceConversationContext` 和 Workspace Status 在 Codex 采用 typed Tool-first，并提供同 Schema 可选 Resource。
 - `contentcloud-workspace` 入口 Skill。
 - `codex-plugin` target。
 - Web Prompt 加 plugin mention，保持现有 ConnectSession 轮询。
@@ -1468,7 +1542,7 @@ Codex 阶段先把 canonical Skills、Manifest 模型和验证接口设计清楚
 - 云端副作用分类：本地动作、ContentCloud Server、第三方 Provider 三类必须在工具返回中可识别。
 - 本地安装、连接、doctor、升级前检查测试。
 
-退出条件：全新用户从 Web 复制一次 Prompt，在 Codex 完成插件安装与项目连接并生成通过本地 lint 的 ScriptPackage；随后对话 A 创建 handoff，对话 B 在同一文件夹无服务端调用地校验、claim 并继续该 Run。
+退出条件：全新用户从 Web 复制一次 Prompt，在 bootstrap 对话完成插件安装和项目连接，进入已加载插件的新项目对话并生成通过本地 lint 的 ScriptPackage；随后对话 A 创建 handoff，对话 B 在同一文件夹无服务端调用地校验、claim 并继续该 Run。
 
 ### Phase 2：完整 AI 视频创作链
 
@@ -1489,7 +1563,7 @@ Codex 阶段先把 canonical Skills、Manifest 模型和验证接口设计清楚
 - CreativeExecutionBundle 签发、验证和 subject digest 绑定。
 - LocalExecutionPlan 与服务端 CreativeExecutionBundle 的双路径 Resolver。
 - “ScriptPackage + Execution Bundle”并行下发。
-- 交互式缺失 Pack 的 plan、确认、安装、Continue 流程。
+- 交互式缺失 Pack 的 plan、确认、安装、新会话 Handoff 恢复流程。
 - 每个 Pack 的权限、输出 Schema 和场景评测。
 
 ### Phase 3：环境生命周期
@@ -1524,7 +1598,8 @@ Codex 阶段先把 canonical Skills、Manifest 模型和验证接口设计清楚
 
 - 项目总览只提供一个初始化入口。
 - Prompt 包含服务端选择的必装插件 mention 和环境 Profile。
-- 未安装 Scene/Skill/Provider Pack 时，Codex 能准确展示能力、权限和费用变化，并在确认后 Continue 原任务。
+- 未安装 Scene/Skill/Provider Pack 时，bootstrap 对话能准确展示能力、权限和费用变化；确认后完成安装，并以不含秘密的 Handoff 在新项目会话恢复原任务。
+- 插件已加载时可以直接初始化；插件本次才安装时不得声称当前会话已经获得 bundled Skills/MCP。
 - connect key 不进入 URL 和日志。
 - 插件不可发现、连接码过期、用户拒绝安装时，Web 状态和帮助文案准确。
 
@@ -1535,6 +1610,9 @@ Codex 阶段先把 canonical Skills、Manifest 模型和验证接口设计清楚
 - Environment Lock 只记录 ContentCloud 管理组件。
 - 插件、npm、CLI、Skills、MCP 和 Schema 版本兼容。
 - 新插件模式不重复写项目级 `.agents/skills` 和 ContentCloud MCP。
+- Codex Desktop/CLI 的 MCP capability 行为有集成测试记录；CLI 不依赖 Roots，Desktop 若不声明 Roots也使用显式目录/受限 cwd。
+- MCP instructions 与 `AGENTS.md` 受管块来自同一 capability routing，doctor 可检测版本/hash 漂移且保留用户正文。
+- Workspace 状态和 Conversation Context 的 typed Tool 与可选 Resource 返回同一 Schema。
 - 旧工作区可经确认迁移，不覆盖用户修改。
 
 ### 15.3 文件夹与多对话交接
@@ -1617,6 +1695,14 @@ Codex 的安装单元虽然是 plugin，但一个 plugin 可以包含多个内�
 
 这会让后打开的对话误接管其他任务，并在并行创作时覆盖草稿。每个任务必须有独立 run ID；全局 current 指针只保留兼容用途，不参与写入授权。
 
+### 16.11 把 `@taptap/maker` 整体作为插件底座
+
+Maker 没有 ContentCloud 所需的精选 Marketplace、Environment Lock、Execution Bundle、RunClaim/Handoff、审批和 Automation 治理，且其凭据与 Dev Kit 下载执行链低于本方案安全标准。只采纳已在 4.5 节列出的局部模式。
+
+### 16.12 依赖安装后 Continue 原会话
+
+Codex 官方插件流程要求新 chat 或 CLI session 才能使用新安装的 bundled Skills/MCP。bootstrap 必须把“安装与绑定”和“项目创作”分成两个会话阶段，用本地 Handoff 恢复任务。
+
 ## 17. 工程原则
 
 - KISS：当前场景以一个必装 Scene Plugin 为基座，只在真实任务证明需要时增加少量精选 Pack。
@@ -1636,3 +1722,5 @@ Codex 的安装单元虽然是 plugin，但一个 plugin 可以包含多个内�
 - [OpenAI: Codex app deep links](https://developers.openai.com/codex/app/deep-links)
 - [OpenAI: Codex advanced configuration](https://developers.openai.com/codex/config-advanced)
 - [wshobson/agents](https://github.com/wshobson/agents)
+- [TapTap Maker npm package](https://www.npmjs.com/package/@taptap/maker)
+- [TapTap Maker source](https://github.com/taptap/instant-games-open-mcp)

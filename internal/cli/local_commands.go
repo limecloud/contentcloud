@@ -12,7 +12,7 @@ import (
 
 func (r *Root) localCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "local", Short: "Run client-first source, knowledge, and LocalRun workflows"}
-	cmd.AddCommand(r.localSourceCommand(), r.localRunCommand(), r.localKnowledgeCommand(), r.localBriefCommand(), r.localScriptCommand())
+	cmd.AddCommand(r.localSourceCommand(), r.localRunCommand(), r.localHandoffCommand(), r.localKnowledgeCommand(), r.localBriefCommand(), r.localScriptCommand())
 	return cmd
 }
 
@@ -233,20 +233,24 @@ func (r *Root) localRunCommand() *cobra.Command {
 	}}
 	show.Flags().StringVar(&showDirectory, "directory", "", "workspace path; defaults to current directory")
 
-	var recordDirectory, recordRunID string
+	var recordDirectory, recordRunID, recordClaimToken string
+	var recordRevision uint64
 	var recordSourceRefs, changedIDs, eligibleIDs, blockedIDs, findings, outputPaths []string
 	record := &cobra.Command{Use: "record", Args: cobra.NoArgs, Short: "Record immutable references and outputs in the current run", RunE: func(cmd *cobra.Command, args []string) error {
-		value, err := localworkspace.RecordLocalRun(localworkspace.RecordLocalRunOptions{Root: recordDirectory, RunID: recordRunID, SourceRefs: recordSourceRefs, ChangedIDs: changedIDs, EligibleIDs: eligibleIDs, BlockedIDs: blockedIDs, Findings: findings, OutputPaths: outputPaths, Now: time.Now()})
+		value, err := localworkspace.RecordClaimedLocalRun(localworkspace.RecordLocalRunOptions{Root: recordDirectory, RunID: recordRunID, ClaimToken: recordClaimToken, ExpectedRevision: recordRevision, SourceRefs: recordSourceRefs, ChangedIDs: changedIDs, EligibleIDs: eligibleIDs, BlockedIDs: blockedIDs, Findings: findings, OutputPaths: outputPaths, Now: time.Now()})
 		if err != nil {
 			return err
 		}
 		return r.writeOK("local.run.record", value)
 	}}
 	addLocalRunRecordFlags(record, &recordDirectory, &recordRunID, &recordSourceRefs, &changedIDs, &eligibleIDs, &blockedIDs, &findings, &outputPaths)
+	record.Flags().StringVar(&recordClaimToken, "claim-token", "", "active local claim token")
+	record.Flags().Uint64Var(&recordRevision, "revision", 0, "expected LocalRun context revision")
 
-	var checkDirectory, checkRunID, checkName, checkStatus, checkCommand, checkDetail string
+	var checkDirectory, checkRunID, checkName, checkStatus, checkCommand, checkDetail, checkClaimToken string
+	var checkRevision uint64
 	check := &cobra.Command{Use: "check", Args: cobra.NoArgs, Short: "Record a deterministic stage check", RunE: func(cmd *cobra.Command, args []string) error {
-		value, err := localworkspace.CheckLocalRun(localworkspace.CheckLocalRunOptions{Root: checkDirectory, RunID: checkRunID, Name: checkName, Status: checkStatus, Command: checkCommand, Detail: checkDetail, Now: time.Now()})
+		value, err := localworkspace.CheckClaimedLocalRun(localworkspace.CheckLocalRunOptions{Root: checkDirectory, RunID: checkRunID, ClaimToken: checkClaimToken, ExpectedRevision: checkRevision, Name: checkName, Status: checkStatus, Command: checkCommand, Detail: checkDetail, Now: time.Now()})
 		if err != nil {
 			return err
 		}
@@ -258,22 +262,28 @@ func (r *Root) localRunCommand() *cobra.Command {
 	check.Flags().StringVar(&checkStatus, "status", "", "passed or failed")
 	check.Flags().StringVar(&checkCommand, "command", "", "deterministic command that produced the result")
 	check.Flags().StringVar(&checkDetail, "detail", "", "short check detail")
+	check.Flags().StringVar(&checkClaimToken, "claim-token", "", "active local claim token")
+	check.Flags().Uint64Var(&checkRevision, "revision", 0, "expected LocalRun context revision")
 
-	var advanceDirectory, advanceRunID string
+	var advanceDirectory, advanceRunID, advanceClaimToken string
+	var advanceRevision uint64
 	var advanceSourceRefs, advanceChanged, advanceEligible, advanceBlocked, advanceFindings, advanceOutputs []string
 	advance := &cobra.Command{Use: "advance <stage>", Args: cobra.ExactArgs(1), Short: "Advance through a validated stage handoff", RunE: func(cmd *cobra.Command, args []string) error {
-		additions := localworkspace.RecordLocalRunOptions{SourceRefs: advanceSourceRefs, ChangedIDs: advanceChanged, EligibleIDs: advanceEligible, BlockedIDs: advanceBlocked, Findings: advanceFindings, OutputPaths: advanceOutputs}
-		value, err := localworkspace.AdvanceLocalRun(advanceDirectory, advanceRunID, args[0], additions, time.Now())
+		additions := localworkspace.RecordLocalRunOptions{ClaimToken: advanceClaimToken, ExpectedRevision: advanceRevision, SourceRefs: advanceSourceRefs, ChangedIDs: advanceChanged, EligibleIDs: advanceEligible, BlockedIDs: advanceBlocked, Findings: advanceFindings, OutputPaths: advanceOutputs}
+		value, err := localworkspace.AdvanceClaimedLocalRun(advanceDirectory, advanceRunID, args[0], additions, time.Now())
 		if err != nil {
 			return err
 		}
 		return r.writeOK("local.run.advance", value)
 	}}
 	addLocalRunRecordFlags(advance, &advanceDirectory, &advanceRunID, &advanceSourceRefs, &advanceChanged, &advanceEligible, &advanceBlocked, &advanceFindings, &advanceOutputs)
+	advance.Flags().StringVar(&advanceClaimToken, "claim-token", "", "active local claim token")
+	advance.Flags().Uint64Var(&advanceRevision, "revision", 0, "expected LocalRun context revision")
 
-	var resumeDirectory, resumeRunID string
+	var resumeDirectory, resumeRunID, resumeClaimToken string
+	var resumeRevision uint64
 	resume := &cobra.Command{Use: "resume", Args: cobra.NoArgs, Short: "Resume a failed run at the same stage", RunE: func(cmd *cobra.Command, args []string) error {
-		value, err := localworkspace.ResumeLocalRun(resumeDirectory, resumeRunID, time.Now())
+		value, err := localworkspace.ResumeClaimedLocalRun(resumeDirectory, resumeRunID, resumeClaimToken, resumeRevision, time.Now())
 		if err != nil {
 			return err
 		}
@@ -281,11 +291,14 @@ func (r *Root) localRunCommand() *cobra.Command {
 	}}
 	resume.Flags().StringVar(&resumeDirectory, "directory", "", "workspace path; defaults to current directory")
 	resume.Flags().StringVar(&resumeRunID, "run", "", "run ID; defaults to current run")
+	resume.Flags().StringVar(&resumeClaimToken, "claim-token", "", "active local claim token")
+	resume.Flags().Uint64Var(&resumeRevision, "revision", 0, "expected LocalRun context revision")
 
-	var failDirectory, failRunID string
+	var failDirectory, failRunID, failClaimToken string
+	var failRevision uint64
 	var failFindings []string
 	fail := &cobra.Command{Use: "fail", Args: cobra.NoArgs, Short: "Mark a run failed with actionable findings", RunE: func(cmd *cobra.Command, args []string) error {
-		value, err := localworkspace.FailLocalRun(failDirectory, failRunID, failFindings, time.Now())
+		value, err := localworkspace.FailClaimedLocalRun(failDirectory, failRunID, failFindings, failClaimToken, failRevision, time.Now())
 		if err != nil {
 			return err
 		}
@@ -294,6 +307,8 @@ func (r *Root) localRunCommand() *cobra.Command {
 	fail.Flags().StringVar(&failDirectory, "directory", "", "workspace path; defaults to current directory")
 	fail.Flags().StringVar(&failRunID, "run", "", "run ID; defaults to current run")
 	fail.Flags().StringSliceVar(&failFindings, "finding", nil, "failure finding; repeat as needed")
+	fail.Flags().StringVar(&failClaimToken, "claim-token", "", "active local claim token")
+	fail.Flags().Uint64Var(&failRevision, "revision", 0, "expected LocalRun context revision")
 
 	var validateDirectory string
 	validate := &cobra.Command{Use: "validate", Args: cobra.NoArgs, Short: "Validate every LocalRunContext and the current pointer", RunE: func(cmd *cobra.Command, args []string) error {
@@ -310,7 +325,138 @@ func (r *Root) localRunCommand() *cobra.Command {
 	}}
 	validate.Flags().StringVar(&validateDirectory, "directory", "", "workspace path; defaults to current directory")
 
-	cmd.AddCommand(init, show, record, check, advance, resume, fail, validate)
+	var claimDirectory, claimRunID, claimOwner string
+	var claimRevision uint64
+	var claimTTL time.Duration
+	var takeoverExpired bool
+	claim := &cobra.Command{Use: "claim", Args: cobra.NoArgs, Short: "Acquire the single-writer claim for a LocalRun revision", RunE: func(cmd *cobra.Command, args []string) error {
+		value, err := localworkspace.ClaimRun(localworkspace.ClaimRunOptions{Root: claimDirectory, RunID: claimRunID, Owner: claimOwner, ExpectedRevision: claimRevision, TTL: claimTTL, TakeoverExpired: takeoverExpired, Now: time.Now()})
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.run.claim", value)
+	}}
+	claim.Flags().StringVar(&claimDirectory, "directory", "", "workspace path; defaults to current directory")
+	claim.Flags().StringVar(&claimRunID, "run", "", "run ID")
+	claim.Flags().StringVar(&claimOwner, "owner", "", "conversation or worker owner ID")
+	claim.Flags().Uint64Var(&claimRevision, "revision", 0, "expected LocalRun context revision")
+	claim.Flags().DurationVar(&claimTTL, "ttl", 30*time.Minute, "claim TTL; maximum 4h")
+	claim.Flags().BoolVar(&takeoverExpired, "takeover-expired", false, "explicitly take over an expired claim")
+
+	var renewDirectory, renewRunID, renewToken string
+	var renewTTL time.Duration
+	renew := &cobra.Command{Use: "renew", Args: cobra.NoArgs, Short: "Renew an active LocalRun claim", RunE: func(cmd *cobra.Command, args []string) error {
+		value, err := localworkspace.RenewRunClaim(renewDirectory, renewRunID, renewToken, renewTTL, time.Now())
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.run.renew", value)
+	}}
+	renew.Flags().StringVar(&renewDirectory, "directory", "", "workspace path; defaults to current directory")
+	renew.Flags().StringVar(&renewRunID, "run", "", "run ID")
+	renew.Flags().StringVar(&renewToken, "claim-token", "", "active local claim token")
+	renew.Flags().DurationVar(&renewTTL, "ttl", 30*time.Minute, "renewed claim TTL; maximum 4h")
+
+	var releaseDirectory, releaseRunID, releaseToken string
+	release := &cobra.Command{Use: "release", Args: cobra.NoArgs, Short: "Release an active LocalRun claim", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := localworkspace.ReleaseRunClaim(releaseDirectory, releaseRunID, releaseToken, time.Now()); err != nil {
+			return err
+		}
+		return r.writeOK("local.run.release", map[string]any{"run_id": releaseRunID, "released": true})
+	}}
+	release.Flags().StringVar(&releaseDirectory, "directory", "", "workspace path; defaults to current directory")
+	release.Flags().StringVar(&releaseRunID, "run", "", "run ID")
+	release.Flags().StringVar(&releaseToken, "claim-token", "", "active local claim token")
+
+	var claimStatusDirectory, claimStatusRunID string
+	claimStatus := &cobra.Command{Use: "claim-status", Args: cobra.NoArgs, Short: "Read non-secret LocalRun claim status", RunE: func(cmd *cobra.Command, args []string) error {
+		value, err := localworkspace.RunClaimStatus(claimStatusDirectory, claimStatusRunID, time.Now())
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.run.claim-status", value)
+	}}
+	claimStatus.Flags().StringVar(&claimStatusDirectory, "directory", "", "workspace path; defaults to current directory")
+	claimStatus.Flags().StringVar(&claimStatusRunID, "run", "", "run ID")
+
+	cmd.AddCommand(init, show, record, check, advance, resume, fail, validate, claim, renew, release, claimStatus)
+	return cmd
+}
+
+func (r *Root) localHandoffCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "handoff", Short: "Create and accept digest-verified cross-conversation handoffs"}
+
+	var createDirectory, createID, createRunID, createToken, nextCapability, nextAction string
+	var createRevision uint64
+	var inputPaths, blockers, pendingDecisions []string
+	create := &cobra.Command{Use: "create-ready", Args: cobra.NoArgs, Short: "Checkpoint a claimed Run into a ready Handoff and release the claim", RunE: func(cmd *cobra.Command, args []string) error {
+		value, err := localworkspace.CreateReadyHandoff(localworkspace.CreateReadyHandoffOptions{Root: createDirectory, HandoffID: createID, RunID: createRunID, ClaimToken: createToken, ExpectedRevision: createRevision, NextCapabilityID: nextCapability, NextAction: nextAction, InputPaths: inputPaths, Blockers: blockers, PendingDecisions: pendingDecisions, Now: time.Now()})
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.handoff.create-ready", value)
+	}}
+	create.Flags().StringVar(&createDirectory, "directory", "", "workspace path; defaults to current directory")
+	create.Flags().StringVar(&createID, "id", "", "optional stable handoff ID")
+	create.Flags().StringVar(&createRunID, "run", "", "run ID")
+	create.Flags().StringVar(&createToken, "claim-token", "", "active local claim token")
+	create.Flags().Uint64Var(&createRevision, "revision", 0, "expected LocalRun context revision")
+	create.Flags().StringVar(&nextCapability, "next-capability", "", "next stable capability ID")
+	create.Flags().StringVar(&nextAction, "next-action", "", "short actionable continuation instruction")
+	create.Flags().StringSliceVar(&inputPaths, "input", nil, "workspace-relative checkpoint input; repeat as needed")
+	create.Flags().StringSliceVar(&blockers, "blocker", nil, "persisted blocker; repeat as needed")
+	create.Flags().StringSliceVar(&pendingDecisions, "pending-decision", nil, "pending decision; repeat as needed")
+
+	var listDirectory string
+	list := &cobra.Command{Use: "list-ready", Args: cobra.NoArgs, Short: "List ready Handoffs without claiming them", RunE: func(cmd *cobra.Command, args []string) error {
+		values, err := localworkspace.ListReadyHandoffs(listDirectory)
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.handoff.list-ready", map[string]any{"count": len(values), "handoffs": values})
+	}}
+	list.Flags().StringVar(&listDirectory, "directory", "", "workspace path; defaults to current directory")
+
+	var acceptDirectory, acceptID, acceptOwner string
+	var acceptTTL time.Duration
+	var acceptTakeover bool
+	accept := &cobra.Command{Use: "accept", Args: cobra.NoArgs, Short: "Atomically verify a ready Handoff and claim its Run", RunE: func(cmd *cobra.Command, args []string) error {
+		handoff, claim, err := localworkspace.AcceptHandoff(localworkspace.AcceptHandoffOptions{Root: acceptDirectory, HandoffID: acceptID, Owner: acceptOwner, TTL: acceptTTL, TakeoverExpired: acceptTakeover, Now: time.Now()})
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.handoff.accept", map[string]any{"handoff": handoff, "claim": claim})
+	}}
+	accept.Flags().StringVar(&acceptDirectory, "directory", "", "workspace path; defaults to current directory")
+	accept.Flags().StringVar(&acceptID, "id", "", "ready handoff ID")
+	accept.Flags().StringVar(&acceptOwner, "owner", "", "accepting conversation or worker owner ID")
+	accept.Flags().DurationVar(&acceptTTL, "ttl", 30*time.Minute, "claim TTL; maximum 4h")
+	accept.Flags().BoolVar(&acceptTakeover, "takeover-expired", false, "explicitly take over an expired claim")
+
+	var completeDirectory, completeID, completeToken string
+	complete := &cobra.Command{Use: "complete", Args: cobra.NoArgs, Short: "Mark a claimed Handoff completed", RunE: func(cmd *cobra.Command, args []string) error {
+		value, err := localworkspace.CompleteHandoff(completeDirectory, completeID, completeToken, time.Now())
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.handoff.complete", value)
+	}}
+	complete.Flags().StringVar(&completeDirectory, "directory", "", "workspace path; defaults to current directory")
+	complete.Flags().StringVar(&completeID, "id", "", "claimed handoff ID")
+	complete.Flags().StringVar(&completeToken, "claim-token", "", "active local claim token")
+
+	var supersedeDirectory, supersedeID string
+	supersede := &cobra.Command{Use: "supersede", Args: cobra.NoArgs, Short: "Supersede a ready Handoff", RunE: func(cmd *cobra.Command, args []string) error {
+		value, err := localworkspace.SupersedeReadyHandoff(supersedeDirectory, supersedeID, time.Now())
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.handoff.supersede", value)
+	}}
+	supersede.Flags().StringVar(&supersedeDirectory, "directory", "", "workspace path; defaults to current directory")
+	supersede.Flags().StringVar(&supersedeID, "id", "", "ready handoff ID")
+
+	cmd.AddCommand(create, list, accept, complete, supersede)
 	return cmd
 }
 

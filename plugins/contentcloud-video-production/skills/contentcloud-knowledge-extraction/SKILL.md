@@ -46,9 +46,11 @@ contentcloud local knowledge query --channel <channel>
 contentcloud local knowledge diagnose --channel <channel>
 contentcloud local knowledge pack
 contentcloud publish knowledge --file <pack> --disclosures <disclosures> --dry-run
+# After the user confirms the returned exact plan_id:
+contentcloud publish knowledge --file <pack> --disclosures <disclosures> --plan-id <plan-id> --yes
 ```
 
-Never mark imported objects `verified` or `approved`. They remain `candidate` until a human approves the immutable cloud SubmissionRevision and the client pulls its ApprovedSnapshot.
+Do not run the second publish command until the user has reviewed the preflight scope, environment digest, disclosures, and cloud side effects and explicitly confirmed that exact `plan_id`. Never mark imported objects `verified` or `approved`. They remain `candidate` until a human approves the immutable cloud SubmissionRevision and the user explicitly refreshes it with `approved_snapshot_pull`. Later conversations must read the verified local snapshot through `approved_snapshot_inbox` and `approved_snapshot_show`, not repeat the cloud read.
 
 ## Security Boundary
 

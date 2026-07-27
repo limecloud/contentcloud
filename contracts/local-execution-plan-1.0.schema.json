@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.local/schemas/local-execution-plan-1.0.schema.json",
+  "title": "Local Execution Plan 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan_id", "run_id", "intent", "required_capabilities", "plugins", "preparation", "input_refs", "environment_digest", "state", "requires_server"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "plan_id": {"type": "string", "pattern": "^lep_[a-f0-9]{64}$"},
+    "run_id": {"type": "string", "minLength": 1},
+    "intent": {"type": "string", "minLength": 1},
+    "required_capabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"}},
+    "plugins": {"type": "array", "minItems": 1, "items": {"$ref": "creative-environment-manifest-1.0.schema.json#/$defs/plugin"}},
+    "preparation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["plugin", "reason"],
+        "properties": {
+          "plugin": {"$ref": "creative-environment-manifest-1.0.schema.json#/$defs/plugin"},
+          "reason": {"enum": ["not_installed", "kind_mismatch", "version_mismatch", "digest_mismatch"]}
+        }
+      }
+    },
+    "input_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "environment_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "state": {"enum": ["ready", "environment_prepare"]},
+    "requires_server": {"const": false}
+  }
+}

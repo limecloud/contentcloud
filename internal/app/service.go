@@ -15,6 +15,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/blob"
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/environment"
 	"github.com/limecloud/contentcloud/internal/store"
 )
 
@@ -24,6 +25,9 @@ type Service struct {
 	log                 *slog.Logger
 	blobs               blob.Store
 	platformAdminEmails map[string]struct{}
+	environmentControl  *environment.ControlPlane
+	automationPolicy    map[string]environment.CapabilityRequirement
+	automationPackIDs   map[string][]string
 }
 
 type Actor struct {
@@ -65,6 +69,25 @@ func WithPlatformAdminEmails(emails ...string) Option {
 	}
 }
 
+func WithEnvironmentControlPlane(controlPlane *environment.ControlPlane) Option {
+	return func(service *Service) {
+		service.environmentControl = controlPlane
+	}
+}
+
+func WithAutomationExecutionPolicy(requirements []environment.CapabilityRequirement, packIDs map[string][]string) Option {
+	return func(service *Service) {
+		service.automationPolicy = make(map[string]environment.CapabilityRequirement, len(requirements))
+		for _, requirement := range requirements {
+			service.automationPolicy[requirement.ID] = requirement
+		}
+		service.automationPackIDs = make(map[string][]string, len(packIDs))
+		for capabilityID, ids := range packIDs {
+			service.automationPackIDs[capabilityID] = append([]string(nil), ids...)
+		}
+	}
+}
+
 func New(st store.Store, logger *slog.Logger, options ...Option) *Service {
 	return NewWithBlob(st, logger, blob.NewMemory(), options...)
 }
@@ -76,7 +99,7 @@ func NewWithBlob(st store.Store, logger *slog.Logger, blobs blob.Store, options 
 	if blobs == nil {
 		blobs = blob.NewMemory()
 	}
-	service := &Service{store: st, now: time.Now, log: logger, blobs: blobs, platformAdminEmails: map[string]struct{}{}}
+	service := &Service{store: st, now: time.Now, log: logger, blobs: blobs, platformAdminEmails: map[string]struct{}{}, automationPolicy: map[string]environment.CapabilityRequirement{}, automationPackIDs: map[string][]string{}}
 	for _, option := range options {
 		option(service)
 	}
@@ -299,11 +322,12 @@ type ConnectDeviceInput struct {
 	Capabilities []domain.Capability `json:"capabilities"`
 }
 type ConnectDeviceResult struct {
-	Device         domain.Device `json:"device"`
-	DeviceToken    string        `json:"device_token"`
-	WorkspaceID    string        `json:"workspace_id"`
-	WorkspaceToken string        `json:"workspace_token"`
-	ProjectID      string        `json:"project_id"`
+	Device              domain.Device         `json:"device"`
+	DeviceToken         string                `json:"device_token"`
+	WorkspaceID         string                `json:"workspace_id"`
+	WorkspaceToken      string                `json:"workspace_token"`
+	ProjectID           string                `json:"project_id"`
+	EnvironmentManifest *environment.Manifest `json:"environment_manifest,omitempty"`
 }
 
 func (s *Service) ConnectDevice(ctx context.Context, in ConnectDeviceInput) (ConnectDeviceResult, error) {
@@ -330,7 +354,15 @@ func (s *Service) ConnectDevice(ctx context.Context, in ConnectDeviceInput) (Con
 	d.ProjectIDs = []string{session.ProjectID}
 	s.audit(ctx, Actor{UserID: d.OwnerUserID, TenantID: d.TenantID, Type: "device", DeviceID: d.ID}, session.ProjectID, "device.connected", "device", d.ID, "", map[string]any{"platform": d.Platform})
 	d.TokenHash = ""
-	return ConnectDeviceResult{Device: d, DeviceToken: token, WorkspaceID: workspace.ID, WorkspaceToken: workspaceToken, ProjectID: session.ProjectID}, nil
+	result := ConnectDeviceResult{Device: d, DeviceToken: token, WorkspaceID: workspace.ID, WorkspaceToken: workspaceToken, ProjectID: session.ProjectID}
+	if s.environmentControl != nil {
+		manifest, err := s.environmentControl.Issue(session.ProjectID, now)
+		if err != nil {
+			return result, err
+		}
+		result.EnvironmentManifest = &manifest
+	}
+	return result, nil
 }
 
 func (s *Service) DeviceActor(ctx context.Context, token string) (Actor, domain.Device, error) {
@@ -903,7 +935,7 @@ func (s *Service) createScriptRun(ctx context.Context, actor Actor, briefID, ide
 		run.Hypothesis = config.ChangeRequest.Hypothesis
 		run.RevisionReason = config.ChangeRequest.RevisionReason
 	}
-	if err := s.store.CreateRun(ctx, run); err != nil {
+	if err := s.createTaskRun(ctx, run, snapshot); err != nil {
 		return run, err
 	}
 	s.audit(ctx, actor, run.ProjectID, "run.created", "task_run", run.ID, requestID, map[string]any{"snapshot_id": snapshot.ID, "manifest_hash": snapshot.ManifestHash})
@@ -917,14 +949,19 @@ func (s *Service) Run(ctx context.Context, actor Actor, id string) (domain.TaskR
 }
 
 type Lease struct {
-	Run            domain.TaskRun      `json:"run"`
-	Attempt        domain.RunAttempt   `json:"attempt"`
-	Contract       domain.TaskContract `json:"contract"`
-	LeaseExpiresAt time.Time           `json:"lease_expires_at"`
-	RunToken       string              `json:"run_token"`
+	Run             domain.TaskRun                       `json:"run"`
+	Attempt         domain.RunAttempt                    `json:"attempt"`
+	Contract        domain.TaskContract                  `json:"contract"`
+	ExecutionBundle *environment.CreativeExecutionBundle `json:"execution_bundle,omitempty"`
+	LeaseExpiresAt  time.Time                            `json:"lease_expires_at"`
+	RunToken        string                               `json:"run_token"`
 }
 
 func (s *Service) Poll(ctx context.Context, actor Actor, device domain.Device, caps []domain.Capability) (Lease, error) {
+	return s.PollWithEnvironment(ctx, actor, device, caps, nil)
+}
+
+func (s *Service) PollWithEnvironment(ctx context.Context, actor Actor, device domain.Device, caps []domain.Capability, claims []AutomationEnvironmentClaim) (Lease, error) {
 	now := s.now().UTC()
 	device.LastSeenAt = now
 	device.Capabilities = caps
@@ -932,17 +969,24 @@ func (s *Service) Poll(ctx context.Context, actor Actor, device domain.Device, c
 	if err := s.store.ExpireRunAttempts(ctx, actor.TenantID, now); err != nil {
 		return Lease{}, err
 	}
+	eligible, bundles, snapshots, err := s.automationLeaseCandidates(ctx, actor, caps, claims, now)
+	if err != nil {
+		return Lease{}, err
+	}
 	runToken, runTokenHash, err := domain.NewOpaqueToken("rt_", 32)
 	if err != nil {
 		return Lease{}, err
 	}
-	run, attempt, err := s.store.LeaseNextRun(ctx, actor.TenantID, device.ID, caps, domain.NewID(), runTokenHash, now)
+	run, attempt, err := s.store.LeaseNextRun(ctx, actor.TenantID, device.ID, eligible, domain.NewID(), runTokenHash, now)
 	if err != nil {
 		return Lease{}, err
 	}
-	snapshot, err := s.store.Snapshot(ctx, actor.TenantID, run.InputSnapshotID)
-	if err != nil {
-		return Lease{}, err
+	snapshot, ok := snapshots[run.ID]
+	if !ok {
+		snapshot, err = s.store.Snapshot(ctx, actor.TenantID, run.InputSnapshotID)
+		if err != nil {
+			return Lease{}, err
+		}
 	}
 	project, _ := s.store.Project(ctx, actor.TenantID, run.ProjectID)
 	brief := domain.BriefVersion{}
@@ -961,7 +1005,12 @@ func (s *Service) Poll(ctx context.Context, actor Actor, device domain.Device, c
 	}
 	capability := domain.Capability{ID: attempt.CapabilityID, Version: attempt.CapabilityVersion, Kind: "business_capability", InputSchema: attempt.InputSchema, OutputSchema: attempt.OutputSchema, Digest: attempt.CapabilityDigest, LocalOnly: true}
 	contract := domain.TaskContract{ContractVersion: "1.0", ContractID: snapshot.ID, RunID: run.ID, TaskType: run.TaskType, Project: project, Brief: brief, Knowledge: snapshot.Knowledge, Assets: snapshot.Assets, Sources: snapshot.Sources, BaselineScriptVersion: baseline, ChangeRequest: changeRequest, InputSnapshotID: snapshot.ID, OutputSchema: run.OutputSchema, Capability: capability, ManifestHash: snapshot.ManifestHash}
-	return Lease{Run: run, Attempt: attempt, Contract: contract, LeaseExpiresAt: *run.LeaseExpiresAt, RunToken: runToken}, nil
+	lease := Lease{Run: run, Attempt: attempt, Contract: contract, LeaseExpiresAt: *run.LeaseExpiresAt, RunToken: runToken}
+	if bundle, exists := bundles[run.ID]; exists {
+		bundleCopy := bundle
+		lease.ExecutionBundle = &bundleCopy
+	}
+	return lease, nil
 }
 
 func (s *Service) HeartbeatRun(ctx context.Context, actor Actor, device domain.Device, runID, attemptID, runToken string, heartbeat domain.RunHeartbeat, requestID string) (domain.TaskRun, error) {

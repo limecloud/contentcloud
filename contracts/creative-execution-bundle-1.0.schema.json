@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.local/schemas/creative-execution-bundle-1.0.schema.json",
+  "title": "Creative Execution Bundle 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "bundle_id", "project_id", "profile_id", "environment_version", "subject", "required_capabilities", "packs", "issued_at", "expires_at", "digest", "signature"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "bundle_id": {"type": "string", "pattern": "^ceb_[a-f0-9]{64}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "profile_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+    "environment_version": {"$ref": "creative-environment-manifest-1.0.schema.json#/$defs/version"},
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "digest"],
+      "properties": {
+        "type": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "id": {"type": "string", "minLength": 1},
+        "digest": {"$ref": "creative-environment-manifest-1.0.schema.json#/$defs/digest"}
+      }
+    },
+    "required_capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "schema_version", "digest"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+          "schema_version": {"$ref": "creative-environment-manifest-1.0.schema.json#/$defs/version"},
+          "digest": {"$ref": "creative-environment-manifest-1.0.schema.json#/$defs/digest"}
+        }
+      }
+    },
+    "packs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "plugin_version", "digest", "scope", "required"],
+        "properties": {
+          "id": {"$ref": "creative-environment-manifest-1.0.schema.json#/$defs/plugin_id"},
+          "kind": {"enum": ["skill_pack", "provider_mcp_pack"]},
+          "plugin_version": {"$ref": "creative-environment-manifest-1.0.schema.json#/$defs/version"},
+          "digest": {"$ref": "creative-environment-manifest-1.0.schema.json#/$defs/digest"},
+          "scope": {"const": "task"},
+          "required": {"const": true}
+        }
+      }
+    },
+    "issued_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "digest": {"$ref": "creative-environment-manifest-1.0.schema.json#/$defs/digest"},
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "key_id", "value"],
+      "properties": {
+        "algorithm": {"const": "ed25519"},
+        "key_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "value": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

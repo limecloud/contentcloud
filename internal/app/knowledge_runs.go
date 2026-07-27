@@ -77,7 +77,7 @@ func (s *Service) CreateKnowledgeExtractionRun(ctx context.Context, actor Actor,
 	}
 	now := s.now().UTC()
 	run := domain.TaskRun{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, InputSnapshotID: snapshot.ID, IdempotencyKey: in.IdempotencyKey, TaskType: "knowledge_extract", CapabilityID: domain.KnowledgeExtractCapability, CapabilityVersion: "1.0.0", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, OutputCount: in.OutputCount, DeliveryProfiles: []string{"cloud_native"}, State: "queued", Priority: 60, CreatedAt: now, UpdatedAt: now}
-	if err := s.store.CreateRun(ctx, run); err != nil {
+	if err := s.createTaskRun(ctx, run, snapshot); err != nil {
 		return run, err
 	}
 	s.audit(ctx, actor, run.ProjectID, "knowledge_extraction_run.created", "task_run", run.ID, requestID, map[string]any{"snapshot_id": snapshot.ID, "source_revision_count": len(sources), "manifest_hash": snapshot.ManifestHash})

@@ -1,0 +1,20 @@
+{
+  "name": "contentcloud",
+  "interface": {
+    "displayName": "ContentCloud"
+  },
+  "plugins": [
+    {
+      "name": "contentcloud-video-production",
+      "source": {
+        "source": "local",
+        "path": "./plugins/contentcloud-video-production"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

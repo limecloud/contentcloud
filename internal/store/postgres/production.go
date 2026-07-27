@@ -8,6 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/environment"
+	storecontract "github.com/limecloud/contentcloud/internal/store"
 )
 
 func (s *Store) CreateBrief(ctx context.Context, v domain.BriefVersion) error {
@@ -101,9 +103,43 @@ func (s *Store) Snapshot(ctx context.Context, tenantID, id string) (domain.Conte
 
 func (s *Store) CreateRun(ctx context.Context, v domain.TaskRun) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO task_runs(id,tenant_id,project_id,brief_version_id,input_snapshot_id,idempotency_key,task_type,capability_id,capability_version,input_schema,output_schema,output_count,delivery_profiles,script_id,baseline_script_version_id,change_type,invariant_fields,expected_changed_fields,hypothesis,revision_reason,state,priority,attempt_count,active_attempt_id,lease_device_id,lease_expires_at,run_token_hash,progress_label,error_code,cancel_requested_at,report_hash,heartbeat_sequence,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)`, v.ID, v.TenantID, v.ProjectID, nullable(v.BriefVersionID), v.InputSnapshotID, v.IdempotencyKey, v.TaskType, v.CapabilityID, v.CapabilityVersion, v.InputSchema, v.OutputSchema, v.OutputCount, jsonValue(v.DeliveryProfiles), nullable(v.ScriptID), nullable(v.BaselineVersionID), v.ChangeType, jsonValue(v.InvariantFields), jsonValue(v.ExpectedChanges), v.Hypothesis, v.RevisionReason, v.State, v.Priority, v.AttemptCount, nullable(v.ActiveAttemptID), nullable(v.LeaseDeviceID), v.LeaseExpiresAt, v.RunTokenHash, v.ProgressLabel, v.ErrorCode, v.CancelRequestedAt, v.ReportHash, v.HeartbeatSequence, v.CreatedAt, v.UpdatedAt)
+		return insertRun(ctx, tx, v)
+	})
+}
+
+func (s *Store) CreateRunWithBundle(ctx context.Context, v domain.TaskRun, bundle environment.CreativeExecutionBundle) error {
+	if bundle.ProjectID != v.ProjectID || bundle.Subject.ID != v.InputSnapshotID {
+		return domain.Conflict("EXECUTION_BUNDLE_RUN_MISMATCH", "CreativeExecutionBundle 与 TaskRun 不匹配")
+	}
+	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
+		if err := insertRun(ctx, tx, v); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO creative_execution_bundles(run_id,tenant_id,project_id,bundle_id,digest,payload,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, v.ID, v.TenantID, v.ProjectID, bundle.BundleID, bundle.Digest, jsonValue(bundle), bundle.IssuedAt)
 		return dbError(err)
 	})
+}
+
+func insertRun(ctx context.Context, tx pgx.Tx, v domain.TaskRun) error {
+	_, err := tx.Exec(ctx, `INSERT INTO task_runs(id,tenant_id,project_id,brief_version_id,input_snapshot_id,idempotency_key,task_type,capability_id,capability_version,input_schema,output_schema,output_count,delivery_profiles,script_id,baseline_script_version_id,change_type,invariant_fields,expected_changed_fields,hypothesis,revision_reason,state,priority,attempt_count,active_attempt_id,lease_device_id,lease_expires_at,run_token_hash,progress_label,error_code,cancel_requested_at,report_hash,heartbeat_sequence,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)`, v.ID, v.TenantID, v.ProjectID, nullable(v.BriefVersionID), v.InputSnapshotID, v.IdempotencyKey, v.TaskType, v.CapabilityID, v.CapabilityVersion, v.InputSchema, v.OutputSchema, v.OutputCount, jsonValue(v.DeliveryProfiles), nullable(v.ScriptID), nullable(v.BaselineVersionID), v.ChangeType, jsonValue(v.InvariantFields), jsonValue(v.ExpectedChanges), v.Hypothesis, v.RevisionReason, v.State, v.Priority, v.AttemptCount, nullable(v.ActiveAttemptID), nullable(v.LeaseDeviceID), v.LeaseExpiresAt, v.RunTokenHash, v.ProgressLabel, v.ErrorCode, v.CancelRequestedAt, v.ReportHash, v.HeartbeatSequence, v.CreatedAt, v.UpdatedAt)
+	return dbError(err)
+}
+
+func (s *Store) ExecutionBundle(ctx context.Context, tenantID, runID string) (environment.CreativeExecutionBundle, error) {
+	var result environment.CreativeExecutionBundle
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		var body []byte
+		if err := tx.QueryRow(ctx, `SELECT payload FROM creative_execution_bundles WHERE tenant_id=$1 AND run_id=$2`, tenantID, runID).Scan(&body); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return domain.NotFound("CreativeExecutionBundle")
+			}
+			return err
+		}
+		bundle, err := decodeJSON[environment.CreativeExecutionBundle](body)
+		result = bundle
+		return err
+	})
+	return result, err
 }
 
 func scanRun(row pgx.Row) (domain.TaskRun, error) {
@@ -178,9 +214,15 @@ func (s *Store) SaveRun(ctx context.Context, v domain.TaskRun) error {
 	})
 }
 
-func (s *Store) LeaseNextRun(ctx context.Context, tenantID, deviceID string, caps []domain.Capability, attemptID, tokenHash string, now time.Time) (domain.TaskRun, domain.RunAttempt, error) {
-	if len(caps) == 0 {
+func (s *Store) LeaseNextRun(ctx context.Context, tenantID, deviceID string, eligible []storecontract.RunLeaseCandidate, attemptID, tokenHash string, now time.Time) (domain.TaskRun, domain.RunAttempt, error) {
+	if len(eligible) == 0 {
 		return domain.TaskRun{}, domain.RunAttempt{}, domain.NotFound("可领取任务")
+	}
+	capabilities := make(map[string]domain.Capability, len(eligible))
+	for _, candidate := range eligible {
+		if candidate.RunID != "" && candidate.Capability.ID != "" {
+			capabilities[candidate.RunID] = candidate.Capability
+		}
 	}
 	var result domain.TaskRun
 	var leasedAttempt domain.RunAttempt
@@ -207,14 +249,10 @@ func (s *Store) LeaseNextRun(ctx context.Context, tenantID, deviceID string, cap
 		var capability domain.Capability
 		matched := false
 		for _, candidate := range candidates {
-			for _, candidateCapability := range caps {
-				if candidate.AcceptsCapability(candidateCapability) {
-					v, matched = candidate, true
-					capability = candidateCapability
-					break
-				}
-			}
-			if matched {
+			candidateCapability, allowed := capabilities[candidate.ID]
+			if allowed && candidate.AcceptsCapability(candidateCapability) {
+				v, matched = candidate, true
+				capability = candidateCapability
 				break
 			}
 		}

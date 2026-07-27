@@ -3,8 +3,11 @@ package localworkspace
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/limecloud/contentcloud/internal/capabilityrouting"
 )
 
 func TestPlanRejectsNonEmptyUnknownDirectory(t *testing.T) {
@@ -70,6 +73,95 @@ func TestInitializeCreatesLocalFirstWorkspace(t *testing.T) {
 	}
 	if second.Binding.ProjectID != "project-1" {
 		t.Fatalf("idempotent init changed binding: %+v", second.Binding)
+	}
+}
+
+func TestInitializeCodexPluginUsesPluginDeliveryWithoutProjectDuplicates(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	status, err := Initialize(InitOptions{
+		Root:       root,
+		ProjectID:  "project-1",
+		ServerURL:  "https://content.example",
+		CLIVersion: "test",
+		Target:     "codex-plugin",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Template.Targets) != 1 || status.Template.Targets[0] != "codex-plugin" {
+		t.Fatalf("unexpected targets: %v", status.Template.Targets)
+	}
+	for _, path := range []string{
+		".contentcloud/skills/contentcloud-workspace/SKILL.md",
+		".contentcloud/skills/contentcloud-knowledge-extraction/SKILL.md",
+		".contentcloud/skills/contentcloud-marketing-video-script/SKILL.md",
+		".contentcloud/mcp/contentcloud-local.json",
+		"AGENTS.md",
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); err != nil {
+			t.Fatalf("expected %s: %v", path, err)
+		}
+	}
+	for _, path := range []string{".agents", ".codex", ".mcp.json", ".claude"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); !os.IsNotExist(err) {
+			t.Fatalf("plugin delivery must not create %s: %v", path, err)
+		}
+	}
+	report, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK || !report.Checks["skills"].OK || !report.Checks["mcp"].OK {
+		t.Fatalf("unexpected plugin delivery doctor report: %+v", report)
+	}
+}
+
+func TestPlanRejectsUnknownTarget(t *testing.T) {
+	_, err := Plan(filepath.Join(t.TempDir(), "project"), "unknown")
+	if err == nil {
+		t.Fatal("expected invalid target error")
+	}
+}
+
+func TestCapabilityRoutingUpdatePreservesUserAgentsContent(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", CLIVersion: "test", Target: "codex-plugin"}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "AGENTS.md")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = append(body, []byte("\n# 用户规则\n\n保留正文。\n")...)
+	body = []byte(strings.Replace(string(body), "version="+capabilityrouting.Version, "version=0.0.0", 1))
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.OK || report.Checks["capability_routing"].OK {
+		t.Fatalf("doctor must report outdated routing: %+v", report)
+	}
+	inspection, err := UpdateCapabilityRouting(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspection.Status != "current" {
+		t.Fatalf("unexpected routing status: %+v", inspection)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(updated), "# 用户规则\n\n保留正文。") {
+		t.Fatalf("routing update removed user content:\n%s", updated)
+	}
+	report, err = Doctor(root)
+	if err != nil || !report.OK {
+		t.Fatalf("doctor must pass after routing repair: err=%v report=%+v", err, report)
 	}
 }
 

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.local/schemas/environment-trusted-keys-1.0.schema.json",
+  "title": "ContentCloud Environment Trusted Keys 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "keys"],
+  "properties": {
+    "$schema": {"type": "string", "minLength": 1},
+    "schema_version": {"const": "1.0"},
+    "keys": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key_id", "algorithm", "status", "public_key"],
+        "properties": {
+          "key_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+          "algorithm": {"const": "ed25519"},
+          "status": {"enum": ["active", "revoked"]},
+          "public_key": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

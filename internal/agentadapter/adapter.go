@@ -20,7 +20,7 @@ const maxAgentOutput = 10 << 20
 type Adapter interface {
 	Kind() string
 	Detect() error
-	Run(context.Context, domain.TaskContract, []byte, []byte) (json.RawMessage, error)
+	Run(context.Context, string) (json.RawMessage, error)
 }
 
 func Select(kind string) (Adapter, error) {
@@ -50,13 +50,15 @@ func (Codex) Detect() error {
 	return err
 }
 
-func (Codex) Run(ctx context.Context, contract domain.TaskContract, schema, skill []byte) (json.RawMessage, error) {
-	dir, cleanup, err := prepareWorkspace(contract, schema, skill)
+func (Codex) Run(ctx context.Context, workspace string) (json.RawMessage, error) {
+	dir, contract, _, skill, err := loadWorkspace(workspace)
 	if err != nil {
 		return nil, err
 	}
-	defer cleanup()
 	outputPath := filepath.Join(dir, "result.json")
+	if _, err := os.Lstat(outputPath); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return nil, domain.Conflict("AUTOMATION_OUTPUT_ALREADY_EXISTS", "Automation workspace 已存在 result.json，拒绝覆盖")
+	}
 	cmd := exec.CommandContext(ctx, "codex", "exec", "--sandbox", "read-only", "--ephemeral", "--skip-git-repo-check", "--output-schema", filepath.Join(dir, "output.schema.json"), "--output-last-message", outputPath, "--cd", dir, "-")
 	cmd.Env = agentEnvironment("codex")
 	cmd.Stdin = strings.NewReader(agentPrompt(contract, skill))
@@ -80,12 +82,11 @@ func (Claude) Detect() error {
 	return err
 }
 
-func (Claude) Run(ctx context.Context, contract domain.TaskContract, schema, skill []byte) (json.RawMessage, error) {
-	dir, cleanup, err := prepareWorkspace(contract, schema, skill)
+func (Claude) Run(ctx context.Context, workspace string) (json.RawMessage, error) {
+	dir, contract, schema, skill, err := loadWorkspace(workspace)
 	if err != nil {
 		return nil, err
 	}
-	defer cleanup()
 	cmd := exec.CommandContext(ctx, "claude", "--print", "--output-format", "json", "--json-schema", string(schema), "--permission-mode", "dontAsk", "--tools", "", "--no-session-persistence", "--safe-mode", agentPrompt(contract, skill))
 	cmd.Dir = dir
 	cmd.Env = agentEnvironment("claude")
@@ -97,25 +98,50 @@ func (Claude) Run(ctx context.Context, contract domain.TaskContract, schema, ski
 	return decodeClaudeOutput(stdout.Bytes())
 }
 
-func prepareWorkspace(contract domain.TaskContract, schema, skill []byte) (string, func(), error) {
-	dir, err := os.MkdirTemp("", "contentcloud-run-*")
+func loadWorkspace(workspace string) (string, domain.TaskContract, []byte, []byte, error) {
+	dir, err := filepath.Abs(strings.TrimSpace(workspace))
+	if err != nil || strings.TrimSpace(workspace) == "" {
+		return "", domain.TaskContract{}, nil, nil, domain.Invalid("AUTOMATION_WORKSPACE_REQUIRED", "Agent Adapter 需要显式 Automation workspace")
+	}
+	info, err := os.Lstat(dir)
 	if err != nil {
-		return "", func() {}, err
+		return "", domain.TaskContract{}, nil, nil, err
 	}
-	cleanup := func() { _ = os.RemoveAll(dir) }
-	contractJSON, err := json.MarshalIndent(contract, "", "  ")
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+		return "", domain.TaskContract{}, nil, nil, domain.Policy("AUTOMATION_WORKSPACE_UNSAFE", "Agent Adapter 只接受非 symlink 的私有 Automation workspace", "使用权限为 0700 的隔离 Attempt 目录")
+	}
+	contractBody, err := readFrozenFile(dir, "contract.json")
 	if err != nil {
-		cleanup()
-		return "", func() {}, err
+		return "", domain.TaskContract{}, nil, nil, err
 	}
-	files := map[string][]byte{"contract.json": contractJSON, "output.schema.json": schema, "SKILL.md": skill}
-	for name, body := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), body, 0o600); err != nil {
-			cleanup()
-			return "", func() {}, err
-		}
+	schema, err := readFrozenFile(dir, "output.schema.json")
+	if err != nil {
+		return "", domain.TaskContract{}, nil, nil, err
 	}
-	return dir, cleanup, nil
+	skill, err := readFrozenFile(dir, "SKILL.md")
+	if err != nil {
+		return "", domain.TaskContract{}, nil, nil, err
+	}
+	var contract domain.TaskContract
+	if err := json.Unmarshal(contractBody, &contract); err != nil || contract.RunID == "" || contract.Project.ID == "" || contract.Capability.ID == "" {
+		return "", domain.TaskContract{}, nil, nil, domain.Invalid("AUTOMATION_CONTRACT_INVALID", "Automation workspace 中的 Task Contract 无效")
+	}
+	return dir, contract, schema, skill, nil
+}
+
+func readFrozenFile(root, name string) ([]byte, error) {
+	path := filepath.Join(root, name)
+	if filepath.Dir(path) != root {
+		return nil, domain.Invalid("AUTOMATION_RESOURCE_PATH_INVALID", "Automation resource 路径无效")
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o222 != 0 {
+		return nil, domain.Policy("AUTOMATION_RESOURCE_NOT_FROZEN", "Automation resource 必须是只读普通文件", "重新创建隔离 Attempt workspace")
+	}
+	return os.ReadFile(path)
 }
 
 func agentPrompt(contract domain.TaskContract, skill []byte) string {

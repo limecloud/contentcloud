@@ -23,19 +23,30 @@ import (
 	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/apiclient"
 	"github.com/limecloud/contentcloud/internal/app"
+	"github.com/limecloud/contentcloud/internal/automationworkspace"
+	"github.com/limecloud/contentcloud/internal/capabilitycatalog"
+	"github.com/limecloud/contentcloud/internal/codexplugin"
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/environment"
 	"github.com/limecloud/contentcloud/internal/localconfig"
-	builtinskills "github.com/limecloud/contentcloud/skills"
+	"github.com/limecloud/contentcloud/internal/localworkspace"
+	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
-const Version = "0.4.0"
+const Version = "0.5.0"
 
 type Root struct {
-	json      bool
-	serverURL string
-	projectID string
-	stdout    io.Writer
-	stderr    io.Writer
+	json                 bool
+	serverURL            string
+	projectID            string
+	stdout               io.Writer
+	stderr               io.Writer
+	mcpCWD               string
+	now                  func() time.Time
+	codexRunner          codexplugin.CommandRunner
+	connectDeviceHook    func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, error)
+	manifestVerifierHook func() (*environment.Verifier, error)
+	registryVerifierHook func() (*environment.RegistryVerifier, error)
 }
 type success struct {
 	OK        bool           `json:"ok"`
@@ -67,7 +78,7 @@ func (r *Root) command() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&r.json, "json", false, "emit a stable JSON envelope on stdout")
 	cmd.PersistentFlags().StringVar(&r.serverURL, "server-url", "", "ContentCloud server URL")
 	cmd.PersistentFlags().StringVar(&r.projectID, "project", "", "explicit project ID")
-	cmd.AddCommand(r.authCommand(), r.doctor(), r.initCommand(), r.workspaceCommand(), r.localCommand(), r.mcpCommand(), r.publishCommand(), r.pullCommand(), r.submissionCommand(), r.up(), r.down(), r.updateCommand(), r.status(), r.contextCommand(), r.skillsCommand(), r.daemonCommand(), r.schemaCommand(), r.tenantCommand(), r.teamCommand(), r.fullProjectCommand(), r.deviceCommand(), r.sourceCommand(), r.assetCommand(), r.knowledgeCommand(), r.briefCommand(), r.runCommand(), r.scriptCommand(), r.artifactCommand(), r.reviewCommand(), r.resultCommand(), r.lineageCommand(), r.auditCommand(), r.requestCommand())
+	cmd.AddCommand(r.authCommand(), r.doctor(), r.bootstrapCommand(), r.initCommand(), r.workspaceCommand(), r.localCommand(), r.mcpCommand(), r.publishCommand(), r.pullCommand(), r.submissionCommand(), r.up(), r.down(), r.updateCommand(), r.status(), r.contextCommand(), r.skillsCommand(), r.daemonCommand(), r.schemaCommand(), r.tenantCommand(), r.teamCommand(), r.fullProjectCommand(), r.deviceCommand(), r.sourceCommand(), r.assetCommand(), r.knowledgeCommand(), r.briefCommand(), r.runCommand(), r.scriptCommand(), r.artifactCommand(), r.reviewCommand(), r.resultCommand(), r.lineageCommand(), r.auditCommand(), r.requestCommand())
 	cmd.Version = Version
 	return cmd
 }
@@ -116,6 +127,9 @@ func (r *Root) up() *cobra.Command {
 }
 
 func (r *Root) connectDevice(ctx context.Context, key, name string) (localconfig.Config, app.ConnectDeviceResult, error) {
+	if r.connectDeviceHook != nil {
+		return r.connectDeviceHook(ctx, key, name)
+	}
 	cfg, err := localconfig.Load()
 	if err != nil {
 		return cfg, app.ConnectDeviceResult{}, err
@@ -320,7 +334,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 				return domain.Policy("AGENT_ADAPTER_UNAVAILABLE", "指定的本地 Agent 不可用", "检查安装与登录状态")
 			}
 		}
-		execute := func() error {
+		execute := func() (returnErr error) {
 			opened, openResult, err := handlePendingArtifactOpen(cmd.Context(), client)
 			if err != nil {
 				return err
@@ -328,8 +342,13 @@ func (r *Root) daemonCommand() *cobra.Command {
 			if opened {
 				return r.writeOK("daemon.artifact_open", openResult)
 			}
+			capabilities := builtinCapabilities()
+			claims, err := daemonEnvironmentClaims(cfg)
+			if err != nil {
+				return err
+			}
 			var lease app.Lease
-			err = client.Dispatch(cmd.Context(), "daemon.poll", map[string]any{"capabilities": builtinCapabilities()}, &lease)
+			err = client.Dispatch(cmd.Context(), "daemon.poll", map[string]any{"capabilities": capabilities, "environments": claims}, &lease)
 			if err != nil {
 				var de *domain.Error
 				if errors.As(err, &de) && de.Code == "NO_TASK" {
@@ -337,6 +356,28 @@ func (r *Root) daemonCommand() *cobra.Command {
 				}
 				return err
 			}
+			schema, skillName, resourceErr := taskRuntimeResources(lease.Run)
+			if resourceErr != nil {
+				return finishAttemptError(client, lease, "runtime_resources", "本地任务资源选择失败", resourceErr)
+			}
+			skillBody, resourceErr := builtinskills.Read(skillName, "SKILL.md")
+			if resourceErr != nil {
+				return finishAttemptError(client, lease, "skill_load", "本地 Skill 加载失败", resourceErr)
+			}
+			executionWorkspace, workspaceErr := automationworkspace.Begin(automationworkspace.Options{
+				BaseDir: strings.TrimSpace(os.Getenv("CONTENTCLOUD_AUTOMATION_ROOT")), ForbiddenRoot: configuredWorkspaceRoot(cfg),
+				AttemptID: lease.Attempt.ID, RunID: lease.Run.ID, ProjectID: lease.Run.ProjectID,
+				Contract: lease.Contract, Bundle: lease.ExecutionBundle, OutputSchema: schema, Skill: skillBody,
+				Now: r.currentTime(), ExpiresAt: lease.LeaseExpiresAt,
+			})
+			if workspaceErr != nil {
+				return finishAttemptError(client, lease, "workspace_isolation", "Automation 隔离工作区创建失败", workspaceErr)
+			}
+			defer func() {
+				if cleanupErr := executionWorkspace.Cleanup(); cleanupErr != nil {
+					returnErr = errors.Join(returnErr, cleanupErr)
+				}
+			}()
 			var output json.RawMessage
 			if fixture {
 				switch lease.Run.TaskType {
@@ -350,10 +391,18 @@ func (r *Root) daemonCommand() *cobra.Command {
 				}
 			} else {
 				var heartbeatResult struct {
-					CancelRequested bool `json:"cancel_requested"`
+					CancelRequested bool           `json:"cancel_requested"`
+					Run             domain.TaskRun `json:"run"`
 				}
 				if err := client.Dispatch(cmd.Context(), "run.heartbeat", map[string]any{"run_id": lease.Run.ID, "attempt_id": lease.Attempt.ID, "run_token": lease.RunToken, "heartbeat": domain.RunHeartbeat{Sequence: 1, Phase: "contract_ready", Step: 1, Label: "上下文校验完成"}}, &heartbeatResult); err != nil {
 					return finishAttemptError(client, lease, "heartbeat_failed", "首次心跳未完成", err)
+				}
+				if heartbeatResult.Run.LeaseExpiresAt == nil {
+					leaseErr := domain.Conflict("AUTOMATION_WORKSPACE_LEASE_EXPIRY_MISSING", "服务端心跳未返回续租时间")
+					return finishAttemptError(client, lease, "workspace_isolation", "本地 Automation lease 无法续租", leaseErr)
+				}
+				if err := executionWorkspace.Renew(*heartbeatResult.Run.LeaseExpiresAt); err != nil {
+					return finishAttemptError(client, lease, "workspace_isolation", "本地 Automation lease 续租失败", err)
 				}
 				if heartbeatResult.CancelRequested {
 					cancelErr := domain.Conflict("RUN_CANCEL_REQUESTED", "任务已被用户取消")
@@ -376,7 +425,8 @@ func (r *Root) daemonCommand() *cobra.Command {
 							return
 						case <-ticker.C:
 							var response struct {
-								CancelRequested bool `json:"cancel_requested"`
+								CancelRequested bool           `json:"cancel_requested"`
+								Run             domain.TaskRun `json:"run"`
 							}
 							err := client.Dispatch(agentCtx, "run.heartbeat", map[string]any{"run_id": lease.Run.ID, "attempt_id": lease.Attempt.ID, "run_token": lease.RunToken, "heartbeat": domain.RunHeartbeat{Sequence: sequence, Phase: "client_executing", Step: sequence, Label: "本地 Agent 生成中"}}, &response)
 							if err != nil {
@@ -389,23 +439,21 @@ func (r *Root) daemonCommand() *cobra.Command {
 								cancel()
 								return
 							}
+							if response.Run.LeaseExpiresAt == nil {
+								heartbeatErrors <- domain.Conflict("AUTOMATION_WORKSPACE_LEASE_EXPIRY_MISSING", "服务端心跳未返回续租时间")
+								cancel()
+								return
+							}
+							if err := executionWorkspace.Renew(*response.Run.LeaseExpiresAt); err != nil {
+								heartbeatErrors <- err
+								cancel()
+								return
+							}
 							sequence++
 						}
 					}
 				}()
-				schema, skillName, resourceErr := taskRuntimeResources(lease.Run)
-				if resourceErr != nil {
-					cancel()
-					<-heartbeatDone
-					return finishAttemptError(client, lease, "runtime_resources", "本地任务资源选择失败", resourceErr)
-				}
-				skillBody, resourceErr := builtinskills.Read(skillName, "SKILL.md")
-				if resourceErr != nil {
-					cancel()
-					<-heartbeatDone
-					return finishAttemptError(client, lease, "skill_load", "本地 Skill 加载失败", resourceErr)
-				}
-				output, err = adapter.Run(agentCtx, lease.Contract, schema, skillBody)
+				output, err = adapter.Run(agentCtx, executionWorkspace.Root)
 				cancel()
 				<-heartbeatDone
 				select {
@@ -417,7 +465,13 @@ func (r *Root) daemonCommand() *cobra.Command {
 						}
 						return heartbeatErr
 					}
-					return finishAttemptError(client, lease, "heartbeat_failed", "后台心跳中断", heartbeatErr)
+					failureClass := "heartbeat_failed"
+					summary := "后台心跳中断"
+					if errors.As(heartbeatErr, &de) && strings.HasPrefix(de.Code, "AUTOMATION_WORKSPACE_") {
+						failureClass = "workspace_isolation"
+						summary = "本地 Automation lease 续租失败"
+					}
+					return finishAttemptError(client, lease, failureClass, summary, heartbeatErr)
 				default:
 				}
 				if err != nil {
@@ -429,7 +483,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 			if err := client.Dispatch(cmd.Context(), "run.report", map[string]any{"run_id": lease.Run.ID, "attempt_id": lease.Attempt.ID, "run_token": lease.RunToken, "package": output}, &report); err != nil {
 				return err
 			}
-			return r.writeOK("daemon.run", map[string]any{"leased": true, "run_id": lease.Run.ID, "task_type": lease.Run.TaskType, "result": report})
+			return r.writeOK("daemon.run", map[string]any{"leased": true, "run_id": lease.Run.ID, "attempt_id": lease.Attempt.ID, "task_type": lease.Run.TaskType, "isolated_workspace": true, "result": report})
 		}
 		if once {
 			return execute()
@@ -450,6 +504,28 @@ func (r *Root) daemonCommand() *cobra.Command {
 	run.Flags().StringVar(&adapterKind, "adapter", "auto", "local Agent adapter: auto, codex, or claude")
 	cmd.AddCommand(run)
 	return cmd
+}
+
+func daemonEnvironmentClaims(config localconfig.Config) ([]app.AutomationEnvironmentClaim, error) {
+	root := configuredWorkspaceRoot(config)
+	if root == "" {
+		return []app.AutomationEnvironmentClaim{}, nil
+	}
+	state, err := localworkspace.ReadEnvironmentClaim(root)
+	if err != nil {
+		wrapped := domain.Conflict("AUTOMATION_ENVIRONMENT_CLAIM_UNAVAILABLE", "无法读取完整的本地 Environment Manifest/Lock")
+		wrapped.Hint = "完成 Environment doctor 后重试 daemon poll"
+		wrapped.Details = map[string]any{"workspace_root": root, "cause": err.Error()}
+		return nil, wrapped
+	}
+	return []app.AutomationEnvironmentClaim{{Manifest: state.Manifest, Lock: state.Lock}}, nil
+}
+
+func configuredWorkspaceRoot(config localconfig.Config) string {
+	if root := strings.TrimSpace(os.Getenv("CONTENTCLOUD_WORKSPACE_ROOT")); root != "" {
+		return root
+	}
+	return strings.TrimSpace(config.WorkspaceRoot)
 }
 
 func finishAttempt(client *apiclient.Client, lease app.Lease, outcome, failureClass, summary string, exitCode *int) error {
@@ -581,11 +657,7 @@ func (r *Root) writeError(command string, err error) int {
 }
 
 func builtinCapabilities() []domain.Capability {
-	return []domain.Capability{
-		{ID: domain.KnowledgeExtractCapability, Version: "1.0.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, PresentationProfiles: []string{"cloud_native"}, LocalOnly: true, Digest: "contentcloud-knowledge-extraction@" + Version},
-		{ID: domain.ScriptCapability, Version: "1.1.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.ScriptPackageSchema, PresentationProfiles: []string{"review_projection/1.0", "text"}, LocalOnly: true, Digest: "contentcloud-marketing-video-script@" + Version},
-		{ID: domain.ArtifactExportCapability, Version: "1.0.0", Kind: "business_capability", InputSchema: domain.ScriptPackageSchema, OutputSchema: "extension-artifact-envelope/1.0", PresentationProfiles: []string{"local_open"}, LocalOnly: true, Digest: "contentcloud-artifact-export@" + Version},
-	}
+	return capabilitycatalog.Builtins(Version)
 }
 func detectCapabilities() map[string]any {
 	return map[string]any{"knowledge.extract": map[string]any{"ok": true, "version": "1.0.0"}, "script.generate": map[string]any{"ok": true, "version": "1.1.0"}, "artifact.local_open": map[string]any{"ok": true, "version": "1.0.0"}, "codex": binaryStatus("codex"), "claude": binaryStatus("claude")}
@@ -727,10 +799,13 @@ func commandSchemas() map[string]any {
 	}
 	return map[string]any{
 		"doctor": read([]string{"--offline"}, "diagnostic checks"), "status": read(nil, "local runtime status"), "update": read(nil, "verified installer guidance"),
+		"bootstrap.plan": schemaEntry("read", "connect-key", []string{"directory", "--connect"}, "read-only pinned Codex Plugin and Workspace plan"), "bootstrap.apply": write("connect-key", []string{"directory", "--connect", "--plan-id", "--accept", "--open-codex"}, "installed plugin, registered Workspace, and new-chat handoff"), "bootstrap.resume": write("workspace", []string{"directory", "--accept", "--open-codex"}, "revalidated and registered existing bootstrap Workspace"),
 		"init":             write("connect-key", []string{"directory", "--connect", "--target", "--accept-project-config", "--dry-run"}, "initialized local-first workspace"),
-		"workspace.status": read([]string{"directory"}, "local workspace binding, template, and synchronization state"), "workspace.doctor": read([]string{"directory", "--offline"}, "workspace, Skill, MCP, and cloud checks"),
+		"workspace.status": read([]string{"directory"}, "local workspace binding, template, and synchronization state"), "workspace.doctor": read([]string{"directory", "--offline"}, "workspace, Skill, MCP, and cloud checks"), "workspace.execution-plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "verified offline LocalExecutionPlan and exact Pack preparation"), "workspace.prepare.plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "signed Pack permissions, data flow, cost, and new-chat impact"), "workspace.prepare.apply": write("none", []string{"--directory", "--run", "--intent", "--capability", "--input", "--preparation-id", "--accept"}, "installed task Packs, verified environment lock, doctor, and new-chat handoff"), "workspace.conversation-context": read([]string{"directory", "--offline"}, "offline cross-conversation workspace context"), "workspace.approved.list": read([]string{"--directory", "--type"}, "verified local ApprovedSnapshot summaries"), "workspace.approved.show": read([]string{"snapshot-id", "--directory"}, "verified local ApprovedSnapshot"),
 		"local.source.register": write("none", []string{"file", "--directory", "--id", "--title", "--kind", "--storage"}, "immutable local source record"), "local.source.list": read([]string{"--directory"}, "local source registry"), "local.source.show": read([]string{"source-id", "--directory"}, "local source record"), "local.source.ingest": write("none", []string{"source-id", "--directory"}, "local evidence bundle"), "local.source.verify": read([]string{"--directory"}, "source integrity report"),
-		"local.run.init": write("none", []string{"--directory", "--id", "--intent", "--source-ref", "--with-ingest"}, "LocalRunContext"), "local.run.show": read([]string{"run-id", "--directory"}, "LocalRunContext"), "local.run.record": write("none", []string{"--directory", "--run", "--source-ref", "--changed-id", "--eligible-id", "--blocked-id", "--finding", "--output-path"}, "updated LocalRunContext"), "local.run.check": write("none", []string{"--directory", "--run", "--name", "--status", "--command", "--detail"}, "recorded local check"), "local.run.advance": write("none", []string{"stage", "--directory", "--run", "--eligible-id", "--blocked-id", "--output-path"}, "advanced LocalRunContext"), "local.run.resume": write("none", []string{"--directory", "--run"}, "resumed LocalRunContext"), "local.run.fail": write("none", []string{"--directory", "--run", "--finding"}, "failed LocalRunContext"), "local.run.validate": read([]string{"--directory"}, "LocalRun validation report"),
+		"local.run.init": write("none", []string{"--directory", "--id", "--intent", "--source-ref", "--with-ingest"}, "LocalRunContext"), "local.run.show": read([]string{"run-id", "--directory"}, "LocalRunContext"), "local.run.record": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--source-ref", "--changed-id", "--eligible-id", "--blocked-id", "--finding", "--output-path"}, "updated LocalRunContext"), "local.run.check": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--name", "--status", "--command", "--detail"}, "recorded local check"), "local.run.advance": write("none", []string{"stage", "--directory", "--run", "--claim-token", "--revision", "--eligible-id", "--blocked-id", "--output-path"}, "advanced LocalRunContext"), "local.run.resume": write("none", []string{"--directory", "--run", "--claim-token", "--revision"}, "resumed LocalRunContext"), "local.run.fail": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--finding"}, "failed LocalRunContext"), "local.run.validate": read([]string{"--directory"}, "LocalRun validation report"),
+		"local.run.claim": write("none", []string{"--directory", "--run", "--owner", "--revision", "--ttl", "--takeover-expired"}, "single-writer RunClaim"), "local.run.renew": write("none", []string{"--directory", "--run", "--claim-token", "--ttl"}, "renewed RunClaim"), "local.run.release": write("none", []string{"--directory", "--run", "--claim-token"}, "released RunClaim"), "local.run.claim-status": read([]string{"--directory", "--run"}, "non-secret RunClaim status"),
+		"local.handoff.create-ready": write("none", []string{"--directory", "--id", "--run", "--claim-token", "--revision", "--next-capability", "--next-action", "--input", "--blocker", "--pending-decision"}, "ready digest-verified HandoffRecord"), "local.handoff.list-ready": read([]string{"--directory"}, "ready HandoffRecords"), "local.handoff.accept": write("none", []string{"--directory", "--id", "--owner", "--ttl", "--takeover-expired"}, "claimed HandoffRecord and RunClaim"), "local.handoff.complete": write("none", []string{"--directory", "--id", "--claim-token"}, "completed HandoffRecord"), "local.handoff.supersede": write("none", []string{"--directory", "--id"}, "superseded HandoffRecord"),
 		"local.knowledge.import": write("none", []string{"knowledge-candidates.json", "--directory", "--run"}, "candidate knowledge items"), "local.knowledge.lint": read([]string{"--directory"}, "deterministic knowledge lint report"), "local.knowledge.query": read([]string{"--directory", "--channel", "--at"}, "eligible, blocked, and informational knowledge"), "local.knowledge.diagnose": read([]string{"--directory", "--channel", "--at"}, "15-dimension diagnosis"), "local.knowledge.pack": write("none", []string{"--directory", "--id", "--name"}, "seven-layer knowledge pack and source disclosures"),
 		"local.brief.lint":        read([]string{"brief.json", "--directory"}, "Brief V2 governance report"),
 		"local.script.batch.init": write("none", []string{"--directory", "--brief", "--directions", "--count", "--variant", "--control", "--id"}, "CreativeBatch and frozen local context"), "local.script.batch.lint": read([]string{"--directory", "--batch", "--file"}, "CreativeBatch candidate validation"), "local.script.batch.finalize": write("none", []string{"--directory", "--batch", "--file"}, "finalized CreativeBatch"), "local.script.lint": read([]string{"script-package.json", "--directory", "--batch"}, "ScriptPackage V2 validation"), "local.script.diff": read([]string{"--directory", "--baseline", "--candidate", "--allow"}, "declared revision diff"), "local.script.export": write("none", []string{"approved-script-id", "--directory", "--out"}, "approved JSON, Markdown, and XLSX delivery package"),

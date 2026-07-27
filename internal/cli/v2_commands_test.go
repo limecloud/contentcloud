@@ -1,15 +1,116 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 )
+
+func TestPublishPlanIDIsStableAndBindsExactInputs(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspace")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-1", WorkspaceID: "workspace-1", Target: "none", CLIVersion: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	packPath := filepath.Join(root, "knowledge", "packs", "knowledge.json")
+	writeJSONFixture(t, packPath, []map[string]any{{"id": "fact-1", "kind": "fact", "status": "verified"}})
+	base := publishBuildOptions{Root: root, SubmissionType: "knowledge", Files: []string{packPath}}
+	_, first, err := buildPublishCheckpoint(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, replayed, err := buildPublishCheckpoint(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.PlanID != replayed.PlanID || !strings.HasPrefix(first.PlanID, "pp_") {
+		t.Fatalf("publish plan_id is not deterministic: first=%s replay=%s", first.PlanID, replayed.PlanID)
+	}
+
+	assertChanged := func(name string, options publishBuildOptions) {
+		t.Helper()
+		_, changed, err := buildPublishCheckpoint(options)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if changed.PlanID == first.PlanID {
+			t.Fatalf("%s did not invalidate plan_id %s", name, first.PlanID)
+		}
+	}
+	withMessage := base
+	withMessage.Message = "请重点审核来源范围"
+	assertChanged("message change", withMessage)
+	withIdempotencyKey := base
+	withIdempotencyKey.IdempotencyKey = "knowledge:manual-review-2"
+	assertChanged("idempotency key change", withIdempotencyKey)
+
+	disclosuresPath := filepath.Join(root, "knowledge", "packs", "source-disclosures.json")
+	writeJSONFixture(t, disclosuresPath, []domain.SourceDisclosure{{SourceRef: "source-1", Level: "metadata_only", SHA256: strings.Repeat("a", 64)}})
+	withDisclosures := base
+	withDisclosures.DisclosuresFile = disclosuresPath
+	assertChanged("disclosure change", withDisclosures)
+
+	writeJSONFixture(t, packPath, []map[string]any{{"id": "fact-2", "kind": "fact", "status": "verified"}})
+	assertChanged("business file change", base)
+	writeJSONFixture(t, packPath, []map[string]any{{"id": "fact-1", "kind": "fact", "status": "verified"}})
+	status, err := localworkspace.LoadStatus(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status.Template.CLIVersion = "changed-environment"
+	writeJSONFixture(t, filepath.Join(root, ".contentcloud", "template.lock"), status.Template)
+	assertChanged("environment change", base)
+}
+
+func TestPublishCLIRejectsMissingOrStalePlanBeforeCloudWrite(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		requests++
+		t.Fatalf("publish validation unexpectedly reached the server: %s", request.URL.Path)
+	}))
+	defer server.Close()
+	root := filepath.Join(t.TempDir(), "workspace")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-1", WorkspaceID: "workspace-1", ServerURL: server.URL, Target: "none", CLIVersion: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	writeJSONFixture(t, filepath.Join(root, "knowledge", "packs", "knowledge.json"), []map[string]any{{"id": "fact-1", "kind": "fact", "status": "verified"}})
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(previous) })
+	t.Setenv("CONTENTCLOUD_WORKSPACE_TOKEN", "wt_test_workspace")
+
+	for _, test := range []struct {
+		name string
+		args []string
+		code string
+	}{
+		{name: "missing plan", args: []string{"--json", "publish", "knowledge", "--yes"}, code: "PUBLISH_PLAN_ID_REQUIRED"},
+		{name: "stale plan", args: []string{"--json", "publish", "knowledge", "--yes", "--plan-id", "pp_" + strings.Repeat("0", 64)}, code: "PUBLISH_PLAN_STALE"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			command := (&Root{stdout: &stdout, stderr: &stderr}).command()
+			command.SetArgs(test.args)
+			assertCLIErrorCode(t, command.Execute(), test.code)
+		})
+	}
+	if requests != 0 {
+		t.Fatalf("publish validation performed %d cloud writes", requests)
+	}
+}
 
 func TestPublishPreflightAllowsBlockedScriptOnlyWithReasons(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "workspace")

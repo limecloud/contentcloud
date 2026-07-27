@@ -1,0 +1,12 @@
+{
+  "$schema": "../../contracts/plugin-trusted-keys-1.0.schema.json",
+  "schema_version": "1.0",
+  "keys": [
+    {
+      "key_id": "contentcloud-plugin-release-2026-07",
+      "algorithm": "ed25519",
+      "status": "active",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHWpJ0pG8zvT6JLiNVMcaDGySmjPxdXqVa08rYCyPqYk=\n-----END PUBLIC KEY-----\n"
+    }
+  ]
+}

@@ -72,7 +72,7 @@ func TestKnowledgeCandidateFlowToApprovedQueryAndPack(t *testing.T) {
 	canonical, _ := json.Marshal(map[string]any{"schema_version": "knowledge-pack/2.0", "submission_type": "knowledge", "objects": json.RawMessage(objects)})
 	now := time.Date(2026, 7, 26, 11, 0, 0, 0, time.UTC)
 	snapshot := domain.ApprovedSnapshot{ID: "snapshot-1", SubmissionType: "knowledge", CanonicalContent: canonical, EligibleIDs: []string{imported.Imported[0].ID}, CreatedAt: now}
-	if _, err := StorePulledBundle(root, "approved", snapshot.ID, snapshot, now); err != nil {
+	if _, err := StoreApprovedSnapshot(root, snapshot, now); err != nil {
 		t.Fatal(err)
 	}
 	approvedQuery, err := QueryKnowledge(QueryKnowledgeOptions{Root: root})

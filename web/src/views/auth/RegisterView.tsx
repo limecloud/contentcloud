@@ -60,7 +60,7 @@ export function RegisterView({onSuccess, onNavigate, initialInviteToken}: {onSuc
       {failure && <Banner kind="error" onClose={() => setFailure('')}>{failure}</Banner>}
       <form className="auth-form" onSubmit={submit} noValidate>
         {mode === 'invite' && (
-          <IconInput label="邀请令牌" icon={<Key size={17} />} placeholder="cci_…" autoComplete="off" autoFocus value={form.invite_token} disabled={busy} error={errors.invite_token} valid={tokenFilled} hint="由团队管理员在「团队」页创建后发给你" suffix={errors.invite_token ? <AlertCircle size={17} color="#c9483d" /> : tokenFilled ? <CheckCircle2 size={17} color="#17855f" /> : undefined} onChange={event => update({invite_token: event.target.value})} />
+          <IconInput label="邀请令牌" icon={<Key size={17} />} placeholder="cci_…" autoComplete="off" autoFocus value={form.invite_token} disabled={busy} error={errors.invite_token} valid={tokenFilled} hint="由团队管理员在「团队」页创建后发给你" suffix={errors.invite_token ? <AlertCircle size={17} /> : tokenFilled ? <CheckCircle2 size={17} /> : undefined} onChange={event => update({invite_token: event.target.value})} />
         )}
         <IconInput label="姓名" icon={<User size={17} />} placeholder="选填，默认取邮箱前缀" autoComplete="name" autoFocus={mode === 'create'} value={form.display_name} disabled={busy} error={errors.display_name} onChange={event => update({display_name: event.target.value})} />
         {mode === 'create' && (

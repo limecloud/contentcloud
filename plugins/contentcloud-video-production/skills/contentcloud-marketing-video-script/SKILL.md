@@ -32,9 +32,11 @@ For each candidate, run `contentcloud local script lint <file> --batch <batch.js
 contentcloud local script batch lint --batch <batch.json> --file <candidate>...
 contentcloud local script batch finalize --batch <batch.json> --file <candidate>...
 contentcloud publish script --file <candidate> --dry-run
+# After the user confirms the returned exact plan_id:
+contentcloud publish script --file <candidate> --plan-id <plan-id> --yes
 ```
 
-Do not publish automatically. A `blocked` candidate must keep `status=blocked`, concrete blocked reasons, owner roles, next actions, and missing inputs. A valid local candidate remains `status=candidate`; only cloud approval makes it eligible.
+Do not run the second publish command until the user has reviewed the preflight scope, environment digest, disclosures, and cloud side effects and explicitly confirmed that exact `plan_id`. Do not publish automatically. A `blocked` candidate must keep `status=blocked`, concrete blocked reasons, owner roles, next actions, and missing inputs. A valid local candidate remains `status=candidate`; only cloud approval makes it eligible.
 
 For a revision, set `based_on_version_id`, `resolved_comment_ids`, and `change_summary`, then run `contentcloud local script diff --baseline <base> --candidate <new> --allow <json-pointer>...`. Do not hide undeclared drift.
 
@@ -56,7 +58,7 @@ Only load [provider-profiles.md](references/provider-profiles.md) when the task 
 
 ## Derived Artifact Handoff
 
-In local mode, pull the approved script snapshot and use `contentcloud local script export <approved-script-id>` to derive JSON, Markdown, and XLSX from one canonical package. Only register a separate extension artifact when the user explicitly requests a provider-specific project, prompt bundle, HTML page, or other derived file:
+In local mode, call `approved_snapshot_pull` only when the user asks to refresh approved scripts. In current or later conversations, select the verified local version with `approved_snapshot_inbox` and `approved_snapshot_show`, then use `contentcloud local script export <approved-script-id>` to derive JSON, Markdown, and XLSX from one canonical package. Only register a separate extension artifact when the user explicitly requests a provider-specific project, prompt bundle, HTML page, or other derived file:
 
 ```bash
 contentcloud --json artifact register ./derived-output.json \

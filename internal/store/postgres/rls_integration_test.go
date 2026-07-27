@@ -14,6 +14,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/environment"
 	storepg "github.com/limecloud/contentcloud/internal/store/postgres"
 )
 
@@ -96,7 +97,8 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := domain.TaskRun{ID: domain.NewID(), TenantID: a.TenantID, ProjectID: project.ID, InputSnapshotID: snapshot.ID, IdempotencyKey: "rls-run-" + suffix, TaskType: "knowledge_extract", CapabilityID: domain.KnowledgeExtractCapability, CapabilityVersion: "1.0.0", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, OutputCount: 1, DeliveryProfiles: []string{"text"}, State: "queued", CreatedAt: now, UpdatedAt: now}
-	if err := store.CreateRun(ctx, run); err != nil {
+	bundle := environment.CreativeExecutionBundle{SchemaVersion: environment.ExecutionBundleSchemaVersion, BundleID: "ceb_" + domain.NewID(), ProjectID: project.ID, Subject: environment.ExecutionSubject{Type: "context_snapshot", ID: snapshot.ID, Digest: snapshot.ManifestHash}, IssuedAt: now, ExpiresAt: now.Add(time.Hour), Digest: "sha256:rls-bundle"}
+	if err := store.CreateRunWithBundle(ctx, run, bundle); err != nil {
 		t.Fatal(err)
 	}
 	capability := domain.Capability{ID: domain.KnowledgeExtractCapability, Version: "1.0.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, Digest: "sha256:rls-test", LocalOnly: true}
@@ -136,6 +138,19 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close(ctx)
+	var runtimeCanUpdate, runtimeCanDelete bool
+	if err := conn.QueryRow(ctx, `SELECT has_table_privilege('contentcloud_runtime','creative_execution_bundles','UPDATE'), has_table_privilege('contentcloud_runtime','creative_execution_bundles','DELETE')`).Scan(&runtimeCanUpdate, &runtimeCanDelete); err != nil {
+		t.Fatal(err)
+	}
+	if runtimeCanUpdate || runtimeCanDelete {
+		t.Fatalf("runtime role can mutate CreativeExecutionBundle: update=%t delete=%t", runtimeCanUpdate, runtimeCanDelete)
+	}
+	if _, err := conn.Exec(ctx, `UPDATE creative_execution_bundles SET digest='tampered' WHERE run_id=$1`, run.ID); err == nil {
+		t.Fatal("CreativeExecutionBundle update unexpectedly bypassed the immutability trigger")
+	}
+	if _, err := conn.Exec(ctx, `DELETE FROM creative_execution_bundles WHERE run_id=$1`, run.ID); err == nil {
+		t.Fatal("CreativeExecutionBundle delete unexpectedly bypassed the immutability trigger")
+	}
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -159,6 +174,12 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("tenant B saw tenant A run attempt through RLS: count=%d", count)
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM creative_execution_bundles WHERE run_id=$1`, run.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("tenant B saw tenant A CreativeExecutionBundle through RLS: count=%d", count)
 	}
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM performance_import_batches WHERE id=$1`, performance.Batch.ID).Scan(&count); err != nil {
 		t.Fatal(err)

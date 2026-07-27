@@ -14,10 +14,11 @@ import (
 )
 
 type Config struct {
-	ServerURL   string `json:"server_url"`
-	DeviceID    string `json:"device_id,omitempty"`
-	WorkspaceID string `json:"workspace_id,omitempty"`
-	ProjectID   string `json:"project_id,omitempty"`
+	ServerURL     string `json:"server_url"`
+	DeviceID      string `json:"device_id,omitempty"`
+	WorkspaceID   string `json:"workspace_id,omitempty"`
+	ProjectID     string `json:"project_id,omitempty"`
+	WorkspaceRoot string `json:"workspace_root,omitempty"`
 }
 
 func Path() (string, error) {

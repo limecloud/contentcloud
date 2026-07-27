@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/environment"
+	storecontract "github.com/limecloud/contentcloud/internal/store"
 )
 
 type Store struct {
@@ -41,6 +43,7 @@ type Store struct {
 	briefs               map[string]domain.BriefVersion
 	snapshots            map[string]domain.ContextSnapshot
 	runs                 map[string]domain.TaskRun
+	executionBundles     map[string]environment.CreativeExecutionBundle
 	runAttempts          map[string]domain.RunAttempt
 	logicalScripts       map[string]domain.Script
 	scripts              map[string]domain.ScriptVersion
@@ -67,7 +70,7 @@ func New() *Store {
 		connects: map[string]domain.ConnectSession{}, devices: map[string]domain.Device{}, workspaceBindings: map[string]domain.WorkspaceBinding{}, userDeviceFlows: map[string]domain.UserDeviceFlow{}, cliTokens: map[string]domain.CLIToken{},
 		sources: map[string]domain.Source{}, revisions: map[string]domain.SourceRevision{}, evidence: map[string]domain.EvidenceSpan{}, assets: map[string]domain.Asset{}, rightsRecords: map[string]domain.RightsRecord{}, knowledge: map[string]domain.KnowledgeItem{}, knowledgeConflicts: map[string]domain.KnowledgeConflict{}, decisionRequests: map[string]domain.DecisionRequest{},
 		benchmarks: map[string]domain.BenchmarkContent{}, frameworks: map[string]domain.ContentFramework{}, shotPatterns: map[string]domain.ShotPattern{}, sellingPoints: map[string]domain.SellingPoint{}, visualizationPlans: map[string]domain.VisualizationPlan{},
-		briefs: map[string]domain.BriefVersion{}, snapshots: map[string]domain.ContextSnapshot{}, runs: map[string]domain.TaskRun{}, runAttempts: map[string]domain.RunAttempt{}, logicalScripts: map[string]domain.Script{},
+		briefs: map[string]domain.BriefVersion{}, snapshots: map[string]domain.ContextSnapshot{}, runs: map[string]domain.TaskRun{}, executionBundles: map[string]environment.CreativeExecutionBundle{}, runAttempts: map[string]domain.RunAttempt{}, logicalScripts: map[string]domain.Script{},
 		scripts: map[string]domain.ScriptVersion{}, approvals: map[string]domain.ApprovalDecision{}, reviewCycles: map[string]domain.ReviewCycle{}, reviewComments: map[string]domain.ReviewComment{}, reviewGrants: map[string]domain.ReviewGrant{}, submissions: map[string]domain.Submission{}, submissionRevisions: map[string]domain.SubmissionRevision{}, approvedSnapshots: map[string]domain.ApprovedSnapshot{}, artifacts: map[string]domain.Artifact{}, deliveryPackages: map[string]domain.DeliveryPackage{}, artifactOpenRequests: map[string]domain.ArtifactOpenRequest{}, performanceBatches: map[string]domain.PerformanceImportBatch{}, observations: map[string]domain.PerformanceObservation{}, ratingDecisions: map[string]domain.RatingDecision{}, audits: []domain.AuditEvent{},
 	}
 }
@@ -828,6 +831,23 @@ func (s *Store) Snapshot(_ context.Context, tenantID, id string) (domain.Context
 func (s *Store) CreateRun(_ context.Context, v domain.TaskRun) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.createRun(v)
+}
+
+func (s *Store) CreateRunWithBundle(_ context.Context, v domain.TaskRun, bundle environment.CreativeExecutionBundle) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if bundle.ProjectID != v.ProjectID || bundle.Subject.ID != v.InputSnapshotID {
+		return domain.Conflict("EXECUTION_BUNDLE_RUN_MISMATCH", "CreativeExecutionBundle 与 TaskRun 不匹配")
+	}
+	if err := s.createRun(v); err != nil {
+		return err
+	}
+	s.executionBundles[v.ID] = bundle
+	return nil
+}
+
+func (s *Store) createRun(v domain.TaskRun) error {
 	for _, r := range s.runs {
 		if r.TenantID == v.TenantID && r.IdempotencyKey == v.IdempotencyKey {
 			return domain.Conflict("IDEMPOTENCY_CONFLICT", "幂等键已存在")
@@ -835,6 +855,17 @@ func (s *Store) CreateRun(_ context.Context, v domain.TaskRun) error {
 	}
 	s.runs[v.ID] = v
 	return nil
+}
+
+func (s *Store) ExecutionBundle(_ context.Context, tenantID, runID string) (environment.CreativeExecutionBundle, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	run, exists := s.runs[runID]
+	bundle, bundled := s.executionBundles[runID]
+	if !exists || run.TenantID != tenantID || !bundled {
+		return environment.CreativeExecutionBundle{}, domain.NotFound("CreativeExecutionBundle")
+	}
+	return bundle, nil
 }
 func (s *Store) Runs(_ context.Context, tenantID, projectID string) ([]domain.TaskRun, error) {
 	s.mu.RLock()
@@ -866,23 +897,28 @@ func (s *Store) SaveRun(_ context.Context, v domain.TaskRun) error {
 	s.runs[v.ID] = v
 	return nil
 }
-func (s *Store) LeaseNextRun(_ context.Context, tenantID, deviceID string, caps []domain.Capability, attemptID, tokenHash string, now time.Time) (domain.TaskRun, domain.RunAttempt, error) {
+func (s *Store) LeaseNextRun(_ context.Context, tenantID, deviceID string, eligible []storecontract.RunLeaseCandidate, attemptID, tokenHash string, now time.Time) (domain.TaskRun, domain.RunAttempt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	device, ok := s.devices[deviceID]
 	if !ok || device.TenantID != tenantID || device.RevokedAt != nil {
 		return domain.TaskRun{}, domain.RunAttempt{}, domain.NotFound("设备")
 	}
+	capabilities := make(map[string]domain.Capability, len(eligible))
+	for _, candidate := range eligible {
+		if candidate.RunID == "" || candidate.Capability.ID == "" {
+			continue
+		}
+		capabilities[candidate.RunID] = candidate.Capability
+	}
 	var candidates []domain.TaskRun
 	for _, r := range s.runs {
 		if r.State != "queued" || !contains(device.ProjectIDs, r.ProjectID) {
 			continue
 		}
-		for _, capability := range caps {
-			if r.AcceptsCapability(capability) {
-				candidates = append(candidates, r)
-				break
-			}
+		capability, allowed := capabilities[r.ID]
+		if allowed && r.AcceptsCapability(capability) {
+			candidates = append(candidates, r)
 		}
 	}
 	if len(candidates) == 0 {
@@ -901,13 +937,7 @@ func (s *Store) LeaseNextRun(_ context.Context, tenantID, deviceID string, caps 
 	v.LeaseExpiresAt = &until
 	v.AttemptCount++
 	v.UpdatedAt = now
-	var capability domain.Capability
-	for _, candidate := range caps {
-		if v.AcceptsCapability(candidate) {
-			capability = candidate
-			break
-		}
-	}
+	capability := capabilities[v.ID]
 	attempt := domain.RunAttempt{ID: attemptID, TenantID: tenantID, ProjectID: v.ProjectID, RunID: v.ID, DeviceID: deviceID, State: "leased", CapabilityID: capability.ID, CapabilityVersion: capability.Version, CapabilityDigest: capability.Digest, InputSchema: capability.InputSchema, OutputSchema: capability.OutputSchema, TokenHash: tokenHash, LeaseExpiresAt: until, Usage: map[string]any{}, CreatedAt: now}
 	v.ActiveAttemptID = attempt.ID
 	v.RunTokenHash = tokenHash

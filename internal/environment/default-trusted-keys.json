@@ -1,0 +1,12 @@
+{
+  "$schema": "../../../contracts/environment-trusted-keys-1.0.schema.json",
+  "schema_version": "1.0",
+  "keys": [
+    {
+      "key_id": "contentcloud-environment-2026-07",
+      "algorithm": "ed25519",
+      "status": "active",
+      "public_key": "kmHSxgITHJQpMg3nkCUShvkjbn2gYuApDNC2Mz0NSu8="
+    }
+  ]
+}

@@ -100,28 +100,31 @@ CONTENTCLOUD_REQUIRE_MALWARE_SCAN=1 ./bin/contentcloud-worker
 2. 项目总览生成 10 分钟有效、单次使用的 `cck_`，并拼成不含登录态的 Agent Prompt：
 
 ```text
-Fetch https://content.example.com/api/bootstrap and help me initialize this ContentCloud project on this machine.
+Fetch https://content.example.com/api/bootstrap and follow it to connect this ContentCloud project to Codex.
 
 server-url: https://content.example.com
 connect-key: cck_xxx
+contentcloud-cli: npx --yes @limecloud/contentcloud@<pinned-version>
 project: "品牌 / 单品"
 ```
 
-3. 用户把 Prompt 粘贴到目标项目的 Codex 或 Claude 会话。Agent 获取公开的 `/api/bootstrap` Markdown 协议，检查目录并执行初始化。
-4. CLI 先消费连接码并把会话推进到 `verifying`，再初始化项目级 Skills/MCP、执行 `workspace doctor` 并调用 `workspace.register`；只有全部成功后 Web 才显示 `connected`。
-5. npm 安装器校验 GitHub Release 的 `checksums.txt`，原子安装 Go binary。
-6. CLI 把 `wt_` Workspace Credential 和兼容用 `dt_` Device Credential 写入 macOS Keychain。
-7. 初始化默认不注册 LaunchAgent、不启动 Daemon、不上传文件，也不修改全局 Agent 配置。
+3. 用户把 Prompt 粘贴到 Codex 安装会话。Agent 获取公开的 `/api/bootstrap` 协议并执行只读 `bootstrap plan`。
+4. CLI 返回固定 Marketplace、Plugin、目标目录变化和确定性 `plan_id`；用户确认该计划后，Agent 才能把同一个 `plan_id` 传给 `bootstrap apply`。
+5. CLI 安装并验证固定 Plugin，然后消费连接码、初始化 `codex-plugin` Workspace、执行 offline doctor；只有 `workspace.register` 成功后 Web 才显示 `connected`。
+6. 新安装的 bundled Skills/MCP 在新的 Codex chat/session 生效。CLI 用不含连接码的 Plugin mention 和恢复 Prompt 打开 Workspace 新对话。
+7. npm 安装器校验 GitHub Release 的 `checksums.txt`，原子安装 Go binary；Workspace/Device Credential 写入 macOS Keychain。
+8. 初始化默认不注册 LaunchAgent、不启动 Daemon、不上传文件，也不写项目级 `.codex/config.toml` 或重复的 `.agents/skills`。
 
-无法使用 Coding Agent 时，可以在一个空目录中手动运行：
+无法使用 Prompt 流程时，在空目录使用 Web 提供的固定 `contentcloud-cli`，不能替换为 `@latest`。先运行只读计划：
 
 ```bash
-npx --yes @limecloud/contentcloud@latest init \
-  --server-url https://content.example.com \
-  --connect cck_xxx \
-  --target all \
-  --accept-project-config \
-  .
+<contentcloud-cli> bootstrap plan . --server-url https://content.example.com --connect cck_xxx --json
+```
+
+检查返回的 `plan_id` 后再确认执行：
+
+```bash
+<contentcloud-cli> bootstrap apply . --server-url https://content.example.com --connect cck_xxx --plan-id bp_xxx --accept --json
 ```
 
 用户 CLI 登录与设备连接凭据分离：`contentcloud auth login --no-wait --json` 发起浏览器确认，之后用 `--device-code` 完成并把 `ct_` 写入 Keychain。
@@ -132,8 +135,7 @@ npx --yes @limecloud/contentcloud@latest init \
 make check
 go test -race ./...
 pnpm --dir web test
-python /Users/coso/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
-  skills/contentcloud-marketing-video-script
+pnpm check:plugin
 ```
 
 设置 `CONTENTCLOUD_TEST_DATABASE_URL` 后，`go test ./...` 会额外执行真实 PostgreSQL migration、runtime-role RLS 隔离和来源处理生命周期测试。
