@@ -18,6 +18,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/apiclient"
 	"github.com/limecloud/contentcloud/internal/app"
+	"github.com/limecloud/contentcloud/internal/capabilitycatalog"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/localconfig"
 )
@@ -201,7 +202,8 @@ func (r *Root) artifactRegisterCommand() *cobra.Command {
 	command.Flags().StringVar(&mediaType, "media-type", "", "declared MIME type; inferred from extension when omitted")
 	command.Flags().StringVar(&capabilityID, "capability-id", domain.ArtifactExportCapability, "source capability ID")
 	command.Flags().StringVar(&capabilityVersion, "capability-version", "1.0.0", "source capability semver")
-	command.Flags().StringVar(&capabilityDigest, "capability-digest", "contentcloud-artifact-export@"+Version, "source capability digest")
+	artifactCapability, _ := capabilitycatalog.Exact(domain.ArtifactExportCapability, Version)
+	command.Flags().StringVar(&capabilityDigest, "capability-digest", artifactCapability.Digest, "source capability digest")
 	command.Flags().StringArrayVar(&metadataValues, "metadata", nil, "scalar metadata in key=value form; repeatable")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "validate locally and on the server without registering")
 	_ = command.MarkFlagRequired("script")

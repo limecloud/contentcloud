@@ -1,0 +1,567 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/limecloud/contentcloud/internal/app"
+	"github.com/limecloud/contentcloud/internal/codexplugin"
+	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/environment"
+	"github.com/limecloud/contentcloud/internal/localconfig"
+	"github.com/limecloud/contentcloud/internal/localworkspace"
+)
+
+type bootstrapRunnerResponse struct {
+	stdout   string
+	stderr   string
+	exitCode int
+	err      error
+}
+
+type bootstrapRunner struct {
+	responses      []bootstrapRunnerResponse
+	calls          [][]string
+	rejectCanceled bool
+}
+
+func (r *bootstrapRunner) Run(ctx context.Context, name string, args ...string) (codexplugin.CommandResult, error) {
+	r.calls = append(r.calls, append([]string{name}, args...))
+	if r.rejectCanceled && ctx.Err() != nil {
+		return codexplugin.CommandResult{}, ctx.Err()
+	}
+	if len(r.responses) == 0 {
+		return codexplugin.CommandResult{}, errors.New("unexpected Codex command")
+	}
+	response := r.responses[0]
+	r.responses = r.responses[1:]
+	return codexplugin.CommandResult{Stdout: []byte(response.stdout), Stderr: []byte(response.stderr), ExitCode: response.exitCode}, response.err
+}
+
+func TestBootstrapPlanIsReadOnlyAndDoesNotExposeConnectKey(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "new-workspace")
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
+		{stdout: `{"marketplaces":[]}`},
+		{stdout: `{"installed":[],"available":[]}`},
+	}}
+	var stdout, stderr bytes.Buffer
+	root := &Root{stdout: &stdout, stderr: &stderr, codexRunner: runner}
+	command := root.command()
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "plan", directory, "--connect", "cck_secret_value"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("bootstrap plan failed: %v; stderr=%s", err, stderr.String())
+	}
+	var envelope struct {
+		OK   bool          `json:"ok"`
+		Data bootstrapPlan `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode output: %v; output=%s", err, stdout.String())
+	}
+	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.5.0" || len(envelope.Data.Plugin.Actions) != 2 {
+		t.Fatalf("unexpected plan: %s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "cck_secret_value") {
+		t.Fatalf("bootstrap plan leaked the connect key: %s", stdout.String())
+	}
+	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+		t.Fatalf("bootstrap plan created the target directory: %v", err)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("bootstrap plan ran a mutation: %#v", runner.calls)
+	}
+}
+
+func TestBootstrapPlanIDIsStableUntilInputsChange(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "new-workspace")
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	first := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
+	second := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
+	if first != second {
+		t.Fatalf("unchanged bootstrap plan IDs differ: %q != %q", first, second)
+	}
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "existing.txt"), []byte("existing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
+	if changed == first {
+		t.Fatalf("directory state change did not invalidate plan ID %q", first)
+	}
+}
+
+func TestBootstrapApplyInstallsInitializesDoctorsAndRegisters(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "new-workspace")
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	now := time.Date(2026, 7, 27, 10, 0, 0, 0, time.UTC)
+	manifest, verifier, registry, registryVerifier := bootstrapEnvironmentFixture(t, now)
+	server, registered := newBootstrapRegisterServer(t, manifest, registry)
+	defer server.Close()
+
+	runner := successfulBootstrapRunner()
+	planID := bootstrapPlanIDForTest(t, directory, server.URL)
+	var stdout, stderr bytes.Buffer
+	root := &Root{
+		stdout:               &stdout,
+		stderr:               &stderr,
+		codexRunner:          runner,
+		now:                  func() time.Time { return now },
+		manifestVerifierHook: fixedManifestVerifier(verifier),
+		registryVerifierHook: fixedRegistryVerifier(registryVerifier),
+		connectDeviceHook: func(_ context.Context, key, _ string) (localconfig.Config, app.ConnectDeviceResult, error) {
+			if key != "cck_test" {
+				t.Fatalf("unexpected connect key: %s", key)
+			}
+			return localconfig.Config{ServerURL: server.URL, DeviceID: "device-1", WorkspaceID: "workspace-1", ProjectID: "project-1"}, app.ConnectDeviceResult{
+				Device: domain.Device{ID: "device-1"}, WorkspaceID: "workspace-1", WorkspaceToken: "wt_test", ProjectID: "project-1", EnvironmentManifest: &manifest,
+			}, nil
+		},
+	}
+	command := root.command()
+	command.SetArgs([]string{"--json", "--server-url", server.URL, "bootstrap", "apply", directory, "--connect", "cck_test", "--plan-id", planID, "--accept", "--open-codex=false"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("bootstrap apply failed: %v; stderr=%s", err, stderr.String())
+	}
+	if !*registered {
+		t.Fatal("bootstrap did not register the workspace after doctor")
+	}
+	status, err := localworkspace.LoadStatus(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(status.Template.Targets, []string{"codex-plugin"}) {
+		t.Fatalf("unexpected targets: %#v", status.Template.Targets)
+	}
+	if _, err := os.Stat(filepath.Join(directory, ".codex", "config.toml")); !os.IsNotExist(err) {
+		t.Fatalf("codex-plugin target wrote project config: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, ".agents", "skills")); !os.IsNotExist(err) {
+		t.Fatalf("codex-plugin target duplicated plugin skills: %v", err)
+	}
+	var envelope struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Doctor               localworkspace.DoctorReport `json:"doctor"`
+			BootstrapHandoffPath string                      `json:"bootstrap_handoff_path"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || !envelope.Data.Doctor.OK || envelope.Data.BootstrapHandoffPath == "" {
+		t.Fatalf("unexpected output: err=%v output=%s", err, stdout.String())
+	}
+	if _, err := os.Stat(envelope.Data.BootstrapHandoffPath); err != nil {
+		t.Fatalf("bootstrap handoff was not persisted: %v", err)
+	}
+	if len(runner.responses) != 0 {
+		t.Fatalf("unused Codex responses: %d", len(runner.responses))
+	}
+}
+
+func TestBootstrapResumeInitializesEmptyDirectoryFromSavedBinding(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "recovered-workspace")
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", configPath)
+	t.Setenv("CONTENTCLOUD_WORKSPACE_TOKEN", "wt_test")
+	now := time.Date(2026, 7, 27, 10, 30, 0, 0, time.UTC)
+	manifest, verifier, registry, registryVerifier := bootstrapEnvironmentFixture(t, now)
+	server, registered := newBootstrapRegisterServer(t, manifest, registry)
+	defer server.Close()
+	if err := localconfig.Save(localconfig.Config{ServerURL: server.URL, DeviceID: "device-1", WorkspaceID: "workspace-1", ProjectID: "project-1"}); err != nil {
+		t.Fatal(err)
+	}
+	runner := successfulBootstrapRunner()
+	var stdout, stderr bytes.Buffer
+	root := &Root{stdout: &stdout, stderr: &stderr, codexRunner: runner, now: func() time.Time { return now }, manifestVerifierHook: fixedManifestVerifier(verifier), registryVerifierHook: fixedRegistryVerifier(registryVerifier)}
+	command := root.command()
+	command.SetArgs([]string{"--json", "bootstrap", "resume", directory, "--accept", "--open-codex=false"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("bootstrap resume failed: %v; stderr=%s", err, stderr.String())
+	}
+	if !*registered {
+		t.Fatal("bootstrap resume did not register the saved Workspace binding")
+	}
+	status, err := localworkspace.LoadStatus(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Binding.ProjectID != "project-1" || status.Binding.WorkspaceID != "workspace-1" || !hasBootstrapTarget(status.Template.Targets) {
+		t.Fatalf("unexpected recovered workspace: %#v", status)
+	}
+}
+
+func TestBootstrapApplyRollsBackPluginInstallWhenConnectFails(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "new-workspace")
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	runner := successfulBootstrapRunner()
+	runner.responses = append(runner.responses,
+		bootstrapRunnerResponse{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud"}`},
+		bootstrapRunnerResponse{stdout: `{"marketplaceName":"contentcloud","installedRoot":null}`},
+	)
+	root := &Root{
+		stdout:               &bytes.Buffer{},
+		stderr:               &bytes.Buffer{},
+		codexRunner:          runner,
+		manifestVerifierHook: fixedManifestVerifier(testManifestVerifier(t)),
+		registryVerifierHook: fixedRegistryVerifier(testRegistryVerifier(t)),
+		connectDeviceHook: func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, error) {
+			return localconfig.Config{}, app.ConnectDeviceResult{}, domain.Conflict("CONNECT_KEY_INVALID", "连接码无效")
+		},
+	}
+	planID := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
+	command := root.command()
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--connect", "cck_test", "--plan-id", planID, "--accept", "--open-codex=false"})
+	if err := command.Execute(); err == nil {
+		t.Fatal("connect failure must fail bootstrap")
+	}
+	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+		t.Fatalf("connect failure wrote the workspace: %v", err)
+	}
+	wantSuffix := [][]string{
+		{"codex", "plugin", "remove", "contentcloud-video-production@contentcloud", "--json"},
+		{"codex", "plugin", "marketplace", "remove", "contentcloud", "--json"},
+	}
+	if !reflect.DeepEqual(runner.calls[len(runner.calls)-2:], wantSuffix) {
+		t.Fatalf("unexpected rollback calls: %#v", runner.calls)
+	}
+}
+
+func TestBootstrapApplyRollsBackWithIndependentContextAfterCancellation(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "new-workspace")
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	runner := successfulBootstrapRunner()
+	runner.rejectCanceled = true
+	runner.responses = append(runner.responses,
+		bootstrapRunnerResponse{stdout: `{"removed":true}`},
+		bootstrapRunnerResponse{stdout: `{"removed":true}`},
+	)
+	ctx, cancel := context.WithCancel(t.Context())
+	root := &Root{
+		stdout:               &bytes.Buffer{},
+		stderr:               &bytes.Buffer{},
+		codexRunner:          runner,
+		manifestVerifierHook: fixedManifestVerifier(testManifestVerifier(t)),
+		registryVerifierHook: fixedRegistryVerifier(testRegistryVerifier(t)),
+		connectDeviceHook: func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, error) {
+			cancel()
+			return localconfig.Config{}, app.ConnectDeviceResult{}, context.Canceled
+		},
+	}
+	planID := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
+	command := root.command()
+	command.SetContext(ctx)
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--connect", "cck_test", "--plan-id", planID, "--accept", "--open-codex=false"})
+	if err := command.Execute(); err == nil {
+		t.Fatal("canceled connection must fail bootstrap")
+	}
+	wantSuffix := [][]string{
+		{"codex", "plugin", "remove", "contentcloud-video-production@contentcloud", "--json"},
+		{"codex", "plugin", "marketplace", "remove", "contentcloud", "--json"},
+	}
+	if !reflect.DeepEqual(runner.calls[len(runner.calls)-2:], wantSuffix) {
+		t.Fatalf("rollback did not survive request cancellation: %#v", runner.calls)
+	}
+}
+
+func TestBootstrapApplyPreservesPluginWhenServerConsumedConnectKey(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "new-workspace")
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	runner := successfulBootstrapRunner()
+	root := &Root{
+		stdout:               &bytes.Buffer{},
+		stderr:               &bytes.Buffer{},
+		codexRunner:          runner,
+		manifestVerifierHook: fixedManifestVerifier(testManifestVerifier(t)),
+		registryVerifierHook: fixedRegistryVerifier(testRegistryVerifier(t)),
+		connectDeviceHook: func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, error) {
+			return localconfig.Config{}, app.ConnectDeviceResult{
+				Device: domain.Device{ID: "device-1"}, WorkspaceID: "workspace-1", ProjectID: "project-1",
+			}, domain.E("credential", "secure_store", "CREDENTIAL_STORE_FAILED", "keychain unavailable", 3)
+		},
+	}
+	planID := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
+	command := root.command()
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--connect", "cck_test", "--plan-id", planID, "--accept", "--open-codex=false"})
+	if err := command.Execute(); err == nil {
+		t.Fatal("credential persistence failure must fail bootstrap")
+	}
+	if len(runner.responses) != 0 || len(runner.calls) != 8 {
+		t.Fatalf("consumed connection unexpectedly rolled back the plugin: calls=%#v responses=%d", runner.calls, len(runner.responses))
+	}
+}
+
+func TestBootstrapApplyRejectsUnconfirmedPlanID(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "new-workspace")
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
+		{stdout: `{"marketplaces":[]}`},
+		{stdout: `{"installed":[],"available":[]}`},
+	}}
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner}
+	command := root.command()
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--connect", "cck_test", "--plan-id", "bp_wrong", "--accept", "--open-codex=false"})
+	err := command.Execute()
+	var domainError *domain.Error
+	if !errors.As(err, &domainError) || domainError.Code != "BOOTSTRAP_PLAN_STALE" {
+		t.Fatalf("unexpected error: %#v", err)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("stale plan ran a mutation: %#v", runner.calls)
+	}
+}
+
+func TestBootstrapApplyRequiresPlanIDBeforeMutation(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "new-workspace")
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
+		{stdout: `{"marketplaces":[]}`},
+		{stdout: `{"installed":[],"available":[]}`},
+	}}
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner}
+	command := root.command()
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--connect", "cck_test", "--accept", "--open-codex=false"})
+	err := command.Execute()
+	var domainError *domain.Error
+	if !errors.As(err, &domainError) || domainError.Code != "BOOTSTRAP_PLAN_ID_REQUIRED" {
+		t.Fatalf("unexpected error: %#v", err)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("missing plan ID ran a mutation: %#v", runner.calls)
+	}
+}
+
+func TestBootstrapApplyRejectsPlanAfterCodexStateChanges(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "new-workspace")
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	approvedPlanID := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
+	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
+		{stdout: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.5.0"}}]}`},
+		{stdout: `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.5.0","installed":true,"enabled":true}],"available":[]}`},
+	}}
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner}
+	command := root.command()
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--connect", "cck_test", "--plan-id", approvedPlanID, "--accept", "--open-codex=false"})
+	err := command.Execute()
+	var domainError *domain.Error
+	if !errors.As(err, &domainError) || domainError.Code != "BOOTSTRAP_PLAN_STALE" {
+		t.Fatalf("unexpected error: %#v", err)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("changed Codex state ran a mutation: %#v", runner.calls)
+	}
+}
+
+func TestValidateBootstrapServerRequiresOrigin(t *testing.T) {
+	for _, value := range []string{"https://content.example.com", "https://content.example.com/", "http://localhost:8080"} {
+		if err := validateBootstrapServer(value); err != nil {
+			t.Fatalf("valid origin %q rejected: %v", value, err)
+		}
+	}
+	for _, value := range []string{
+		"content.example.com",
+		"ftp://content.example.com",
+		"https://user:secret@content.example.com",
+		"https://content.example.com/api",
+		"https://content.example.com?target=other",
+		"https://content.example.com#fragment",
+	} {
+		if err := validateBootstrapServer(value); err == nil {
+			t.Fatalf("non-origin server URL %q accepted", value)
+		}
+	}
+}
+
+func TestRequireHealthyWorkspaceBlocksRegistration(t *testing.T) {
+	report := localworkspace.DoctorReport{OK: false, Root: "/tmp/workspace", Checks: map[string]localworkspace.Check{
+		"managed_files": {OK: false, Required: true, Message: "drift"},
+	}}
+	err := requireHealthyWorkspace(report)
+	var domainError *domain.Error
+	if !errors.As(err, &domainError) || domainError.Code != "WORKSPACE_DOCTOR_FAILED" {
+		t.Fatalf("unexpected error: %#v", err)
+	}
+}
+
+func successfulBootstrapRunner() *bootstrapRunner {
+	missingMarketplace := `{"marketplaces":[]}`
+	missingPlugin := `{"installed":[],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.5.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.5.0","installed":true,"enabled":true}],"available":[]}`
+	return &bootstrapRunner{responses: []bootstrapRunnerResponse{
+		{stdout: missingMarketplace}, {stdout: missingPlugin},
+		{stdout: missingMarketplace}, {stdout: missingPlugin},
+		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.5.0","installedPath":"/tmp/plugin"}`},
+		{stdout: currentMarketplace}, {stdout: currentPlugin},
+	}}
+}
+
+func bootstrapPlanIDForTest(t *testing.T, directory, serverURL string) string {
+	t.Helper()
+	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
+		{stdout: `{"marketplaces":[]}`},
+		{stdout: `{"installed":[],"available":[]}`},
+	}}
+	root := &Root{serverURL: serverURL, codexRunner: runner}
+	plan, _, err := root.buildBootstrapPlan(t.Context(), directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan.PlanID
+}
+
+func newBootstrapRegisterServer(t *testing.T, manifest environment.Manifest, registry environment.Registry) (*httptest.Server, *bool) {
+	t.Helper()
+	registered := false
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v1/cli/dispatch" || request.Header.Get("Authorization") != "Bearer wt_test" {
+			http.Error(writer, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		var payload struct {
+			Command string `json:"command"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			http.Error(writer, "unexpected payload", http.StatusBadRequest)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		if payload.Command == "environment.manifest.get" {
+			_ = json.NewEncoder(writer).Encode(map[string]any{"ok": true, "command": payload.Command, "request_id": "request-test", "meta": map[string]any{}, "data": manifest})
+			return
+		}
+		if payload.Command == "environment.registry.get" {
+			_ = json.NewEncoder(writer).Encode(map[string]any{"ok": true, "command": payload.Command, "request_id": "request-test", "meta": map[string]any{}, "data": registry})
+			return
+		}
+		if payload.Command != "workspace.register" {
+			http.Error(writer, "unexpected command", http.StatusBadRequest)
+			return
+		}
+		registered = true
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"ok": true, "command": "workspace.register", "request_id": "request-test", "meta": map[string]any{},
+			"data": domain.WorkspaceBinding{ID: "workspace-1", ProjectID: "project-1", TemplateID: localworkspace.TemplateID, TemplateVersion: localworkspace.TemplateVersion, Targets: []string{"codex-plugin"}, Status: "active"},
+		})
+	}))
+	return server, &registered
+}
+
+func fixedManifestVerifier(verifier *environment.Verifier) func() (*environment.Verifier, error) {
+	return func() (*environment.Verifier, error) { return verifier, nil }
+}
+
+func fixedRegistryVerifier(verifier *environment.RegistryVerifier) func() (*environment.RegistryVerifier, error) {
+	return func() (*environment.RegistryVerifier, error) { return verifier, nil }
+}
+
+func testManifestVerifier(t *testing.T) *environment.Verifier {
+	t.Helper()
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := environment.NewVerifier([]environment.TrustedKey{{KeyID: "bootstrap-test", Status: "active", PublicKey: publicKey}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return verifier
+}
+
+func testRegistryVerifier(t *testing.T) *environment.RegistryVerifier {
+	t.Helper()
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := environment.NewRegistryVerifier([]environment.RegistryTrustedKey{{KeyID: "registry-bootstrap-test", Status: "active", PublicKey: publicKey}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return verifier
+}
+
+func bootstrapEnvironmentFixture(t *testing.T, now time.Time) (environment.Manifest, *environment.Verifier, environment.Registry, *environment.RegistryVerifier) {
+	t.Helper()
+	registryPublicKey, registryPrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sceneEntry := environment.RegistryEntry{
+		ID: "contentcloud-video-production", Kind: "scene_plugin", Version: Version,
+		Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v" + Version}, License: "Apache-2.0", Digest: "sha256:" + strings.Repeat("a", 64),
+		Signature: environment.RegistrySignature{Status: "verified", Algorithm: "ed25519", KeyID: "plugin-release-bootstrap-test"}, CompatibleProfiles: []string{"contentcloud.video-production"},
+		Permissions: []string{"workspace:read"}, DataFlow: environment.RegistryDataFlow{LocalByDefault: true, CloudActions: []string{}}, OutputSchemas: []string{"contracts/script-package-2.0.schema.json"},
+		Cost:       environment.RegistryCost{Model: "included", Notice: "Included in tests."},
+		Evaluation: environment.RegistryEvaluation{Status: "passed", Report: "evaluation.json", Digest: "sha256:" + strings.Repeat("e", 64), Evidence: []string{"test"}}, Lifecycle: "published", Revocation: environment.RegistryRevocation{Status: "active"},
+	}
+	packEntry := environment.RegistryEntry{
+		ID: "contentcloud-visual-storytelling", Kind: "skill_pack", Version: "1.2.0",
+		Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v" + Version}, License: "Apache-2.0", Digest: "sha256:" + strings.Repeat("b", 64),
+		Signature: environment.RegistrySignature{Status: "verified", Algorithm: "ed25519", KeyID: "plugin-release-bootstrap-test"}, CompatibleProfiles: []string{"contentcloud.video-production"},
+		Permissions: []string{"workspace:read", "workspace:write-managed"}, DataFlow: environment.RegistryDataFlow{LocalByDefault: true, CloudActions: []string{}}, OutputSchemas: []string{"contracts/script-package-2.0.schema.json"},
+		Cost:       environment.RegistryCost{Model: "included", Notice: "Included in tests."},
+		Evaluation: environment.RegistryEvaluation{Status: "passed", Report: "evaluation-pack.json", Digest: "sha256:" + strings.Repeat("f", 64), Evidence: []string{"test"}}, Lifecycle: "published", Revocation: environment.RegistryRevocation{Status: "active"},
+	}
+	entries := []environment.RegistryEntry{sceneEntry, packEntry}
+	for index := range entries {
+		payload, payloadErr := environment.RegistryEntrySigningPayload(entries[index])
+		if payloadErr != nil {
+			t.Fatal(payloadErr)
+		}
+		entries[index].Signature.Value = base64.StdEncoding.EncodeToString(ed25519.Sign(registryPrivateKey, payload))
+	}
+	registryVerifier, err := environment.NewRegistryVerifier([]environment.RegistryTrustedKey{{KeyID: "plugin-release-bootstrap-test", Status: "active", PublicKey: registryPublicKey}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawRegistry := environment.Registry{SchemaVersion: "1.0", Entries: entries}
+	registry, err := registryVerifier.Verify(rawRegistry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := environment.Profile{
+		ID: "contentcloud.video-production", Version: "1.0.0", EnvironmentVersion: "2026.7.1", Harness: "codex", Marketplace: "contentcloud",
+		Plugins: []environment.ProfilePlugin{
+			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: Version, Required: true, Scope: "environment", Capabilities: []string{domain.ScriptCapability}},
+			{ID: "contentcloud-visual-storytelling", Kind: "skill_pack", Version: "1.2.0", Required: false, Scope: "task", Capabilities: []string{"contentcloud.asset.generate"}},
+		},
+		WorkspaceTemplate: environment.WorkspaceTemplateRef{ID: localworkspace.TemplateID, Version: localworkspace.TemplateVersion, Digest: "sha256:" + strings.Repeat("c", 64)}, Capabilities: []string{domain.ScriptCapability}, Policies: environment.Policies{PublishRequiresConfirmation: true},
+	}
+	profile.Capabilities = append(profile.Capabilities, "contentcloud.asset.generate")
+	unsigned, err := environment.BuildManifest("project-1", profile, registry, now, now.Add(24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer, err := environment.NewIssuer("environment-bootstrap-test", privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := issuer.Sign(unsigned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := environment.NewVerifier([]environment.TrustedKey{{KeyID: "environment-bootstrap-test", Status: "active", PublicKey: publicKey}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manifest, verifier, rawRegistry, registryVerifier
+}

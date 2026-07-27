@@ -13,6 +13,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/blob"
 	"github.com/limecloud/contentcloud/internal/httpapi"
+	"github.com/limecloud/contentcloud/internal/serverconfig"
 	storepkg "github.com/limecloud/contentcloud/internal/store"
 	"github.com/limecloud/contentcloud/internal/store/memory"
 	"github.com/limecloud/contentcloud/internal/store/postgres"
@@ -56,7 +57,20 @@ func main() {
 	if devMode {
 		adminEmails = append(adminEmails, "demo@contentcloud.local")
 	}
-	service := app.NewWithBlob(st, logger, blobStore, app.WithPlatformAdminEmails(adminEmails...))
+	environmentRuntime, err := serverconfig.EnvironmentFromEnv()
+	if err != nil {
+		logger.Error("initialize Environment Control Plane", "error", err)
+		os.Exit(1)
+	}
+	serviceOptions := []app.Option{app.WithPlatformAdminEmails(adminEmails...)}
+	if environmentRuntime.Enabled {
+		serviceOptions = append(serviceOptions, app.WithEnvironmentControlPlane(environmentRuntime.ControlPlane))
+		if len(environmentRuntime.AutomationRequirements) > 0 {
+			serviceOptions = append(serviceOptions, app.WithAutomationExecutionPolicy(environmentRuntime.AutomationRequirements, environmentRuntime.AutomationPackIDs))
+		}
+	}
+	service := app.NewWithBlob(st, logger, blobStore, serviceOptions...)
+	logger.Info("Environment Control Plane configured", "enabled", environmentRuntime.Enabled, "automation_policy", len(environmentRuntime.AutomationRequirements) > 0)
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	defer cancelWorker()
 	if devMode && databaseURL == "" {

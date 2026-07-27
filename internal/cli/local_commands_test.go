@@ -47,6 +47,8 @@ func TestLocalCLIExecutesClientFirstKnowledgeFlow(t *testing.T) {
 	for _, name := range []string{
 		"local.source.register", "local.source.list", "local.source.show", "local.source.ingest", "local.source.verify",
 		"local.run.init", "local.run.show", "local.run.record", "local.run.check", "local.run.advance", "local.run.resume", "local.run.fail", "local.run.validate",
+		"local.run.claim", "local.run.renew", "local.run.release", "local.run.claim-status",
+		"local.handoff.create-ready", "local.handoff.list-ready", "local.handoff.accept", "local.handoff.complete", "local.handoff.supersede",
 		"local.knowledge.import", "local.knowledge.lint", "local.knowledge.query", "local.knowledge.diagnose", "local.knowledge.pack",
 		"local.brief.lint", "local.script.batch.init", "local.script.batch.lint", "local.script.batch.finalize", "local.script.lint", "local.script.diff", "local.script.export",
 	} {

@@ -262,7 +262,7 @@ func storeApprovedObject(t *testing.T, root, snapshotID, submissionType, objectI
 		t.Fatal(err)
 	}
 	snapshot := domain.ApprovedSnapshot{ID: snapshotID, SubmissionType: submissionType, CanonicalContent: canonical, EligibleIDs: []string{objectID}, CreatedAt: createdAt}
-	if _, err := StorePulledBundle(root, "approved", snapshot.ID, snapshot, createdAt); err != nil {
+	if _, err := StoreApprovedSnapshot(root, snapshot, createdAt); err != nil {
 		t.Fatal(err)
 	}
 }

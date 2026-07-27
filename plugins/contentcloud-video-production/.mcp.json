@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "contentcloud-local": {
+      "command": "npx",
+      "args": [
+        "--yes",
+        "@limecloud/contentcloud@0.5.0",
+        "mcp",
+        "serve"
+      ]
+    }
+  }
+}

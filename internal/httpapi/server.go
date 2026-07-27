@@ -656,6 +656,22 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		}
 		value, err := s.service.RegisterWorkspace(r.Context(), actor, binding, in.TemplateID, in.TemplateVersion, in.Targets, middleware.GetReqID(r.Context()))
 		s.dispatchResult(w, r, req.Command, value, err)
+	case "environment.manifest.get":
+		actor, binding, err := s.workspaceFromRequest(r)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		value, err := s.service.EnvironmentManifest(r.Context(), actor, binding)
+		s.dispatchResult(w, r, req.Command, value, err)
+	case "environment.registry.get":
+		actor, binding, err := s.workspaceFromRequest(r)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		value, err := s.service.EnvironmentRegistry(r.Context(), actor, binding)
+		s.dispatchResult(w, r, req.Command, value, err)
 	case "submission.create":
 		actor, binding, err := s.workspaceFromRequest(r)
 		if err != nil {
@@ -807,13 +823,14 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in struct {
-			Capabilities []domain.Capability `json:"capabilities"`
+			Capabilities []domain.Capability              `json:"capabilities"`
+			Environments []app.AutomationEnvironmentClaim `json:"environments"`
 		}
-		if err := json.Unmarshal(req.Params, &in); err != nil {
+		if err := strictDecodeParams(req.Params, &in); err != nil {
 			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "轮询参数错误"))
 			return
 		}
-		lease, err := s.service.Poll(r.Context(), actor, device, in.Capabilities)
+		lease, err := s.service.PollWithEnvironment(r.Context(), actor, device, in.Capabilities, in.Environments)
 		if err != nil {
 			var de *domain.Error
 			if errors.As(err, &de) && de.Code == "RESOURCE_NOT_FOUND" {

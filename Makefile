@@ -1,4 +1,4 @@
-.PHONY: dev preview server web worker cli build test check install-cli migrate-up
+.PHONY: dev preview server web worker cli build test check check-plugin install-cli migrate-up
 
 CONTENTCLOUD_ADDR ?= :8080
 CONTENTCLOUD_WEB_DIST ?= web/dist
@@ -38,8 +38,15 @@ check:
 	go fmt ./...
 	go vet ./...
 	go test ./...
+	pnpm test:plugin-signing
+	pnpm check:plugin
 	pnpm --dir web typecheck
 	pnpm --dir web build
+
+check-plugin:
+	pnpm evaluate:plugin
+	pnpm test:plugin-signing
+	pnpm check:plugin
 
 install-cli:
 	go install ./cmd/contentcloud

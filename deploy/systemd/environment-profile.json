@@ -1,0 +1,36 @@
+{
+  "id": "contentcloud.video-production",
+  "version": "1.0.0",
+  "environment_version": "2026.7.27",
+  "harness": "codex",
+  "marketplace": "contentcloud",
+  "plugins": [
+    {
+      "id": "contentcloud-video-production",
+      "kind": "scene_plugin",
+      "version": "0.5.0",
+      "required": true,
+      "scope": "environment",
+      "capabilities": [
+        "contentcloud.artifact.export",
+        "contentcloud.knowledge.extract",
+        "contentcloud.script.generate"
+      ]
+    }
+  ],
+  "workspace_template": {
+    "id": "workspace_marketing_video",
+    "version": "2.2.0",
+    "digest": "sha256:05c1eb41fc549a493bdc8fd077273682e23576d41d759b30773a1a0c84333723"
+  },
+  "capabilities": [
+    "contentcloud.artifact.export",
+    "contentcloud.knowledge.extract",
+    "contentcloud.script.generate"
+  ],
+  "policies": {
+    "publish_requires_confirmation": true,
+    "automation_enabled": true,
+    "background_upgrade": false
+  }
+}

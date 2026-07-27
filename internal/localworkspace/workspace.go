@@ -16,14 +16,16 @@ import (
 	"time"
 
 	"github.com/limecloud/contentcloud/contracts"
+	"github.com/limecloud/contentcloud/internal/capabilityrouting"
 	"github.com/limecloud/contentcloud/internal/domain"
-	builtinskills "github.com/limecloud/contentcloud/skills"
+	"github.com/limecloud/contentcloud/internal/environment"
+	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
 const (
 	SchemaVersion   = "2.0"
 	TemplateID      = "workspace_marketing_video"
-	TemplateVersion = "2.0.0"
+	TemplateVersion = "2.2.0"
 )
 
 type Binding struct {
@@ -67,6 +69,7 @@ type SyncState struct {
 	DecisionCursor     string                         `json:"decision_cursor,omitempty"`
 	ApprovedCursor     string                         `json:"approved_cursor,omitempty"`
 	ApprovedSnapshotID string                         `json:"approved_snapshot_id,omitempty"`
+	LastPulledAt       *time.Time                     `json:"last_pulled_at,omitempty"`
 	UpdatedAt          time.Time                      `json:"updated_at"`
 }
 
@@ -300,13 +303,17 @@ func Doctor(root string) (DoctorReport, error) {
 	if err != nil {
 		return DoctorReport{}, err
 	}
+	skillsOK, skillsMessage := installedSkillsCheck(status.Root, status.Template)
+	mcpOK, mcpMessage := installedMCPCheck(status.Root, status.Template)
+	routingInspection, _ := InspectCapabilityRouting(status.Root)
 	checks := map[string]Check{
-		"workspace_binding": {OK: status.Binding.ProjectID != "" && status.Binding.WorkspaceID != "", Required: true, Message: "项目与工作区绑定可读"},
-		"template_lock":     {OK: status.Template.TemplateVersion != "", Required: true, Message: "模板锁文件可读"},
-		"managed_files":     {OK: len(status.ModifiedManagedFiles) == 0 && len(status.MissingManagedFiles) == 0, Required: true, Message: managedMessage(status)},
-		"skills":            {OK: installedSkillsOK(status.Root, status.Template), Required: true, Message: "项目级 Skills 已安装"},
-		"mcp":               {OK: fileExists(filepath.Join(status.Root, ".contentcloud", "mcp", "contentcloud-local.json")), Required: true, Message: "contentcloud-local MCP 配置已安装"},
-		"automation":        {OK: true, Required: false, Message: "后台 Automation Daemon 未启用（普通本地创作不需要）"},
+		"workspace_binding":  {OK: status.Binding.ProjectID != "" && status.Binding.WorkspaceID != "", Required: true, Message: "项目与工作区绑定可读"},
+		"template_lock":      {OK: status.Template.TemplateVersion != "", Required: true, Message: "模板锁文件可读"},
+		"managed_files":      {OK: len(status.ModifiedManagedFiles) == 0 && len(status.MissingManagedFiles) == 0, Required: true, Message: managedMessage(status)},
+		"skills":             {OK: skillsOK, Required: true, Message: skillsMessage},
+		"mcp":                {OK: mcpOK, Required: true, Message: mcpMessage},
+		"capability_routing": {OK: routingInspection.Status == "current", Required: true, Message: "ContentCloud 路由受管块状态：" + routingInspection.Status},
+		"automation":         {OK: true, Required: false, Message: "后台 Automation Daemon 未启用（普通本地创作不需要）"},
 	}
 	ok := true
 	for _, check := range checks {
@@ -315,6 +322,25 @@ func Doctor(root string) (DoctorReport, error) {
 		}
 	}
 	return DoctorReport{OK: ok, Root: status.Root, Checks: checks}, nil
+}
+
+func DoctorWithEnvironment(root string, verifier *environment.Verifier, registryVerifier *environment.RegistryVerifier, now time.Time) (DoctorReport, error) {
+	report, err := Doctor(root)
+	if err != nil {
+		return DoctorReport{}, err
+	}
+	report.Checks["environment"] = EnvironmentCheck(report.Root, verifier, registryVerifier, now)
+	report.OK = requiredChecksOK(report.Checks)
+	return report, nil
+}
+
+func requiredChecksOK(checks map[string]Check) bool {
+	for _, check := range checks {
+		if check.Required && !check.OK {
+			return false
+		}
+	}
+	return true
 }
 
 func ProjectBinding(root string) (Binding, error) {
@@ -378,10 +404,7 @@ func StorePulledBundle(root, kind, id string, value any, now time.Time) (string,
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	} else {
-		mode := fs.FileMode(0o600)
-		if kind == "approved" {
-			mode = 0o400
-		}
+		mode := fs.FileMode(0o400)
 		if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
 			return "", err
 		}
@@ -390,6 +413,8 @@ func StorePulledBundle(root, kind, id string, value any, now time.Time) (string,
 		}
 	}
 	state.UpdatedAt = now.UTC()
+	pulledAt := now.UTC()
+	state.LastPulledAt = &pulledAt
 	if err := replaceJSON(filepath.Join(resolved, ".contentcloud", "sync-state.json"), state, 0o600); err != nil {
 		return "", err
 	}
@@ -445,10 +470,10 @@ func template(targets []string) ([]templateFile, []string, error) {
 	dirs := []string{
 		".contentcloud/inbox/review-feedback", ".contentcloud/inbox/decision-deltas", ".contentcloud/cache/approved", ".contentcloud/skills", ".contentcloud/mcp",
 		"methodology", "ontology/rules", "ontology/vocabularies", "schemas", "knowledge/index", "knowledge/sources", "knowledge/evidence", "knowledge/facts", "knowledge/claims", "knowledge/assets", "knowledge/rights", "knowledge/conflicts", "knowledge/packs",
-		"raw/inbox", "work/runs", "workflows", "scripts", "outputs/briefs", "outputs/scripts", "outputs/storyboards", "outputs/reports", "outputs/delivery",
+		"raw/inbox", "work/runs", "work/claims", "work/handoffs", "workflows", "scripts", "outputs/briefs", "outputs/scripts", "outputs/storyboards", "outputs/reports", "outputs/delivery",
 	}
 	files := []templateFile{
-		{path: "AGENTS.md", mode: "managed_merge", body: []byte(agentInstructions)},
+		{path: "AGENTS.md", mode: "managed_block", body: []byte(capabilityrouting.ManagedBlock())},
 		{path: "methodology/README.md", mode: "managed_merge", body: []byte(methodologyReadme)},
 		{path: "ontology/classes.yaml", mode: "managed_replace", body: []byte(classesYAML)},
 		{path: "ontology/properties.yaml", mode: "managed_replace", body: []byte(propertiesYAML)},
@@ -478,8 +503,9 @@ func template(targets []string) ([]templateFile, []string, error) {
 			}
 			files = append(files, templateFile{path: filepath.ToSlash(filepath.Join(".contentcloud", "skills", name, path)), mode: "managed_replace", body: body})
 			for _, target := range targets {
-				destination := agentSkillPath(target, name, path)
-				files = append(files, templateFile{path: destination, mode: "managed_replace", body: body})
+				if destination, ok := agentSkillPath(target, name, path); ok {
+					files = append(files, templateFile{path: destination, mode: "managed_replace", body: body})
+				}
 			}
 		}
 	}
@@ -502,12 +528,14 @@ func targets(value string) ([]string, error) {
 		return []string{"codex", "claude"}, nil
 	case "codex":
 		return []string{"codex"}, nil
+	case "codex-plugin":
+		return []string{"codex-plugin"}, nil
 	case "claude":
 		return []string{"claude"}, nil
 	case "none":
 		return []string{}, nil
 	default:
-		return nil, domain.Invalid("WORKSPACE_TARGET_INVALID", "--target 必须为 codex、claude、all 或 none")
+		return nil, domain.Invalid("WORKSPACE_TARGET_INVALID", "--target 必须为 codex-plugin、codex、claude、all 或 none")
 	}
 }
 
@@ -544,11 +572,15 @@ func conflictError(paths []string) error {
 	return err
 }
 
-func agentSkillPath(target, name, path string) string {
-	if target == "claude" {
-		return filepath.ToSlash(filepath.Join(".claude", "skills", name, path))
+func agentSkillPath(target, name, path string) (string, bool) {
+	switch target {
+	case "codex":
+		return filepath.ToSlash(filepath.Join(".agents", "skills", name, path)), true
+	case "claude":
+		return filepath.ToSlash(filepath.Join(".claude", "skills", name, path)), true
+	default:
+		return "", false
 	}
-	return filepath.ToSlash(filepath.Join(".agents", "skills", name, path))
 }
 
 func writeNewFile(path string, body []byte) error {
@@ -612,7 +644,17 @@ func verifyManagedFiles(root string, files []ManagedFile) ([]string, []string) {
 			missing = append(missing, file.Path)
 			continue
 		}
-		if err != nil || digest(body) != file.SHA256 {
+		if err != nil {
+			modified = append(modified, file.Path)
+			continue
+		}
+		if file.Mode == "managed_block" && file.Path == "AGENTS.md" {
+			if capabilityrouting.Inspect(string(body)).Status != "current" {
+				modified = append(modified, file.Path)
+			}
+			continue
+		}
+		if digest(body) != file.SHA256 {
 			modified = append(modified, file.Path)
 		}
 	}
@@ -621,14 +663,93 @@ func verifyManagedFiles(root string, files []ManagedFile) ([]string, []string) {
 	return modified, missing
 }
 
-func installedSkillsOK(root string, lock TemplateLock) bool {
+func InspectCapabilityRouting(root string) (capabilityrouting.Inspection, error) {
+	resolved, err := FindRoot(root)
+	if err != nil {
+		return capabilityrouting.Inspection{}, err
+	}
+	body, err := os.ReadFile(filepath.Join(resolved, "AGENTS.md"))
+	if errors.Is(err, os.ErrNotExist) {
+		return capabilityrouting.Inspection{Status: "missing"}, nil
+	}
+	if err != nil {
+		return capabilityrouting.Inspection{}, err
+	}
+	return capabilityrouting.Inspect(string(body)), nil
+}
+
+func UpdateCapabilityRouting(root string) (capabilityrouting.Inspection, error) {
+	resolved, err := FindRoot(root)
+	if err != nil {
+		return capabilityrouting.Inspection{}, err
+	}
+	path := filepath.Join(resolved, "AGENTS.md")
+	body, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		body = nil
+	} else if err != nil {
+		return capabilityrouting.Inspection{}, err
+	}
+	updated, err := capabilityrouting.UpdateManagedBlock(string(body))
+	if err != nil {
+		return capabilityrouting.Inspection{}, err
+	}
+	if err := replaceFile(path, []byte(updated), 0o600); err != nil {
+		return capabilityrouting.Inspection{}, err
+	}
+	return capabilityrouting.Inspect(updated), nil
+}
+
+func installedSkillsCheck(root string, lock TemplateLock) (bool, string) {
 	for _, skill := range lock.Skills {
 		body, err := os.ReadFile(filepath.Join(root, ".contentcloud", "skills", skill.Name, "SKILL.md"))
 		if err != nil || digest(body) != skill.SHA256 {
-			return false
+			return false, "ContentCloud Skill 审计副本缺失或已修改"
+		}
+		for _, target := range lock.Targets {
+			path, required := agentSkillPath(target, skill.Name, "SKILL.md")
+			if !required {
+				continue
+			}
+			body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+			if err != nil || digest(body) != skill.SHA256 {
+				return false, "项目级 Agent Skill 缺失或已修改"
+			}
 		}
 	}
-	return len(lock.Skills) > 0
+	if len(lock.Skills) == 0 {
+		return false, "模板锁未记录 ContentCloud Skills"
+	}
+	if hasTarget(lock.Targets, "codex-plugin") {
+		return true, "Skills 由 Codex Plugin 提供，Workspace 审计副本完整"
+	}
+	return true, "项目级 Agent Skills 与 Workspace 审计副本完整"
+
+}
+
+func installedMCPCheck(root string, lock TemplateLock) (bool, string) {
+	if !fileExists(filepath.Join(root, ".contentcloud", "mcp", "contentcloud-local.json")) {
+		return false, "ContentCloud MCP 审计描述缺失"
+	}
+	if hasTarget(lock.Targets, "codex") && !fileExists(filepath.Join(root, ".codex", "config.toml")) {
+		return false, "Codex 项目级 MCP 配置缺失"
+	}
+	if hasTarget(lock.Targets, "claude") && !fileExists(filepath.Join(root, ".mcp.json")) {
+		return false, "Claude 项目级 MCP 配置缺失"
+	}
+	if hasTarget(lock.Targets, "codex-plugin") {
+		return true, "contentcloud-local MCP 由 Codex Plugin 提供，Workspace 审计描述完整"
+	}
+	return true, "contentcloud-local 项目级 MCP 配置完整"
+}
+
+func hasTarget(targets []string, expected string) bool {
+	for _, target := range targets {
+		if target == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func countFiles(root string) int {
@@ -662,16 +783,6 @@ func digest(body []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-const agentInstructions = `# ContentCloud V2 项目工作区
-
-- 原始资料和未发布草稿以本地文件为准；云端只接收显式 publish 的不可变检查点。
-- 处理客户事实时先登记来源和证据，不得用模型常识补全产品事实、权利或合规结论。
-- 生成营销视频剧本前必须完成知识校验、Brief 和引用检查。
-- 任何 ContentCloud 服务端通信都必须通过 contentcloud CLI 或 contentcloud-local MCP。
-- 不直接调用私有 HTTP、对象存储地址，不读取或输出本地凭据。
-- 未经用户明确确认，不上传 raw/ 中的原始资料，不启动 Automation Daemon。
-`
-
 const methodologyReadme = `# 方法论
 
 本目录保存项目采用的方法论和业务规则。客户事实应写入 knowledge/，当前任务状态应写入 work/，生成结果应写入 outputs/。
@@ -683,7 +794,7 @@ const workflowReadme = `# 知识到剧本
 2. 初始化 LocalRunContext，由本地 Agent Skill 从已接受证据生成 knowledge-candidates/1.0。
 3. 用 contentcloud local knowledge import/lint/query/diagnose/pack 完成候选治理、15维诊断和七层知识包。
 4. 用 contentcloud publish knowledge --dry-run 检查审核可见范围，再显式提交云端审核。
-5. 拉取 ApprovedSnapshot 后，基于 eligible 知识完成策略和 Brief。
+5. 用户明确要求刷新批准输入时拉取 ApprovedSnapshot；后续对话从 verified 本地 cache 读取，再基于 eligible 知识完成策略和 Brief。
 6. 生成带引用、镜头连续性和可生成性约束的 Script Package，并显式 publish。
 `
 

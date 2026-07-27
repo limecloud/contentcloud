@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.local/schemas/creative-environment-manifest-1.0.schema.json",
+  "title": "Creative Environment Manifest 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "profile_id", "profile_version", "environment_version", "harness", "distribution", "workspace_template", "capabilities", "policies", "issued_at", "expires_at", "digest", "signature"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "project_id": {"type": "string", "minLength": 1},
+    "profile_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+    "profile_version": {"$ref": "#/$defs/version"},
+    "environment_version": {"$ref": "#/$defs/version"},
+    "harness": {"const": "codex"},
+    "distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["marketplace", "plugins"],
+      "properties": {
+        "marketplace": {"$ref": "#/$defs/plugin_id"},
+        "plugins": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/plugin"}}
+      }
+    },
+    "workspace_template": {"$ref": "#/$defs/workspace_template"},
+    "capabilities": {"$ref": "#/$defs/capabilities"},
+    "policies": {"$ref": "#/$defs/policies"},
+    "issued_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "digest": {"$ref": "#/$defs/digest"},
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "key_id", "value"],
+      "properties": {
+        "algorithm": {"const": "ed25519"},
+        "key_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "value": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "$defs": {
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"},
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "plugin_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "capabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"}},
+    "plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "version", "source_ref", "digest", "required", "scope", "capabilities"],
+      "properties": {
+        "id": {"$ref": "#/$defs/plugin_id"},
+        "kind": {"enum": ["scene_plugin", "skill_pack", "provider_mcp_pack"]},
+        "version": {"$ref": "#/$defs/version"},
+        "source_ref": {"type": "string", "pattern": "^v\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"},
+        "digest": {"$ref": "#/$defs/digest"},
+        "required": {"type": "boolean"},
+        "scope": {"enum": ["environment", "task"]},
+        "capabilities": {"$ref": "#/$defs/capabilities"}
+      }
+    },
+    "workspace_template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "digest"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "version": {"$ref": "#/$defs/version"},
+        "digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publish_requires_confirmation", "automation_enabled", "background_upgrade"],
+      "properties": {
+        "publish_requires_confirmation": {"type": "boolean"},
+        "automation_enabled": {"type": "boolean"},
+        "background_upgrade": {"type": "boolean"}
+      }
+    }
+  }
+}

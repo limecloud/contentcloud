@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.local/schemas/marketplace-registry-1.0.schema.json",
+  "title": "ContentCloud Marketplace Registry 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "entries"],
+  "properties": {
+    "$schema": {"type": "string", "minLength": 1},
+    "schema_version": {"const": "1.0"},
+    "entries": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/entry"}
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "version", "source", "license", "digest", "signature", "compatible_profiles", "permissions", "data_flow", "cost", "output_schemas", "evaluation", "lifecycle", "revocation"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "kind": {"enum": ["scene_plugin", "skill_pack", "provider_mcp_pack"]},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "ref"],
+          "properties": {
+            "repository": {"type": "string", "format": "uri"},
+            "ref": {"type": "string", "minLength": 1}
+          }
+        },
+        "license": {"type": "string", "minLength": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "signature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": {"enum": ["pending", "verified"]},
+            "algorithm": {"const": "ed25519"},
+            "key_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+            "value": {"type": "string", "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"}
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {"status": {"const": "verified"}},
+                "required": ["status"]
+              },
+              "then": {"required": ["algorithm", "key_id", "value"]}
+            }
+          ]
+        },
+        "compatible_profiles": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "permissions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "data_flow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["local_by_default", "cloud_actions"],
+          "properties": {
+            "local_by_default": {"type": "boolean"},
+            "cloud_actions": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+          }
+        },
+        "cost": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model", "notice"],
+          "properties": {
+            "model": {"enum": ["free", "included", "metered", "external"]},
+            "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+            "unit": {"type": "string", "minLength": 1},
+            "unit_price": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"},
+            "notice": {"type": "string", "minLength": 1}
+          },
+          "allOf": [
+            {
+              "if": {"properties": {"model": {"const": "metered"}}, "required": ["model"]},
+              "then": {"required": ["currency", "unit", "unit_price"]}
+            }
+          ]
+        },
+        "output_schemas": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^contracts/.+\\.schema\\.json$"}, "uniqueItems": true},
+        "evaluation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": {"enum": ["pending", "passed", "failed"]},
+            "report": {"type": "string", "pattern": "^\\.agents/plugins/evaluations/.+\\.json$"},
+            "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+            "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {"status": {"const": "passed"}},
+                "required": ["status"]
+              },
+              "then": {"required": ["report", "digest", "evidence"]}
+            }
+          ]
+        },
+        "lifecycle": {"enum": ["draft", "security_review", "evaluated", "published", "deprecated", "revoked"]},
+        "revocation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": {"enum": ["active", "revoked"]},
+            "severity": {"enum": ["advisory", "high"]},
+            "reason": {"type": "string"}
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {"status": {"const": "revoked"}},
+                "required": ["status"]
+              },
+              "then": {"required": ["severity", "reason"]}
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"lifecycle": {"const": "revoked"}},
+            "required": ["lifecycle"]
+          },
+          "then": {
+            "properties": {
+              "revocation": {
+                "properties": {"status": {"const": "revoked"}},
+                "required": ["status"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "revocation": {
+                "properties": {"status": {"const": "revoked"}},
+                "required": ["status"]
+              }
+            },
+            "required": ["revocation"]
+          },
+          "then": {"properties": {"lifecycle": {"const": "revoked"}}}
+        }
+      ]
+    }
+  }
+}

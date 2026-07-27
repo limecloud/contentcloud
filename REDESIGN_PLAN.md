@@ -1,11 +1,12 @@
-# 页面视觉重构（Editorial Studio 内容生产体系）
+# 页面视觉重构（TapTap Maker 内容生产体系）
 
 > 独立于 `IMPLEMENTATION_PLAN.md`（后端 V2 审批收敛，进行中），本文件只覆盖 `web/src/styles.css` 的视觉层。
 
 基础密度参考：`/Users/coso/Documents/dev/js/loopany-platform/packages/server/src/styles/app.css`
 
 第二轮色彩研究参考 Adobe Spectrum、Sanity UI、Contentful Forma 36、Frame.io、Descript、Craft
-与 Airtable。完整设计决策见 `DESIGN.md`。
+与 Airtable；第三轮以 [TapTap 制造](https://maker.taptap.cn/) 的实际可见界面和 CSS 为主参考。
+完整设计决策见 `DESIGN.md`。
 
 ## 问题诊断
 
@@ -19,17 +20,16 @@
 
 ## 目标体系
 
-| 维度 | 现状 | 目标（Editorial Studio） |
+| 维度 | 第二轮 | 目标（TapTap Maker Content Studio） |
 | --- | --- | --- |
-| 页面底色 | `#f7f8f8` 暖灰 | `#f2f3ef` 稿纸灰 |
-| 品牌标记 | 品牌色兼作按钮与状态 | `#d5f34a` 荧光稿纸标记 |
-| 高权重命令 | 与品牌色共用 | `#1c1f1b` 石墨黑 |
-| 内容分类 | 无稳定分类色 | 资料蓝 / 知识青绿 / 策略琥珀 / 制作珊瑚 / 审核玫红 |
-| 错误态 | 散落 5 种红 | `#b8273d` 危险红 |
-| 成功态 | `#17855f` | `#117a61` 成功青绿 |
-| 警告态 | `#a6650b` | `#a46200` 警告琥珀 |
-| 字号 | 7~13px 无级 | 11 / 11.5 / 12 / 13 / 14 五档 |
-| 圆角 | 8 种 | 6 / 8 / 12 三档角色层级 |
+| 页面底色 | `#f2f3ef` 稿纸灰 | `#f5f7f8` 冷灰白工作面 |
+| 品牌标记 | `#d5f34a` 荧光黄绿 | `#00c0b7` TapTap 青 |
+| 创作辅助 | 无独立品牌辅色 | `#4d4dad` 制造蓝紫 |
+| 高权重命令 | `#1c1f1b` 石墨黑 | `#111827` 近黑命令色 |
+| 内容分类 | 蓝 / 青绿 / 琥珀 / 珊瑚 / 玫红 | 青 / 蓝紫 / 蓝 / 橙 / 玫红 |
+| 语义状态 | 与旧暖色体系协调 | 独立的蓝 / 绿 / 琥珀 / 红语义色 |
+| 字号 | 11 / 11.5 / 12 / 13 / 14 五档 | 保持不变 |
+| 圆角 | 6 / 8 / 12 三档角色层级 | 保持不变 |
 
 ## Stage 1: 色彩体系
 **Goal**: 将品牌、命令、链接、语义状态和内容分类拆分为独立 token，建立编辑制作台配色
@@ -55,10 +55,18 @@
 **Tests**: dashboard、项目总览、团队、登录、admin 全覆盖截图
 **Status**: Completed (2026-07-26)
 
+## Stage 5: TapTap Maker 配色重构
+**Goal**: 用冷白、TapTap 青、制造蓝紫和近黑命令色重构全部视觉 token，并同步 favicon、登录页、租户工作台和系统后台
+**Success Criteria**: 荧光黄绿旧值清零；品牌、命令、内容分类和语义状态保持独立；桌面与移动关键路由无视觉回归
+**Tests**: computed color 检查、WCAG 对比度、关键路由截图、`pnpm test`、`pnpm typecheck`、`pnpm build`、`go test ./...`
+**Status**: Completed (2026-07-27)
+
 ## 完成记录
 
-- 色彩已集中到根 token：稿纸灰页面、石墨命令、荧光品牌标记，以及资料、知识、策略、制作、
-  审核五组内容分类色；品牌色不再兼任按钮、链接和状态色。
+- 色彩已集中到根 token：冷灰白页面、近黑命令、TapTap 青品牌标记、制造蓝紫辅色，以及资料、
+  知识、策略、制作、审核五组内容分类色；品牌色不再兼任按钮、链接和状态色。
+- 第三轮已移除荧光黄绿旧 token，登录页、租户工作台、项目总览、团队和独立系统后台统一使用新 token；
+  favicon 与浏览器主题色同步为冷白/青色体系。
 - 正文字号已收敛为 `11 / 11.5 / 12 / 13 / 14px` 五档，样式中无小于 `11px` 的文字。
 - 组件圆角按编辑工具密度调整为 `6 / 8 / 12px` 角色层级，卡片使用 1px 级轻阴影，
   弹层使用独立的浮层阴影 token。
@@ -70,5 +78,6 @@
 
 - 人工截图：工作台、项目总览、团队、登录、系统后台，均覆盖 `1440px` 桌面与 `390px` 移动端。
 - 浏览器检查：上述关键路由在 `390px` 下均无页面级横向溢出，无 console error 或 page error。
-- 自动验证：`pnpm --dir web test`（16 tests）、`pnpm --dir web typecheck`、
+- 浏览器检查使用绑定认证 cookie 的 `http://127.0.0.1:15181`，避免把 `localhost` 误判为未登录。
+- 自动验证：TapTap computed styles 研究、颜色对比度（最小 `4.60:1`）、`pnpm --dir web test`（16 tests）、`pnpm --dir web typecheck`、
   `pnpm --dir web build`、`go test ./...`、`git diff --check` 全部通过。

@@ -1,6 +1,6 @@
 import { AlertTriangle, Check, CheckCircle2, Clipboard, Clock3, LoaderCircle, Terminal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { buildBootstrapPrompt, buildManualInstallCommand, connectStateCopy, type ConnectSession } from '../connectBootstrap';
+import { BOOTSTRAP_PLAN_CONFIRMATION, buildBootstrapPrompt, buildManualInstallCommand, connectStateCopy, type ConnectSession } from '../connectBootstrap';
 import { Banner, Button, IconButton, Modal } from './ui';
 
 interface InitializeWorkspaceModalProps {
@@ -49,19 +49,19 @@ export function InitializeWorkspaceModal({session,projectName,serverURL,cancelin
 
   return <Modal title="初始化本地工作区" onClose={requestClose}>
     {session.state==='waiting_for_computer'&&<>
-      <p className="agent-project-context">{projectName} · 项目级 Codex / Claude 工作区</p>
+      <p className="agent-project-context">{projectName} · Codex 创作环境</p>
       <ol className="agent-bootstrap-steps">
-        <li><span>1</span><div><strong>在项目 Coding Agent 中进行</strong><p>打开用于这个项目的 Codex 或 Claude 会话，安装会在本机完成。</p></div></li>
-        <li><span>2</span><div><strong>粘贴 Prompt 开始初始化</strong><section className="agent-prompt"><pre className="agent-prompt-instruction"><code>{promptInstruction}</code></pre><pre className="agent-prompt-values"><code>{promptValues}</code></pre></section><p>粘贴到同一个会话。Agent 会读取安装协议、检查目录并配置项目级 Skill 与 MCP。</p></div></li>
+        <li><span>1</span><div><strong>在 Codex 中开始</strong><p>打开一个用于初始化的 Codex 会话，安装和项目绑定会在本机完成。</p></div></li>
+        <li><span>2</span><div><strong>粘贴 Prompt 开始初始化</strong><section className="agent-prompt"><pre className="agent-prompt-instruction"><code>{promptInstruction}</code></pre><pre className="agent-prompt-values"><code>{promptValues}</code></pre></section><p>{BOOTSTRAP_PLAN_CONFIRMATION} 完成后会打开新的项目对话。</p></div></li>
       </ol>
       {slow&&<Banner kind="warning">Agent 暂未连接。无需刷新页面；确认 Prompt 已完整发送并允许执行本地命令。</Banner>}
       {copyError&&<Banner kind="error" onClose={()=>setCopyError('')}>{copyError}</Banner>}
       <div className="agent-waiting-footer"><div><span className={`agent-waiting-dot ${slow?'is-slow':''}`}/><p><strong>{state.title}</strong><small>{slow?'检查 Coding Agent 是否运行在正确的项目目录，然后再次粘贴。':`连接码于 ${formatExpiry(session.expires_at)} 失效`}</small></p></div><Button className="agent-copy-button" onClick={()=>copy(prompt,'prompt')}>{copied==='prompt'?<Check size={16}/>:<Clipboard size={16}/>} {copied==='prompt'?'已复制':'复制 Prompt'}</Button></div>
-      <details className="manual-install"><summary><Terminal size={15}/>改用手动安装</summary><p>仅在空目录中运行。CLI 会拒绝覆盖未知的非空目录。</p><div className="command-box"><code>{command}</code><IconButton label="复制手动安装命令" onClick={()=>copy(command,'command')}>{copied==='command'?<Check size={17}/>:<Clipboard size={17}/>}</IconButton></div></details>
+      <details className="manual-install"><summary><Terminal size={15}/>改用手动安装</summary><p>先在空目录运行只读计划；检查输出后，把返回的 plan_id 原样传给 apply 再确认执行。</p><div className="command-box"><code>{command}</code><IconButton label="复制手动安装命令" onClick={()=>copy(command,'command')}>{copied==='command'?<Check size={17}/>:<Clipboard size={17}/>}</IconButton></div></details>
     </>}
 
-    {session.state!=='waiting_for_computer'&&<><p className="agent-project-context">{projectName} · 项目级 Codex / Claude 工作区</p><div className={`agent-bootstrap-state agent-bootstrap-state-${state.tone}`}>{icon}<div><strong>{state.title}</strong><span>{state.detail}</span></div></div></>}
-    {session.state==='verifying'&&<div className="agent-verifying"><LoaderCircle className="spin" size={18}/><div><strong>等待 `workspace.register`</strong><span>只有项目级 Skill、MCP 和 doctor 全部完成后，页面才会显示成功。</span></div></div>}
+    {session.state!=='waiting_for_computer'&&<><p className="agent-project-context">{projectName} · Codex 创作环境</p><div className={`agent-bootstrap-state agent-bootstrap-state-${state.tone}`}>{icon}<div><strong>{state.title}</strong><span>{state.detail}</span></div></div></>}
+    {session.state==='verifying'&&<div className="agent-verifying"><LoaderCircle className="spin" size={18}/><div><strong>等待 `workspace.register`</strong><span>只有 Plugin、Workspace 和 doctor 全部通过后，页面才会显示成功。</span></div></div>}
     {session.state==='connected'&&<div className="agent-complete"><CheckCircle2 size={22}/><div><strong>本地负责创作，云端负责治理</strong><span>初始化没有上传已有文件，也没有自动开启 Daemon。</span></div></div>}
 
     {session.state!=='waiting_for_computer'&&<footer className="modal-actions">

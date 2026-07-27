@@ -8,16 +8,17 @@ import (
 	"strings"
 )
 
-//go:embed contentcloud-marketing-video-script contentcloud-knowledge-extraction
+//go:embed contentcloud-workspace contentcloud-marketing-video-script contentcloud-knowledge-extraction
 var embedded embed.FS
 
+const Workspace = "contentcloud-workspace"
 const MarketingVideoScript = "contentcloud-marketing-video-script"
 const KnowledgeExtraction = "contentcloud-knowledge-extraction"
 
-func Names() []string { return []string{KnowledgeExtraction, MarketingVideoScript} }
+func Names() []string { return []string{Workspace, KnowledgeExtraction, MarketingVideoScript} }
 
 func Read(name, path string) ([]byte, error) {
-	if name != MarketingVideoScript && name != KnowledgeExtraction {
+	if name != Workspace && name != MarketingVideoScript && name != KnowledgeExtraction {
 		return nil, fmt.Errorf("skill %q not found", name)
 	}
 	clean := strings.TrimPrefix(path, "/")
@@ -31,7 +32,7 @@ func Read(name, path string) ([]byte, error) {
 }
 
 func Files(name string) ([]string, error) {
-	if name != MarketingVideoScript && name != KnowledgeExtraction {
+	if name != Workspace && name != MarketingVideoScript && name != KnowledgeExtraction {
 		return nil, fmt.Errorf("skill %q not found", name)
 	}
 	var out []string

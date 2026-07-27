@@ -5,7 +5,13 @@ import (
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/environment"
 )
+
+type RunLeaseCandidate struct {
+	RunID      string
+	Capability domain.Capability
+}
 
 type Store interface {
 	CreateUser(context.Context, domain.User) error
@@ -123,10 +129,12 @@ type Store interface {
 	CreateSnapshot(context.Context, domain.ContextSnapshot) error
 	Snapshot(context.Context, string, string) (domain.ContextSnapshot, error)
 	CreateRun(context.Context, domain.TaskRun) error
+	CreateRunWithBundle(context.Context, domain.TaskRun, environment.CreativeExecutionBundle) error
 	Runs(context.Context, string, string) ([]domain.TaskRun, error)
 	Run(context.Context, string, string) (domain.TaskRun, error)
 	SaveRun(context.Context, domain.TaskRun) error
-	LeaseNextRun(context.Context, string, string, []domain.Capability, string, string, time.Time) (domain.TaskRun, domain.RunAttempt, error)
+	ExecutionBundle(context.Context, string, string) (environment.CreativeExecutionBundle, error)
+	LeaseNextRun(context.Context, string, string, []RunLeaseCandidate, string, string, time.Time) (domain.TaskRun, domain.RunAttempt, error)
 	CreateRunAttempt(context.Context, domain.RunAttempt) error
 	RunAttempt(context.Context, string, string) (domain.RunAttempt, error)
 	RunAttempts(context.Context, string, string) ([]domain.RunAttempt, error)

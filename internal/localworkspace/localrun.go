@@ -26,21 +26,22 @@ var localRunTransitions = map[string]map[string]bool{
 }
 
 type LocalRunContext struct {
-	SchemaVersion string            `json:"schema_version"`
-	RunID         string            `json:"run_id"`
-	Intent        string            `json:"intent"`
-	Stage         string            `json:"stage"`
-	Status        string            `json:"status"`
-	SourceRefs    []string          `json:"source_refs"`
-	ChangedIDs    []string          `json:"changed_ids"`
-	EligibleIDs   []string          `json:"eligible_ids"`
-	BlockedIDs    []string          `json:"blocked_ids"`
-	Findings      []string          `json:"findings"`
-	OutputPaths   []string          `json:"output_paths"`
-	Checks        []LocalRunCheck   `json:"checks"`
-	History       []LocalRunHistory `json:"history"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
+	SchemaVersion   string            `json:"schema_version"`
+	ContextRevision uint64            `json:"context_revision"`
+	RunID           string            `json:"run_id"`
+	Intent          string            `json:"intent"`
+	Stage           string            `json:"stage"`
+	Status          string            `json:"status"`
+	SourceRefs      []string          `json:"source_refs"`
+	ChangedIDs      []string          `json:"changed_ids"`
+	EligibleIDs     []string          `json:"eligible_ids"`
+	BlockedIDs      []string          `json:"blocked_ids"`
+	Findings        []string          `json:"findings"`
+	OutputPaths     []string          `json:"output_paths"`
+	Checks          []LocalRunCheck   `json:"checks"`
+	History         []LocalRunHistory `json:"history"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
 }
 
 type LocalRunCheck struct {
@@ -80,25 +81,29 @@ type InitLocalRunOptions struct {
 }
 
 type RecordLocalRunOptions struct {
-	Root        string
-	RunID       string
-	SourceRefs  []string
-	ChangedIDs  []string
-	EligibleIDs []string
-	BlockedIDs  []string
-	Findings    []string
-	OutputPaths []string
-	Now         time.Time
+	Root             string
+	RunID            string
+	ClaimToken       string
+	ExpectedRevision uint64
+	SourceRefs       []string
+	ChangedIDs       []string
+	EligibleIDs      []string
+	BlockedIDs       []string
+	Findings         []string
+	OutputPaths      []string
+	Now              time.Time
 }
 
 type CheckLocalRunOptions struct {
-	Root    string
-	RunID   string
-	Name    string
-	Status  string
-	Command string
-	Detail  string
-	Now     time.Time
+	Root             string
+	RunID            string
+	ClaimToken       string
+	ExpectedRevision uint64
+	Name             string
+	Status           string
+	Command          string
+	Detail           string
+	Now              time.Time
 }
 
 type LocalRunValidation struct {
@@ -158,7 +163,8 @@ func InitLocalRun(options InitLocalRunOptions) (LocalRunContext, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return LocalRunContext{}, err
 	}
-	if err := saveLocalRun(root, context, now); err != nil {
+	context, err = saveLocalRun(root, context, now)
+	if err != nil {
 		return LocalRunContext{}, err
 	}
 	return context, nil
@@ -173,6 +179,14 @@ func ShowLocalRun(root, runID string) (LocalRunContext, error) {
 }
 
 func RecordLocalRun(options RecordLocalRunOptions) (LocalRunContext, error) {
+	return recordLocalRun(options, false)
+}
+
+func RecordClaimedLocalRun(options RecordLocalRunOptions) (LocalRunContext, error) {
+	return recordLocalRun(options, true)
+}
+
+func recordLocalRun(options RecordLocalRunOptions, requireClaim bool) (LocalRunContext, error) {
 	root, err := FindRoot(options.Root)
 	if err != nil {
 		return LocalRunContext{}, err
@@ -184,6 +198,11 @@ func RecordLocalRun(options RecordLocalRunOptions) (LocalRunContext, error) {
 	if context.Status == "completed" {
 		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_COMPLETED", "已完成的 LocalRun 不可再修改")
 	}
+	if requireClaim {
+		if err := validateClaimedRunWrite(root, context, options.ClaimToken, options.ExpectedRevision, options.Now); err != nil {
+			return LocalRunContext{}, err
+		}
+	}
 	context.SourceRefs = mergeStrings(context.SourceRefs, options.SourceRefs)
 	context.ChangedIDs = mergeStrings(context.ChangedIDs, options.ChangedIDs)
 	context.EligibleIDs = mergeStrings(context.EligibleIDs, options.EligibleIDs)
@@ -192,13 +211,27 @@ func RecordLocalRun(options RecordLocalRunOptions) (LocalRunContext, error) {
 	context.OutputPaths = mergeStrings(context.OutputPaths, options.OutputPaths)
 	now := localNow(options.Now)
 	context.History = append(context.History, LocalRunHistory{Event: "recorded", Stage: context.Stage, At: now})
-	if err := saveLocalRun(root, context, now); err != nil {
+	context, err = saveLocalRun(root, context, now)
+	if err != nil {
 		return LocalRunContext{}, err
+	}
+	if requireClaim {
+		if err := updateRunClaimRevision(root, context.RunID, options.ClaimToken, context.ContextRevision, now); err != nil {
+			return LocalRunContext{}, err
+		}
 	}
 	return context, nil
 }
 
 func CheckLocalRun(options CheckLocalRunOptions) (LocalRunContext, error) {
+	return checkLocalRun(options, false)
+}
+
+func CheckClaimedLocalRun(options CheckLocalRunOptions) (LocalRunContext, error) {
+	return checkLocalRun(options, true)
+}
+
+func checkLocalRun(options CheckLocalRunOptions, requireClaim bool) (LocalRunContext, error) {
 	root, err := FindRoot(options.Root)
 	if err != nil {
 		return LocalRunContext{}, err
@@ -215,6 +248,11 @@ func CheckLocalRun(options CheckLocalRunOptions) (LocalRunContext, error) {
 	if context.Status == "completed" {
 		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_COMPLETED", "已完成的 LocalRun 不可再修改")
 	}
+	if requireClaim {
+		if err := validateClaimedRunWrite(root, context, options.ClaimToken, options.ExpectedRevision, options.Now); err != nil {
+			return LocalRunContext{}, err
+		}
+	}
 	now := localNow(options.Now)
 	check := LocalRunCheck{Name: name, Status: status, Stage: context.Stage, Command: strings.TrimSpace(options.Command), Detail: strings.TrimSpace(options.Detail), At: now}
 	context.Checks = append(context.Checks, check)
@@ -222,13 +260,27 @@ func CheckLocalRun(options CheckLocalRunOptions) (LocalRunContext, error) {
 	if status == "failed" {
 		context.Status = "failed"
 	}
-	if err := saveLocalRun(root, context, now); err != nil {
+	context, err = saveLocalRun(root, context, now)
+	if err != nil {
 		return LocalRunContext{}, err
+	}
+	if requireClaim {
+		if err := updateRunClaimRevision(root, context.RunID, options.ClaimToken, context.ContextRevision, now); err != nil {
+			return LocalRunContext{}, err
+		}
 	}
 	return context, nil
 }
 
 func AdvanceLocalRun(root, runID, target string, additions RecordLocalRunOptions, now time.Time) (LocalRunContext, error) {
+	return advanceLocalRun(root, runID, target, additions, now, false)
+}
+
+func AdvanceClaimedLocalRun(root, runID, target string, additions RecordLocalRunOptions, now time.Time) (LocalRunContext, error) {
+	return advanceLocalRun(root, runID, target, additions, now, true)
+}
+
+func advanceLocalRun(root, runID, target string, additions RecordLocalRunOptions, now time.Time, requireClaim bool) (LocalRunContext, error) {
 	resolved, err := FindRoot(root)
 	if err != nil {
 		return LocalRunContext{}, err
@@ -240,6 +292,11 @@ func AdvanceLocalRun(root, runID, target string, additions RecordLocalRunOptions
 	target = strings.ToLower(strings.TrimSpace(target))
 	if context.Status != "in_progress" {
 		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_STATUS_INVALID", "只有 in_progress LocalRun 可以推进")
+	}
+	if requireClaim {
+		if err := validateClaimedRunWrite(resolved, context, additions.ClaimToken, additions.ExpectedRevision, now); err != nil {
+			return LocalRunContext{}, err
+		}
 	}
 	if !localRunTransitions[context.Stage][target] || !localRunStages[context.Intent][target] {
 		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_TRANSITION_INVALID", "LocalRun 阶段转换不允许："+context.Stage+" -> "+target)
@@ -271,13 +328,27 @@ func AdvanceLocalRun(root, runID, target string, additions RecordLocalRunOptions
 	if target == "done" {
 		context.Status = "completed"
 	}
-	if err := saveLocalRun(resolved, context, at); err != nil {
+	context, err = saveLocalRun(resolved, context, at)
+	if err != nil {
 		return LocalRunContext{}, err
+	}
+	if requireClaim {
+		if err := updateRunClaimRevision(resolved, context.RunID, additions.ClaimToken, context.ContextRevision, at); err != nil {
+			return LocalRunContext{}, err
+		}
 	}
 	return context, nil
 }
 
 func ResumeLocalRun(root, runID string, now time.Time) (LocalRunContext, error) {
+	return resumeLocalRun(root, runID, "", 0, now, false)
+}
+
+func ResumeClaimedLocalRun(root, runID, claimToken string, expectedRevision uint64, now time.Time) (LocalRunContext, error) {
+	return resumeLocalRun(root, runID, claimToken, expectedRevision, now, true)
+}
+
+func resumeLocalRun(root, runID, claimToken string, expectedRevision uint64, now time.Time, requireClaim bool) (LocalRunContext, error) {
 	resolved, err := FindRoot(root)
 	if err != nil {
 		return LocalRunContext{}, err
@@ -289,16 +360,35 @@ func ResumeLocalRun(root, runID string, now time.Time) (LocalRunContext, error) 
 	if context.Status != "failed" {
 		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_NOT_FAILED", "只有 failed LocalRun 可以恢复")
 	}
+	if requireClaim {
+		if err := validateClaimedRunWrite(resolved, context, claimToken, expectedRevision, now); err != nil {
+			return LocalRunContext{}, err
+		}
+	}
 	at := localNow(now)
 	context.Status = "in_progress"
 	context.History = append(context.History, LocalRunHistory{Event: "resumed", Stage: context.Stage, At: at})
-	if err := saveLocalRun(resolved, context, at); err != nil {
+	context, err = saveLocalRun(resolved, context, at)
+	if err != nil {
 		return LocalRunContext{}, err
+	}
+	if requireClaim {
+		if err := updateRunClaimRevision(resolved, context.RunID, claimToken, context.ContextRevision, at); err != nil {
+			return LocalRunContext{}, err
+		}
 	}
 	return context, nil
 }
 
 func FailLocalRun(root, runID string, findings []string, now time.Time) (LocalRunContext, error) {
+	return failLocalRun(root, runID, findings, "", 0, now, false)
+}
+
+func FailClaimedLocalRun(root, runID string, findings []string, claimToken string, expectedRevision uint64, now time.Time) (LocalRunContext, error) {
+	return failLocalRun(root, runID, findings, claimToken, expectedRevision, now, true)
+}
+
+func failLocalRun(root, runID string, findings []string, claimToken string, expectedRevision uint64, now time.Time, requireClaim bool) (LocalRunContext, error) {
 	resolved, err := FindRoot(root)
 	if err != nil {
 		return LocalRunContext{}, err
@@ -310,13 +400,24 @@ func FailLocalRun(root, runID string, findings []string, now time.Time) (LocalRu
 	if context.Status == "completed" {
 		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_COMPLETED", "已完成的 LocalRun 不可标记失败")
 	}
+	if requireClaim {
+		if err := validateClaimedRunWrite(resolved, context, claimToken, expectedRevision, now); err != nil {
+			return LocalRunContext{}, err
+		}
+	}
 	at := localNow(now)
 	findings = uniqueStrings(findings)
 	context.Findings = mergeStrings(context.Findings, findings)
 	context.Status = "failed"
 	context.History = append(context.History, LocalRunHistory{Event: "failed", Stage: context.Stage, Findings: findings, At: at})
-	if err := saveLocalRun(resolved, context, at); err != nil {
+	context, err = saveLocalRun(resolved, context, at)
+	if err != nil {
 		return LocalRunContext{}, err
+	}
+	if requireClaim {
+		if err := updateRunClaimRevision(resolved, context.RunID, claimToken, context.ContextRevision, at); err != nil {
+			return LocalRunContext{}, err
+		}
 	}
 	return context, nil
 }
@@ -339,6 +440,7 @@ func ValidateLocalRuns(root string) (LocalRunValidation, error) {
 			result.RunID = strings.TrimSuffix(filepath.Base(path), ".json")
 			result.Errors = append(result.Errors, err.Error())
 		} else {
+			normalizeLocalRunContext(&context)
 			result.RunID = context.RunID
 			result.Errors = validateLocalRun(context)
 		}
@@ -384,6 +486,7 @@ func loadLocalRun(root, runID string) (LocalRunContext, error) {
 		}
 		return LocalRunContext{}, err
 	}
+	normalizeLocalRunContext(&context)
 	if problems := validateLocalRun(context); len(problems) > 0 {
 		err := domain.Invalid("LOCAL_RUN_CONTEXT_INVALID", "LocalRunContext 校验失败")
 		err.Details = map[string]any{"errors": problems}
@@ -392,15 +495,37 @@ func loadLocalRun(root, runID string) (LocalRunContext, error) {
 	return context, nil
 }
 
-func saveLocalRun(root string, context LocalRunContext, now time.Time) error {
+func saveLocalRun(root string, context LocalRunContext, now time.Time) (LocalRunContext, error) {
+	release, err := acquireLocalRunMutationLock(root, context.RunID, now)
+	if err != nil {
+		return LocalRunContext{}, err
+	}
+	defer release()
+	path := localRunPath(root, context.RunID)
+	var current LocalRunContext
+	if err := readJSON(path, &current); err == nil {
+		normalizeLocalRunContext(&current)
+		if context.ContextRevision != current.ContextRevision {
+			conflict := domain.Conflict("LOCAL_RUN_REVISION_CONFLICT", "LocalRunContext revision 已变化")
+			conflict.Details = map[string]any{"expected_revision": context.ContextRevision, "current_revision": current.ContextRevision, "run_id": context.RunID}
+			return LocalRunContext{}, conflict
+		}
+		context.ContextRevision++
+	} else if errors.Is(err, os.ErrNotExist) {
+		context.ContextRevision = 1
+	} else {
+		return LocalRunContext{}, err
+	}
 	context.SchemaVersion = SchemaVersion
 	context.UpdatedAt = localNow(now)
-	path := localRunPath(root, context.RunID)
 	if err := replaceJSON(path, context, 0o600); err != nil {
-		return err
+		return LocalRunContext{}, err
 	}
 	pointer := LocalRunPointer{SchemaVersion: SchemaVersion, RunID: context.RunID, ContextPath: filepath.ToSlash(filepath.Join("runs", context.RunID+".json")), UpdatedAt: context.UpdatedAt}
-	return replaceJSON(filepath.Join(root, "work", "current-run.json"), pointer, 0o600)
+	if err := replaceJSON(filepath.Join(root, "work", "current-run.json"), pointer, 0o600); err != nil {
+		return LocalRunContext{}, err
+	}
+	return context, nil
 }
 
 func localRunPath(root, runID string) string {
@@ -414,6 +539,9 @@ func validateLocalRun(context LocalRunContext) []string {
 	}
 	if context.RunID == "" || !localSourceIDPattern.MatchString(context.RunID) {
 		problems = append(problems, "run_id 无效")
+	}
+	if context.ContextRevision == 0 {
+		problems = append(problems, "context_revision 必须大于 0")
 	}
 	if localRunStages[context.Intent] == nil {
 		problems = append(problems, "intent 无效")
@@ -433,6 +561,53 @@ func validateLocalRun(context LocalRunContext) []string {
 		problems = append(problems, "history 和 checks 必须存在")
 	}
 	return problems
+}
+
+func normalizeLocalRunContext(context *LocalRunContext) {
+	if context.ContextRevision == 0 {
+		context.ContextRevision = 1
+	}
+}
+
+func acquireLocalRunMutationLock(root, runID string, now time.Time) (func(), error) {
+	directory := filepath.Join(root, "work", "runs", ".locks")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(directory, runID+".lock")
+	acquire := func() error {
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return err
+		}
+		_, writeErr := file.WriteString(localNow(now).Format(time.RFC3339Nano) + "\n")
+		closeErr := file.Close()
+		if writeErr != nil {
+			_ = os.Remove(path)
+			return writeErr
+		}
+		if closeErr != nil {
+			_ = os.Remove(path)
+			return closeErr
+		}
+		return nil
+	}
+	if err := acquire(); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return nil, err
+		}
+		info, statErr := os.Stat(path)
+		if statErr != nil || localNow(now).Sub(info.ModTime()) <= time.Minute {
+			return nil, domain.Conflict("LOCAL_RUN_MUTATION_IN_PROGRESS", "另一个进程正在更新 LocalRunContext")
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		if err := acquire(); err != nil {
+			return nil, domain.Conflict("LOCAL_RUN_MUTATION_IN_PROGRESS", "另一个进程正在更新 LocalRunContext")
+		}
+	}
+	return func() { _ = os.Remove(path) }, nil
 }
 
 func latestPassedLocalRunCheck(context LocalRunContext, name, stage string) bool {

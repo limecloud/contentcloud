@@ -1,0 +1,61 @@
+{
+  "entry": {
+    "id": "contentcloud-video-production",
+    "kind": "scene_plugin",
+    "version": "0.4.0",
+    "source": {
+      "repository": "https://github.com/limecloud/contentcloud",
+      "ref": "v0.4.0"
+    },
+    "license": "Apache-2.0",
+    "digest": "sha256:4238f7044ff919b12286b6836f0fc2c386b2489691b44d7cde9c0cd0928eacc6",
+    "signature": {
+      "status": "pending"
+    },
+    "compatible_profiles": [
+      "contentcloud.video-production"
+    ],
+    "permissions": [
+      "workspace:read",
+      "workspace:write-managed",
+      "contentcloud-control-plane:explicit-actions-only",
+      "credential-store:macos-keychain"
+    ],
+    "data_flow": {
+      "local_by_default": true,
+      "cloud_actions": [
+        "device.connect",
+        "workspace.register",
+        "explicit publish and review synchronization"
+      ]
+    },
+    "cost": {
+      "model": "included",
+      "notice": "ContentCloud Scene Plugin 随当前产品订阅提供；外部模型或 Provider 费用仍在执行前单独确认。"
+    },
+    "output_schemas": [
+      "contracts/knowledge-candidates-1.0.schema.json",
+      "contracts/script-package-2.0.schema.json"
+    ],
+    "evaluation": {
+      "status": "passed",
+      "report": ".agents/plugins/evaluations/contentcloud-video-production-0.4.0.json",
+      "digest": "sha256:d44760fc103e05cf4657c53b00f8a165e060eef591f0d59a2404929e623b3c9a",
+      "evidence": [
+        "codex-plugin-transaction",
+        "bootstrap-confirmation",
+        "cross-conversation-handoff",
+        "governed-publish",
+        "review-and-approved-resume",
+        "knowledge-contract",
+        "script-contract",
+        "environment-control-plane"
+      ]
+    },
+    "lifecycle": "evaluated",
+    "revocation": {
+      "status": "active"
+    }
+  },
+  "payload_sha256": "sha256:5ae90785f761e3c189594973210ffedbbd5ef530c0f155ce4fada8f618120d3b"
+}

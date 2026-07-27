@@ -33,7 +33,7 @@ export function IconInput({label, icon, error, hint, valid, suffix, id: provided
     <Wrapper label={label} id={id} error={error} hint={hint}>
       <span className="auth-input-icon">{icon}</span>
       <input id={id} className={inputClass(error, valid, Boolean(suffix))} aria-invalid={error ? true : undefined} {...props} />
-      {suffix && <span className="auth-suffix-static">{suffix}</span>}
+      {suffix && <span className={`auth-suffix-static ${error ? 'is-error' : valid ? 'is-valid' : ''}`}>{suffix}</span>}
     </Wrapper>
   );
 }

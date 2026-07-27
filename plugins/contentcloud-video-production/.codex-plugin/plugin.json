@@ -1,0 +1,39 @@
+{
+  "name": "contentcloud-video-production",
+  "version": "0.5.0",
+  "description": "Governed local knowledge and marketing-video production for ContentCloud workspaces.",
+  "author": {
+    "name": "GoodVision",
+    "url": "https://github.com/limecloud/contentcloud"
+  },
+  "homepage": "https://github.com/limecloud/contentcloud",
+  "repository": "https://github.com/limecloud/contentcloud",
+  "license": "Apache-2.0",
+  "keywords": [
+    "contentcloud",
+    "knowledge",
+    "marketing-video",
+    "creative-production"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "ContentCloud Video Production",
+    "shortDescription": "Build governed knowledge and AI-video scripts locally.",
+    "longDescription": "Turn local source material into cited knowledge, briefs, and review-ready marketing-video scripts while ContentCloud keeps versions, approvals, and handoffs auditable.",
+    "developerName": "GoodVision",
+    "category": "Productivity",
+    "capabilities": [
+      "Local workspace",
+      "Knowledge extraction",
+      "Marketing-video scripts",
+      "Review handoff"
+    ],
+    "defaultPrompt": [
+      "Inspect this ContentCloud workspace and show the next available creative tasks.",
+      "Turn the selected local evidence into review-ready knowledge candidates.",
+      "Continue a ready ContentCloud handoff in this workspace."
+    ],
+    "brandColor": "#16705A"
+  },
+  "mcpServers": "./.mcp.json"
+}

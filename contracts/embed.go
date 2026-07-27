@@ -19,3 +19,24 @@ var TaskContractSchema []byte
 
 //go:embed knowledge-candidates-1.0.schema.json
 var KnowledgeCandidatesSchema []byte
+
+//go:embed creative-environment-manifest-1.0.schema.json
+var CreativeEnvironmentManifestSchema []byte
+
+//go:embed creative-environment-profile-1.0.schema.json
+var CreativeEnvironmentProfileSchema []byte
+
+//go:embed environment-lock-1.0.schema.json
+var EnvironmentLockSchema []byte
+
+//go:embed local-execution-plan-1.0.schema.json
+var LocalExecutionPlanSchema []byte
+
+//go:embed creative-execution-bundle-1.0.schema.json
+var CreativeExecutionBundleSchema []byte
+
+//go:embed environment-trusted-keys-1.0.schema.json
+var EnvironmentTrustedKeysSchema []byte
+
+//go:embed environment-preparation-plan-1.0.schema.json
+var EnvironmentPreparationPlanSchema []byte
