@@ -23,6 +23,9 @@ type Store struct {
 	projects             map[string]domain.Project
 	projectTemplates     map[string]domain.ProjectTemplate
 	connects             map[string]domain.ConnectSession
+	bootstrapAttempts    map[string]domain.BootstrapAttempt
+	bootstrapEvents      map[string]map[int64]domain.BootstrapProgressEvent
+	bootstrapDiagnostics map[string]domain.BootstrapDiagnostic
 	devices              map[string]domain.Device
 	workspaceBindings    map[string]domain.WorkspaceBinding
 	userDeviceFlows      map[string]domain.UserDeviceFlow
@@ -67,7 +70,7 @@ func New() *Store {
 	return &Store{
 		users: map[string]domain.User{}, userByEmail: map[string]string{}, sessions: map[string]domain.Session{},
 		tenants: map[string]domain.Tenant{}, memberships: map[string]domain.Membership{}, membershipInvites: map[string]domain.MembershipInvite{}, projects: map[string]domain.Project{}, projectTemplates: map[string]domain.ProjectTemplate{},
-		connects: map[string]domain.ConnectSession{}, devices: map[string]domain.Device{}, workspaceBindings: map[string]domain.WorkspaceBinding{}, userDeviceFlows: map[string]domain.UserDeviceFlow{}, cliTokens: map[string]domain.CLIToken{},
+		connects: map[string]domain.ConnectSession{}, bootstrapAttempts: map[string]domain.BootstrapAttempt{}, bootstrapEvents: map[string]map[int64]domain.BootstrapProgressEvent{}, bootstrapDiagnostics: map[string]domain.BootstrapDiagnostic{}, devices: map[string]domain.Device{}, workspaceBindings: map[string]domain.WorkspaceBinding{}, userDeviceFlows: map[string]domain.UserDeviceFlow{}, cliTokens: map[string]domain.CLIToken{},
 		sources: map[string]domain.Source{}, revisions: map[string]domain.SourceRevision{}, evidence: map[string]domain.EvidenceSpan{}, assets: map[string]domain.Asset{}, rightsRecords: map[string]domain.RightsRecord{}, knowledge: map[string]domain.KnowledgeItem{}, knowledgeConflicts: map[string]domain.KnowledgeConflict{}, decisionRequests: map[string]domain.DecisionRequest{},
 		benchmarks: map[string]domain.BenchmarkContent{}, frameworks: map[string]domain.ContentFramework{}, shotPatterns: map[string]domain.ShotPattern{}, sellingPoints: map[string]domain.SellingPoint{}, visualizationPlans: map[string]domain.VisualizationPlan{},
 		briefs: map[string]domain.BriefVersion{}, snapshots: map[string]domain.ContextSnapshot{}, runs: map[string]domain.TaskRun{}, executionBundles: map[string]environment.CreativeExecutionBundle{}, runAttempts: map[string]domain.RunAttempt{}, logicalScripts: map[string]domain.Script{},
@@ -499,7 +502,6 @@ func (s *Store) ConnectSessionByID(_ context.Context, tenantID, id string) (doma
 	if v.State == "waiting_for_computer" && time.Now().After(v.ExpiresAt) {
 		v.State = "expired"
 	}
-	v.PlaintextConnectKey = ""
 	return v, nil
 }
 func (s *Store) SaveConnectSession(_ context.Context, v domain.ConnectSession) error {
@@ -509,37 +511,8 @@ func (s *Store) SaveConnectSession(_ context.Context, v domain.ConnectSession) e
 	if !ok || old.TenantID != v.TenantID {
 		return domain.NotFound("连接会话")
 	}
-	v.PlaintextConnectKey = ""
 	s.connects[v.ID] = v
 	return nil
-}
-func (s *Store) ConsumeConnectSession(_ context.Context, keyHash string, device domain.Device, workspace domain.WorkspaceBinding, now time.Time) (domain.ConnectSession, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for id, v := range s.connects {
-		if v.ConnectKeyHash != keyHash {
-			continue
-		}
-		if v.State != "waiting_for_computer" || now.After(v.ExpiresAt) {
-			return v, domain.Conflict("CONNECT_KEY_INVALID", "连接码无效、已使用或已过期")
-		}
-		v.State = "verifying"
-		v.ConsumedAt = &now
-		v.ConsumedDeviceID = device.ID
-		v.PlaintextConnectKey = ""
-		s.connects[id] = v
-		device.TenantID = v.TenantID
-		device.OwnerUserID = v.InviterUserID
-		device.ProjectIDs = []string{v.ProjectID}
-		s.devices[device.ID] = device
-		workspace.TenantID = v.TenantID
-		workspace.ProjectID = v.ProjectID
-		workspace.DeviceID = device.ID
-		workspace.OwnerUserID = v.InviterUserID
-		s.workspaceBindings[workspace.ID] = workspace
-		return v, nil
-	}
-	return domain.ConnectSession{}, domain.Conflict("CONNECT_KEY_INVALID", "连接码无效、已使用或已过期")
 }
 func (s *Store) SaveDevice(_ context.Context, v domain.Device) error {
 	s.mu.Lock()

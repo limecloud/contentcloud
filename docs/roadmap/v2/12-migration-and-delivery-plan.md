@@ -40,7 +40,7 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 
 ### 已落地的 V2 基础
 
-- `contentcloud init --connect`、工作区模板锁、项目级 Codex/Claude Skill/MCP 配置、status/doctor，默认不启 Daemon、不上传 raw。
+- Codex `bootstrap preflight/plan/apply/resume`、浏览器 PKCE 授权、工作区模板锁、固定 Scene Plugin、status/doctor，默认不启 Daemon、不上传 raw。
 - 独立 `wt_` Workspace Credential；`dt_` Device Credential 仅用于兼容 Runtime 与可选 Automation。
 - knowledge/research/strategy/brief/script/delivery/performance 的 publish preflight 和不可变 SubmissionRevision。
 - feedback/decision/approved pull，进入 inbox 或只读 cache，不改业务正文。
@@ -70,8 +70,8 @@ V2 不推倒 V1，但会把普通创作从云端 TaskRun 迁到本地工作区�
 
 ### 产品与客户端
 
-- [部分完成] 项目创建已有一次性 init code；Client/Brand/Product/服务模板分层待补。
-- [部分完成] `contentcloud init`、workspace status/doctor 和项目级 Skills/MCP 已完成；upgrade/diff 待补。
+- [部分完成] 项目创建已有 ConnectSession 和浏览器授权；Client/Brand/Product/服务模板分层待补。
+- [部分完成] Codex bootstrap、workspace status/doctor 和固定 Scene Plugin 已完成；upgrade/diff 待补。
 - [已实现，待 UAT] publish/pull、本地来源处理、LocalRunContext、15 维诊断、七层知识包和证据披露已完成。
 - [已实现，待 UAT] CreativeBatch、ScriptPackage V2、逐镜头 lint、blocked/review_ready、字段级 diff 和三格式导出已完成；云端 Submission 审阅保持只读正文。
 - [待实现] 审批单轨收敛：ReviewCycle/ApprovalDecision/ReviewGrant 改挂 SubmissionRevision，客户 OTP 审批与三格式导出改由 ApprovedSnapshot 驱动。这是波次一其余验收项的前置条件。

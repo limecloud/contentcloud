@@ -6,6 +6,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/store/memory"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestConnectSessionCompletesOnlyAfterWorkspaceRegistration(t *testing.T) {
@@ -19,7 +20,7 @@ func TestConnectSessionCompletesOnlyAfterWorkspaceRegistration(t *testing.T) {
 	connect, err := service.CreateConnectSession(t.Context(), actor, project.ID, "connect-session")
 	must(t, err)
 
-	device, err := service.ConnectDevice(t.Context(), app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "connect-mac", Platform: "darwin", Arch: "arm64", Version: "test"})
+	device, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, app.ConnectDeviceInput{Hostname: "connect-mac", Platform: "darwin", Arch: "arm64", Version: "test"})
 	must(t, err)
 	status, err := service.ConnectSession(t.Context(), actor, connect.ID)
 	must(t, err)

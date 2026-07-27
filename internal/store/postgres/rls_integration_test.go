@@ -16,6 +16,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
 	storepg "github.com/limecloud/contentcloud/internal/store/postgres"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
@@ -83,9 +84,22 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connected, err := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "rls-local", Platform: "darwin", Arch: "arm64", Version: "test"})
+	connected, err := testsupport.ConnectBootstrap(ctx, service, a, connect, app.ConnectDeviceInput{Hostname: "rls-local", Platform: "darwin", Arch: "arm64", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	workspaceActor, binding, err := service.WorkspaceActor(ctx, connected.WorkspaceToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnosticSummary := domain.BootstrapDiagnosticSummary{SchemaVersion: domain.BootstrapSchemaVersion, AttemptID: connected.BootstrapAttemptID, Platform: "darwin", Arch: "arm64", Versions: map[string]string{"contentcloud_cli": "test"}, Checks: []domain.BootstrapDiagnosticCheck{{CheckID: "runtime.node.version", Status: "passed"}}}
+	firstDiagnostic, err := service.UploadBootstrapDiagnostic(ctx, workspaceActor, binding, diagnosticSummary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayedDiagnostic, err := service.UploadBootstrapDiagnostic(ctx, workspaceActor, binding, diagnosticSummary)
+	if err != nil || replayedDiagnostic.ID != firstDiagnostic.ID || !replayedDiagnostic.CreatedAt.Equal(firstDiagnostic.CreatedAt) {
+		t.Fatalf("PostgreSQL diagnostic replay was not idempotent: first=%#v replayed=%#v error=%v", firstDiagnostic, replayedDiagnostic, err)
 	}
 	deviceActor, device, err := service.DeviceActor(ctx, connected.DeviceToken)
 	if err != nil {
@@ -174,6 +188,12 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("tenant B saw tenant A run attempt through RLS: count=%d", count)
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM bootstrap_diagnostics WHERE id=$1`, firstDiagnostic.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("tenant B saw tenant A bootstrap diagnostic through RLS: count=%d", count)
 	}
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM creative_execution_bundles WHERE run_id=$1`, run.ID).Scan(&count); err != nil {
 		t.Fatal(err)

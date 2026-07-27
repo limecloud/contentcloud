@@ -13,6 +13,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 	"github.com/limecloud/contentcloud/internal/store/memory"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestV2ScriptApprovalDeliveryAndLearningChain(t *testing.T) {
@@ -165,7 +166,7 @@ func v2ScriptFixture(t *testing.T) (context.Context, *app.Service, *memory.Store
 	if err != nil {
 		t.Fatal(err)
 	}
-	connected, err := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "local"})
+	connected, err := testsupport.ConnectBootstrap(ctx, service, actor, connect, app.ConnectDeviceInput{Hostname: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}

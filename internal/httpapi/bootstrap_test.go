@@ -2,6 +2,8 @@ package httpapi_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -42,7 +44,7 @@ func TestBootstrapDocumentIsPublicAndAgentReady(t *testing.T) {
 		t.Fatalf("Cache-Control = %q", got)
 	}
 	document := string(body)
-	for _, required := range []string{"connect-key", "@limecloud/contentcloud@0.5.0", "bootstrap plan", "bootstrap apply", "bootstrap resume", "plan_id", "--plan-id <plan_id-from-plan-json>", "new Codex chat", "must not upload existing files"} {
+	for _, required := range []string{"session-id", "browser device authorization", "@limecloud/contentcloud@0.6.0", "bootstrap preflight", "bootstrap plan", "bootstrap apply", "bootstrap resume", "plan_id", "--plan-id <plan_id-from-plan-json>", "new Codex chat", "must not upload existing files"} {
 		if !strings.Contains(document, required) {
 			t.Fatalf("bootstrap document is missing %q", required)
 		}
@@ -75,7 +77,19 @@ func TestConnectSessionHTTPStateTracksWorkspaceInitialization(t *testing.T) {
 	client := &http.Client{Jar: jar}
 
 	connect := callBFF[domain.ConnectSession](t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/connect-sessions", map[string]any{})
-	device := callDispatch[app.ConnectDeviceResult](t, client, server.URL, "", "device.connect", app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "http-connect-mac", Platform: "darwin", Arch: "arm64", Version: "test"})
+	verifier := base64.RawURLEncoding.EncodeToString([]byte("http-bootstrap-verifier-32-bytes"))
+	challenge := sha256.Sum256([]byte(verifier))
+	started := callDispatch[app.StartBootstrapAuthorizationResult](t, client, server.URL, "", "bootstrap.authorization.start", app.StartBootstrapAuthorizationInput{SessionID: connect.ID, CodeChallenge: base64.RawURLEncoding.EncodeToString(challenge[:]), Platform: "darwin", Arch: "arm64", CLIVersion: "test"})
+	view := callBFF[app.BootstrapAuthorizationView](t, client, http.MethodGet, server.URL+"/api/bff/projects/"+project.ID+"/bootstrap-attempts/"+started.AttemptID, nil)
+	if view.Attempt.UserCode != started.UserCode || view.Session.ID != connect.ID || view.Session.Progress == nil || view.Session.Progress.AttemptID != started.AttemptID {
+		t.Fatalf("unexpected browser authorization view: %#v", view)
+	}
+	callBFF[domain.BootstrapAttempt](t, client, http.MethodPost, server.URL+"/api/bff/connect-sessions/"+connect.ID+"/attempts/"+started.AttemptID+"/approve", map[string]any{})
+	authorized := callBFF[domain.ConnectSession](t, client, http.MethodGet, server.URL+"/api/bff/connect-sessions/"+connect.ID, nil)
+	if authorized.Progress == nil || authorized.Progress.Status != "started" || authorized.Progress.UserCode != "" {
+		t.Fatalf("approved browser authorization was not projected: %#v", authorized.Progress)
+	}
+	device := callDispatch[app.ConnectDeviceResult](t, client, server.URL, "", "bootstrap.authorization.complete", app.CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: verifier, Device: app.ConnectDeviceInput{Hostname: "http-connect-mac", Platform: "darwin", Arch: "arm64", Version: "test"}})
 	status := callBFF[domain.ConnectSession](t, client, http.MethodGet, server.URL+"/api/bff/connect-sessions/"+connect.ID, nil)
 	if status.State != "verifying" {
 		t.Fatalf("HTTP state after device connection = %q, want verifying", status.State)

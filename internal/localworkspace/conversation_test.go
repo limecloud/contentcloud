@@ -107,10 +107,10 @@ func TestConversationContextReadsPersistedOfflineState(t *testing.T) {
 func TestConversationContextCarriesBootstrapHandoffUntilWorkStarts(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "workspace")
 	now := time.Date(2026, 7, 27, 11, 0, 0, 0, time.UTC)
-	if _, err := Initialize(InitOptions{Root: root, WorkspaceID: "workspace-1", ProjectID: "project-1", Target: "codex-plugin", CLIVersion: "0.5.0", Now: now}); err != nil {
+	if _, err := Initialize(InitOptions{Root: root, WorkspaceID: "workspace-1", ProjectID: "project-1", Target: "codex-plugin", CLIVersion: "0.6.0", Now: now}); err != nil {
 		t.Fatal(err)
 	}
-	handoff, path, err := StoreBootstrapHandoff(root, "contentcloud-video-production@contentcloud", "0.5.0", "v0.5.0", now.Add(time.Minute))
+	handoff, path, err := StoreBootstrapHandoff(root, "contentcloud-video-production@contentcloud", "0.6.0", "v0.6.0", now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 	storepg "github.com/limecloud/contentcloud/internal/store/postgres"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestV2WorkspaceSubmissionGovernanceWithPostgres(t *testing.T) {
@@ -51,7 +52,7 @@ func TestV2WorkspaceSubmissionGovernanceWithPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connected, err := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "v2-postgres", Platform: "darwin", Arch: "arm64", Version: "test"})
+	connected, err := testsupport.ConnectBootstrap(ctx, service, admin, connect, app.ConnectDeviceInput{Hostname: "v2-postgres", Platform: "darwin", Arch: "arm64", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

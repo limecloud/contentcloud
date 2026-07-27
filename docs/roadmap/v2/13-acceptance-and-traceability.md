@@ -52,7 +52,7 @@
 
 | 用例 | 正常路径 | 必测异常 |
 | --- | --- | --- |
-| UC-01 项目与客户端初始化 | Web 建项目 -> init code -> workspace doctor | 过期/重复码、非空目录、模板/Agent冲突 |
+| UC-01 项目与客户端初始化 | Web 建项目 -> 浏览器设备授权 -> workspace doctor | session/attempt 过期、拒绝授权、非空目录、模板/Agent 冲突 |
 | UC-02 素材诊断与知识包 | 本地来源 -> lint -> publish -> 决策 -> pull | 证据越界、披露不足、冲突、pull覆盖保护 |
 | UC-03 市场研究 | 研究 -> 来源洞察 -> 人工采纳 | URL 漂移、过期洞察、竞品事实误用 |
 | UC-04 策略与 Brief | 卖点 -> 可视化 -> Brief 批准 | 无画面证据、多变量、上游失效 |
@@ -73,7 +73,7 @@
 
 ### 业务验收
 
-1. Web 完成客户、品牌、产品、项目和服务模板，生成 init code。
+1. Web 完成客户、品牌、产品、项目和服务模板，创建 ConnectSession。
 2. 在空目录执行 init，验证模板、Skills、MCP、doctor 和默认不开启 Daemon。
 3. 本地完成 15 维覆盖、七层知识包和 lint，明确缺口与冲突。
 4. 选择来源披露等级并 publish；审核员按 ID 决定 Fact、Claim 和 Rights。

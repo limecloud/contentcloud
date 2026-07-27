@@ -2,7 +2,7 @@
 
 ## 1. 原则
 
-`contentcloud` 是所有 Agent、Skill、MCP、脚本、Renderer、Daemon 和 CI 与服务端通信的唯一程序化入口。普通本地工作不需要访问云端；发生 init、publish、pull、审批查询或 Automation 时，由 CLI 封装 HTTP、对象存储许可、token 和分页游标。
+`contentcloud` 是所有 Agent、Skill、MCP、脚本、Renderer、Daemon 和 CI 与服务端通信的唯一程序化入口。普通本地工作不需要访问云端；发生 bootstrap、publish、pull、审批查询或 Automation 时，由 CLI 封装 HTTP、对象存储许可、token 和分页游标。
 
 浏览器 Web 使用同源 BFF；人工用户可以使用 CLI。业务集成不得直接绑定私有 REST 路径。
 
@@ -11,7 +11,7 @@
 | 凭据 | 用途 | 权限 |
 | --- | --- | --- |
 | User Credential | 人工 CLI 操作 | 受用户角色和租户限制 |
-| Workspace Credential | init/publish/pull | 绑定项目、工作区和被授权提交人，不具备审批权限 |
+| Workspace Credential | bootstrap/publish/pull | 绑定项目、工作区和被授权提交人，不具备审批权限 |
 | Device Credential | Daemon poll/heartbeat | 受设备和项目 grant 限制 |
 | Run Credential | 当前租约任务 | 仅输入下载、进度、报告、输出上传 |
 
@@ -20,12 +20,15 @@
 ## 3. 安装与首次初始化
 
 ```bash
-npx --yes @limecloud/contentcloud@latest init --connect <one-time-code> ./project
+npx --yes @limecloud/contentcloud@0.6.0 bootstrap preflight ./project --server-url <server-url> --json
+npx --yes @limecloud/contentcloud@0.6.0 bootstrap plan ./project --server-url <server-url> --session <session-id> --json
+# 核对并确认 plan_id 后：
+npx --yes @limecloud/contentcloud@0.6.0 bootstrap apply ./project --server-url <server-url> --session <session-id> --plan-id <plan-id> --accept --json
 cd ./project
 contentcloud workspace doctor
 ```
 
-顺序固定为先在 Web 创建项目，再生成一次性 init code，然后初始化本地工作区。init code 绑定项目和被授权提交人；CLI/Daemon 不允许自行创建租户或品牌项目。后台 Daemon 默认不启用。
+顺序固定为先在 Web 创建项目和 ConnectSession，再由 CLI 生成本地 PKCE challenge，用户在登录态浏览器核对短码并批准。CLI/Daemon 不允许自行创建租户或品牌项目。后台 Daemon 默认不启用。
 
 ```mermaid
 sequenceDiagram
@@ -34,10 +37,12 @@ sequenceDiagram
     participant CLI as contentcloud
     participant API as CLI Gateway
 
-    U->>Web: 创建项目并生成连接码
-    U->>CLI: init --connect code ./project
-    CLI->>API: exchange code + platform metadata
-    API-->>CLI: workspace credential + signed template manifest
+    U->>Web: 创建项目和ConnectSession
+    U->>CLI: bootstrap preflight/plan并确认plan_id
+    CLI->>API: PKCE challenge + platform metadata
+    U->>Web: 核对短码并批准设备
+    CLI->>API: verifier完成授权
+    API-->>CLI: workspace credential + signed environment manifest
     CLI->>CLI: scaffold + skills + MCP + doctor
     CLI->>API: register workspace binding/template version
     API-->>Web: workspace initialized
@@ -50,7 +55,7 @@ sequenceDiagram
 ```text
 contentcloud auth login|logout|status
 contentcloud doctor|version|update
-contentcloud init --connect <code> <directory>
+contentcloud bootstrap preflight|plan|apply|resume|diagnostics
 contentcloud workspace status|doctor
 contentcloud tenant list|switch
 contentcloud project list|show|create|update|archive|restore
@@ -76,7 +81,7 @@ contentcloud review show             contentcloud delivery download
 contentcloud performance import      contentcloud impact show
 ```
 
-上述 `local source/run/knowledge/brief/script`、publish/pull/submission 命令已经实现。普通本地命令只读写工作区，不创建云端 `TaskRun`；只有显式 publish/pull/init 等云端动作才通过 CLI Gateway 通信。`delivery download` 和独立 impact 命令仍属于后续命令面。
+上述 `local source/run/knowledge/brief/script`、publish/pull/submission 命令已经实现。普通本地命令只读写工作区，不创建云端 `TaskRun`；只有显式 publish/pull/bootstrap 等云端动作才通过 CLI Gateway 通信。`delivery download` 和独立 impact 命令仍属于后续命令面。
 
 云端内容正文没有通用 update 命令。CLI 只发布不可变 Submission、拉取反馈/批准快照和执行领域允许的状态动作，不提供 `resource patch status=approved`。
 
@@ -100,7 +105,7 @@ contentcloud skills list|read|status|install
 contentcloud mcp status|serve
 ```
 
-`init` 默认安装项目级 Skill/MCP；修改项目 Agent 配置必须使用 `--accept-project-config`。当前 MCP 复用同一套 `localworkspace` 与 CLI 网关逻辑，已暴露：
+Codex bootstrap 通过固定 Scene Plugin 提供 Skills/MCP，并只写 `codex-plugin` Workspace 受管文件。当前 MCP 复用同一套 `localworkspace` 与 CLI 网关逻辑，已暴露：
 
 - 工作区：`workspace_status`、`workspace_doctor`。
 - 本地来源：`source_register`、`source_list`、`source_ingest`、`source_verify`。

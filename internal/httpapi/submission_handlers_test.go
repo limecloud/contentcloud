@@ -15,6 +15,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/httpapi"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 	"github.com/limecloud/contentcloud/internal/store/memory"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestSubmissionBFFReviewDoesNotEditRevisionContent(t *testing.T) {
@@ -26,7 +27,7 @@ func TestSubmissionBFFReviewDoesNotEditRevisionContent(t *testing.T) {
 	actor, _, _ := service.SessionActor(t.Context(), session.ID)
 	project, _ := service.CreateProject(t.Context(), actor, app.CreateProjectInput{BrandName: "Brand", ProductName: "Product"}, "")
 	connect, _ := service.CreateConnectSession(t.Context(), actor, project.ID, "")
-	connected, err := service.ConnectDevice(t.Context(), app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "local"})
+	connected, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, app.ConnectDeviceInput{Hostname: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestV2SubmissionBFFCompletesClientDeliveryAndResultChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connected, err := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "local"})
+	connected, err := testsupport.ConnectBootstrap(ctx, service, actor, connect, app.ConnectDeviceInput{Hostname: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}

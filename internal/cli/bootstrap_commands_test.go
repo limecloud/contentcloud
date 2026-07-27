@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/app"
+	"github.com/limecloud/contentcloud/internal/bootstrapcheck"
 	"github.com/limecloud/contentcloud/internal/codexplugin"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
@@ -51,7 +52,7 @@ func (r *bootstrapRunner) Run(ctx context.Context, name string, args ...string) 
 	return codexplugin.CommandResult{Stdout: []byte(response.stdout), Stderr: []byte(response.stderr), ExitCode: response.exitCode}, response.err
 }
 
-func TestBootstrapPlanIsReadOnlyAndDoesNotExposeConnectKey(t *testing.T) {
+func TestBootstrapPlanIsReadOnlyAndUsesOnlyPublicSessionID(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "new-workspace")
 	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
 	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
@@ -59,9 +60,9 @@ func TestBootstrapPlanIsReadOnlyAndDoesNotExposeConnectKey(t *testing.T) {
 		{stdout: `{"installed":[],"available":[]}`},
 	}}
 	var stdout, stderr bytes.Buffer
-	root := &Root{stdout: &stdout, stderr: &stderr, codexRunner: runner}
+	root := &Root{stdout: &stdout, stderr: &stderr, codexRunner: runner, bootstrapCheckHook: healthyBootstrapCheck}
 	command := root.command()
-	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "plan", directory, "--connect", "cck_secret_value"})
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "plan", directory, "--session", testBootstrapSessionID})
 	if err := command.Execute(); err != nil {
 		t.Fatalf("bootstrap plan failed: %v; stderr=%s", err, stderr.String())
 	}
@@ -72,11 +73,11 @@ func TestBootstrapPlanIsReadOnlyAndDoesNotExposeConnectKey(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode output: %v; output=%s", err, stdout.String())
 	}
-	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.5.0" || len(envelope.Data.Plugin.Actions) != 2 {
+	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.6.0" || len(envelope.Data.Plugin.Actions) != 2 {
 		t.Fatalf("unexpected plan: %s", stdout.String())
 	}
-	if strings.Contains(stdout.String(), "cck_secret_value") {
-		t.Fatalf("bootstrap plan leaked the connect key: %s", stdout.String())
+	if strings.Contains(stdout.String(), "connect_key") || envelope.Data.AuthorizationMode != "browser_device" || !envelope.Data.WouldAuthorizeDevice {
+		t.Fatalf("bootstrap plan did not use browser-only authorization: %s", stdout.String())
 	}
 	if _, err := os.Stat(directory); !os.IsNotExist(err) {
 		t.Fatalf("bootstrap plan created the target directory: %v", err)
@@ -106,6 +107,39 @@ func TestBootstrapPlanIDIsStableUntilInputsChange(t *testing.T) {
 	}
 }
 
+func TestBootstrapDiagnosticsRequiresPreviewAndUploadConfirmation(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	attemptID := "22222222-2222-4222-8222-222222222222"
+	var stdout, stderr bytes.Buffer
+	root := &Root{stdout: &stdout, stderr: &stderr, bootstrapCheckHook: healthyBootstrapCheck}
+	command := root.command()
+	command.SetArgs([]string{"--json", "bootstrap", "diagnostics", directory, "--attempt", attemptID})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("diagnostic preview failed: %v; stderr=%s", err, stderr.String())
+	}
+	var envelope struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Redacted                   bool `json:"redacted"`
+			Uploaded                   bool `json:"uploaded"`
+			RequiresUploadConfirmation bool `json:"requires_upload_confirmation"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || !envelope.Data.Redacted || envelope.Data.Uploaded || !envelope.Data.RequiresUploadConfirmation {
+		t.Fatalf("unexpected diagnostic preview: error=%v output=%s", err, stdout.String())
+	}
+
+	root = &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, bootstrapCheckHook: healthyBootstrapCheck}
+	command = root.command()
+	command.SetArgs([]string{"--json", "bootstrap", "diagnostics", directory, "--attempt", attemptID, "--upload"})
+	err := command.Execute()
+	var domainError *domain.Error
+	if !errors.As(err, &domainError) || domainError.Code != "BOOTSTRAP_DIAGNOSTIC_CONFIRMATION_REQUIRED" {
+		t.Fatalf("unexpected upload confirmation error: %#v", err)
+	}
+}
+
 func TestBootstrapApplyInstallsInitializesDoctorsAndRegisters(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "new-workspace")
 	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
@@ -124,17 +158,18 @@ func TestBootstrapApplyInstallsInitializesDoctorsAndRegisters(t *testing.T) {
 		now:                  func() time.Time { return now },
 		manifestVerifierHook: fixedManifestVerifier(verifier),
 		registryVerifierHook: fixedRegistryVerifier(registryVerifier),
-		connectDeviceHook: func(_ context.Context, key, _ string) (localconfig.Config, app.ConnectDeviceResult, error) {
-			if key != "cck_test" {
-				t.Fatalf("unexpected connect key: %s", key)
+		bootstrapCheckHook:   healthyBootstrapCheck,
+		bootstrapAuthorizeHook: func(_ context.Context, sessionID, _ string) (localconfig.Config, app.ConnectDeviceResult, *bootstrapProgressReporter, error) {
+			if sessionID != testBootstrapSessionID {
+				t.Fatalf("unexpected ConnectSession: %s", sessionID)
 			}
 			return localconfig.Config{ServerURL: server.URL, DeviceID: "device-1", WorkspaceID: "workspace-1", ProjectID: "project-1"}, app.ConnectDeviceResult{
 				Device: domain.Device{ID: "device-1"}, WorkspaceID: "workspace-1", WorkspaceToken: "wt_test", ProjectID: "project-1", EnvironmentManifest: &manifest,
-			}, nil
+			}, nil, nil
 		},
 	}
 	command := root.command()
-	command.SetArgs([]string{"--json", "--server-url", server.URL, "bootstrap", "apply", directory, "--connect", "cck_test", "--plan-id", planID, "--accept", "--open-codex=false"})
+	command.SetArgs([]string{"--json", "--server-url", server.URL, "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", planID, "--accept", "--open-codex=false"})
 	if err := command.Execute(); err != nil {
 		t.Fatalf("bootstrap apply failed: %v; stderr=%s", err, stderr.String())
 	}
@@ -204,103 +239,32 @@ func TestBootstrapResumeInitializesEmptyDirectoryFromSavedBinding(t *testing.T) 
 	}
 }
 
-func TestBootstrapApplyRollsBackPluginInstallWhenConnectFails(t *testing.T) {
+func TestBootstrapApplyAuthorizationFailureDoesNotMutatePluginOrWorkspace(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "new-workspace")
 	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
-	runner := successfulBootstrapRunner()
-	runner.responses = append(runner.responses,
-		bootstrapRunnerResponse{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud"}`},
-		bootstrapRunnerResponse{stdout: `{"marketplaceName":"contentcloud","installedRoot":null}`},
-	)
+	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{{stdout: `{"marketplaces":[]}`}, {stdout: `{"installed":[],"available":[]}`}}}
 	root := &Root{
 		stdout:               &bytes.Buffer{},
 		stderr:               &bytes.Buffer{},
 		codexRunner:          runner,
 		manifestVerifierHook: fixedManifestVerifier(testManifestVerifier(t)),
 		registryVerifierHook: fixedRegistryVerifier(testRegistryVerifier(t)),
-		connectDeviceHook: func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, error) {
-			return localconfig.Config{}, app.ConnectDeviceResult{}, domain.Conflict("CONNECT_KEY_INVALID", "连接码无效")
+		bootstrapCheckHook:   healthyBootstrapCheck,
+		bootstrapAuthorizeHook: func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, *bootstrapProgressReporter, error) {
+			return localconfig.Config{}, app.ConnectDeviceResult{}, nil, domain.Conflict("BOOTSTRAP_AUTHORIZATION_DENIED", "用户拒绝授权")
 		},
 	}
 	planID := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
 	command := root.command()
-	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--connect", "cck_test", "--plan-id", planID, "--accept", "--open-codex=false"})
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", planID, "--accept", "--open-codex=false"})
 	if err := command.Execute(); err == nil {
-		t.Fatal("connect failure must fail bootstrap")
+		t.Fatal("authorization failure must fail bootstrap")
 	}
 	if _, err := os.Stat(directory); !os.IsNotExist(err) {
-		t.Fatalf("connect failure wrote the workspace: %v", err)
+		t.Fatalf("authorization failure wrote the workspace: %v", err)
 	}
-	wantSuffix := [][]string{
-		{"codex", "plugin", "remove", "contentcloud-video-production@contentcloud", "--json"},
-		{"codex", "plugin", "marketplace", "remove", "contentcloud", "--json"},
-	}
-	if !reflect.DeepEqual(runner.calls[len(runner.calls)-2:], wantSuffix) {
-		t.Fatalf("unexpected rollback calls: %#v", runner.calls)
-	}
-}
-
-func TestBootstrapApplyRollsBackWithIndependentContextAfterCancellation(t *testing.T) {
-	directory := filepath.Join(t.TempDir(), "new-workspace")
-	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
-	runner := successfulBootstrapRunner()
-	runner.rejectCanceled = true
-	runner.responses = append(runner.responses,
-		bootstrapRunnerResponse{stdout: `{"removed":true}`},
-		bootstrapRunnerResponse{stdout: `{"removed":true}`},
-	)
-	ctx, cancel := context.WithCancel(t.Context())
-	root := &Root{
-		stdout:               &bytes.Buffer{},
-		stderr:               &bytes.Buffer{},
-		codexRunner:          runner,
-		manifestVerifierHook: fixedManifestVerifier(testManifestVerifier(t)),
-		registryVerifierHook: fixedRegistryVerifier(testRegistryVerifier(t)),
-		connectDeviceHook: func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, error) {
-			cancel()
-			return localconfig.Config{}, app.ConnectDeviceResult{}, context.Canceled
-		},
-	}
-	planID := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
-	command := root.command()
-	command.SetContext(ctx)
-	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--connect", "cck_test", "--plan-id", planID, "--accept", "--open-codex=false"})
-	if err := command.Execute(); err == nil {
-		t.Fatal("canceled connection must fail bootstrap")
-	}
-	wantSuffix := [][]string{
-		{"codex", "plugin", "remove", "contentcloud-video-production@contentcloud", "--json"},
-		{"codex", "plugin", "marketplace", "remove", "contentcloud", "--json"},
-	}
-	if !reflect.DeepEqual(runner.calls[len(runner.calls)-2:], wantSuffix) {
-		t.Fatalf("rollback did not survive request cancellation: %#v", runner.calls)
-	}
-}
-
-func TestBootstrapApplyPreservesPluginWhenServerConsumedConnectKey(t *testing.T) {
-	directory := filepath.Join(t.TempDir(), "new-workspace")
-	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
-	runner := successfulBootstrapRunner()
-	root := &Root{
-		stdout:               &bytes.Buffer{},
-		stderr:               &bytes.Buffer{},
-		codexRunner:          runner,
-		manifestVerifierHook: fixedManifestVerifier(testManifestVerifier(t)),
-		registryVerifierHook: fixedRegistryVerifier(testRegistryVerifier(t)),
-		connectDeviceHook: func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, error) {
-			return localconfig.Config{}, app.ConnectDeviceResult{
-				Device: domain.Device{ID: "device-1"}, WorkspaceID: "workspace-1", ProjectID: "project-1",
-			}, domain.E("credential", "secure_store", "CREDENTIAL_STORE_FAILED", "keychain unavailable", 3)
-		},
-	}
-	planID := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
-	command := root.command()
-	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--connect", "cck_test", "--plan-id", planID, "--accept", "--open-codex=false"})
-	if err := command.Execute(); err == nil {
-		t.Fatal("credential persistence failure must fail bootstrap")
-	}
-	if len(runner.responses) != 0 || len(runner.calls) != 8 {
-		t.Fatalf("consumed connection unexpectedly rolled back the plugin: calls=%#v responses=%d", runner.calls, len(runner.responses))
+	if len(runner.calls) != 2 {
+		t.Fatalf("authorization failure mutated Codex: %#v", runner.calls)
 	}
 }
 
@@ -311,9 +275,9 @@ func TestBootstrapApplyRejectsUnconfirmedPlanID(t *testing.T) {
 		{stdout: `{"marketplaces":[]}`},
 		{stdout: `{"installed":[],"available":[]}`},
 	}}
-	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner}
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner, bootstrapCheckHook: healthyBootstrapCheck}
 	command := root.command()
-	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--connect", "cck_test", "--plan-id", "bp_wrong", "--accept", "--open-codex=false"})
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", "bp_wrong", "--accept", "--open-codex=false"})
 	err := command.Execute()
 	var domainError *domain.Error
 	if !errors.As(err, &domainError) || domainError.Code != "BOOTSTRAP_PLAN_STALE" {
@@ -331,9 +295,9 @@ func TestBootstrapApplyRequiresPlanIDBeforeMutation(t *testing.T) {
 		{stdout: `{"marketplaces":[]}`},
 		{stdout: `{"installed":[],"available":[]}`},
 	}}
-	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner}
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner, bootstrapCheckHook: healthyBootstrapCheck}
 	command := root.command()
-	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--connect", "cck_test", "--accept", "--open-codex=false"})
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--accept", "--open-codex=false"})
 	err := command.Execute()
 	var domainError *domain.Error
 	if !errors.As(err, &domainError) || domainError.Code != "BOOTSTRAP_PLAN_ID_REQUIRED" {
@@ -349,12 +313,12 @@ func TestBootstrapApplyRejectsPlanAfterCodexStateChanges(t *testing.T) {
 	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
 	approvedPlanID := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
 	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
-		{stdout: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.5.0"}}]}`},
-		{stdout: `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.5.0","installed":true,"enabled":true}],"available":[]}`},
+		{stdout: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.6.0"}}]}`},
+		{stdout: `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.6.0","installed":true,"enabled":true}],"available":[]}`},
 	}}
-	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner}
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner, bootstrapCheckHook: healthyBootstrapCheck}
 	command := root.command()
-	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--connect", "cck_test", "--plan-id", approvedPlanID, "--accept", "--open-codex=false"})
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", approvedPlanID, "--accept", "--open-codex=false"})
 	err := command.Execute()
 	var domainError *domain.Error
 	if !errors.As(err, &domainError) || domainError.Code != "BOOTSTRAP_PLAN_STALE" {
@@ -385,6 +349,22 @@ func TestValidateBootstrapServerRequiresOrigin(t *testing.T) {
 	}
 }
 
+func TestBootstrapVerificationURLMustMatchServerOrigin(t *testing.T) {
+	got, err := sameOriginBootstrapURL("https://content.example.com", "https://content.example.com/projects/project/overview?bootstrap_attempt=attempt")
+	if err != nil || got == "" {
+		t.Fatalf("same-origin verification URL rejected: url=%q error=%v", got, err)
+	}
+	for _, value := range []string{
+		"https://evil.example.com/projects/project/overview",
+		"http://content.example.com/projects/project/overview",
+		"https://user:secret@content.example.com/projects/project/overview",
+	} {
+		if _, err := sameOriginBootstrapURL("https://content.example.com", value); err == nil {
+			t.Fatalf("unsafe verification URL %q accepted", value)
+		}
+	}
+}
+
 func TestRequireHealthyWorkspaceBlocksRegistration(t *testing.T) {
 	report := localworkspace.DoctorReport{OK: false, Root: "/tmp/workspace", Checks: map[string]localworkspace.Check{
 		"managed_files": {OK: false, Required: true, Message: "drift"},
@@ -399,13 +379,13 @@ func TestRequireHealthyWorkspaceBlocksRegistration(t *testing.T) {
 func successfulBootstrapRunner() *bootstrapRunner {
 	missingMarketplace := `{"marketplaces":[]}`
 	missingPlugin := `{"installed":[],"available":[]}`
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.5.0"}}]}`
-	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.5.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.6.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.6.0","installed":true,"enabled":true}],"available":[]}`
 	return &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
-		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.5.0","installedPath":"/tmp/plugin"}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.6.0","installedPath":"/tmp/plugin"}`},
 		{stdout: currentMarketplace}, {stdout: currentPlugin},
 	}}
 }
@@ -416,12 +396,22 @@ func bootstrapPlanIDForTest(t *testing.T, directory, serverURL string) string {
 		{stdout: `{"marketplaces":[]}`},
 		{stdout: `{"installed":[],"available":[]}`},
 	}}
-	root := &Root{serverURL: serverURL, codexRunner: runner}
+	root := &Root{serverURL: serverURL, codexRunner: runner, bootstrapCheckHook: healthyBootstrapCheck}
 	plan, _, err := root.buildBootstrapPlan(t.Context(), directory)
 	if err != nil {
 		t.Fatal(err)
 	}
+	plan, err = root.withBootstrapPrerequisites(t.Context(), plan, testBootstrapSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return plan.PlanID
+}
+
+const testBootstrapSessionID = "11111111-1111-4111-8111-111111111111"
+
+func healthyBootstrapCheck(context.Context, bootstrapcheck.Options) bootstrapcheck.Report {
+	return bootstrapcheck.Report{SchemaVersion: domain.BootstrapSchemaVersion, OK: true, Platform: "darwin", Arch: "arm64", Checks: []bootstrapcheck.Check{{Stage: "prerequisites", CheckID: "runtime.platform.supported", Status: "passed", Facts: map[string]any{"platform": "darwin", "arch": "arm64", "supported": true}}}}
 }
 
 func newBootstrapRegisterServer(t *testing.T, manifest environment.Manifest, registry environment.Registry) (*httptest.Server, *bool) {

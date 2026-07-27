@@ -14,7 +14,7 @@ ContentCloud 的主对象是客户、品牌项目及其已提交业务版本，�
 
 ```mermaid
 flowchart LR
-    W[Web 创建项目] --> I[本地 contentcloud init]
+    W[Web 创建项目] --> I[Codex bootstrap + 浏览器授权]
     I --> A[安装模板/Skills/MCP]
     A --> C[本地知识与创作工作区]
     C --> P[显式 publish 提交检查点]
@@ -46,7 +46,7 @@ V2 使用金陵古都香作为第一条 Golden Journey，但模型必须支持�
 
 ```mermaid
 flowchart TB
-    A[Web 创建项目并生成 init code] --> B[本地初始化模板/Skills/MCP]
+    A[Web 创建项目和ConnectSession] --> B[浏览器授权并初始化Plugin/Workspace]
     B --> C[本地引入原始资料]
     C --> C1[本地 15 维诊断与七层知识包]
     C1 --> C2[本地 lint/query]

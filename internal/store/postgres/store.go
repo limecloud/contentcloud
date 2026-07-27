@@ -585,28 +585,27 @@ func (s *Store) ProjectTemplate(ctx context.Context, tenantID, id string) (domai
 
 func (s *Store) CreateConnectSession(ctx context.Context, v domain.ConnectSession) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO connect_sessions(id,tenant_id,project_id,inviter_user_id,connect_key_hash,state,expires_at,consumed_at,consumed_device_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, v.ID, v.TenantID, v.ProjectID, v.InviterUserID, v.ConnectKeyHash, v.State, v.ExpiresAt, v.ConsumedAt, nullable(v.ConsumedDeviceID))
+		_, err := tx.Exec(ctx, `INSERT INTO connect_sessions(id,tenant_id,project_id,inviter_user_id,state,expires_at,consumed_at,consumed_device_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, v.ID, v.TenantID, v.ProjectID, v.InviterUserID, v.State, v.ExpiresAt, v.ConsumedAt, nullable(v.ConsumedDeviceID))
 		return dbError(err)
 	})
 }
 
 func scanConnect(row pgx.Row) (domain.ConnectSession, error) {
 	var v domain.ConnectSession
-	err := row.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.InviterUserID, &v.ConnectKeyHash, &v.State, &v.ExpiresAt, &v.ConsumedAt, &v.ConsumedDeviceID)
+	err := row.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.InviterUserID, &v.State, &v.ExpiresAt, &v.ConsumedAt, &v.ConsumedDeviceID)
 	return v, err
 }
 
 func (s *Store) ConnectSessionByID(ctx context.Context, tenantID, id string) (domain.ConnectSession, error) {
 	var result domain.ConnectSession
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		v, err := scanConnect(tx.QueryRow(ctx, `SELECT id,tenant_id,project_id,inviter_user_id,connect_key_hash,CASE WHEN state='waiting_for_computer' AND expires_at<now() THEN 'expired' ELSE state END,expires_at,consumed_at,COALESCE(consumed_device_id::text,'') FROM connect_sessions WHERE tenant_id=$1 AND id=$2`, tenantID, id))
+		v, err := scanConnect(tx.QueryRow(ctx, `SELECT id,tenant_id,project_id,inviter_user_id,CASE WHEN state='waiting_for_computer' AND expires_at<now() THEN 'expired' ELSE state END,expires_at,consumed_at,COALESCE(consumed_device_id::text,'') FROM connect_sessions WHERE tenant_id=$1 AND id=$2`, tenantID, id))
 		result = v
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("连接会话")
 		}
 		return err
 	})
-	result.ConnectKeyHash = ""
 	return result, err
 }
 
@@ -621,43 +620,6 @@ func (s *Store) SaveConnectSession(ctx context.Context, v domain.ConnectSession)
 		}
 		return nil
 	})
-}
-
-func (s *Store) ConsumeConnectSession(ctx context.Context, keyHash string, device domain.Device, workspace domain.WorkspaceBinding, now time.Time) (domain.ConnectSession, error) {
-	var tenantID, sessionID string
-	if err := s.pool.QueryRow(ctx, `SELECT tenant_id,session_id FROM contentcloud_lookup_connect_key($1)`, keyHash).Scan(&tenantID, &sessionID); err != nil {
-		return domain.ConnectSession{}, domain.Conflict("CONNECT_KEY_INVALID", "连接码无效、已使用或已过期")
-	}
-	var session domain.ConnectSession
-	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		v, err := scanConnect(tx.QueryRow(ctx, `SELECT id,tenant_id,project_id,inviter_user_id,connect_key_hash,state,expires_at,consumed_at,COALESCE(consumed_device_id::text,'') FROM connect_sessions WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, sessionID))
-		if err != nil || v.State != "waiting_for_computer" || now.After(v.ExpiresAt) {
-			return domain.Conflict("CONNECT_KEY_INVALID", "连接码无效、已使用或已过期")
-		}
-		device.TenantID = v.TenantID
-		device.OwnerUserID = v.InviterUserID
-		device.ProjectIDs = []string{v.ProjectID}
-		if _, err := tx.Exec(ctx, `INSERT INTO devices(id,tenant_id,owner_user_id,display_name,hostname,platform,arch,daemon_version,token_hash,capability_manifests,last_seen_at,revoked_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, device.ID, device.TenantID, device.OwnerUserID, device.DisplayName, device.Hostname, device.Platform, device.Arch, device.Version, device.TokenHash, jsonValue(device.Capabilities), device.LastSeenAt, device.RevokedAt); err != nil {
-			return dbError(err)
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO project_device_grants(tenant_id,project_id,device_id,granted_by,granted_at) VALUES($1,$2,$3,$4,$5)`, v.TenantID, v.ProjectID, device.ID, v.InviterUserID, now); err != nil {
-			return dbError(err)
-		}
-		workspace.TenantID = v.TenantID
-		workspace.ProjectID = v.ProjectID
-		workspace.DeviceID = device.ID
-		workspace.OwnerUserID = v.InviterUserID
-		if _, err := tx.Exec(ctx, `INSERT INTO workspace_bindings(id,tenant_id,project_id,device_id,owner_user_id,template_id,template_version,targets,credential_hash,status,initialized_at,last_seen_at,revoked_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, workspace.ID, workspace.TenantID, workspace.ProjectID, workspace.DeviceID, workspace.OwnerUserID, workspace.TemplateID, workspace.TemplateVersion, jsonValue(workspace.Targets), workspace.CredentialHash, workspace.Status, workspace.InitializedAt, workspace.LastSeenAt, workspace.RevokedAt); err != nil {
-			return dbError(err)
-		}
-		if _, err := tx.Exec(ctx, `UPDATE connect_sessions SET state='verifying',consumed_at=$3,consumed_device_id=$4 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, now, device.ID); err != nil {
-			return err
-		}
-		v.State, v.ConsumedAt, v.ConsumedDeviceID = "verifying", &now, device.ID
-		session = v
-		return nil
-	})
-	return session, err
 }
 
 func (s *Store) SaveDevice(ctx context.Context, v domain.Device) error {

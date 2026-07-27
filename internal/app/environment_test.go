@@ -13,9 +13,10 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/environment"
 	"github.com/limecloud/contentcloud/internal/store/memory"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
-func TestConnectDeviceReturnsProjectBoundSignedEnvironmentManifest(t *testing.T) {
+func TestBrowserBootstrapReturnsProjectBoundSignedEnvironmentManifest(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	must(t, err)
 	issuer, err := environment.NewIssuer("environment-release-test", privateKey)
@@ -32,10 +33,10 @@ func TestConnectDeviceReturnsProjectBoundSignedEnvironmentManifest(t *testing.T)
 	connect, err := service.CreateConnectSession(t.Context(), actor, project.ID, "environment-connect")
 	must(t, err)
 
-	connected, err := service.ConnectDevice(t.Context(), app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "environment-mac", Platform: "darwin", Arch: "arm64", Version: "test"})
+	connected, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, app.ConnectDeviceInput{Hostname: "environment-mac", Platform: "darwin", Arch: "arm64", Version: "test"})
 	must(t, err)
 	if connected.EnvironmentManifest == nil {
-		t.Fatal("device.connect did not return an Environment Manifest")
+		t.Fatal("browser bootstrap did not return an Environment Manifest")
 	}
 	verifier, err := environment.NewVerifier([]environment.TrustedKey{{KeyID: "environment-release-test", Status: "active", PublicKey: publicKey}})
 	must(t, err)
@@ -47,7 +48,7 @@ func TestConnectDeviceReturnsProjectBoundSignedEnvironmentManifest(t *testing.T)
 	must(t, verifier.Verify(refreshed, environment.VerifyOptions{ProjectID: project.ID, ProfileID: "contentcloud.video-production", Harness: "codex", Now: time.Now().UTC()}))
 	body, err := json.Marshal(connected.EnvironmentManifest)
 	must(t, err)
-	for _, forbidden := range []string{connect.PlaintextConnectKey, connected.DeviceToken, connected.WorkspaceToken, "private_key", "model_key"} {
+	for _, forbidden := range []string{connected.DeviceToken, connected.WorkspaceToken, "private_key", "model_key"} {
 		if forbidden != "" && strings.Contains(string(body), forbidden) {
 			t.Fatalf("Environment Manifest leaked forbidden value %q", forbidden)
 		}
@@ -57,7 +58,7 @@ func TestConnectDeviceReturnsProjectBoundSignedEnvironmentManifest(t *testing.T)
 func appEnvironmentProfile() environment.Profile {
 	return environment.Profile{
 		ID: "contentcloud.video-production", Version: "1.0.0", EnvironmentVersion: "2026.7.1", Harness: "codex", Marketplace: "contentcloud",
-		Plugins:           []environment.ProfilePlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.5.0", Required: true, Scope: "environment", Capabilities: []string{"contentcloud.script.generate"}}},
+		Plugins:           []environment.ProfilePlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.6.0", Required: true, Scope: "environment", Capabilities: []string{"contentcloud.script.generate"}}},
 		WorkspaceTemplate: environment.WorkspaceTemplateRef{ID: "workspace_marketing_video", Version: "2.2.0", Digest: "sha256:" + strings.Repeat("c", 64)},
 		Capabilities:      []string{"contentcloud.script.generate"}, Policies: environment.Policies{PublishRequiresConfirmation: true},
 	}
@@ -65,8 +66,8 @@ func appEnvironmentProfile() environment.Profile {
 
 func appEnvironmentRegistry() environment.Registry {
 	return environment.Registry{SchemaVersion: "1.0", Entries: []environment.RegistryEntry{{
-		ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.5.0",
-		Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v0.5.0"}, License: "Apache-2.0", Digest: "sha256:" + strings.Repeat("a", 64),
+		ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.6.0",
+		Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v0.6.0"}, License: "Apache-2.0", Digest: "sha256:" + strings.Repeat("a", 64),
 		Signature: environment.RegistrySignature{Status: "pending"}, CompatibleProfiles: []string{"contentcloud.video-production"}, Permissions: []string{"workspace:read"},
 		DataFlow: environment.RegistryDataFlow{LocalByDefault: true, CloudActions: []string{}}, OutputSchemas: []string{"contracts/script-package-2.0.schema.json"},
 		Cost:       environment.RegistryCost{Model: "included", Notice: "Included in tests."},

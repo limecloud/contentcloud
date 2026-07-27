@@ -10,6 +10,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/store/memory"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestWorkspaceSubmissionApprovalCreatesImmutableSnapshotWithoutTaskRun(t *testing.T) {
@@ -31,7 +32,7 @@ func TestWorkspaceSubmissionApprovalCreatesImmutableSnapshotWithoutTaskRun(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	connected, err := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "test"})
+	connected, err := testsupport.ConnectBootstrap(ctx, service, admin, connect, app.ConnectDeviceInput{Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +113,7 @@ func TestEvidenceLimitedSubmissionCannotBeRemotelyApproved(t *testing.T) {
 	admin, _, _ := service.SessionActor(ctx, session.ID)
 	project, _ := service.CreateProject(ctx, admin, app.CreateProjectInput{BrandName: "Brand", ProductName: "Product"}, "")
 	connect, _ := service.CreateConnectSession(ctx, admin, project.ID, "")
-	connected, _ := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "local"})
+	connected, _ := testsupport.ConnectBootstrap(ctx, service, admin, connect, app.ConnectDeviceInput{Hostname: "local"})
 	workspaceActor, binding, _ := service.WorkspaceActor(ctx, connected.WorkspaceToken)
 	bundle := domain.SubmissionBundle{BundleVersion: "1.0", SchemaVersion: "contentcloud.knowledge/2.0", SubmissionType: "knowledge", ProjectID: project.ID, WorkspaceID: binding.ID, Objects: json.RawMessage(`[{"id":"claim-1","kind":"claim","status":"approved","risk_level":"high"}]`), SourceDisclosures: []domain.SourceDisclosure{{SourceRef: "source-1", Level: "metadata_only", SHA256: strings.Repeat("a", 64)}}, Artifacts: []domain.SubmissionArtifact{}, LocalRunSummary: domain.LocalRunSummary{Checks: []domain.LocalRunCheck{}}, IdempotencyKey: "risk-v1"}
 	if err := bundle.SetComputedHash(); err != nil {

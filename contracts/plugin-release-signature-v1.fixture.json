@@ -24,7 +24,7 @@
     "data_flow": {
       "local_by_default": true,
       "cloud_actions": [
-        "device.connect",
+        "bootstrap.authorization.complete",
         "workspace.register",
         "explicit publish and review synchronization"
       ]
@@ -57,5 +57,5 @@
       "status": "active"
     }
   },
-  "payload_sha256": "sha256:5ae90785f761e3c189594973210ffedbbd5ef530c0f155ce4fada8f618120d3b"
+  "payload_sha256": "sha256:0b3dc4d70b63c109eaaca410e4120d28ecac3a72d0878c8e07865331dbc4be3f"
 }

@@ -1,6 +1,6 @@
-import { AlertTriangle, Check, CheckCircle2, Clipboard, Clock3, LoaderCircle, Terminal } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, Clipboard, Clock3, ExternalLink, LoaderCircle, ShieldCheck, Terminal, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { BOOTSTRAP_PLAN_CONFIRMATION, buildBootstrapPrompt, buildManualInstallCommand, connectStateCopy, type ConnectSession } from '../connectBootstrap';
+import { BOOTSTRAP_PLAN_CONFIRMATION, buildBootstrapCommands, buildBootstrapPrompt, connectStateCopy, type ConnectSession } from '../connectBootstrap';
 import { Banner, Button, IconButton, Modal } from './ui';
 
 interface InitializeWorkspaceModalProps {
@@ -9,28 +9,37 @@ interface InitializeWorkspaceModalProps {
   serverURL: string;
   canceling: boolean;
   retrying: boolean;
+  approving: boolean;
+  denying: boolean;
   onClose: () => void;
   onCancel: () => Promise<void>;
   onRetry: () => Promise<void>;
+  onApprove: () => Promise<void>;
+  onDeny: () => Promise<void>;
 }
 
-export function InitializeWorkspaceModal({session,projectName,serverURL,canceling,retrying,onClose,onCancel,onRetry}:InitializeWorkspaceModalProps) {
-  const [copied,setCopied]=useState<'prompt'|'command'>();
+type CopyKind='prompt'|'preflight'|'plan'|'resume'|'diagnostics';
+
+export function InitializeWorkspaceModal({session,projectName,serverURL,canceling,retrying,approving,denying,onClose,onCancel,onRetry,onApprove,onDeny}:InitializeWorkspaceModalProps) {
+  const [copied,setCopied]=useState<CopyKind>();
   const [copyError,setCopyError]=useState('');
   const [slow,setSlow]=useState(false);
-  const prompt=useMemo(()=>buildBootstrapPrompt({serverURL,connectKey:session.connect_key||'',projectName}),[serverURL,session.connect_key,projectName]);
-  const command=useMemo(()=>buildManualInstallCommand({serverURL,connectKey:session.connect_key||''}),[serverURL,session.connect_key]);
-  const state=connectStateCopy(session.state,slow);
+  const progress=session.progress;
+  const prompt=useMemo(()=>buildBootstrapPrompt({serverURL,sessionID:session.id,projectName}),[serverURL,session.id,projectName]);
+  const commands=useMemo(()=>buildBootstrapCommands({serverURL,sessionID:session.id,attemptID:progress?.attempt_id}),[serverURL,session.id,progress?.attempt_id]);
+  const state=connectStateCopy(session,slow);
   const [promptInstruction,promptValues]=prompt.split('\n\n',2);
+  const needsApproval=progress?.stage==='authorizing'&&progress.status==='needs_action'&&progress.action_id==='open.browser.authorization';
+  const actionCommand=progress?.action?.handler==='bootstrap_resume'||progress?.action?.handler==='copy_bootstrap_resume'?commands.resume:progress?.action?.handler==='create_diagnostic_bundle'?commands.diagnostics:undefined;
 
   useEffect(()=>{
     setSlow(false);
-    if(session.state!=='waiting_for_computer')return;
+    if(session.state!=='waiting_for_computer'||progress)return;
     const timer=window.setTimeout(()=>setSlow(true),90000);
     return()=>window.clearTimeout(timer);
-  },[session.id,session.state]);
+  },[session.id,session.state,progress]);
 
-  const copy=async(value:string,kind:'prompt'|'command')=>{
+  const copy=async(value:string,kind:CopyKind)=>{
     setCopyError('');
     try{
       await navigator.clipboard.writeText(value);
@@ -40,36 +49,51 @@ export function InitializeWorkspaceModal({session,projectName,serverURL,cancelin
       setCopyError('无法访问剪贴板，请检查浏览器权限后重试。');
     }
   };
-  const requestClose=()=>{
-    if(canceling)return;
-    if(session.state==='waiting_for_computer')void onCancel();
-    else onClose();
-  };
   const icon=state.tone==='success'?<CheckCircle2 size={20}/>:state.tone==='error'?<AlertTriangle size={20}/>:state.tone==='progress'?<LoaderCircle className="spin" size={20}/>:<Clock3 size={20}/>;
 
-  return <Modal title="初始化本地工作区" onClose={requestClose}>
-    {session.state==='waiting_for_computer'&&<>
-      <p className="agent-project-context">{projectName} · Codex 创作环境</p>
+  return <Modal title="初始化本地工作区" onClose={onClose}>
+    <p className="agent-project-context">{projectName} · Codex 创作环境</p>
+    {!progress&&session.state==='waiting_for_computer'&&<>
       <ol className="agent-bootstrap-steps">
-        <li><span>1</span><div><strong>在 Codex 中开始</strong><p>打开一个用于初始化的 Codex 会话，安装和项目绑定会在本机完成。</p></div></li>
-        <li><span>2</span><div><strong>粘贴 Prompt 开始初始化</strong><section className="agent-prompt"><pre className="agent-prompt-instruction"><code>{promptInstruction}</code></pre><pre className="agent-prompt-values"><code>{promptValues}</code></pre></section><p>{BOOTSTRAP_PLAN_CONFIRMATION} 完成后会打开新的项目对话。</p></div></li>
+        <li><span>1</span><div><strong>在 Codex 中开始</strong><p>打开一个用于初始化的 Codex 会话，本机检查和安装会由固定版本 CLI 完成。</p></div></li>
+        <li><span>2</span><div><strong>粘贴 Prompt</strong><section className="agent-prompt"><pre className="agent-prompt-instruction"><code>{promptInstruction}</code></pre><pre className="agent-prompt-values"><code>{promptValues}</code></pre></section><p>{BOOTSTRAP_PLAN_CONFIRMATION}</p></div></li>
       </ol>
-      {slow&&<Banner kind="warning">Agent 暂未连接。无需刷新页面；确认 Prompt 已完整发送并允许执行本地命令。</Banner>}
-      {copyError&&<Banner kind="error" onClose={()=>setCopyError('')}>{copyError}</Banner>}
-      <div className="agent-waiting-footer"><div><span className={`agent-waiting-dot ${slow?'is-slow':''}`}/><p><strong>{state.title}</strong><small>{slow?'检查 Coding Agent 是否运行在正确的项目目录，然后再次粘贴。':`连接码于 ${formatExpiry(session.expires_at)} 失效`}</small></p></div><Button className="agent-copy-button" onClick={()=>copy(prompt,'prompt')}>{copied==='prompt'?<Check size={16}/>:<Clipboard size={16}/>} {copied==='prompt'?'已复制':'复制 Prompt'}</Button></div>
-      <details className="manual-install"><summary><Terminal size={15}/>改用手动安装</summary><p>先在空目录运行只读计划；检查输出后，把返回的 plan_id 原样传给 apply 再确认执行。</p><div className="command-box"><code>{command}</code><IconButton label="复制手动安装命令" onClick={()=>copy(command,'command')}>{copied==='command'?<Check size={17}/>:<Clipboard size={17}/>}</IconButton></div></details>
+      {slow&&<Banner kind="warning">Codex 暂未开始。确认 Prompt 已完整发送，并允许执行只读环境检查。</Banner>}
+      <div className="agent-waiting-footer"><div><span className={`agent-waiting-dot ${slow?'is-slow':''}`}/><p><strong>{state.title}</strong><small>初始化会话于 {formatExpiry(session.expires_at)} 失效</small></p></div><Button className="agent-copy-button" onClick={()=>copy(prompt,'prompt')}>{copied==='prompt'?<Check size={16}/>:<Clipboard size={16}/>} {copied==='prompt'?'已复制':'复制 Prompt'}</Button></div>
     </>}
 
-    {session.state!=='waiting_for_computer'&&<><p className="agent-project-context">{projectName} · Codex 创作环境</p><div className={`agent-bootstrap-state agent-bootstrap-state-${state.tone}`}>{icon}<div><strong>{state.title}</strong><span>{state.detail}</span></div></div></>}
-    {session.state==='verifying'&&<div className="agent-verifying"><LoaderCircle className="spin" size={18}/><div><strong>等待 `workspace.register`</strong><span>只有 Plugin、Workspace 和 doctor 全部通过后，页面才会显示成功。</span></div></div>}
-    {session.state==='connected'&&<div className="agent-complete"><CheckCircle2 size={22}/><div><strong>本地负责创作，云端负责治理</strong><span>初始化没有上传已有文件，也没有自动开启 Daemon。</span></div></div>}
+    {(progress||session.state!=='waiting_for_computer')&&<div className={`agent-bootstrap-state agent-bootstrap-state-${state.tone}`}>{icon}<div><strong>{state.title}</strong><span>{state.detail}</span></div></div>}
 
-    {session.state!=='waiting_for_computer'&&<footer className="modal-actions">
-      {session.state==='verifying'&&<Button variant="secondary" onClick={onClose}>后台等待</Button>}
+    {progress&&<div className="bootstrap-progress-meta"><div><span>进度</span><strong>{progress.step} / {progress.step_count}</strong></div><progress max={progress.step_count} value={progress.step}/><div><span>{progress.check_id||progress.stage}</span><code>{progress.support_code}</code></div></div>}
+
+    {needsApproval&&<section className="bootstrap-approval">
+      <header><ShieldCheck size={20}/><div><strong>核对并确认这台电脑</strong><span>Codex 中显示的代码必须与下方一致。</span></div></header>
+      <code>{progress.user_code}</code>
+      <div className="bootstrap-approval-actions"><Button variant="danger" disabled={approving||denying} onClick={()=>void onDeny()}><XCircle size={16}/>{denying?'拒绝中…':'拒绝'}</Button><Button disabled={approving||denying} onClick={()=>void onApprove()}><ShieldCheck size={16}/>{approving?'批准中…':'批准这台电脑'}</Button></div>
+    </section>}
+
+    {progress?.action&&!needsApproval&&<section className="bootstrap-next-action">
+      <div><strong>{progress.action.title}</strong><p>{progress.action.body}</p></div>
+      {progress.action.doc_url&&<a href={progress.action.doc_url} target="_blank" rel="noreferrer">打开指南<ExternalLink size={14}/></a>}
+      {actionCommand&&<Command value={actionCommand} kind={progress.action.handler==='create_diagnostic_bundle'?'diagnostics':'resume'} copied={copied} onCopy={copy}/>}
+    </section>}
+
+    {session.state==='connected'&&<div className="agent-complete"><CheckCircle2 size={22}/><div><strong>本地负责创作，云端负责治理</strong><span>初始化没有上传已有文件，也没有自动开启 Daemon。</span></div></div>}
+    {copyError&&<Banner kind="error" onClose={()=>setCopyError('')}>{copyError}</Banner>}
+
+    {session.state!=='connected'&&<details className="manual-install"><summary><Terminal size={15}/>手动排查</summary><p>按顺序运行固定命令；只根据 JSON 中的检查、错误码和下一动作处理。</p><Command label="1. 环境检查" value={commands.preflight} kind="preflight" copied={copied} onCopy={copy}/><Command label="2. 生成计划" value={commands.plan} kind="plan" copied={copied} onCopy={copy}/>{progress&&<Command label="恢复初始化" value={commands.resume} kind="resume" copied={copied} onCopy={copy}/>} {commands.diagnostics&&<Command label="生成脱敏诊断" value={commands.diagnostics} kind="diagnostics" copied={copied} onCopy={copy}/>}</details>}
+
+    <footer className="modal-actions">
+      {!progress&&session.state==='waiting_for_computer'&&<Button variant="ghost" disabled={canceling} onClick={()=>void onCancel()}>{canceling?'取消中…':'取消初始化'}</Button>}
+      {(session.state==='waiting_for_computer'||session.state==='verifying')&&<Button variant="secondary" onClick={onClose}>后台等待</Button>}
       {session.state==='connected'&&<Button onClick={onClose}><Check size={16}/>完成</Button>}
-      {(session.state==='expired'||session.state==='canceled'||session.state==='failed')&&<><Button variant="ghost" onClick={onClose}>关闭</Button><Button disabled={retrying} onClick={()=>void onRetry()}>{retrying?'生成中…':'生成新连接'}</Button></>}
-    </footer>}
+      {(session.state==='expired'||session.state==='canceled'||session.state==='failed')&&<><Button variant="ghost" onClick={onClose}>关闭</Button><Button disabled={retrying} onClick={()=>void onRetry()}>{retrying?'创建中…':'重新初始化'}</Button></>}
+    </footer>
   </Modal>;
+}
+
+function Command({label,value,kind,copied,onCopy}:{label?:string;value:string;kind:CopyKind;copied?:CopyKind;onCopy:(value:string,kind:CopyKind)=>Promise<void>}) {
+  return <div className="bootstrap-command">{label&&<span>{label}</span>}<div className="command-box"><code>{value}</code><IconButton label={`复制${label||'命令'}`} onClick={()=>void onCopy(value,kind)}>{copied===kind?<Check size={17}/>:<Clipboard size={17}/>}</IconButton></div></div>;
 }
 
 function formatExpiry(value:string):string {

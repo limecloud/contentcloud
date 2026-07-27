@@ -12,6 +12,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/cli"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/store/memory"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestEndToEndScriptFlow(t *testing.T) {
@@ -26,13 +27,13 @@ func TestEndToEndScriptFlow(t *testing.T) {
 	must(t, err)
 	connect, err := service.CreateConnectSession(ctx, actor, project.ID, "req-2")
 	must(t, err)
-	connected, err := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "test-mac", Platform: "darwin", Arch: "arm64", Version: "test", Capabilities: capabilities()})
+	connected, err := testsupport.ConnectBootstrap(ctx, service, actor, connect, app.ConnectDeviceInput{Hostname: "test-mac", Platform: "darwin", Arch: "arm64", Version: "test", Capabilities: capabilities()})
 	must(t, err)
 	if connected.ProjectID != project.ID {
 		t.Fatal("device grant project mismatch")
 	}
-	if _, err := service.ConnectDevice(ctx, app.ConnectDeviceInput{ConnectKey: connect.PlaintextConnectKey, Hostname: "replay"}); err == nil {
-		t.Fatal("connect key replay must fail")
+	if _, err := testsupport.ConnectBootstrap(ctx, service, actor, connect, app.ConnectDeviceInput{Hostname: "replay"}); err == nil {
+		t.Fatal("consumed browser authorization session replay must fail")
 	}
 	evidence := createAcceptedEvidence(t, ctx, service, actor, project.ID, "Incense stick", nil)
 	knowledge, err := service.CreateKnowledge(ctx, actor, app.CreateKnowledgeInput{ProjectID: project.ID, Kind: "fact", Title: "Product truth", Statement: "This is an incense stick", RiskLevel: "low", AllowedChannels: []string{"douyin"}, Evidence: []domain.EvidenceRef{evidence}}, "req-3")

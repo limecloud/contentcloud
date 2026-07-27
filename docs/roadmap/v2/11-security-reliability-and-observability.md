@@ -32,7 +32,7 @@ flowchart LR
 
 | 威胁 | 示例 | 控制 |
 | --- | --- | --- |
-| Spoofing | 窃取连接码绑定恶意设备 | 一次性短期码、项目绑定、消费审计、设备撤销 |
+| Spoofing | 伪造初始化请求绑定恶意设备 | PKCE verifier、登录态浏览器核对短码、项目权限、授权审计、设备撤销 |
 | Tampering | 修改 Task Contract 或输出文件 | canonical hash、manifest、短期凭据、服务端再验证 |
 | Repudiation | 否认批准某版剧本 | OTP、subject hash、actor、时间和 append-only audit |
 | Information Disclosure | 跨客户读取资料或通知泄密 | tenant/project scope、最小快照、通知脱敏、对象许可 |

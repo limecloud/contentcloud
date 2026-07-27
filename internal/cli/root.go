@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"html"
 	"io"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +23,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/apiclient"
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/automationworkspace"
+	"github.com/limecloud/contentcloud/internal/bootstrapcheck"
 	"github.com/limecloud/contentcloud/internal/capabilitycatalog"
 	"github.com/limecloud/contentcloud/internal/codexplugin"
 	"github.com/limecloud/contentcloud/internal/domain"
@@ -33,20 +33,21 @@ import (
 	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
-const Version = "0.5.0"
+const Version = "0.6.0"
 
 type Root struct {
-	json                 bool
-	serverURL            string
-	projectID            string
-	stdout               io.Writer
-	stderr               io.Writer
-	mcpCWD               string
-	now                  func() time.Time
-	codexRunner          codexplugin.CommandRunner
-	connectDeviceHook    func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, error)
-	manifestVerifierHook func() (*environment.Verifier, error)
-	registryVerifierHook func() (*environment.RegistryVerifier, error)
+	json                   bool
+	serverURL              string
+	projectID              string
+	stdout                 io.Writer
+	stderr                 io.Writer
+	mcpCWD                 string
+	now                    func() time.Time
+	codexRunner            codexplugin.CommandRunner
+	bootstrapCheckHook     func(context.Context, bootstrapcheck.Options) bootstrapcheck.Report
+	bootstrapAuthorizeHook func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, *bootstrapProgressReporter, error)
+	manifestVerifierHook   func() (*environment.Verifier, error)
+	registryVerifierHook   func() (*environment.RegistryVerifier, error)
 }
 type success struct {
 	OK        bool           `json:"ok"`
@@ -78,7 +79,7 @@ func (r *Root) command() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&r.json, "json", false, "emit a stable JSON envelope on stdout")
 	cmd.PersistentFlags().StringVar(&r.serverURL, "server-url", "", "ContentCloud server URL")
 	cmd.PersistentFlags().StringVar(&r.projectID, "project", "", "explicit project ID")
-	cmd.AddCommand(r.authCommand(), r.doctor(), r.bootstrapCommand(), r.initCommand(), r.workspaceCommand(), r.localCommand(), r.mcpCommand(), r.publishCommand(), r.pullCommand(), r.submissionCommand(), r.up(), r.down(), r.updateCommand(), r.status(), r.contextCommand(), r.skillsCommand(), r.daemonCommand(), r.schemaCommand(), r.tenantCommand(), r.teamCommand(), r.fullProjectCommand(), r.deviceCommand(), r.sourceCommand(), r.assetCommand(), r.knowledgeCommand(), r.briefCommand(), r.runCommand(), r.scriptCommand(), r.artifactCommand(), r.reviewCommand(), r.resultCommand(), r.lineageCommand(), r.auditCommand(), r.requestCommand())
+	cmd.AddCommand(r.authCommand(), r.doctor(), r.bootstrapCommand(), r.workspaceCommand(), r.localCommand(), r.mcpCommand(), r.publishCommand(), r.pullCommand(), r.submissionCommand(), r.down(), r.updateCommand(), r.status(), r.contextCommand(), r.skillsCommand(), r.daemonCommand(), r.schemaCommand(), r.tenantCommand(), r.teamCommand(), r.fullProjectCommand(), r.deviceCommand(), r.sourceCommand(), r.assetCommand(), r.knowledgeCommand(), r.briefCommand(), r.runCommand(), r.scriptCommand(), r.artifactCommand(), r.reviewCommand(), r.resultCommand(), r.lineageCommand(), r.auditCommand(), r.requestCommand())
 	cmd.Version = Version
 	return cmd
 }
@@ -91,7 +92,11 @@ func (r *Root) doctor() *cobra.Command {
 			return err
 		}
 		server := r.resolveServer(cfg)
-		checks := map[string]any{"version": map[string]any{"ok": true, "value": Version}, "config": map[string]any{"ok": err == nil, "path": mustConfigPath()}, "credential_store": map[string]any{"ok": runtime.GOOS == "darwin", "provider": credentialProvider()}, "temp_directory": map[string]any{"ok": writableTemp()}, "capabilities": detectCapabilities()}
+		bootstrapReport := bootstrapcheck.Run(cmd.Context(), bootstrapcheck.Options{Directory: ".", ServerURL: server, Offline: offline})
+		if r.bootstrapCheckHook != nil {
+			bootstrapReport = r.bootstrapCheckHook(cmd.Context(), bootstrapcheck.Options{Directory: ".", ServerURL: server, Offline: offline})
+		}
+		checks := map[string]any{"version": map[string]any{"ok": true, "value": Version}, "config": map[string]any{"ok": err == nil, "path": mustConfigPath()}, "credential_store": map[string]any{"ok": runtime.GOOS == "darwin", "provider": credentialProvider()}, "temp_directory": map[string]any{"ok": writableTemp()}, "capabilities": detectCapabilities(), "bootstrap": bootstrapReport}
 		if offline {
 			checks["server"] = map[string]any{"ok": true, "skipped": true}
 		} else {
@@ -104,60 +109,6 @@ func (r *Root) doctor() *cobra.Command {
 	}}
 	cmd.Flags().BoolVar(&offline, "offline", false, "skip server reachability check")
 	return cmd
-}
-
-func (r *Root) up() *cobra.Command {
-	var key, name string
-	cmd := &cobra.Command{Use: "up", Short: "Connect this computer to an existing ContentCloud project", RunE: func(cmd *cobra.Command, args []string) error {
-		if key == "" {
-			return domain.Invalid("CONNECT_KEY_REQUIRED", "--connect-key 必填")
-		}
-		_, result, err := r.connectDevice(cmd.Context(), key, name)
-		if err != nil {
-			return err
-		}
-		if err := installUserDaemon(); err != nil {
-			return &domain.Error{Type: "runtime", Subtype: "service_manager", Code: "DAEMON_INSTALL_FAILED", Message: err.Error(), Hint: "凭据已安全保存；运行 contentcloud daemon run，或修复 LaunchAgent 后重新注册后台服务", ExitCode: 5}
-		}
-		return r.writeOK("up", map[string]any{"device": result.Device, "project_id": result.ProjectID, "state": "verifying", "daemon_registered": true, "credential_store": credentialProvider()})
-	}}
-	cmd.Flags().StringVar(&key, "connect-key", "", "one-time project connection key")
-	cmd.Flags().StringVar(&name, "name", "", "device display name")
-	return cmd
-}
-
-func (r *Root) connectDevice(ctx context.Context, key, name string) (localconfig.Config, app.ConnectDeviceResult, error) {
-	if r.connectDeviceHook != nil {
-		return r.connectDeviceHook(ctx, key, name)
-	}
-	cfg, err := localconfig.Load()
-	if err != nil {
-		return cfg, app.ConnectDeviceResult{}, err
-	}
-	server := r.resolveServer(cfg)
-	if _, err := url.ParseRequestURI(server); err != nil {
-		return cfg, app.ConnectDeviceResult{}, domain.Invalid("SERVER_URL_INVALID", "server URL 无效")
-	}
-	host, _ := os.Hostname()
-	var result app.ConnectDeviceResult
-	err = apiclient.New(server, "").Dispatch(ctx, "device.connect", app.ConnectDeviceInput{ConnectKey: key, DisplayName: name, Hostname: host, Platform: runtime.GOOS, Arch: runtime.GOARCH, Version: Version, Capabilities: builtinCapabilities()}, &result)
-	if err != nil {
-		return cfg, result, err
-	}
-	if err := localconfig.SaveDeviceToken(result.Device.ID, result.DeviceToken); err != nil {
-		return cfg, result, &domain.Error{Type: "credential", Subtype: "secure_store", Code: "CREDENTIAL_STORE_FAILED", Message: err.Error(), Hint: "修复系统安全凭据存储后生成新的连接码", ExitCode: 3}
-	}
-	if err := localconfig.SaveWorkspaceToken(result.WorkspaceID, result.WorkspaceToken); err != nil {
-		return cfg, result, &domain.Error{Type: "credential", Subtype: "secure_store", Code: "WORKSPACE_CREDENTIAL_STORE_FAILED", Message: err.Error(), Hint: "工作区凭据未能安全保存；请撤销当前连接后重新生成连接码", ExitCode: 3}
-	}
-	cfg.ServerURL = server
-	cfg.DeviceID = result.Device.ID
-	cfg.WorkspaceID = result.WorkspaceID
-	cfg.ProjectID = result.ProjectID
-	if err := localconfig.Save(cfg); err != nil {
-		return cfg, result, err
-	}
-	return cfg, result, nil
 }
 
 func (r *Root) down() *cobra.Command {
@@ -799,8 +750,7 @@ func commandSchemas() map[string]any {
 	}
 	return map[string]any{
 		"doctor": read([]string{"--offline"}, "diagnostic checks"), "status": read(nil, "local runtime status"), "update": read(nil, "verified installer guidance"),
-		"bootstrap.plan": schemaEntry("read", "connect-key", []string{"directory", "--connect"}, "read-only pinned Codex Plugin and Workspace plan"), "bootstrap.apply": write("connect-key", []string{"directory", "--connect", "--plan-id", "--accept", "--open-codex"}, "installed plugin, registered Workspace, and new-chat handoff"), "bootstrap.resume": write("workspace", []string{"directory", "--accept", "--open-codex"}, "revalidated and registered existing bootstrap Workspace"),
-		"init":             write("connect-key", []string{"directory", "--connect", "--target", "--accept-project-config", "--dry-run"}, "initialized local-first workspace"),
+		"bootstrap.preflight": read([]string{"directory", "--offline"}, "stable prerequisite check IDs and managed next actions"), "bootstrap.plan": schemaEntry("read", "browser-device", []string{"directory", "--session"}, "read-only pinned Codex Plugin and Workspace plan"), "bootstrap.apply": write("browser-device", []string{"directory", "--session", "--plan-id", "--accept", "--open-codex"}, "authorized plugin, registered Workspace, and new-chat handoff"), "bootstrap.resume": write("workspace", []string{"directory", "--accept", "--open-codex"}, "revalidated and registered existing bootstrap Workspace"), "bootstrap.diagnostics": schemaEntry("read", "workspace-for-upload", []string{"directory", "--attempt", "--upload", "--accept-upload"}, "redacted diagnostic preview or confirmed upload"),
 		"workspace.status": read([]string{"directory"}, "local workspace binding, template, and synchronization state"), "workspace.doctor": read([]string{"directory", "--offline"}, "workspace, Skill, MCP, and cloud checks"), "workspace.execution-plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "verified offline LocalExecutionPlan and exact Pack preparation"), "workspace.prepare.plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "signed Pack permissions, data flow, cost, and new-chat impact"), "workspace.prepare.apply": write("none", []string{"--directory", "--run", "--intent", "--capability", "--input", "--preparation-id", "--accept"}, "installed task Packs, verified environment lock, doctor, and new-chat handoff"), "workspace.conversation-context": read([]string{"directory", "--offline"}, "offline cross-conversation workspace context"), "workspace.approved.list": read([]string{"--directory", "--type"}, "verified local ApprovedSnapshot summaries"), "workspace.approved.show": read([]string{"snapshot-id", "--directory"}, "verified local ApprovedSnapshot"),
 		"local.source.register": write("none", []string{"file", "--directory", "--id", "--title", "--kind", "--storage"}, "immutable local source record"), "local.source.list": read([]string{"--directory"}, "local source registry"), "local.source.show": read([]string{"source-id", "--directory"}, "local source record"), "local.source.ingest": write("none", []string{"source-id", "--directory"}, "local evidence bundle"), "local.source.verify": read([]string{"--directory"}, "source integrity report"),
 		"local.run.init": write("none", []string{"--directory", "--id", "--intent", "--source-ref", "--with-ingest"}, "LocalRunContext"), "local.run.show": read([]string{"run-id", "--directory"}, "LocalRunContext"), "local.run.record": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--source-ref", "--changed-id", "--eligible-id", "--blocked-id", "--finding", "--output-path"}, "updated LocalRunContext"), "local.run.check": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--name", "--status", "--command", "--detail"}, "recorded local check"), "local.run.advance": write("none", []string{"stage", "--directory", "--run", "--claim-token", "--revision", "--eligible-id", "--blocked-id", "--output-path"}, "advanced LocalRunContext"), "local.run.resume": write("none", []string{"--directory", "--run", "--claim-token", "--revision"}, "resumed LocalRunContext"), "local.run.fail": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--finding"}, "failed LocalRunContext"), "local.run.validate": read([]string{"--directory"}, "LocalRun validation report"),
@@ -820,8 +770,8 @@ func commandSchemas() map[string]any {
 		"pull.feedback":       workspaceRead([]string{"--dry-run"}, "review feedback bundles in local inbox"), "pull.decisions": workspaceRead([]string{"--dry-run"}, "decision delta in local inbox"), "pull.approved": workspaceRead([]string{"--type", "--id", "--dry-run"}, "read-only ApprovedSnapshot cache"),
 		"submission.list": workspaceRead(nil, "workspace submission list"), "submission.show": workspaceRead([]string{"submission-id"}, "submission with immutable revisions"), "submission.status": workspaceRead([]string{"submission-id"}, "submission governance status"), "submission.approve": high([]string{"revision-id", "--reason"}, "immutable ApprovedSnapshot"),
 		"submission.request_changes": high([]string{"revision-id", "--reason", "--json-pointer"}, "immutable change request and review feedback"),
-		"up":                         write("connect-key", []string{"--server-url", "--connect-key", "--name"}, "connected device summary"), "down": high(nil, "revoked device and cleared local binding"),
-		"auth.login": write("none", []string{"--no-wait", "--device-code"}, "device login state"), "auth.status": read(nil, "user session state"), "auth.logout": write("user", nil, "revoked user session"),
+		"down":                       high(nil, "revoked device and cleared local binding"),
+		"auth.login":                 write("none", []string{"--no-wait", "--device-code"}, "device login state"), "auth.status": read(nil, "user session state"), "auth.logout": write("user", nil, "revoked user session"),
 		"context.show": read(nil, "resolved project ID"), "context.use": write("none", []string{"project-id"}, "local context path"), "context.clear": write("none", nil, "cleared local context"),
 		"tenant.list": userRead(nil, "tenant list"), "tenant.switch": write("user", []string{"tenant-id", "--dry-run"}, "rotated tenant credential"),
 		"membership.list": userRead(nil, "tenant member list"), "membership.invite.list": userRead(nil, "tenant invitation list"), "membership.invite.create": write("user", []string{"email", "--role", "--dry-run"}, "one-time tenant invitation"), "membership.invite.accept": write("user", []string{"invite-token", "--dry-run"}, "accepted membership"), "membership.invite.revoke": high([]string{"invite-id"}, "revoked tenant invitation"), "membership.update": write("user", []string{"user-id", "role", "--dry-run"}, "updated fixed membership role"), "membership.revoke": high([]string{"user-id"}, "revoked membership and tenant sessions"),

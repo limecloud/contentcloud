@@ -109,16 +109,15 @@ type ProjectTemplate struct {
 }
 
 type ConnectSession struct {
-	ID                  string     `json:"id"`
-	TenantID            string     `json:"tenant_id"`
-	ProjectID           string     `json:"project_id"`
-	InviterUserID       string     `json:"inviter_user_id"`
-	ConnectKeyHash      string     `json:"-"`
-	State               string     `json:"state"`
-	ExpiresAt           time.Time  `json:"expires_at"`
-	ConsumedAt          *time.Time `json:"consumed_at,omitempty"`
-	ConsumedDeviceID    string     `json:"consumed_device_id,omitempty"`
-	PlaintextConnectKey string     `json:"connect_key,omitempty"`
+	ID               string             `json:"id"`
+	TenantID         string             `json:"tenant_id"`
+	ProjectID        string             `json:"project_id"`
+	InviterUserID    string             `json:"inviter_user_id"`
+	State            string             `json:"state"`
+	ExpiresAt        time.Time          `json:"expires_at"`
+	ConsumedAt       *time.Time         `json:"consumed_at,omitempty"`
+	ConsumedDeviceID string             `json:"consumed_device_id,omitempty"`
+	Progress         *BootstrapProgress `json:"progress,omitempty"`
 }
 
 type Capability struct {

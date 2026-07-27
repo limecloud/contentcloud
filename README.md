@@ -46,7 +46,7 @@ CLI 示例：
 ```bash
 ./bin/contentcloud --json doctor --offline
 ./bin/contentcloud --json schema
-./bin/contentcloud init --connect cck_xxx --target all --accept-project-config ./contentcloud-project
+./bin/contentcloud bootstrap preflight ./contentcloud-project --offline --json
 ./bin/contentcloud workspace doctor ./contentcloud-project
 ./bin/contentcloud publish script --dry-run
 ./bin/contentcloud submission list
@@ -97,34 +97,41 @@ CONTENTCLOUD_REQUIRE_MALWARE_SCAN=1 ./bin/contentcloud-worker
 ## 首次项目连接
 
 1. 用户在 Web 创建项目。
-2. 项目总览生成 10 分钟有效、单次使用的 `cck_`，并拼成不含登录态的 Agent Prompt：
+2. 项目总览创建 10 分钟有效的公开 ConnectSession ID，并拼成不含凭据的 Agent Prompt：
 
 ```text
-Fetch https://content.example.com/api/bootstrap and follow it to connect this ContentCloud project to Codex.
+Fetch https://content.example.com/api/bootstrap and follow it to initialize this ContentCloud project in Codex.
 
 server-url: https://content.example.com
-connect-key: cck_xxx
+session-id: 11111111-1111-4111-8111-111111111111
 contentcloud-cli: npx --yes @limecloud/contentcloud@<pinned-version>
 project: "品牌 / 单品"
 ```
 
-3. 用户把 Prompt 粘贴到 Codex 安装会话。Agent 获取公开的 `/api/bootstrap` 协议并执行只读 `bootstrap plan`。
+3. 用户把 Prompt 粘贴到 Codex 安装会话。Agent 获取公开的 `/api/bootstrap` 协议，先执行只读 `bootstrap preflight`，通过后再执行 `bootstrap plan`。
 4. CLI 返回固定 Marketplace、Plugin、目标目录变化和确定性 `plan_id`；用户确认该计划后，Agent 才能把同一个 `plan_id` 传给 `bootstrap apply`。
-5. CLI 安装并验证固定 Plugin，然后消费连接码、初始化 `codex-plugin` Workspace、执行 offline doctor；只有 `workspace.register` 成功后 Web 才显示 `connected`。
-6. 新安装的 bundled Skills/MCP 在新的 Codex chat/session 生效。CLI 用不含连接码的 Plugin mention 和恢复 Prompt 打开 Workspace 新对话。
-7. npm 安装器校验 GitHub Release 的 `checksums.txt`，原子安装 Go binary；Workspace/Device Credential 写入 macOS Keychain。
-8. 初始化默认不注册 LaunchAgent、不启动 Daemon、不上传文件，也不写项目级 `.codex/config.toml` 或重复的 `.agents/skills`。
+5. CLI 在本机生成 PKCE verifier/challenge 并打开浏览器。用户在已登录的 ContentCloud 页面核对短码并批准后，CLI 才能换取设备和 Workspace 凭据。
+6. CLI 安装并验证固定 Plugin、初始化 `codex-plugin` Workspace、执行 doctor；只有 `workspace.register` 成功后 Web 才显示 `connected`。
+7. 新安装的 bundled Skills/MCP 在新的 Codex chat/session 生效。CLI 用不含凭据的 Plugin mention 和恢复 Prompt 打开 Workspace 新对话。
+8. npm 安装器校验 GitHub Release 的 `checksums.txt`，原子安装 Go binary；Workspace/Device Credential 写入 macOS Keychain。
+9. 初始化默认不注册 LaunchAgent、不启动 Daemon、不上传文件，也不写项目级 `.codex/config.toml` 或重复的 `.agents/skills`。
 
-无法使用 Prompt 流程时，在空目录使用 Web 提供的固定 `contentcloud-cli`，不能替换为 `@latest`。先运行只读计划：
+无法使用 Prompt 流程时，在空目录使用 Web 提供的固定 `contentcloud-cli`，不能替换为 `@latest`。先运行环境检查：
 
 ```bash
-<contentcloud-cli> bootstrap plan . --server-url https://content.example.com --connect cck_xxx --json
+<contentcloud-cli> bootstrap preflight . --server-url https://content.example.com --json
+```
+
+再使用 Web 显示的公开 ConnectSession ID 生成计划：
+
+```bash
+<contentcloud-cli> bootstrap plan . --server-url https://content.example.com --session 11111111-1111-4111-8111-111111111111 --json
 ```
 
 检查返回的 `plan_id` 后再确认执行：
 
 ```bash
-<contentcloud-cli> bootstrap apply . --server-url https://content.example.com --connect cck_xxx --plan-id bp_xxx --accept --json
+<contentcloud-cli> bootstrap apply . --server-url https://content.example.com --session 11111111-1111-4111-8111-111111111111 --plan-id bp_xxx --accept --json
 ```
 
 用户 CLI 登录与设备连接凭据分离：`contentcloud auth login --no-wait --json` 发起浏览器确认，之后用 `--device-code` 完成并把 `ct_` 写入 Keychain。
