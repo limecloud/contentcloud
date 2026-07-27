@@ -30,7 +30,7 @@ func TestPlanRejectsNonEmptyUnknownDirectory(t *testing.T) {
 func TestInitializeCreatesLocalFirstWorkspace(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	now := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)
-	status, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", DeviceID: "device-1", ServerURL: "https://content.example/", CLIVersion: "test", Target: "all", Now: now})
+	status, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", DeviceID: "device-1", ServerURL: "https://content.example/", CLIVersion: "test", Target: "codex-plugin", Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,27 +38,22 @@ func TestInitializeCreatesLocalFirstWorkspace(t *testing.T) {
 		t.Fatalf("unexpected status: %+v", status)
 	}
 	for _, path := range []string{
-		".contentcloud/project.yaml",
+		".contentcloud/workspace.yaml",
 		".contentcloud/template.lock",
 		".contentcloud/sync-state.json",
-		".contentcloud/skills/contentcloud-knowledge-extraction/SKILL.md",
-		".agents/skills/contentcloud-marketing-video-script/SKILL.md",
-		".claude/skills/contentcloud-marketing-video-script/SKILL.md",
-		".codex/config.toml",
-		".mcp.json",
-		"raw/.gitignore",
-		"raw/source-registry.yaml",
-		"schemas/knowledge-candidates-1.0.schema.json",
-		"schemas/brief-2.0.schema.json",
-		"schemas/creative-directions-2.0.schema.json",
-		"schemas/script-package-2.0.schema.json",
+		"10-context/methodology.yaml",
+		"20-sources/registry.yaml",
+		"30-knowledge/schema/knowledge-page-3.0.schema.json",
+		"30-knowledge/schema/local-run-3.0.schema.json",
+		"40-work/focus.md",
+		"workflows/knowledge-to-content.md",
 	} {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); err != nil {
 			t.Fatalf("expected %s: %v", path, err)
 		}
 	}
-	if info, err := os.Stat(filepath.Join(root, "outputs", "delivery")); err != nil || !info.IsDir() {
-		t.Fatalf("expected outputs/delivery directory: %v", err)
+	if info, err := os.Stat(filepath.Join(root, "60-delivery", "packages")); err != nil || !info.IsDir() {
+		t.Fatalf("expected 60-delivery/packages directory: %v", err)
 	}
 	report, err := Doctor(root)
 	if err != nil {
@@ -92,17 +87,15 @@ func TestInitializeCodexPluginUsesPluginDeliveryWithoutProjectDuplicates(t *test
 		t.Fatalf("unexpected targets: %v", status.Template.Targets)
 	}
 	for _, path := range []string{
-		".contentcloud/skills/contentcloud-workspace/SKILL.md",
-		".contentcloud/skills/contentcloud-knowledge-extraction/SKILL.md",
-		".contentcloud/skills/contentcloud-marketing-video-script/SKILL.md",
 		".contentcloud/mcp/contentcloud-local.json",
+		".contentcloud/workspace.yaml",
 		"AGENTS.md",
 	} {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); err != nil {
 			t.Fatalf("expected %s: %v", path, err)
 		}
 	}
-	for _, path := range []string{".agents", ".codex", ".mcp.json", ".claude"} {
+	for _, path := range []string{".agents", ".codex", ".contentcloud/skills", ".mcp.json", ".claude"} {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); !os.IsNotExist(err) {
 			t.Fatalf("plugin delivery must not create %s: %v", path, err)
 		}
@@ -170,15 +163,15 @@ func TestStatusDetectsManagedFileChangesFromNestedDirectory(t *testing.T) {
 	if _, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", ServerURL: "http://localhost:8080", CLIVersion: "test", Target: "codex"}); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(root, "ontology", "classes.yaml")
+	path := filepath.Join(root, "30-knowledge", "schema", "knowledge-page-3.0.schema.json")
 	if err := os.WriteFile(path, []byte("changed\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	status, err := LoadStatus(filepath.Join(root, "knowledge", "facts"))
+	status, err := LoadStatus(filepath.Join(root, "30-knowledge", "pages", "facts"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(status.ModifiedManagedFiles) != 1 || status.ModifiedManagedFiles[0] != "ontology/classes.yaml" {
+	if len(status.ModifiedManagedFiles) != 1 || status.ModifiedManagedFiles[0] != "30-knowledge/schema/knowledge-page-3.0.schema.json" {
 		t.Fatalf("unexpected modified files: %v", status.ModifiedManagedFiles)
 	}
 	report, err := Doctor(root)

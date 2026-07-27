@@ -459,15 +459,20 @@ func (r *Root) codexPluginAdapter() (*codexplugin.Adapter, error) {
 }
 
 func initializeCodexPluginWorkspace(root, server string, connected app.ConnectDeviceResult, now time.Time) (localworkspace.Status, error) {
+	environmentDigest := ""
+	if connected.EnvironmentManifest != nil {
+		environmentDigest = connected.EnvironmentManifest.Digest
+	}
 	return localworkspace.Initialize(localworkspace.InitOptions{
-		Root:        root,
-		WorkspaceID: connected.WorkspaceID,
-		ProjectID:   connected.ProjectID,
-		DeviceID:    connected.Device.ID,
-		ServerURL:   server,
-		CLIVersion:  Version,
-		Target:      "codex-plugin",
-		Now:         now,
+		Root:              root,
+		WorkspaceID:       connected.WorkspaceID,
+		ProjectID:         connected.ProjectID,
+		DeviceID:          connected.Device.ID,
+		ServerURL:         server,
+		CLIVersion:        Version,
+		Target:            "codex-plugin",
+		EnvironmentDigest: environmentDigest,
+		Now:               now,
 	})
 }
 

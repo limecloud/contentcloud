@@ -26,20 +26,6 @@ var builtins = []definition{
 		OutputSchema:         domain.KnowledgeCandidatesSchema,
 		PresentationProfiles: []string{"cloud_native"},
 	},
-	{
-		ID:                   domain.ScriptCapability,
-		Version:              "1.1.0",
-		InputSchema:          domain.TaskContractSchema,
-		OutputSchema:         domain.ScriptPackageSchema,
-		PresentationProfiles: []string{"review_projection/1.0", "text"},
-	},
-	{
-		ID:                   domain.ArtifactExportCapability,
-		Version:              "1.0.0",
-		InputSchema:          domain.ScriptPackageSchema,
-		OutputSchema:         "extension-artifact-envelope/1.0",
-		PresentationProfiles: []string{"local_open"},
-	},
 }
 
 // Builtins returns the exact local capabilities for one immutable ContentCloud release.

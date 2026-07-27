@@ -1,19 +1,19 @@
 package httpapi_test
 
 import (
-	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/httpapi"
-	"github.com/limecloud/contentcloud/internal/localworkspace"
 	"github.com/limecloud/contentcloud/internal/store/memory"
 	"github.com/limecloud/contentcloud/internal/testsupport"
 )
@@ -32,7 +32,7 @@ func TestSubmissionBFFReviewDoesNotEditRevisionContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspaceActor, binding, _ := service.WorkspaceActor(t.Context(), connected.WorkspaceToken)
-	bundle := domain.SubmissionBundle{BundleVersion: "1.0", SchemaVersion: "contentcloud.knowledge/2.0", SubmissionType: "knowledge", ProjectID: project.ID, WorkspaceID: binding.ID, Objects: json.RawMessage(`[{"id":"fact-1","kind":"fact","status":"verified"}]`), SourceDisclosures: []domain.SourceDisclosure{}, Artifacts: []domain.SubmissionArtifact{}, LocalRunSummary: domain.LocalRunSummary{Checks: []domain.LocalRunCheck{}}, IdempotencyKey: "bff-v1"}
+	bundle := domain.SubmissionBundle{BundleVersion: "3.0", SubmissionType: "knowledge", ProjectID: project.ID, WorkspaceID: binding.ID, BaseSnapshotIDs: []string{}, EnvironmentDigest: httpSubmissionEnvironmentDigest, Objects: []domain.SubmissionObjectRef{mustHTTPSubmissionObject(t, "fact-1", "Fact", "30-knowledge/pages/facts/fact-1.json", map[string]any{"id": "fact-1", "kind": "fact", "status": "verified"})}, SourceDisclosures: []domain.SourceDisclosure{}, Artifacts: []domain.SubmissionArtifact{}, LocalRunSummary: domain.LocalRunSummary{Checks: []domain.LocalRunCheck{}}, IdempotencyKey: "bff-v1"}
 	if err := bundle.SetComputedHash(); err != nil {
 		t.Fatal(err)
 	}
@@ -53,20 +53,59 @@ func TestSubmissionBFFReviewDoesNotEditRevisionContent(t *testing.T) {
 		t.Fatalf("unexpected submission list: %#v", listed)
 	}
 	details := callBFF[app.SubmissionDetails](t, client, http.MethodGet, server.URL+"/api/bff/submissions/"+listed[0].ID, nil)
-	if len(details.Revisions) != 1 || string(details.Revisions[0].Objects) != string(revision.Objects) {
+	if len(details.Revisions) != 1 || !reflect.DeepEqual(details.Revisions[0].Objects, revision.Objects) {
 		t.Fatalf("unexpected submission details: %#v", details)
+	}
+	focused := callBFF[app.SubmissionRevisionView](t, client, http.MethodGet, server.URL+"/api/bff/projects/"+project.ID+"/submission-revisions/"+revision.ID, nil)
+	if focused.Submission.ID != listed[0].ID || focused.Revision.ID != revision.ID || focused.Revision.ContentHash != revision.ContentHash || len(focused.Comments) != 0 {
+		t.Fatalf("unexpected focused revision: %#v", focused)
+	}
+	otherProject, err := service.CreateProject(t.Context(), actor, app.CreateProjectInput{BrandName: "Other", ProductName: "Product"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Get(server.URL + "/api/bff/projects/" + otherProject.ID + "/submission-revisions/" + revision.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-project revision lookup must be hidden: status=%d", response.StatusCode)
+	}
+	foreignSession, err := service.Register(t.Context(), "foreign-submission@example.com", "long-enough-password", "Foreign", "Foreign Tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignJar, _ := cookiejar.New(nil)
+	foreignJar.SetCookies(baseURL, []*http.Cookie{{Name: "cc_session", Value: foreignSession.ID, Path: "/"}})
+	foreignResponse, err := (&http.Client{Jar: foreignJar}).Get(server.URL + "/api/bff/projects/" + project.ID + "/submission-revisions/" + revision.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignBody, readErr := io.ReadAll(foreignResponse.Body)
+	foreignResponse.Body.Close()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if foreignResponse.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-tenant revision lookup must be hidden: status=%d", foreignResponse.StatusCode)
+	}
+	for _, privateValue := range []string{project.ID, revision.ID, project.BrandName, project.ProductName} {
+		if strings.Contains(string(foreignBody), privateValue) {
+			t.Fatalf("cross-tenant response leaked %q: %s", privateValue, foreignBody)
+		}
 	}
 	returned := callBFF[domain.Submission](t, client, http.MethodPost, server.URL+"/api/bff/submission-revisions/"+revision.ID+"/request-changes", map[string]string{"reason": "补充范围", "json_pointer": "/0/scope"})
 	if returned.Status != "changes_requested" {
 		t.Fatalf("unexpected returned state: %#v", returned)
 	}
 	persisted, err := service.SubmissionDetails(t.Context(), actor, returned.ID)
-	if err != nil || string(persisted.Revisions[0].Objects) != string(revision.Objects) || len(persisted.Comments) != 1 {
+	if err != nil || !reflect.DeepEqual(persisted.Revisions[0].Objects, revision.Objects) || len(persisted.Comments) != 1 {
 		t.Fatalf("BFF review mutated content or lost comment: %#v %v", persisted, err)
 	}
 }
 
-func TestV2SubmissionBFFCompletesClientDeliveryAndResultChain(t *testing.T) {
+func TestV3ContentBatchBFFCompletesClientApprovalChain(t *testing.T) {
 	ctx := t.Context()
 	service := app.New(memory.New(), slog.Default())
 	session, err := service.Register(ctx, "v2-bff@example.com", "long-enough-password", "Owner", "Agency")
@@ -93,12 +132,19 @@ func TestV2SubmissionBFFCompletesClientDeliveryAndResultChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg := localworkspace.ScriptPackageV2{ID: "script-bff", Kind: "script_package", Status: "review_ready", SchemaVersion: "2.0", Deliverability: "review_ready", ProjectID: project.ID, ScriptID: "script-bff", Title: "BFF approved script", Channel: "douyin", DurationMS: 15000, AspectRatio: "9:16", Shots: []localworkspace.ScriptShotV2{}, Citations: []localworkspace.ScriptCitationV2{}, AssetRequirements: []localworkspace.ScriptAssetRequirement{}, BlockedReasons: []localworkspace.ScriptBlockedReason{}, MissingInputs: []string{}}
-	objects, err := json.Marshal([]localworkspace.ScriptPackageV2{pkg})
-	if err != nil {
-		t.Fatal(err)
+	contentBatch := map[string]any{
+		"schema_version":          "contentcloud.content-batch/3.0",
+		"id":                      "content-batch:bff:v1",
+		"intent_id":               "intent:bff",
+		"brief_ref":               "brief:bff:v1",
+		"knowledge_snapshot_refs": []string{"snapshot:knowledge:v1"},
+		"status":                  "review_ready",
+		"publishable":             true,
+		"content_item_refs":       []string{"content-item:bff:v1"},
+		"blocked_reasons":         []string{},
+		"checks":                  []map[string]string{{"name": "schema", "status": "passed"}, {"name": "knowledge_eligibility", "status": "passed"}},
 	}
-	bundle := domain.SubmissionBundle{BundleVersion: "1.0", SchemaVersion: localworkspace.ScriptPackageV2Schema, SubmissionType: "script", ProjectID: project.ID, WorkspaceID: binding.ID, Objects: objects, SourceDisclosures: []domain.SourceDisclosure{}, Artifacts: []domain.SubmissionArtifact{}, LocalRunSummary: domain.LocalRunSummary{Checks: []domain.LocalRunCheck{{Name: "script-lint", Status: "passed"}}}, IdempotencyKey: "bff-script"}
+	bundle := domain.SubmissionBundle{BundleVersion: "3.0", SubmissionType: "content_batch", ProjectID: project.ID, WorkspaceID: binding.ID, BaseSnapshotIDs: []string{}, EnvironmentDigest: httpSubmissionEnvironmentDigest, Objects: []domain.SubmissionObjectRef{mustHTTPSubmissionObject(t, "content-batch:bff:v1", "content_batch", "50-production/batches/bff/manifest.yaml", contentBatch)}, SourceDisclosures: []domain.SourceDisclosure{}, Artifacts: []domain.SubmissionArtifact{}, LocalRunSummary: domain.LocalRunSummary{Checks: []domain.LocalRunCheck{{Name: "content-batch-lint", Status: "passed"}}}, IdempotencyKey: "bff-content-batch-v3"}
 	if err := bundle.SetComputedHash(); err != nil {
 		t.Fatal(err)
 	}
@@ -132,34 +178,33 @@ func TestV2SubmissionBFFCompletesClientDeliveryAndResultChain(t *testing.T) {
 	}
 	verified := callBFF[app.ReviewProjection](t, client, http.MethodPost, server.URL+"/api/review/"+grant.PlaintextToken+"/verify", map[string]string{"otp": grant.PlaintextOTP})
 	if !verified.Verified || verified.Submission == nil || verified.Submission.SubmissionRevisionID != revision.ID || verified.Submission.SubjectHash != revision.ContentHash {
-		t.Fatalf("verified V2 projection is incomplete: %#v", verified)
+		t.Fatalf("verified V3 projection is incomplete: %#v", verified)
 	}
 	decision := callBFF[app.ReviewDecisionResult](t, client, http.MethodPost, server.URL+"/api/review/"+grant.PlaintextToken+"/decision", map[string]string{"decision": "approve", "reason": "client approved"})
 	if decision.ApprovedSnapshot == nil || decision.Status != "approved" {
 		t.Fatalf("client decision did not create an ApprovedSnapshot: %#v", decision)
 	}
 	snapshot := *decision.ApprovedSnapshot
-	if snapshot.SubmissionRevisionID != revision.ID || snapshot.ContentHash != revision.ContentHash || snapshot.Origin != "current" {
+	if snapshot.SubmissionRevisionID != revision.ID || snapshot.ContentHash != revision.ContentHash {
 		t.Fatalf("snapshot lost revision lineage: %#v", snapshot)
 	}
-	listed := callBFF[[]domain.ApprovedSnapshot](t, client, http.MethodGet, server.URL+"/api/bff/projects/"+project.ID+"/approved-snapshots?type=script", nil)
+	listed := callBFF[[]domain.ApprovedSnapshot](t, client, http.MethodGet, server.URL+"/api/bff/projects/"+project.ID+"/approved-snapshots?type=content_batch", nil)
 	if len(listed) != 1 || listed[0].ID != snapshot.ID {
 		t.Fatalf("snapshot list mismatch: %#v", listed)
 	}
-	artifact := callBFF[domain.Artifact](t, client, http.MethodPost, server.URL+"/api/bff/approved-snapshots/"+snapshot.ID+"/exports", map[string]string{"format": "json"})
-	if artifact.ApprovedSnapshotID != snapshot.ID || artifact.Metadata["revision_hash"] != revision.ContentHash {
-		t.Fatalf("snapshot export lineage is incomplete: %#v", artifact)
+	projection := callBFF[domain.ProjectProjection](t, client, http.MethodGet, server.URL+"/api/bff/projects/"+project.ID+"/projection", nil)
+	if projection.Sections["creative"].Status != "ready" || len(projection.Snapshots) != 1 || projection.Snapshots[0].ID != snapshot.ID {
+		t.Fatalf("project projection did not consume the approved snapshot: %#v", projection)
 	}
-	delivery := callBFF[domain.DeliveryPackage](t, client, http.MethodPost, server.URL+"/api/bff/approved-snapshots/"+snapshot.ID+"/delivery-packages", map[string]any{})
-	if len(delivery.Manifest) != 3 || len(delivery.ApprovedSnapshotIDs) != 1 || delivery.ApprovedSnapshotIDs[0] != snapshot.ID {
-		t.Fatalf("delivery package is incomplete: %#v", delivery)
+}
+
+const httpSubmissionEnvironmentDigest = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+
+func mustHTTPSubmissionObject(t *testing.T, id, objectType, path string, content any) domain.SubmissionObjectRef {
+	t.Helper()
+	value, err := domain.NewSubmissionObjectRef(id, objectType, 1, path, content)
+	if err != nil {
+		t.Fatal(err)
 	}
-	deliveries := callBFF[[]domain.DeliveryPackage](t, client, http.MethodGet, server.URL+"/api/bff/projects/"+project.ID+"/delivery-packages", nil)
-	if len(deliveries) != 1 || len(deliveries[0].Manifest) != 3 {
-		t.Fatalf("delivery list mismatch: %#v", deliveries)
-	}
-	performance := callBFF[app.ImportPerformanceResult](t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/results", app.CreateObservationInput{ApprovedSnapshotID: snapshot.ID, Platform: "douyin", AccountAlias: "brand-main", PublishedAt: time.Now().UTC().Add(-24 * time.Hour), WindowHours: 24, SampleStatus: "seed_candidate", Metrics: map[string]float64{"impressions": 1000}, Currency: "CNY", Spend: 100, GMV: 300, IssueCategory: "creative"})
-	if len(performance.Observations) != 1 || performance.Observations[0].ApprovedSnapshotID != snapshot.ID || performance.Observations[0].ScriptVersionID != "" {
-		t.Fatalf("performance observation did not bind the snapshot: %#v", performance)
-	}
+	return value
 }

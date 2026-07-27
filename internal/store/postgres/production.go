@@ -12,74 +12,9 @@ import (
 	storecontract "github.com/limecloud/contentcloud/internal/store"
 )
 
-func (s *Store) CreateBrief(ctx context.Context, v domain.BriefVersion) error {
-	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO brief_versions(id,tenant_id,project_id,version,status,payload,content_hash,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, v.ID, v.TenantID, v.ProjectID, v.Version, v.Status, jsonValue(v), v.ContentHash, v.CreatedAt)
-		return dbError(err)
-	})
-}
-
-func scanBrief(row pgx.Row) (domain.BriefVersion, error) {
-	var body []byte
-	var status, contentHash string
-	err := row.Scan(&body, &status, &contentHash)
-	if err != nil {
-		return domain.BriefVersion{}, err
-	}
-	v, err := decodeJSON[domain.BriefVersion](body)
-	v.Status, v.ContentHash = status, contentHash
-	return v, err
-}
-
-func (s *Store) Briefs(ctx context.Context, tenantID, projectID string) ([]domain.BriefVersion, error) {
-	out := []domain.BriefVersion{}
-	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT payload,status,content_hash FROM brief_versions WHERE tenant_id=$1 AND project_id=$2 ORDER BY version DESC`, tenantID, projectID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			v, err := scanBrief(rows)
-			if err != nil {
-				return err
-			}
-			out = append(out, v)
-		}
-		return rows.Err()
-	})
-	return out, err
-}
-
-func (s *Store) Brief(ctx context.Context, tenantID, id string) (domain.BriefVersion, error) {
-	var result domain.BriefVersion
-	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		v, err := scanBrief(tx.QueryRow(ctx, `SELECT payload,status,content_hash FROM brief_versions WHERE tenant_id=$1 AND id=$2`, tenantID, id))
-		result = v
-		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("Brief")
-		}
-		return err
-	})
-	return result, err
-}
-
-func (s *Store) SaveBrief(ctx context.Context, v domain.BriefVersion) error {
-	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE brief_versions SET status=$3,payload=$4,content_hash=$5 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.Status, jsonValue(v), v.ContentHash)
-		if err != nil {
-			return dbError(err)
-		}
-		if result.RowsAffected() == 0 {
-			return domain.NotFound("Brief")
-		}
-		return nil
-	})
-}
-
 func (s *Store) CreateSnapshot(ctx context.Context, v domain.ContextSnapshot) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO context_snapshots(id,tenant_id,project_id,brief_version_id,builder_version,schema_version,payload,manifest_hash,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, v.ID, v.TenantID, v.ProjectID, nullable(v.BriefVersionID), v.BuilderVersion, v.SchemaVersion, jsonValue(v), v.ManifestHash, v.CreatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO context_snapshots(id,tenant_id,project_id,builder_version,schema_version,payload,manifest_hash,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, v.ID, v.TenantID, v.ProjectID, v.BuilderVersion, v.SchemaVersion, jsonValue(v), v.ManifestHash, v.CreatedAt)
 		return dbError(err)
 	})
 }
@@ -121,7 +56,7 @@ func (s *Store) CreateRunWithBundle(ctx context.Context, v domain.TaskRun, bundl
 }
 
 func insertRun(ctx context.Context, tx pgx.Tx, v domain.TaskRun) error {
-	_, err := tx.Exec(ctx, `INSERT INTO task_runs(id,tenant_id,project_id,brief_version_id,input_snapshot_id,idempotency_key,task_type,capability_id,capability_version,input_schema,output_schema,output_count,delivery_profiles,script_id,baseline_script_version_id,change_type,invariant_fields,expected_changed_fields,hypothesis,revision_reason,state,priority,attempt_count,active_attempt_id,lease_device_id,lease_expires_at,run_token_hash,progress_label,error_code,cancel_requested_at,report_hash,heartbeat_sequence,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)`, v.ID, v.TenantID, v.ProjectID, nullable(v.BriefVersionID), v.InputSnapshotID, v.IdempotencyKey, v.TaskType, v.CapabilityID, v.CapabilityVersion, v.InputSchema, v.OutputSchema, v.OutputCount, jsonValue(v.DeliveryProfiles), nullable(v.ScriptID), nullable(v.BaselineVersionID), v.ChangeType, jsonValue(v.InvariantFields), jsonValue(v.ExpectedChanges), v.Hypothesis, v.RevisionReason, v.State, v.Priority, v.AttemptCount, nullable(v.ActiveAttemptID), nullable(v.LeaseDeviceID), v.LeaseExpiresAt, v.RunTokenHash, v.ProgressLabel, v.ErrorCode, v.CancelRequestedAt, v.ReportHash, v.HeartbeatSequence, v.CreatedAt, v.UpdatedAt)
+	_, err := tx.Exec(ctx, `INSERT INTO task_runs(id,tenant_id,project_id,input_snapshot_id,idempotency_key,task_type,capability_id,capability_version,input_schema,output_schema,output_count,delivery_profiles,state,priority,attempt_count,active_attempt_id,lease_device_id,lease_expires_at,run_token_hash,progress_label,error_code,cancel_requested_at,report_hash,heartbeat_sequence,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`, v.ID, v.TenantID, v.ProjectID, v.InputSnapshotID, v.IdempotencyKey, v.TaskType, v.CapabilityID, v.CapabilityVersion, v.InputSchema, v.OutputSchema, v.OutputCount, jsonArrayValue(v.DeliveryProfiles), v.State, v.Priority, v.AttemptCount, nullable(v.ActiveAttemptID), nullable(v.LeaseDeviceID), v.LeaseExpiresAt, v.RunTokenHash, v.ProgressLabel, v.ErrorCode, v.CancelRequestedAt, v.ReportHash, v.HeartbeatSequence, v.CreatedAt, v.UpdatedAt)
 	return dbError(err)
 }
 
@@ -144,21 +79,15 @@ func (s *Store) ExecutionBundle(ctx context.Context, tenantID, runID string) (en
 
 func scanRun(row pgx.Row) (domain.TaskRun, error) {
 	var v domain.TaskRun
-	var profiles, invariantFields, expectedChanges []byte
-	err := row.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.BriefVersionID, &v.InputSnapshotID, &v.IdempotencyKey, &v.TaskType, &v.CapabilityID, &v.CapabilityVersion, &v.InputSchema, &v.OutputSchema, &v.OutputCount, &profiles, &v.ScriptID, &v.BaselineVersionID, &v.ChangeType, &invariantFields, &expectedChanges, &v.Hypothesis, &v.RevisionReason, &v.State, &v.Priority, &v.AttemptCount, &v.ActiveAttemptID, &v.LeaseDeviceID, &v.LeaseExpiresAt, &v.RunTokenHash, &v.ProgressLabel, &v.ErrorCode, &v.CancelRequestedAt, &v.ReportHash, &v.HeartbeatSequence, &v.CreatedAt, &v.UpdatedAt)
+	var profiles []byte
+	err := row.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.InputSnapshotID, &v.IdempotencyKey, &v.TaskType, &v.CapabilityID, &v.CapabilityVersion, &v.InputSchema, &v.OutputSchema, &v.OutputCount, &profiles, &v.State, &v.Priority, &v.AttemptCount, &v.ActiveAttemptID, &v.LeaseDeviceID, &v.LeaseExpiresAt, &v.RunTokenHash, &v.ProgressLabel, &v.ErrorCode, &v.CancelRequestedAt, &v.ReportHash, &v.HeartbeatSequence, &v.CreatedAt, &v.UpdatedAt)
 	if err == nil {
 		v.DeliveryProfiles, err = decodeJSON[[]string](profiles)
-	}
-	if err == nil {
-		v.InvariantFields, err = decodeJSON[[]string](invariantFields)
-	}
-	if err == nil {
-		v.ExpectedChanges, err = decodeJSON[[]string](expectedChanges)
 	}
 	return v, err
 }
 
-const runSelect = `SELECT id,tenant_id,project_id,COALESCE(brief_version_id::text,''),input_snapshot_id,idempotency_key,task_type,capability_id,capability_version,input_schema,output_schema,output_count,delivery_profiles,COALESCE(script_id::text,''),COALESCE(baseline_script_version_id::text,''),change_type,invariant_fields,expected_changed_fields,hypothesis,revision_reason,state,priority,attempt_count,COALESCE(active_attempt_id::text,''),COALESCE(lease_device_id::text,''),lease_expires_at,run_token_hash,COALESCE(progress_label,''),COALESCE(error_code,''),cancel_requested_at,report_hash,heartbeat_sequence,created_at,updated_at FROM task_runs`
+const runSelect = `SELECT id,tenant_id,project_id,input_snapshot_id,idempotency_key,task_type,capability_id,capability_version,input_schema,output_schema,output_count,delivery_profiles,state,priority,attempt_count,COALESCE(active_attempt_id::text,''),COALESCE(lease_device_id::text,''),lease_expires_at,run_token_hash,COALESCE(progress_label,''),COALESCE(error_code,''),cancel_requested_at,report_hash,heartbeat_sequence,created_at,updated_at FROM task_runs`
 
 func (s *Store) Runs(ctx context.Context, tenantID, projectID string) ([]domain.TaskRun, error) {
 	out := []domain.TaskRun{}
@@ -203,7 +132,7 @@ func (s *Store) Run(ctx context.Context, tenantID, id string) (domain.TaskRun, e
 
 func (s *Store) SaveRun(ctx context.Context, v domain.TaskRun) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE task_runs SET state=$3,priority=$4,attempt_count=$5,active_attempt_id=$6,lease_device_id=$7,lease_expires_at=$8,run_token_hash=$9,progress_label=$10,error_code=$11,cancel_requested_at=$12,report_hash=$13,heartbeat_sequence=$14,script_id=$15,updated_at=$16 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.State, v.Priority, v.AttemptCount, nullable(v.ActiveAttemptID), nullable(v.LeaseDeviceID), v.LeaseExpiresAt, v.RunTokenHash, v.ProgressLabel, v.ErrorCode, v.CancelRequestedAt, v.ReportHash, v.HeartbeatSequence, nullable(v.ScriptID), v.UpdatedAt)
+		result, err := tx.Exec(ctx, `UPDATE task_runs SET state=$3,priority=$4,attempt_count=$5,active_attempt_id=$6,lease_device_id=$7,lease_expires_at=$8,run_token_hash=$9,progress_label=$10,error_code=$11,cancel_requested_at=$12,report_hash=$13,heartbeat_sequence=$14,updated_at=$15 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.State, v.Priority, v.AttemptCount, nullable(v.ActiveAttemptID), nullable(v.LeaseDeviceID), v.LeaseExpiresAt, v.RunTokenHash, v.ProgressLabel, v.ErrorCode, v.CancelRequestedAt, v.ReportHash, v.HeartbeatSequence, v.UpdatedAt)
 		if err != nil {
 			return dbError(err)
 		}
@@ -280,104 +209,6 @@ func (s *Store) LeaseNextRun(ctx context.Context, tenantID, deviceID string, eli
 		return nil
 	})
 	return result, leasedAttempt, err
-}
-
-func (s *Store) CreateScript(ctx context.Context, script domain.Script, version domain.ScriptVersion) (domain.ScriptVersion, error) {
-	version.ScriptID = script.ID
-	version.Version = 1
-	err := s.withTenant(ctx, version.TenantID, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `INSERT INTO scripts(id,tenant_id,project_id,title,created_at) VALUES($1,$2,$3,$4,$5)`, script.ID, script.TenantID, script.ProjectID, script.Title, script.CreatedAt); err != nil {
-			return dbError(err)
-		}
-		return insertScriptVersion(ctx, tx, version)
-	})
-	return version, err
-}
-
-func (s *Store) CreateScriptVersion(ctx context.Context, version domain.ScriptVersion) (domain.ScriptVersion, error) {
-	err := s.withTenant(ctx, version.TenantID, func(tx pgx.Tx) error {
-		var exists bool
-		if err := tx.QueryRow(ctx, `SELECT true FROM scripts WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, version.TenantID, version.ScriptID).Scan(&exists); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return domain.NotFound("逻辑剧本")
-			}
-			return err
-		}
-		if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version),0)+1 FROM script_versions WHERE tenant_id=$1 AND script_id=$2`, version.TenantID, version.ScriptID).Scan(&version.Version); err != nil {
-			return err
-		}
-		return insertScriptVersion(ctx, tx, version)
-	})
-	return version, err
-}
-
-func insertScriptVersion(ctx context.Context, tx pgx.Tx, v domain.ScriptVersion) error {
-	_, err := tx.Exec(ctx, `INSERT INTO script_versions(id,tenant_id,project_id,script_id,run_id,version,supersedes_id,baseline_script_version_id,change_type,invariant_fields,changed_fields,hypothesis,revision_reason,status,input_snapshot_id,content_hash,canonical_json,validation_report,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, v.ID, v.TenantID, v.ProjectID, v.ScriptID, v.RunID, v.Version, nullable(v.SupersedesID), nullable(v.BaselineID), v.ChangeType, jsonValue(v.InvariantFields), jsonValue(v.ChangedFields), v.Hypothesis, v.RevisionReason, v.Status, v.InputSnapshotID, v.ContentHash, jsonValue(v.Package), jsonValue(v.Validation), v.CreatedAt)
-	return dbError(err)
-}
-func scanScript(row pgx.Row) (domain.ScriptVersion, error) {
-	var v domain.ScriptVersion
-	var invariantFields, changedFields, pkg, validation []byte
-	err := row.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.ScriptID, &v.RunID, &v.Version, &v.SupersedesID, &v.BaselineID, &v.ChangeType, &invariantFields, &changedFields, &v.Hypothesis, &v.RevisionReason, &v.Status, &v.InputSnapshotID, &v.ContentHash, &pkg, &validation, &v.CreatedAt)
-	if err == nil {
-		v.InvariantFields, err = decodeJSON[[]string](invariantFields)
-	}
-	if err == nil {
-		v.ChangedFields, err = decodeJSON[[]string](changedFields)
-	}
-	if err == nil {
-		v.Package, err = decodeJSON[domain.ScriptPackage](pkg)
-	}
-	if err == nil {
-		v.Validation, err = decodeJSON[domain.ValidationReport](validation)
-	}
-	return v, err
-}
-
-const scriptSelect = `SELECT id,tenant_id,project_id,script_id,run_id,version,COALESCE(supersedes_id::text,''),COALESCE(baseline_script_version_id::text,''),change_type,invariant_fields,changed_fields,hypothesis,revision_reason,status,input_snapshot_id,content_hash,canonical_json,validation_report,created_at FROM script_versions`
-
-func (s *Store) Scripts(ctx context.Context, tenantID, projectID string) ([]domain.ScriptVersion, error) {
-	out := []domain.ScriptVersion{}
-	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, scriptSelect+` WHERE tenant_id=$1 AND project_id=$2 ORDER BY created_at DESC`, tenantID, projectID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			v, err := scanScript(rows)
-			if err != nil {
-				return err
-			}
-			out = append(out, v)
-		}
-		return rows.Err()
-	})
-	return out, err
-}
-func (s *Store) Script(ctx context.Context, tenantID, id string) (domain.ScriptVersion, error) {
-	var result domain.ScriptVersion
-	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		v, err := scanScript(tx.QueryRow(ctx, scriptSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
-		result = v
-		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("剧本")
-		}
-		return err
-	})
-	return result, err
-}
-func (s *Store) SaveScript(ctx context.Context, v domain.ScriptVersion) error {
-	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE script_versions SET status=$3 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.Status)
-		if err != nil {
-			return dbError(err)
-		}
-		if result.RowsAffected() == 0 {
-			return domain.NotFound("剧本")
-		}
-		return nil
-	})
 }
 
 func (s *Store) CreateApproval(ctx context.Context, v domain.ApprovalDecision) error {

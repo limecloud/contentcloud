@@ -12,10 +12,10 @@ import (
 )
 
 var localRunStages = map[string]map[string]bool{
-	"ingest":  {"ingest": true, "knowledge-lint": true, "done": true},
-	"query":   {"ingest": true, "knowledge-lint": true, "query": true, "done": true},
 	"content": {"ingest": true, "knowledge-lint": true, "query": true, "compile": true, "output-lint": true, "done": true},
 }
+
+const LocalRunSchemaVersion = "contentcloud.local-run/3.0"
 
 var localRunTransitions = map[string]map[string]bool{
 	"ingest":         {"knowledge-lint": true},
@@ -26,22 +26,27 @@ var localRunTransitions = map[string]map[string]bool{
 }
 
 type LocalRunContext struct {
-	SchemaVersion   string            `json:"schema_version"`
-	ContextRevision uint64            `json:"context_revision"`
-	RunID           string            `json:"run_id"`
-	Intent          string            `json:"intent"`
-	Stage           string            `json:"stage"`
-	Status          string            `json:"status"`
-	SourceRefs      []string          `json:"source_refs"`
-	ChangedIDs      []string          `json:"changed_ids"`
-	EligibleIDs     []string          `json:"eligible_ids"`
-	BlockedIDs      []string          `json:"blocked_ids"`
-	Findings        []string          `json:"findings"`
-	OutputPaths     []string          `json:"output_paths"`
-	Checks          []LocalRunCheck   `json:"checks"`
-	History         []LocalRunHistory `json:"history"`
-	CreatedAt       time.Time         `json:"created_at"`
-	UpdatedAt       time.Time         `json:"updated_at"`
+	SchemaVersion   string             `json:"schema_version"`
+	ContextRevision uint64             `json:"context_revision"`
+	RunID           string             `json:"run_id"`
+	Intent          string             `json:"intent_id"`
+	Stage           string             `json:"stage"`
+	Status          string             `json:"status"`
+	InputRefs       []LocalRunInputRef `json:"input_refs"`
+	ChangedIDs      []string           `json:"changed_ids"`
+	EligibleIDs     []string           `json:"eligible_ids"`
+	BlockedIDs      []string           `json:"blocked_ids"`
+	Findings        []string           `json:"findings"`
+	OutputPaths     []string           `json:"output_refs"`
+	Checks          []LocalRunCheck    `json:"checks"`
+	History         []LocalRunHistory  `json:"history"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+}
+
+type LocalRunInputRef struct {
+	ID     string `json:"id"`
+	Digest string `json:"digest"`
 }
 
 type LocalRunCheck struct {
@@ -64,18 +69,11 @@ type LocalRunHistory struct {
 	At       time.Time `json:"at"`
 }
 
-type LocalRunPointer struct {
-	SchemaVersion string    `json:"schema_version"`
-	RunID         string    `json:"run_id"`
-	ContextPath   string    `json:"context_path"`
-	UpdatedAt     time.Time `json:"updated_at"`
-}
-
 type InitLocalRunOptions struct {
 	Root       string
 	RunID      string
 	Intent     string
-	SourceRefs []string
+	InputIDs   []string
 	WithIngest bool
 	Now        time.Time
 }
@@ -85,7 +83,7 @@ type RecordLocalRunOptions struct {
 	RunID            string
 	ClaimToken       string
 	ExpectedRevision uint64
-	SourceRefs       []string
+	InputIDs         []string
 	ChangedIDs       []string
 	EligibleIDs      []string
 	BlockedIDs       []string
@@ -124,29 +122,33 @@ func InitLocalRun(options InitLocalRunOptions) (LocalRunContext, error) {
 	if err != nil {
 		return LocalRunContext{}, err
 	}
-	intent := strings.ToLower(strings.TrimSpace(options.Intent))
-	if localRunStages[intent] == nil {
-		return LocalRunContext{}, domain.Invalid("LOCAL_RUN_INTENT_INVALID", "intent 只允许 ingest、query 或 content")
+	intent := strings.TrimSpace(options.Intent)
+	if !strings.HasPrefix(intent, "intent:") || !localSourceIDPattern.MatchString(intent) {
+		return LocalRunContext{}, domain.Invalid("LOCAL_RUN_INTENT_INVALID", "intent_id 必须使用 intent:<name> 稳定 ID")
+	}
+	inputRefs, err := resolveLocalRunInputRefs(root, options.InputIDs)
+	if err != nil {
+		return LocalRunContext{}, err
 	}
 	now := localNow(options.Now)
 	runID := strings.TrimSpace(options.RunID)
 	if runID == "" {
-		runID = "local-run-" + now.Format("20060102T150405Z") + "-" + strings.ReplaceAll(domain.NewID()[:8], "-", "")
+		runID = "run_" + now.Format("20060102T150405Z") + "_" + strings.ReplaceAll(domain.NewID()[:8], "-", "")
 	}
 	if !localSourceIDPattern.MatchString(runID) {
 		return LocalRunContext{}, domain.Invalid("LOCAL_RUN_ID_INVALID", "run ID 只能包含字母、数字、冒号、点、下划线和连字符")
 	}
 	stage := "knowledge-lint"
-	if options.WithIngest || intent == "ingest" {
+	if options.WithIngest {
 		stage = "ingest"
 	}
 	context := LocalRunContext{
-		SchemaVersion: SchemaVersion,
+		SchemaVersion: LocalRunSchemaVersion,
 		RunID:         runID,
 		Intent:        intent,
 		Stage:         stage,
-		Status:        "in_progress",
-		SourceRefs:    uniqueStrings(options.SourceRefs),
+		Status:        "active",
+		InputRefs:     inputRefs,
 		ChangedIDs:    []string{},
 		EligibleIDs:   []string{},
 		BlockedIDs:    []string{},
@@ -203,7 +205,11 @@ func recordLocalRun(options RecordLocalRunOptions, requireClaim bool) (LocalRunC
 			return LocalRunContext{}, err
 		}
 	}
-	context.SourceRefs = mergeStrings(context.SourceRefs, options.SourceRefs)
+	inputRefs, err := resolveLocalRunInputRefs(root, options.InputIDs)
+	if err != nil {
+		return LocalRunContext{}, err
+	}
+	context.InputRefs = mergeLocalRunInputRefs(context.InputRefs, inputRefs)
 	context.ChangedIDs = mergeStrings(context.ChangedIDs, options.ChangedIDs)
 	context.EligibleIDs = mergeStrings(context.EligibleIDs, options.EligibleIDs)
 	context.BlockedIDs = mergeStrings(context.BlockedIDs, options.BlockedIDs)
@@ -290,18 +296,22 @@ func advanceLocalRun(root, runID, target string, additions RecordLocalRunOptions
 		return LocalRunContext{}, err
 	}
 	target = strings.ToLower(strings.TrimSpace(target))
-	if context.Status != "in_progress" {
-		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_STATUS_INVALID", "只有 in_progress LocalRun 可以推进")
+	if context.Status != "active" {
+		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_STATUS_INVALID", "只有 active LocalRun 可以推进")
 	}
 	if requireClaim {
 		if err := validateClaimedRunWrite(resolved, context, additions.ClaimToken, additions.ExpectedRevision, now); err != nil {
 			return LocalRunContext{}, err
 		}
 	}
-	if !localRunTransitions[context.Stage][target] || !localRunStages[context.Intent][target] {
+	if !localRunTransitions[context.Stage][target] || !localRunStages["content"][target] {
 		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_TRANSITION_INVALID", "LocalRun 阶段转换不允许："+context.Stage+" -> "+target)
 	}
-	context.SourceRefs = mergeStrings(context.SourceRefs, additions.SourceRefs)
+	inputRefs, err := resolveLocalRunInputRefs(resolved, additions.InputIDs)
+	if err != nil {
+		return LocalRunContext{}, err
+	}
+	context.InputRefs = mergeLocalRunInputRefs(context.InputRefs, inputRefs)
 	context.ChangedIDs = mergeStrings(context.ChangedIDs, additions.ChangedIDs)
 	context.EligibleIDs = mergeStrings(context.EligibleIDs, additions.EligibleIDs)
 	context.BlockedIDs = mergeStrings(context.BlockedIDs, additions.BlockedIDs)
@@ -366,7 +376,7 @@ func resumeLocalRun(root, runID, claimToken string, expectedRevision uint64, now
 		}
 	}
 	at := localNow(now)
-	context.Status = "in_progress"
+	context.Status = "active"
 	context.History = append(context.History, LocalRunHistory{Event: "resumed", Stage: context.Stage, At: at})
 	context, err = saveLocalRun(resolved, context, at)
 	if err != nil {
@@ -427,7 +437,7 @@ func ValidateLocalRuns(root string) (LocalRunValidation, error) {
 	if err != nil {
 		return LocalRunValidation{}, err
 	}
-	files, err := filepath.Glob(filepath.Join(resolved, "work", "runs", "*.json"))
+	files, err := filepath.Glob(filepath.Join(resolved, "40-work", "runs", "*", "context.json"))
 	if err != nil {
 		return LocalRunValidation{}, err
 	}
@@ -437,7 +447,7 @@ func ValidateLocalRuns(root string) (LocalRunValidation, error) {
 		var context LocalRunContext
 		result := LocalRunValidationResult{Valid: true, Errors: []string{}}
 		if err := readJSON(path, &context); err != nil {
-			result.RunID = strings.TrimSuffix(filepath.Base(path), ".json")
+			result.RunID = filepath.Base(filepath.Dir(path))
 			result.Errors = append(result.Errors, err.Error())
 		} else {
 			normalizeLocalRunContext(&context)
@@ -450,31 +460,31 @@ func ValidateLocalRuns(root string) (LocalRunValidation, error) {
 		}
 		report.Results = append(report.Results, result)
 	}
-	pointerPath := filepath.Join(resolved, "work", "current-run.json")
-	var pointer LocalRunPointer
-	if err := readJSON(pointerPath, &pointer); err == nil {
-		report.CurrentRun = pointer.RunID
-		pointed := filepath.Clean(filepath.Join(resolved, "work", filepath.FromSlash(pointer.ContextPath)))
-		if _, statErr := os.Stat(pointed); statErr != nil {
-			report.Valid = false
-			report.Results = append(report.Results, LocalRunValidationResult{RunID: pointer.RunID, Valid: false, Errors: []string{"current-run.json 指向不存在的 context"}})
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return LocalRunValidation{}, err
-	}
 	return report, nil
 }
 
 func loadLocalRun(root, runID string) (LocalRunContext, error) {
 	if strings.TrimSpace(runID) == "" {
-		var pointer LocalRunPointer
-		if err := readJSON(filepath.Join(root, "work", "current-run.json"), &pointer); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return LocalRunContext{}, domain.NotFound("当前 LocalRun")
-			}
+		paths, err := filepath.Glob(filepath.Join(root, "40-work", "runs", "*", "context.json"))
+		if err != nil {
 			return LocalRunContext{}, err
 		}
-		runID = pointer.RunID
+		active := []string{}
+		for _, path := range paths {
+			var candidate LocalRunContext
+			if readJSON(path, &candidate) == nil && candidate.Status != "completed" {
+				active = append(active, candidate.RunID)
+			}
+		}
+		if len(active) == 0 {
+			return LocalRunContext{}, domain.NotFound("活动 LocalRun")
+		}
+		if len(active) != 1 {
+			conflict := domain.Conflict("LOCAL_RUN_SELECTION_REQUIRED", "存在多个活动 Run，必须显式指定 run_id")
+			conflict.Details = map[string]any{"run_ids": active}
+			return LocalRunContext{}, conflict
+		}
+		runID = active[0]
 	}
 	if !localSourceIDPattern.MatchString(runID) {
 		return LocalRunContext{}, domain.Invalid("LOCAL_RUN_ID_INVALID", "run ID 无效")
@@ -516,25 +526,21 @@ func saveLocalRun(root string, context LocalRunContext, now time.Time) (LocalRun
 	} else {
 		return LocalRunContext{}, err
 	}
-	context.SchemaVersion = SchemaVersion
+	context.SchemaVersion = LocalRunSchemaVersion
 	context.UpdatedAt = localNow(now)
 	if err := replaceJSON(path, context, 0o600); err != nil {
-		return LocalRunContext{}, err
-	}
-	pointer := LocalRunPointer{SchemaVersion: SchemaVersion, RunID: context.RunID, ContextPath: filepath.ToSlash(filepath.Join("runs", context.RunID+".json")), UpdatedAt: context.UpdatedAt}
-	if err := replaceJSON(filepath.Join(root, "work", "current-run.json"), pointer, 0o600); err != nil {
 		return LocalRunContext{}, err
 	}
 	return context, nil
 }
 
 func localRunPath(root, runID string) string {
-	return filepath.Join(root, "work", "runs", runID+".json")
+	return filepath.Join(root, "40-work", "runs", runID, "context.json")
 }
 
 func validateLocalRun(context LocalRunContext) []string {
 	problems := []string{}
-	if context.SchemaVersion != SchemaVersion {
+	if context.SchemaVersion != LocalRunSchemaVersion {
 		problems = append(problems, "schema_version 不受支持")
 	}
 	if context.RunID == "" || !localSourceIDPattern.MatchString(context.RunID) {
@@ -543,12 +549,12 @@ func validateLocalRun(context LocalRunContext) []string {
 	if context.ContextRevision == 0 {
 		problems = append(problems, "context_revision 必须大于 0")
 	}
-	if localRunStages[context.Intent] == nil {
-		problems = append(problems, "intent 无效")
-	} else if !localRunStages[context.Intent][context.Stage] {
-		problems = append(problems, "stage 与 intent 不兼容")
+	if !strings.HasPrefix(context.Intent, "intent:") || !localSourceIDPattern.MatchString(context.Intent) {
+		problems = append(problems, "intent_id 无效")
+	} else if !localRunStages["content"][context.Stage] {
+		problems = append(problems, "stage 无效")
 	}
-	if context.Status != "in_progress" && context.Status != "failed" && context.Status != "completed" {
+	if context.Status != "active" && context.Status != "failed" && context.Status != "completed" {
 		problems = append(problems, "status 无效")
 	}
 	if context.Stage == "done" && context.Status != "completed" {
@@ -560,6 +566,17 @@ func validateLocalRun(context LocalRunContext) []string {
 	if context.History == nil || context.Checks == nil {
 		problems = append(problems, "history 和 checks 必须存在")
 	}
+	seenInputs := map[string]string{}
+	for _, ref := range context.InputRefs {
+		if !localSourceIDPattern.MatchString(ref.ID) || !validSHA256Digest(ref.Digest) {
+			problems = append(problems, "input_refs 包含无效 ID 或 digest")
+			continue
+		}
+		if digest, exists := seenInputs[ref.ID]; exists && digest != ref.Digest {
+			problems = append(problems, "input_refs 中同一 ID 对应多个 digest")
+		}
+		seenInputs[ref.ID] = ref.Digest
+	}
 	return problems
 }
 
@@ -567,14 +584,64 @@ func normalizeLocalRunContext(context *LocalRunContext) {
 	if context.ContextRevision == 0 {
 		context.ContextRevision = 1
 	}
+	if context.InputRefs == nil {
+		context.InputRefs = []LocalRunInputRef{}
+	}
+}
+
+func resolveLocalRunInputRefs(root string, ids []string) ([]LocalRunInputRef, error) {
+	refs := make([]LocalRunInputRef, 0, len(ids))
+	for _, id := range uniqueStrings(ids) {
+		source, err := LocalSourceByID(root, id)
+		if err != nil {
+			invalid := domain.Invalid("LOCAL_RUN_INPUT_REF_INVALID", "input_ref 必须引用已登记的不可变来源："+id)
+			invalid.Hint = "先执行 contentcloud local source register，再用返回的 source ID 初始化 Run"
+			return nil, invalid
+		}
+		refs = append(refs, LocalRunInputRef{ID: source.ID, Digest: "sha256:" + source.SHA256})
+	}
+	return refs, nil
+}
+
+func mergeLocalRunInputRefs(current, additions []LocalRunInputRef) []LocalRunInputRef {
+	byID := make(map[string]LocalRunInputRef, len(current)+len(additions))
+	for _, ref := range current {
+		byID[ref.ID] = ref
+	}
+	for _, ref := range additions {
+		byID[ref.ID] = ref
+	}
+	ids := make([]string, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	refs := make([]LocalRunInputRef, 0, len(ids))
+	for _, id := range ids {
+		refs = append(refs, byID[id])
+	}
+	return refs
+}
+
+func validSHA256Digest(value string) bool {
+	value = strings.TrimPrefix(value, "sha256:")
+	if len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func acquireLocalRunMutationLock(root, runID string, now time.Time) (func(), error) {
-	directory := filepath.Join(root, "work", "runs", ".locks")
+	directory := filepath.Join(root, ".contentcloud", "locks", "runs")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(directory, runID+".lock")
+	path := filepath.Join(directory, runID+".mutation.lock")
 	acquire := func() error {
 		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {

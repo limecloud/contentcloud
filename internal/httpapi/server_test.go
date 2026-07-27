@@ -3,14 +3,10 @@ package httpapi_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
-	"io"
 	"log/slog"
-	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"net/textproto"
 	"net/url"
 	"strings"
 	"testing"
@@ -27,7 +23,7 @@ func TestDevBootstrapAndDashboard(t *testing.T) {
 	defer server.Close()
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar}
-	resp, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", strings.NewReader("{}"))
+	resp, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +45,7 @@ func TestDevBootstrapAndDashboard(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&value); err != nil {
 		t.Fatal(err)
 	}
-	if !value.OK || len(value.Data.Projects) != 1 {
+	if !value.OK || len(value.Data.Projects) != 0 {
 		t.Fatalf("unexpected dashboard %#v", value)
 	}
 }
@@ -115,7 +111,7 @@ func TestPlatformAdminEndpointsRequireExplicitGrant(t *testing.T) {
 	defer server.Close()
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar}
-	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", strings.NewReader("{}"))
+	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +140,7 @@ func TestPlatformAdminOverviewAndTenantStatusEndpoint(t *testing.T) {
 	defer server.Close()
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar}
-	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", strings.NewReader("{}"))
+	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +164,7 @@ func TestBFFTeamProjectAndConnectionOperations(t *testing.T) {
 	defer server.Close()
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar}
-	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", strings.NewReader("{}"))
+	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,6 +189,10 @@ func TestBFFTeamProjectAndConnectionOperations(t *testing.T) {
 	template := callBFF[domain.ProjectTemplate](t, client, http.MethodPost, server.URL+"/api/bff/project-templates", app.CreateProjectTemplateInput{Name: "抖音验证", Channel: "douyin", StageObjective: "验证主卖点"})
 	if template.Name != "抖音验证" {
 		t.Fatalf("unexpected template %#v", template)
+	}
+	created := callBFF[domain.Project](t, client, http.MethodPost, server.URL+"/api/bff/projects", app.CreateProjectInput{BrandName: "测试品牌", ProductName: "测试产品", TemplateID: template.ID})
+	if created.ID == "" {
+		t.Fatalf("project was not created: %#v", created)
 	}
 	projects := callBFF[[]domain.Project](t, client, http.MethodGet, server.URL+"/api/bff/projects", nil)
 	if len(projects) != 1 {
@@ -221,107 +221,12 @@ func TestBFFTeamProjectAndConnectionOperations(t *testing.T) {
 	}
 }
 
-func TestBFFBriefRevisionSubmitAndReturn(t *testing.T) {
+func TestLegacyBusinessWriteRoutesAreNotExposed(t *testing.T) {
 	service := app.New(memory.New(), slog.Default())
-	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
-	defer server.Close()
-	jar, _ := cookiejar.New(nil)
-	client := &http.Client{Jar: jar}
-	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", strings.NewReader("{}"))
+	session, err := service.Register(t.Context(), "legacy-routes@example.com", "long-enough-password", "Owner", "V3 Tenant")
 	if err != nil {
 		t.Fatal(err)
 	}
-	response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("bootstrap status %d", response.StatusCode)
-	}
-	baseURL, _ := url.Parse(server.URL)
-	cookies := jar.Cookies(baseURL)
-	if len(cookies) == 0 {
-		t.Fatal("bootstrap did not establish a session")
-	}
-	actor, _, err := service.SessionActor(t.Context(), cookies[0].Value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projects, err := service.Projects(t.Context(), actor)
-	if err != nil || len(projects) != 1 {
-		t.Fatalf("demo project: %v %#v", err, projects)
-	}
-	briefs, err := service.Briefs(t.Context(), actor, projects[0].ID)
-	if err != nil || len(briefs) != 1 {
-		t.Fatalf("demo brief: %v %#v", err, briefs)
-	}
-	base := briefs[0]
-	input := app.CreateBriefInput{
-		Objective:              "验证更明确的收藏转化目标",
-		Audience:               base.Audience,
-		DemandMoment:           base.DemandMoment,
-		Scene:                  base.Scene,
-		Conflict:               base.Conflict,
-		PrimarySellingPoint:    base.PrimarySellingPoint,
-		SecondarySellingPoints: base.SecondarySellingPoints,
-		CTA:                    base.CTA,
-		Channel:                base.Channel,
-		AspectRatio:            base.AspectRatio,
-		EvidenceSummary:        base.EvidenceSummary,
-		TargetDurationSeconds:  base.TargetDurationSeconds,
-		PrimaryTestVariable:    base.PrimaryTestVariable,
-		ApprovedKnowledgeIDs:   base.ApprovedKnowledgeIDs,
-		FrameworkIDs:           base.FrameworkIDs,
-		VisualizationPlanIDs:   base.VisualizationPlanIDs,
-		Viewpoint:              base.Viewpoint,
-		Constraints:            base.Constraints,
-		RevisionReason:         "收窄阶段目标",
-	}
-	revised := callBFF[domain.BriefVersion](t, client, http.MethodPost, server.URL+"/api/bff/briefs/"+base.ID+"/versions", input)
-	if revised.SupersedesID != base.ID || revised.ProjectID != base.ProjectID || revised.Version != 2 {
-		t.Fatalf("unexpected immutable revision %#v", revised)
-	}
-	revised = callBFF[domain.BriefVersion](t, client, http.MethodPost, server.URL+"/api/bff/briefs/"+revised.ID+"/review", map[string]string{"decision": "submit"})
-	if revised.Status != "internal_review" {
-		t.Fatalf("submit status = %s", revised.Status)
-	}
-	revised = callBFF[domain.BriefVersion](t, client, http.MethodPost, server.URL+"/api/bff/briefs/"+revised.ID+"/review", map[string]string{"decision": "return", "reason": "补充目标人群证据"})
-	if revised.Status != "revision_requested" {
-		t.Fatalf("return status = %s", revised.Status)
-	}
-}
-
-func TestBFFSourceRevisionEvidenceAndImpactRoutes(t *testing.T) {
-	service := app.New(memory.New(), slog.Default())
-	session, err := service.Register(t.Context(), "source-bff@example.com", "long-enough-password", "Reviewer", "Source BFF Tenant")
-	if err != nil {
-		t.Fatal(err)
-	}
-	actor, _, err := service.SessionActor(t.Context(), session.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	project, err := service.CreateProject(t.Context(), actor, app.CreateProjectInput{BrandName: "Brand", ProductName: "Product"}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, err := service.UploadSource(t.Context(), actor, project.ID, "Manual", "brand_manual", "manual-v1.txt", "text/plain", []byte("first revision"), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	confidence := 0.5
-	worker := actor
-	worker.Type = "worker"
-	_, err = service.CompleteSource(t.Context(), worker, first.ID, app.CompleteSourceInput{
-		DetectedMIME: "text/plain",
-		Status:       "ready",
-		Evidence:     []app.CreateEvidenceInput{{LocatorKind: "paragraph", Locator: map[string]any{"paragraph": 1}, QuoteText: "first revision", OCRConfidence: &confidence}},
-	}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	spans, err := service.Evidence(t.Context(), actor, first.ID)
-	if err != nil || len(spans) != 1 {
-		t.Fatalf("seed evidence: %v %#v", err, spans)
-	}
-
 	server := httptest.NewServer(httpapi.New(service, slog.Default(), false, "").Handler())
 	defer server.Close()
 	jar, _ := cookiejar.New(nil)
@@ -329,77 +234,30 @@ func TestBFFSourceRevisionEvidenceAndImpactRoutes(t *testing.T) {
 	jar.SetCookies(baseURL, []*http.Cookie{{Name: "cc_session", Value: session.ID, Path: "/"}})
 	client := &http.Client{Jar: jar}
 
-	assertBFFOK(t, client, http.MethodGet, server.URL+"/api/bff/sources/"+first.SourceID+"/revisions", "", nil)
-	assertBFFOK(t, client, http.MethodPost, server.URL+"/api/bff/evidence/"+spans[0].ID+"/review", "application/json", strings.NewReader(`{"decision":"accept"}`))
-	assertBFFOK(t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/knowledge-extraction-runs", "application/json", strings.NewReader(`{"source_revision_ids":["`+first.ID+`"],"output_count":5,"idempotency_key":"bff-extract"}`))
-	runs, err := service.Runs(t.Context(), actor, project.ID)
-	if err != nil || len(runs) != 1 || runs[0].TaskType != "knowledge_extract" {
-		t.Fatalf("knowledge extraction route did not queue a local run: %v %#v", err, runs)
+	paths := []string{
+		"/api/bff/projects/project-1/sources",
+		"/api/bff/projects/project-1/assets",
+		"/api/bff/projects/project-1/briefs",
+		"/api/bff/projects/project-1/scripts",
+		"/api/bff/projects/project-1/results",
+		"/api/bff/projects/project-1/rating-decisions",
+		"/api/bff/approved-snapshots/snapshot-1/exports",
+		"/api/bff/approved-snapshots/snapshot-1/delivery-packages",
 	}
-	assertBFFOK(t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/assets", "application/json", strings.NewReader(`{"name":"Product hero","asset_type":"product_image","source_revision_id":"`+first.ID+`","usage_mode":"generation_reference"}`))
-	assets, err := service.Assets(t.Context(), actor, project.ID)
-	if err != nil || len(assets) != 1 {
-		t.Fatalf("asset route did not persist asset: %v %#v", err, assets)
-	}
-	assertBFFOK(t, client, http.MethodPost, server.URL+"/api/bff/assets/"+assets[0].ID+"/rights", "application/json", strings.NewReader(`{"rights_holder":"Brand","rights_type":"owned","territories":["CN"],"channels":["douyin"],"proof_source_revision_id":"`+first.ID+`","restrictions":[]}`))
-	rights, err := service.RightsRecords(t.Context(), actor, assets[0].ID)
-	if err != nil || len(rights) != 1 {
-		t.Fatalf("rights route did not persist record: %v %#v", err, rights)
-	}
-	assertBFFOK(t, client, http.MethodPost, server.URL+"/api/bff/rights/"+rights[0].ID+"/review", "application/json", strings.NewReader(`{"decision":"approve"}`))
-	assertBFFOK(t, client, http.MethodGet, server.URL+"/api/bff/assets/"+assets[0].ID+"/rights", "", nil)
-
-	var uploadBody bytes.Buffer
-	writer := multipart.NewWriter(&uploadBody)
-	header := make(textproto.MIMEHeader)
-	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, "manual-v2.txt"))
-	header.Set("Content-Type", "text/plain")
-	part, err := writer.CreatePart(header)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := part.Write([]byte("second revision")); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	assertBFFOK(t, client, http.MethodPost, server.URL+"/api/bff/sources/"+first.SourceID+"/revisions/upload", writer.FormDataContentType(), &uploadBody)
-	assertBFFOK(t, client, http.MethodGet, server.URL+"/api/bff/sources/"+first.SourceID+"/impact", "", nil)
-
-	updated, err := service.SourceRevisions(t.Context(), actor, first.SourceID)
-	if err != nil || len(updated) != 2 || updated[0].SupersedesID != first.ID {
-		t.Fatalf("revision route did not persist a revision chain: %v %#v", err, updated)
-	}
-	accepted, err := service.Evidence(t.Context(), actor, first.ID)
-	if err != nil || accepted[0].ReviewStatus != "accepted" {
-		t.Fatalf("evidence route did not persist decision: %v %#v", err, accepted)
-	}
-}
-
-func assertBFFOK(t *testing.T, client *http.Client, method, target, contentType string, body io.Reader) {
-	t.Helper()
-	request, err := http.NewRequestWithContext(t.Context(), method, target, body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if contentType != "" {
-		request.Header.Set("Content-Type", contentType)
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	var envelope struct {
-		OK    bool          `json:"ok"`
-		Error *domain.Error `json:"error"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
-		t.Fatal(err)
-	}
-	if response.StatusCode != http.StatusOK || !envelope.OK {
-		t.Fatalf("%s %s failed: status=%d error=%#v", method, target, response.StatusCode, envelope.Error)
+	for _, route := range paths {
+		request, requestErr := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+route, strings.NewReader("{}"))
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		request.Header.Set("Content-Type", "application/json")
+		response, requestErr := client.Do(request)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusNotFound {
+			t.Fatalf("legacy route %s returned %d, want 404", route, response.StatusCode)
+		}
 	}
 }
 

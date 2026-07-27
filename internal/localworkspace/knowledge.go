@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
+	"gopkg.in/yaml.v3"
 )
 
 var knowledgeDimensions = []KnowledgeDimensionDefinition{
@@ -35,8 +36,15 @@ var knowledgeDimensions = []KnowledgeDimensionDefinition{
 
 var knowledgeLayerNames = []string{"identity", "product", "market", "expression", "operations", "content_engine", "compliance"}
 
+const (
+	KnowledgeDiagnosisSchemaVersion = "contentcloud.knowledge-diagnosis/3.0"
+	KnowledgePackSchemaVersion      = "contentcloud.knowledge-pack/3.0"
+)
+
 type LocalKnowledgeItem struct {
 	ID                  string                `json:"id"`
+	Version             int                   `json:"version"`
+	Supersedes          string                `json:"supersedes,omitempty"`
 	Kind                string                `json:"kind"`
 	Title               string                `json:"title"`
 	Statement           string                `json:"statement"`
@@ -152,15 +160,16 @@ type PackKnowledgeOptions struct {
 }
 
 type KnowledgePackManifest struct {
-	ID            string              `json:"id"`
-	Kind          string              `json:"kind"`
-	Status        string              `json:"status"`
-	SchemaVersion string              `json:"schema_version"`
-	Name          string              `json:"name"`
-	Layers        map[string][]string `json:"layers"`
-	ItemCount     int                 `json:"item_count"`
-	ContentHash   string              `json:"content_hash"`
-	CreatedAt     time.Time           `json:"created_at"`
+	SchemaVersion        string              `json:"schema_version" yaml:"schema_version"`
+	ID                   string              `json:"id" yaml:"id"`
+	Status               string              `json:"status" yaml:"status"`
+	Name                 string              `json:"name" yaml:"name"`
+	MethodologyVersionID string              `json:"methodology_version_id,omitempty" yaml:"methodology_version_id,omitempty"`
+	Layers               map[string][]string `json:"layers" yaml:"layers"`
+	Quality              map[string]any      `json:"quality" yaml:"quality"`
+	ItemCount            int                 `json:"item_count" yaml:"item_count"`
+	ContentHash          string              `json:"content_hash" yaml:"content_hash"`
+	CreatedAt            time.Time           `json:"created_at" yaml:"created_at"`
 }
 
 type KnowledgePackResult struct {
@@ -207,10 +216,11 @@ func ImportKnowledgeCandidates(options ImportKnowledgeOptions) (KnowledgeImportR
 		if candidate.Kind == "claim" || candidate.Kind == "visual_rule" {
 			directory = "claims"
 		}
-		destination := filepath.Join(root, "knowledge", directory, localSafeName(item.ID)+".json")
+		destination := filepath.Join(root, "30-knowledge", "pages", directory, localSafeName(item.ID)+".md")
 		if existingBody, readErr := os.ReadFile(destination); readErr == nil {
-			var existing LocalKnowledgeItem
-			if json.Unmarshal(existingBody, &existing) == nil && existing.ContentHash == item.ContentHash {
+			_ = existingBody
+			existing, parseErr := readKnowledgePage(destination)
+			if parseErr == nil && existing.ContentHash == item.ContentHash {
 				report.Skipped = append(report.Skipped, item.ID)
 				continue
 			}
@@ -218,7 +228,7 @@ func ImportKnowledgeCandidates(options ImportKnowledgeOptions) (KnowledgeImportR
 		} else if !errors.Is(readErr, os.ErrNotExist) {
 			return KnowledgeImportReport{}, readErr
 		}
-		if err := replaceJSON(destination, item, 0o600); err != nil {
+		if err := writeKnowledgePage(destination, item); err != nil {
 			return KnowledgeImportReport{}, err
 		}
 		report.Imported = append(report.Imported, item)
@@ -261,17 +271,14 @@ func LintKnowledge(root string) (KnowledgeLintReport, error) {
 		if !validKnowledgeKind(item.Kind) {
 			add("error", "KNOWLEDGE_KIND_INVALID", "kind 不受支持")
 		}
-		if !validLocalKnowledgeStatus(item.Status) {
+		if !validKnowledgePageStatus(knowledgeTypeForKind(item.Kind), item.Status) {
 			add("error", "KNOWLEDGE_STATUS_INVALID", "status 不受支持")
 		}
 		if (item.Status == "verified" || item.Status == "approved" || item.Status == "valid") && item.ApprovalSnapshotID == "" && len(item.DecisionRefs) == 0 {
 			add("error", "KNOWLEDGE_DECISION_REQUIRED", "verified/approved/valid 状态必须有审批快照或 decision_refs")
 		}
-		if _, matchErr := matchCandidateEvidence(item.Evidence, evidence); matchErr != nil {
+		if matchErr := validateKnowledgeEvidence(item, evidence); matchErr != nil {
 			add("error", "KNOWLEDGE_EVIDENCE_INVALID", matchErr.Error())
-		}
-		if len(item.Evidence) != len(item.EvidenceIDs) {
-			add("error", "KNOWLEDGE_EVIDENCE_ID_MISMATCH", "evidence 与 evidence_ids 数量不一致")
 		}
 		for _, dependency := range item.DependsOnFactIDs {
 			if referenced, ok := references[dependency]; !ok {
@@ -379,7 +386,7 @@ func DiagnoseKnowledge(root, channel string, at time.Time) (KnowledgeDiagnosis, 
 	if err != nil {
 		return KnowledgeDiagnosis{}, err
 	}
-	result := KnowledgeDiagnosis{SchemaVersion: SchemaVersion, Dimensions: []KnowledgeDimensionStatus{}}
+	result := KnowledgeDiagnosis{SchemaVersion: KnowledgeDiagnosisSchemaVersion, Dimensions: []KnowledgeDimensionStatus{}}
 	for _, definition := range knowledgeDimensions {
 		status := KnowledgeDimensionStatus{Key: definition.Key, Label: definition.Label, Status: "missing", ItemIDs: []string{}, NextInput: "补充可定位来源和证据"}
 		for _, entry := range query.Eligible {
@@ -454,6 +461,7 @@ func PackKnowledge(options PackKnowledgeOptions) (KnowledgePackResult, error) {
 	if err != nil {
 		return KnowledgePackResult{}, err
 	}
+	contentHash = "sha256:" + strings.TrimPrefix(contentHash, "sha256:")
 	packID := strings.TrimSpace(options.PackID)
 	if packID == "" {
 		packID = "knowledge-pack-" + strings.TrimPrefix(contentHash, "sha256:")[:12]
@@ -462,21 +470,25 @@ func PackKnowledge(options PackKnowledgeOptions) (KnowledgePackResult, error) {
 		return KnowledgePackResult{}, domain.Invalid("KNOWLEDGE_PACK_ID_INVALID", "pack ID 无效")
 	}
 	now := localNow(options.Now)
-	manifest := KnowledgePackManifest{ID: packID, Kind: "knowledge_pack_manifest", Status: "informational", SchemaVersion: SchemaVersion, Name: defaultLocalValue(options.Name, "ContentCloud 客户知识包"), Layers: layers, ItemCount: len(items), ContentHash: contentHash, CreatedAt: now}
+	manifest := KnowledgePackManifest{ID: packID, Status: "candidate", SchemaVersion: KnowledgePackSchemaVersion, Name: defaultLocalValue(options.Name, "ContentCloud 客户知识包"), Layers: layers, Quality: map[string]any{"item_count": len(items)}, ItemCount: len(items), ContentHash: contentHash, CreatedAt: now}
 	objects := make([]any, 0, len(items)+1)
 	objects = append(objects, manifest)
 	for _, item := range items {
 		objects = append(objects, item)
 	}
-	packPath := filepath.Join(root, "knowledge", "packs", localSafeName(packID)+".json")
-	if err := replaceJSON(packPath, objects, 0o600); err != nil {
+	packPath := filepath.Join(root, "30-knowledge", "packs", localSafeName(packID)+".yaml")
+	packBody, err := yaml.Marshal(manifest)
+	if err != nil {
+		return KnowledgePackResult{}, err
+	}
+	if err := replaceFile(packPath, packBody, 0o600); err != nil {
 		return KnowledgePackResult{}, err
 	}
 	disclosures, err := knowledgeSourceDisclosures(root, items)
 	if err != nil {
 		return KnowledgePackResult{}, err
 	}
-	disclosuresPath := filepath.Join(root, "knowledge", "index", localSafeName(packID)+"-disclosures.json")
+	disclosuresPath := filepath.Join(root, "30-knowledge", "packs", localSafeName(packID)+"-disclosures.json")
 	if err := replaceJSON(disclosuresPath, disclosures, 0o600); err != nil {
 		return KnowledgePackResult{}, err
 	}
@@ -533,11 +545,12 @@ func loadEvidenceIndex(root string) (map[string][]LocalEvidence, error) {
 	}
 	index := map[string][]LocalEvidence{}
 	for _, source := range sources {
-		if source.EvidencePath == "" {
+		if source.ExtractionRef == "" {
 			continue
 		}
 		var bundle LocalEvidenceBundle
-		if err := readJSON(filepath.Join(root, filepath.FromSlash(source.EvidencePath)), &bundle); err != nil {
+		path := filepath.Join(root, "20-sources", "extracts", localSafeName(source.ID)+".json")
+		if err := readJSON(path, &bundle); err != nil {
 			return nil, err
 		}
 		if bundle.SourceID != source.ID || bundle.SourceSHA256 != source.SHA256 {
@@ -546,6 +559,41 @@ func loadEvidenceIndex(root string) (map[string][]LocalEvidence, error) {
 		index[source.ID] = bundle.Evidence
 	}
 	return index, nil
+}
+
+func validateKnowledgeEvidence(item LocalKnowledgeItem, index map[string][]LocalEvidence) error {
+	if item.Kind != "fact" && item.Kind != "claim" && item.Kind != "visual_rule" {
+		return nil
+	}
+	if len(item.EvidenceIDs) == 0 {
+		return domain.Invalid("KNOWLEDGE_EVIDENCE_REQUIRED", "FactAssertion 和 Claim 必须引用至少一个 Evidence")
+	}
+	known := map[string]LocalEvidence{}
+	for _, spans := range index {
+		for _, span := range spans {
+			known[span.ID] = span
+		}
+	}
+	for _, id := range item.EvidenceIDs {
+		span, ok := known[id]
+		if !ok {
+			return domain.Invalid("KNOWLEDGE_EVIDENCE_REF_MISSING", "evidence_refs 引用不存在："+id)
+		}
+		if span.ReviewStatus != "accepted" {
+			return domain.Policy("KNOWLEDGE_EVIDENCE_REVIEW_REQUIRED", "证据尚未通过本地人工复核："+id, "先复核 OCR/视觉证据，再生成候选")
+		}
+	}
+	if len(item.Evidence) == 0 {
+		return nil
+	}
+	matched, err := matchCandidateEvidence(item.Evidence, index)
+	if err != nil {
+		return err
+	}
+	if strings.Join(uniqueStrings(matched), "\x00") != strings.Join(uniqueStrings(item.EvidenceIDs), "\x00") {
+		return domain.Invalid("KNOWLEDGE_EVIDENCE_ID_MISMATCH", "evidence 与 evidence_refs 不是同一组证据")
+	}
+	return nil
 }
 
 func matchCandidateEvidence(refs []domain.EvidenceRef, index map[string][]LocalEvidence) ([]string, error) {
@@ -606,7 +654,7 @@ func knowledgeItemFromCandidate(candidate domain.KnowledgeCandidate, evidenceIDs
 	dimensions := inferKnowledgeDimensions(candidate.Title, candidate.Subject, candidate.Predicate, candidate.Statement)
 	layers := inferKnowledgeLayers(candidate.Kind, candidate.RiskLevel, dimensions)
 	return LocalKnowledgeItem{
-		ID: id, Kind: candidate.Kind, Title: strings.TrimSpace(candidate.Title), Statement: strings.TrimSpace(candidate.Statement), Subject: strings.TrimSpace(candidate.Subject), Predicate: strings.TrimSpace(candidate.Predicate), Value: candidate.Value,
+		ID: id, Version: 1, Kind: candidate.Kind, Title: strings.TrimSpace(candidate.Title), Statement: strings.TrimSpace(candidate.Statement), Subject: strings.TrimSpace(candidate.Subject), Predicate: strings.TrimSpace(candidate.Predicate), Value: candidate.Value,
 		Scope: normalizeKnowledgeScope(candidate.Scope), Status: "candidate", RiskLevel: candidate.RiskLevel, AllowedChannels: uniqueStrings(candidate.AllowedChannels), Evidence: candidate.Evidence, EvidenceIDs: evidenceIDs,
 		ForbiddenExtensions: uniqueStrings(candidate.ForbiddenExtensions), DependsOnFactIDs: uniqueStrings(candidate.DependsOnFactIDs), Dimensions: dimensions, Layers: layers,
 		ValidFrom: candidate.ValidFrom, ValidUntil: candidate.ValidUntil, ExpiresAt: candidate.ExpiresAt, OriginRunID: runID, ContentHash: "sha256:" + hash, CreatedAt: now, UpdatedAt: now,
@@ -614,20 +662,16 @@ func knowledgeItemFromCandidate(candidate domain.KnowledgeCandidate, evidenceIDs
 }
 
 func loadLocalKnowledgeItems(root string) ([]LocalKnowledgeItem, []string, error) {
-	files := []string{}
-	for _, directory := range []string{"facts", "claims"} {
-		matches, err := filepath.Glob(filepath.Join(root, "knowledge", directory, "*.json"))
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, matches...)
+	files, err := knowledgePageFiles(root, "FactAssertion", "Claim")
+	if err != nil {
+		return nil, nil, err
 	}
-	sort.Strings(files)
 	items := make([]LocalKnowledgeItem, 0, len(files))
 	paths := make([]string, 0, len(files))
 	for _, path := range files {
 		var item LocalKnowledgeItem
-		if err := readJSON(path, &item); err != nil {
+		item, err = readKnowledgePage(path)
+		if err != nil {
 			return nil, nil, err
 		}
 		items = append(items, item)
@@ -645,24 +689,16 @@ func loadKnowledgeReferenceIndex(root string) (map[string]LocalKnowledgeItem, er
 	for _, item := range items {
 		index[item.ID] = item
 	}
-	for _, directory := range []string{"assets", "rights", "conflicts"} {
-		files, err := filepath.Glob(filepath.Join(root, "knowledge", directory, "*.json"))
+	files, err := knowledgePageFiles(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range files {
+		item, err := readKnowledgePage(path)
 		if err != nil {
 			return nil, err
 		}
-		for _, path := range files {
-			var object struct {
-				ID     string `json:"id"`
-				Kind   string `json:"kind"`
-				Status string `json:"status"`
-			}
-			if err := readJSON(path, &object); err != nil {
-				return nil, err
-			}
-			if object.ID != "" {
-				index[object.ID] = LocalKnowledgeItem{ID: object.ID, Kind: object.Kind, Status: object.Status}
-			}
-		}
+		index[item.ID] = item
 	}
 	return index, nil
 }
@@ -769,8 +805,8 @@ func knowledgeSourceDisclosures(root string, items []LocalKnowledgeItem) ([]doma
 			continue
 		}
 		var evidencePack json.RawMessage
-		if source.EvidencePath != "" {
-			evidencePack, err = os.ReadFile(filepath.Join(root, filepath.FromSlash(source.EvidencePath)))
+		if source.ExtractionRef != "" {
+			evidencePack, err = os.ReadFile(filepath.Join(root, "20-sources", "extracts", localSafeName(source.ID)+".json"))
 			if err != nil {
 				return nil, err
 			}

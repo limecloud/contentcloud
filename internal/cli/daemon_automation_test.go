@@ -23,14 +23,14 @@ func TestDaemonFixtureUsesAttemptScopedWorkspaceWithoutPersistingRunCredential(t
 	automationRoot := filepath.Join(t.TempDir(), "automation")
 	runToken := "rt_super_secret"
 	contract := domain.TaskContract{
-		ContractVersion: "1.0", ContractID: "snapshot-1", RunID: "run-1", TaskType: "script_generate",
-		Project: domain.Project{ID: "project-1"}, InputSnapshotID: "snapshot-1", OutputSchema: domain.ScriptPackageSchema,
-		Capability:   domain.Capability{ID: domain.ScriptCapability, Version: "1.1.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.ScriptPackageSchema, Digest: "sha256:" + strings.Repeat("a", 64), LocalOnly: true},
+		ContractVersion: "1.0", ContractID: "snapshot-1", RunID: "run-1", TaskType: "knowledge_extract",
+		Project: domain.Project{ID: "project-1"}, Sources: []domain.ContractSource{}, InputSnapshotID: "snapshot-1", OutputSchema: domain.KnowledgeCandidatesSchema,
+		Capability:   domain.Capability{ID: domain.KnowledgeExtractCapability, Version: "1.0.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, Digest: "sha256:" + strings.Repeat("a", 64), LocalOnly: true},
 		ManifestHash: "sha256:" + strings.Repeat("c", 64),
 	}
 	bundle := environment.CreativeExecutionBundle{BundleID: "ceb_test", ProjectID: "project-1", Digest: "sha256:" + strings.Repeat("b", 64)}
 	lease := app.Lease{
-		Run:      domain.TaskRun{ID: "run-1", ProjectID: "project-1", TaskType: "script_generate", OutputSchema: domain.ScriptPackageSchema, OutputCount: 1},
+		Run:      domain.TaskRun{ID: "run-1", ProjectID: "project-1", TaskType: "knowledge_extract", OutputSchema: domain.KnowledgeCandidatesSchema, OutputCount: 1},
 		Attempt:  domain.RunAttempt{ID: "attempt-1", ProjectID: "project-1", RunID: "run-1", State: "leased"},
 		Contract: contract, ExecutionBundle: &bundle, LeaseExpiresAt: now.Add(5 * time.Minute), RunToken: runToken,
 	}
@@ -52,9 +52,6 @@ func TestDaemonFixtureUsesAttemptScopedWorkspaceWithoutPersistingRunCredential(t
 		}
 		commands = append(commands, payload.Command)
 		switch payload.Command {
-		case "artifact.open.poll":
-			writer.WriteHeader(http.StatusNoContent)
-			return
 		case "daemon.poll":
 			writeCLIEnvelope(t, writer, payload.Command, lease)
 			return
@@ -108,7 +105,7 @@ func TestDaemonFixtureUsesAttemptScopedWorkspaceWithoutPersistingRunCredential(t
 	if err := command.Execute(); err != nil {
 		t.Fatalf("daemon fixture failed: %v; stderr=%s", err, stderr.String())
 	}
-	if !workspaceInspected || strings.Join(commands, ",") != "artifact.open.poll,daemon.poll,run.report" {
+	if !workspaceInspected || strings.Join(commands, ",") != "daemon.poll,run.report" {
 		t.Fatalf("daemon flow commands=%#v inspected=%v", commands, workspaceInspected)
 	}
 	entries, err := os.ReadDir(automationRoot)
@@ -131,13 +128,13 @@ func TestDaemonFinishesAttemptWhenWorkspaceIsolationFails(t *testing.T) {
 	now := time.Date(2026, 7, 27, 17, 0, 0, 0, time.UTC)
 	automationRoot := filepath.Join(t.TempDir(), "automation")
 	contract := domain.TaskContract{
-		ContractVersion: "1.0", ContractID: "snapshot-1", RunID: "run-1", TaskType: "script_generate",
-		Project: domain.Project{ID: "project-1"}, InputSnapshotID: "snapshot-1", OutputSchema: domain.ScriptPackageSchema,
-		Capability:   domain.Capability{ID: domain.ScriptCapability, Version: "1.1.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.ScriptPackageSchema, Digest: "sha256:" + strings.Repeat("a", 64), LocalOnly: true},
+		ContractVersion: "1.0", ContractID: "snapshot-1", RunID: "run-1", TaskType: "knowledge_extract",
+		Project: domain.Project{ID: "project-1"}, Sources: []domain.ContractSource{}, InputSnapshotID: "snapshot-1", OutputSchema: domain.KnowledgeCandidatesSchema,
+		Capability:   domain.Capability{ID: domain.KnowledgeExtractCapability, Version: "1.0.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, Digest: "sha256:" + strings.Repeat("a", 64), LocalOnly: true},
 		ManifestHash: "sha256:" + strings.Repeat("c", 64),
 	}
 	lease := app.Lease{
-		Run:     domain.TaskRun{ID: "run-1", ProjectID: "project-1", TaskType: "script_generate", OutputSchema: domain.ScriptPackageSchema, OutputCount: 1},
+		Run:     domain.TaskRun{ID: "run-1", ProjectID: "project-1", TaskType: "knowledge_extract", OutputSchema: domain.KnowledgeCandidatesSchema, OutputCount: 1},
 		Attempt: domain.RunAttempt{ID: "attempt-1", ProjectID: "project-1", RunID: "run-1", State: "leased"}, Contract: contract,
 		LeaseExpiresAt: now.Add(5 * time.Minute), RunToken: "rt_super_secret",
 	}
@@ -164,8 +161,6 @@ func TestDaemonFinishesAttemptWhenWorkspaceIsolationFails(t *testing.T) {
 		}
 		commands = append(commands, payload.Command)
 		switch payload.Command {
-		case "artifact.open.poll":
-			writer.WriteHeader(http.StatusNoContent)
 		case "daemon.poll":
 			writeCLIEnvelope(t, writer, payload.Command, lease)
 		case "run.finish":
@@ -201,7 +196,7 @@ func TestDaemonFinishesAttemptWhenWorkspaceIsolationFails(t *testing.T) {
 	if err := command.Execute(); err == nil {
 		t.Fatal("daemon unexpectedly ignored active workspace lease")
 	}
-	if !finished || strings.Join(commands, ",") != "artifact.open.poll,daemon.poll,run.finish" {
+	if !finished || strings.Join(commands, ",") != "daemon.poll,run.finish" {
 		t.Fatalf("daemon failure flow commands=%#v finished=%v", commands, finished)
 	}
 }

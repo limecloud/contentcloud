@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,40 +25,40 @@ func TestProjectLineageAndImpactTraceSourceToRating(t *testing.T) {
 		domain.Source{ID: sourceID, TenantID: tenantID, ProjectID: projectID, Name: "品牌事实手册", Status: "ready", RevisionCount: 1, LatestRevision: revisionID, CreatedAt: now},
 		domain.SourceRevision{ID: revisionID, TenantID: tenantID, ProjectID: projectID, SourceID: sourceID, FileName: "facts.docx", SHA256: "source-hash", ProcessingStatus: "ready", CreatedAt: now.Add(time.Minute)},
 	))
+	snapshotID, runID := domain.NewID(), domain.NewID()
+	mustStore(t, store.CreateSnapshot(ctx, domain.ContextSnapshot{ID: snapshotID, TenantID: tenantID, ProjectID: projectID, Sources: []domain.ContractSource{{SourceID: sourceID, RevisionID: revisionID}}, CreatedAt: now.Add(2 * time.Minute)}))
+	mustStore(t, store.CreateRun(ctx, domain.TaskRun{ID: runID, TenantID: tenantID, ProjectID: projectID, InputSnapshotID: snapshotID, IdempotencyKey: "lineage-run", TaskType: "knowledge_extract", State: "succeeded", CreatedAt: now.Add(2 * time.Minute)}))
 	knowledgeID := domain.NewID()
-	mustStore(t, store.CreateKnowledge(ctx, domain.KnowledgeItem{ID: knowledgeID, TenantID: tenantID, ProjectID: projectID, Title: "原料事实", Status: "approved", Evidence: []domain.EvidenceRef{{SourceRevisionID: revisionID}}, CreatedAt: now.Add(2 * time.Minute)}))
-	briefID := domain.NewID()
-	mustStore(t, store.CreateBrief(ctx, domain.BriefVersion{ID: briefID, TenantID: tenantID, ProjectID: projectID, Version: 1, Objective: "验证产品兴趣", Status: "approved", ApprovedKnowledgeIDs: []string{knowledgeID}, CreatedAt: now.Add(3 * time.Minute)}))
-	runID := domain.NewID()
-	mustStore(t, store.CreateRun(ctx, domain.TaskRun{ID: runID, TenantID: tenantID, ProjectID: projectID, BriefVersionID: briefID, IdempotencyKey: "lineage-run", TaskType: "script_generation", State: "succeeded", CreatedAt: now.Add(4 * time.Minute)}))
-	scriptID := domain.NewID()
-	script, err := store.CreateScript(ctx,
-		domain.Script{ID: domain.NewID(), TenantID: tenantID, ProjectID: projectID, Title: "香文化短片", CreatedAt: now.Add(5 * time.Minute)},
-		domain.ScriptVersion{ID: scriptID, TenantID: tenantID, ProjectID: projectID, RunID: runID, Status: "approved", Package: domain.ScriptPackage{Title: "香文化短片", Citations: []domain.Citation{{KnowledgeID: knowledgeID}}}, CreatedAt: now.Add(5 * time.Minute)},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	mustStore(t, store.CreateKnowledge(ctx, domain.KnowledgeItem{ID: knowledgeID, TenantID: tenantID, ProjectID: projectID, Title: "原料事实", Status: "approved", OriginRunID: runID, Evidence: []domain.EvidenceRef{{SourceRevisionID: revisionID}}, CreatedAt: now.Add(2 * time.Minute)}))
+	submissionID, revisionIDV3, approvedSnapshotID := domain.NewID(), domain.NewID(), domain.NewID()
+	submission := domain.Submission{ID: submissionID, TenantID: tenantID, ProjectID: projectID, WorkspaceID: domain.NewID(), SubmissionType: "content_batch", Status: "submitted", CurrentRevisionID: revisionIDV3, CreatedAt: now.Add(6 * time.Minute), UpdatedAt: now.Add(6 * time.Minute)}
+	revision := domain.SubmissionRevision{ID: revisionIDV3, TenantID: tenantID, ProjectID: projectID, WorkspaceID: submission.WorkspaceID, SubmissionID: submissionID, RevisionNo: 1, SchemaVersion: "3.0", ContentHash: "sha256:" + strings.Repeat("a", 64), CreatedAt: now.Add(6 * time.Minute)}
+	cycle := domain.ReviewCycle{ID: domain.NewID(), TenantID: tenantID, ProjectID: projectID, SubjectType: "submission_revision", SubjectID: revisionIDV3, Status: "approved", CreatedAt: now.Add(6 * time.Minute)}
+	mustStore(t, store.CreateSubmissionRevision(ctx, submission, revision, nil, cycle))
+	submission.Status = "approved"
+	decision := domain.ApprovalDecision{ID: domain.NewID(), TenantID: tenantID, ProjectID: projectID, SubjectType: "submission_revision", SubjectID: revisionIDV3, Decision: "approved", PreviousState: "submitted", ResultingState: "approved", CreatedAt: now.Add(6 * time.Minute)}
+	snapshot := domain.ApprovedSnapshot{ID: approvedSnapshotID, TenantID: tenantID, ProjectID: projectID, WorkspaceID: submission.WorkspaceID, SubmissionID: submissionID, SubmissionRevisionID: revisionIDV3, SubmissionType: "content_batch", SchemaVersion: "3.0", ContentHash: revision.ContentHash, DecisionID: decision.ID, CreatedAt: now.Add(6 * time.Minute)}
+	mustStore(t, store.ApproveSubmissionRevision(ctx, submission, snapshot, decision))
 	artifactID := domain.NewID()
-	mustStore(t, store.CreateArtifact(ctx, domain.Artifact{ID: artifactID, TenantID: tenantID, ProjectID: projectID, ScriptVersionID: script.ID, FileName: "script.xlsx", ValidationStatus: "valid", CreatedAt: now.Add(6 * time.Minute)}))
+	mustStore(t, store.CreateArtifact(ctx, domain.Artifact{ID: artifactID, TenantID: tenantID, ProjectID: projectID, ApprovedSnapshotID: approvedSnapshotID, Kind: "delivery", FileName: "content.xlsx", CreatedAt: now.Add(6 * time.Minute)}))
 	batchID, observationID := domain.NewID(), domain.NewID()
 	mustStore(t, store.CreatePerformanceImportBatch(ctx,
 		domain.PerformanceImportBatch{ID: batchID, TenantID: tenantID, ProjectID: projectID, SourceName: "douyin.csv", Status: "imported", RowCount: 1, ImportedCount: 1, CreatedAt: now.Add(7 * time.Minute)},
-		[]domain.PerformanceObservation{{ID: observationID, TenantID: tenantID, ProjectID: projectID, ImportBatchID: batchID, ScriptVersionID: script.ID, Platform: "douyin", AccountAlias: "main", WindowHours: 24, SampleStatus: "insufficient_sample", DedupKey: "lineage-observation", CreatedAt: now.Add(8 * time.Minute)}},
+		[]domain.PerformanceObservation{{ID: observationID, TenantID: tenantID, ProjectID: projectID, ImportBatchID: batchID, ApprovedSnapshotID: approvedSnapshotID, Platform: "douyin", AccountAlias: "main", WindowHours: 24, SampleStatus: "insufficient_sample", DedupKey: "lineage-observation", CreatedAt: now.Add(8 * time.Minute)}},
 	))
 	ratingID := domain.NewID()
-	mustStore(t, store.CreateRatingDecision(ctx, domain.RatingDecision{ID: ratingID, TenantID: tenantID, ProjectID: projectID, SubjectType: "script_version", SubjectID: script.ID, ObservationIDs: []string{observationID}, Rating: "repairable", NextAction: "创建单变量变体", CreatedAt: now.Add(9 * time.Minute)}))
+	mustStore(t, store.CreateRatingDecision(ctx, domain.RatingDecision{ID: ratingID, TenantID: tenantID, ProjectID: projectID, SubjectType: "approved_snapshot", SubjectID: approvedSnapshotID, ObservationIDs: []string{observationID}, Rating: "repairable", NextAction: "创建单变量变体", CreatedAt: now.Add(9 * time.Minute)}))
 
-	graph, err := service.ProjectLineage(ctx, actor, projectID, app.LineageQuery{FocusType: "source", FocusID: sourceID, Direction: "downstream"})
+	graph, err := service.ProjectLineage(ctx, actor, projectID, app.LineageQuery{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"source:" + sourceID, "source_revision:" + revisionID, "knowledge_item:" + knowledgeID, "brief_version:" + briefID, "task_run:" + runID, "script_version:" + script.ID, "artifact:" + artifactID, "performance_observation:" + observationID, "rating_decision:" + ratingID} {
+	for _, key := range []string{"source:" + sourceID, "source_revision:" + revisionID, "task_run:" + runID, "knowledge_item:" + knowledgeID, "approved_snapshot:" + approvedSnapshotID, "artifact:" + artifactID, "performance_observation:" + observationID, "rating_decision:" + ratingID} {
 		if !hasLineageNode(graph, key) {
 			t.Fatalf("downstream graph is missing %s: %#v", key, graph.Nodes)
 		}
 	}
-	if graph.FocusKey != "source:"+sourceID || len(graph.Edges) == 0 {
+	if graph.FocusKey != "" || len(graph.Edges) == 0 {
 		t.Fatalf("unexpected focused graph: %#v", graph)
 	}
 
@@ -65,15 +66,15 @@ func TestProjectLineageAndImpactTraceSourceToRating(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasLineageNode(upstream, "source:"+sourceID) || !hasLineageNode(upstream, "performance_import_batch:"+batchID) {
-		t.Fatalf("rating upstream graph lost source or import lineage: %#v", upstream.Nodes)
+	if !hasLineageNode(upstream, "performance_import_batch:"+batchID) || !hasLineageNode(upstream, "performance_observation:"+observationID) {
+		t.Fatalf("rating upstream graph lost result import lineage: %#v", upstream.Nodes)
 	}
 
-	impact, err := service.ProjectImpact(ctx, actor, projectID, app.LineageQuery{FocusType: "source_revision", FocusID: revisionID})
+	impact, err := service.ProjectImpact(ctx, actor, projectID, app.LineageQuery{FocusType: "performance_observation", FocusID: observationID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if impact.Focus == nil || impact.Focus.ID != revisionID || !hasImpactNode(impact, observationID, "attention") || !hasImpactNode(impact, ratingID, "attention") {
+	if impact.Focus == nil || impact.Focus.ID != observationID || !hasImpactNode(impact, ratingID, "attention") {
 		t.Fatalf("impact did not expose current status and action: %#v", impact)
 	}
 }

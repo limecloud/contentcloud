@@ -2,8 +2,10 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -19,7 +21,9 @@ import (
 	"github.com/limecloud/contentcloud/internal/codexplugin"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
+	"github.com/limecloud/contentcloud/internal/fixturev3"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
+	"github.com/limecloud/contentcloud/internal/projectview"
 )
 
 func (r *Root) workspaceCommand() *cobra.Command {
@@ -43,10 +47,50 @@ func (r *Root) workspaceCommand() *cobra.Command {
 		r.workspaceDoctorCommand(),
 		r.workspaceExecutionPlanCommand(),
 		r.workspaceEnvironmentPrepareCommand(),
+		r.workspaceFixtureCommand(),
 		conversationContext,
 		r.workspaceApprovedCommand(),
 	)
 	return cmd
+}
+
+func (r *Root) workspaceFixtureCommand() *cobra.Command {
+	command := &cobra.Command{Use: "fixture", Short: "Materialize versioned V3 acceptance data into a new workspace"}
+	var directory, projectID, workspaceID, deviceID, serverURL, target string
+	apply := &cobra.Command{
+		Use:   "apply <fixture.json>",
+		Args:  cobra.ExactArgs(1),
+		Short: "Create a complete V3 workspace from an external fixture package",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			file, err := os.Open(args[0])
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			fixture, err := fixturev3.Decode(file)
+			if err != nil {
+				return domain.Invalid("FIXTURE_V3_INVALID", err.Error())
+			}
+			result, err := localworkspace.MaterializeFixture(fixture, localworkspace.MaterializeFixtureOptions{
+				Root: directory, ProjectID: projectID, WorkspaceID: workspaceID, DeviceID: deviceID, ServerURL: serverURL, CLIVersion: Version, Target: target,
+			})
+			if err != nil {
+				return err
+			}
+			return r.writeOK("workspace.fixture.apply", result)
+		},
+	}
+	apply.Flags().StringVar(&directory, "directory", "", "empty destination directory")
+	apply.Flags().StringVar(&projectID, "project-id", "", "project ID to bind into the local workspace")
+	apply.Flags().StringVar(&workspaceID, "workspace-id", "", "workspace ID to bind into the local workspace")
+	apply.Flags().StringVar(&deviceID, "device-id", "", "optional device ID")
+	apply.Flags().StringVar(&serverURL, "server-url", "", "optional ContentCloud server URL")
+	apply.Flags().StringVar(&target, "target", "codex", "workspace target: codex, codex-plugin, or none")
+	_ = apply.MarkFlagRequired("directory")
+	_ = apply.MarkFlagRequired("project-id")
+	_ = apply.MarkFlagRequired("workspace-id")
+	command.AddCommand(apply)
+	return command
 }
 
 type environmentPreparationInput struct {
@@ -219,6 +263,32 @@ type mcpError struct {
 	Message string `json:"message"`
 }
 
+type mcpProjectViewFocus struct {
+	Kind   string `json:"kind"`
+	ID     string `json:"id"`
+	Digest string `json:"digest,omitempty"`
+}
+
+type mcpProjectViewArguments struct {
+	Directory string               `json:"directory,omitempty"`
+	View      string               `json:"view"`
+	Focus     *mcpProjectViewFocus `json:"focus,omitempty"`
+}
+
+type mcpBrowserHandoff struct {
+	Required      bool   `json:"required"`
+	URL           string `json:"url"`
+	PreferredMode string `json:"preferredMode"`
+	BrowserAction string `json:"browserAction"`
+}
+
+type mcpProjectViewResult struct {
+	ProjectID      string             `json:"project_id"`
+	View           string             `json:"view"`
+	Focus          *projectview.Focus `json:"focus,omitempty"`
+	BrowserHandoff mcpBrowserHandoff  `json:"browserHandoff"`
+}
+
 func (r *Root) serveMCP(ctx context.Context, input io.Reader) error {
 	if strings.TrimSpace(r.mcpCWD) == "" {
 		cwd, err := os.Getwd()
@@ -317,6 +387,25 @@ func mcpTools() []map[string]any {
 		"idempotentHint":  true,
 		"openWorldHint":   true,
 	}
+	openProjectView := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"view":      map[string]any{"type": "string", "enum": projectview.IDs()},
+			"focus": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"kind":   map[string]any{"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+					"id":     map[string]any{"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+					"digest": map[string]any{"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+				},
+				"required":             []string{"kind", "id"},
+				"additionalProperties": false,
+			},
+		},
+		"required":             []string{"view"},
+		"additionalProperties": false,
+	}
 	environmentWriteAnnotations := map[string]any{
 		"readOnlyHint":    false,
 		"destructiveHint": false,
@@ -327,7 +416,7 @@ func mcpTools() []map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"directory":        map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
-			"submission_type":  map[string]any{"type": "string", "enum": []string{"knowledge", "research", "strategy", "brief", "script", "delivery", "performance"}},
+			"submission_type":  map[string]any{"type": "string", "enum": []string{"context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"}},
 			"files":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Workspace-relative JSON checkpoint files; defaults to the type output directory"},
 			"disclosures_file": map[string]any{"type": "string", "description": "Workspace-relative source disclosure JSON file"},
 			"message":          map[string]any{"type": "string", "description": "Review note included in the computed hash"},
@@ -340,7 +429,7 @@ func mcpTools() []map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"directory":        map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
-			"submission_type":  map[string]any{"type": "string", "enum": []string{"knowledge", "research", "strategy", "brief", "script", "delivery", "performance"}},
+			"submission_type":  map[string]any{"type": "string", "enum": []string{"context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"}},
 			"files":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"disclosures_file": map[string]any{"type": "string"},
 			"message":          map[string]any{"type": "string"},
@@ -364,7 +453,7 @@ func mcpTools() []map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"directory":       map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
-			"submission_type": map[string]any{"type": "string", "enum": []string{"knowledge", "research", "strategy", "brief", "script", "delivery", "performance"}},
+			"submission_type": map[string]any{"type": "string", "enum": []string{"context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"}},
 		},
 		"additionalProperties": false,
 	}
@@ -372,7 +461,7 @@ func mcpTools() []map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"directory":       map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
-			"submission_type": map[string]any{"type": "string", "enum": []string{"knowledge", "research", "strategy", "brief", "script", "delivery", "performance"}},
+			"submission_type": map[string]any{"type": "string", "enum": []string{"context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"}},
 			"snapshot_id":     map[string]any{"type": "string", "description": "Pull one exact snapshot; omit to pull the filtered workspace list"},
 		},
 		"additionalProperties": false,
@@ -439,8 +528,8 @@ func mcpTools() []map[string]any {
 		"properties": map[string]any{
 			"directory":   map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
 			"run_id":      map[string]any{"type": "string"},
-			"intent":      map[string]any{"type": "string", "enum": []string{"ingest", "query", "content"}},
-			"source_refs": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"intent":      map[string]any{"type": "string", "pattern": "^intent:[A-Za-z0-9._-]+$"},
+			"input_ids":   map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
 			"with_ingest": map[string]any{"type": "boolean"},
 		},
 		"required":             []string{"intent"},
@@ -521,7 +610,7 @@ func mcpTools() []map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"directory":  map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
-			"file":       map[string]any{"type": "string", "description": "Workspace-relative knowledge-candidates/1.0 file"},
+			"file":       map[string]any{"type": "string", "description": "Workspace-relative extracted knowledge candidate file"},
 			"origin_run": map[string]any{"type": "string"},
 		},
 		"required":             []string{"file"},
@@ -568,27 +657,27 @@ func mcpTools() []map[string]any {
 		"required":             []string{"directions_file", "requested_count", "variant_dimension"},
 		"additionalProperties": false,
 	}
-	scriptLint := map[string]any{
+	contentItemLint := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"directory":  map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
-			"file":       map[string]any{"type": "string", "description": "Workspace-relative ScriptPackage V2 file"},
-			"batch_file": map[string]any{"type": "string", "description": "Workspace-relative batch.json"},
+			"file":       map[string]any{"type": "string", "description": "Workspace-relative content candidate file"},
+			"batch_file": map[string]any{"type": "string", "description": "Workspace-relative content batch manifest"},
 		},
 		"required":             []string{"file"},
 		"additionalProperties": false,
 	}
-	creativeBatchFiles := map[string]any{
+	contentBatchFiles := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":    map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
-			"batch_file":   map[string]any{"type": "string"},
-			"script_files": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"directory":     map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"batch_file":    map[string]any{"type": "string"},
+			"content_files": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		},
-		"required":             []string{"batch_file", "script_files"},
+		"required":             []string{"batch_file", "content_files"},
 		"additionalProperties": false,
 	}
-	scriptDiff := map[string]any{
+	contentItemDiff := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"directory":      map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
@@ -599,19 +688,27 @@ func mcpTools() []map[string]any {
 		"required":             []string{"baseline_file", "candidate_file", "allowed_paths"},
 		"additionalProperties": false,
 	}
-	scriptExport := map[string]any{
+	contentDeliveryExport := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"directory":        map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
-			"script_id":        map[string]any{"type": "string"},
+			"content_item_id":  map[string]any{"type": "string"},
 			"output_directory": map[string]any{"type": "string"},
 		},
-		"required":             []string{"script_id"},
+		"required":             []string{"content_item_id"},
 		"additionalProperties": false,
 	}
 	return []map[string]any{
-		{"name": "contentcloud_workspace_conversation_context", "description": "Read persisted cross-conversation ContentCloud workspace state without cloud access or write claims", "inputSchema": directory, "annotations": readOnlyAnnotations},
-		{"name": "contentcloud_workspace_status", "description": "Read the bound ContentCloud workspace and environment status without cloud access", "inputSchema": directory, "annotations": readOnlyAnnotations},
+		{
+			"name":        "contentcloud_open_project_view",
+			"description": "Build a trusted ContentCloud Web deep link for the current project without opening Browser or changing local/cloud state",
+			"inputSchema": openProjectView,
+			"annotations": cloudReadAnnotations,
+			"_meta": map[string]any{"contentcloud/effect": map[string]any{
+				"effect_scope": "cloud_read_navigation", "requires_confirmation": false, "writes_workspace": false, "writes_cloud": false,
+			}},
+		},
+		{"name": "workspace_context", "description": "Read persisted cross-conversation ContentCloud workspace state without cloud access or write claims", "inputSchema": directory, "annotations": readOnlyAnnotations},
 		{"name": "environment_execution_plan", "description": "Resolve a signed, offline LocalExecutionPlan and report exact missing task Packs without installing anything", "inputSchema": localExecutionPlan, "annotations": readOnlyAnnotations},
 		{"name": "environment_prepare_plan", "description": "Disclose exact missing Pack permissions, data flow, cost, and session impact without installing anything", "inputSchema": localExecutionPlan, "annotations": readOnlyAnnotations},
 		{"name": "environment_prepare_apply", "description": "Install only the exact user-confirmed Pack plan, atomically update the environment lock, re-run doctor, and return a new-chat handoff", "inputSchema": environmentPreparationApply, "annotations": environmentWriteAnnotations},
@@ -631,18 +728,18 @@ func mcpTools() []map[string]any {
 		{"name": "source_verify", "description": "Verify local source hashes and MIME types", "inputSchema": directory},
 		{"name": "local_run_init", "description": "Initialize a resumable local ingest, query, or content workflow", "inputSchema": localRunInit},
 		{"name": "local_run_show", "description": "Read a LocalRunContext without cloud communication", "inputSchema": localRunShow},
-		{"name": "knowledge_import_candidates", "description": "Import knowledge-candidates/1.0 after exact evidence verification", "inputSchema": knowledgeImport},
+		{"name": "knowledge_import", "description": "Import evidence-grounded candidates into the Markdown knowledge source of truth", "inputSchema": knowledgeImport},
 		{"name": "knowledge_lint", "description": "Run deterministic local knowledge governance checks", "inputSchema": directory},
 		{"name": "knowledge_query", "description": "Classify knowledge as eligible, blocked, or informational", "inputSchema": knowledgeQuery},
 		{"name": "knowledge_diagnose", "description": "Produce the 15-dimension customer material diagnosis", "inputSchema": knowledgeQuery},
 		{"name": "knowledge_pack", "description": "Build a seven-layer knowledge review pack and evidence disclosures", "inputSchema": knowledgePack},
-		{"name": "brief_lint", "description": "Validate a local Brief V2 against current eligible knowledge", "inputSchema": localFile},
-		{"name": "creative_batch_init", "description": "Freeze approved Brief and Knowledge snapshots into a local CreativeBatch", "inputSchema": creativeBatchInit},
-		{"name": "script_lint", "description": "Validate one ScriptPackage V2 against its frozen local batch context", "inputSchema": scriptLint},
-		{"name": "creative_batch_lint", "description": "Validate every ScriptPackage candidate in a CreativeBatch", "inputSchema": creativeBatchFiles},
-		{"name": "creative_batch_finalize", "description": "Finalize a validated local CreativeBatch without creating a cloud TaskRun", "inputSchema": creativeBatchFiles},
-		{"name": "script_diff", "description": "Detect undeclared JSON Pointer drift in a script revision or variant", "inputSchema": scriptDiff},
-		{"name": "script_export", "description": "Export a pulled approved ScriptPackage V2 as JSON, Markdown, and XLSX", "inputSchema": scriptExport},
+		{"name": "brief_lint", "description": "Validate a local content brief against current eligible knowledge", "inputSchema": localFile},
+		{"name": "content_batch_init", "description": "Freeze an approved Brief and Knowledge snapshots into a local ContentBatch", "inputSchema": creativeBatchInit},
+		{"name": "content_item_lint", "description": "Validate one content candidate against its frozen ContentBatch context", "inputSchema": contentItemLint},
+		{"name": "content_batch_lint", "description": "Validate every candidate in a ContentBatch", "inputSchema": contentBatchFiles},
+		{"name": "content_batch_finalize", "description": "Finalize a validated local ContentBatch without creating a cloud TaskRun", "inputSchema": contentBatchFiles},
+		{"name": "content_item_diff", "description": "Detect undeclared JSON Pointer drift in a content revision or variant", "inputSchema": contentItemDiff},
+		{"name": "delivery_export", "description": "Export a pulled approved content item as JSON, Markdown, and XLSX", "inputSchema": contentDeliveryExport},
 		{"name": "publish_preflight", "description": "Validate a local immutable checkpoint and return the exact plan_id, environment digest, disclosure scope, and cloud effects without publishing", "inputSchema": preflight, "annotations": readOnlyAnnotations},
 		{"name": "publish_apply", "description": "Publish only the exact user-confirmed preflight plan as an immutable SubmissionRevision", "inputSchema": publishApply, "annotations": cloudWriteAnnotations},
 		{"name": "submission_status", "description": "Read the current cloud governance status for a workspace submission", "inputSchema": submissionStatus, "annotations": cloudReadAnnotations},
@@ -660,58 +757,60 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 	var params struct {
 		Name      string `json:"name"`
 		Arguments struct {
-			Directory            string   `json:"directory"`
-			File                 string   `json:"file"`
-			ID                   string   `json:"id"`
-			Title                string   `json:"title"`
-			SourceKind           string   `json:"source_kind"`
-			StorageMode          string   `json:"storage_mode"`
-			SourceID             string   `json:"source_id"`
-			RunID                string   `json:"run_id"`
-			Owner                string   `json:"owner"`
-			ClaimToken           string   `json:"claim_token"`
-			ExpectedRevision     uint64   `json:"expected_revision"`
-			TTLSeconds           int64    `json:"ttl_seconds"`
-			TakeoverExpired      bool     `json:"takeover_expired"`
-			HandoffID            string   `json:"handoff_id"`
-			NextCapabilityID     string   `json:"next_capability_id"`
-			NextAction           string   `json:"next_action"`
-			InputPaths           []string `json:"input_paths"`
-			RequiredCapabilities []string `json:"required_capabilities"`
-			InputRefs            []string `json:"input_refs"`
-			Blockers             []string `json:"blockers"`
-			PendingDecisions     []string `json:"pending_decisions"`
-			Intent               string   `json:"intent"`
-			SourceRefs           []string `json:"source_refs"`
-			WithIngest           bool     `json:"with_ingest"`
-			OriginRun            string   `json:"origin_run"`
-			Channel              string   `json:"channel"`
-			At                   string   `json:"at"`
-			PackID               string   `json:"pack_id"`
-			Name                 string   `json:"name"`
-			BriefID              string   `json:"brief_id"`
-			DirectionsFile       string   `json:"directions_file"`
-			RequestedCount       int      `json:"requested_count"`
-			VariantDimension     string   `json:"variant_dimension"`
-			ControlledDimensions []string `json:"controlled_dimensions"`
-			BatchID              string   `json:"batch_id"`
-			BatchFile            string   `json:"batch_file"`
-			ScriptFiles          []string `json:"script_files"`
-			BaselineFile         string   `json:"baseline_file"`
-			CandidateFile        string   `json:"candidate_file"`
-			AllowedPaths         []string `json:"allowed_paths"`
-			ScriptID             string   `json:"script_id"`
-			OutputDirectory      string   `json:"output_directory"`
-			SubmissionType       string   `json:"submission_type"`
-			SubmissionID         string   `json:"submission_id"`
-			SnapshotID           string   `json:"snapshot_id"`
-			Files                []string `json:"files"`
-			DisclosuresFile      string   `json:"disclosures_file"`
-			Message              string   `json:"message"`
-			IdempotencyKey       string   `json:"idempotency_key"`
-			PlanID               string   `json:"plan_id"`
-			PreparationID        string   `json:"preparation_id"`
-			Accept               bool     `json:"accept"`
+			Directory            string               `json:"directory"`
+			File                 string               `json:"file"`
+			ID                   string               `json:"id"`
+			Title                string               `json:"title"`
+			SourceKind           string               `json:"source_kind"`
+			StorageMode          string               `json:"storage_mode"`
+			SourceID             string               `json:"source_id"`
+			RunID                string               `json:"run_id"`
+			Owner                string               `json:"owner"`
+			ClaimToken           string               `json:"claim_token"`
+			ExpectedRevision     uint64               `json:"expected_revision"`
+			TTLSeconds           int64                `json:"ttl_seconds"`
+			TakeoverExpired      bool                 `json:"takeover_expired"`
+			HandoffID            string               `json:"handoff_id"`
+			NextCapabilityID     string               `json:"next_capability_id"`
+			NextAction           string               `json:"next_action"`
+			InputPaths           []string             `json:"input_paths"`
+			RequiredCapabilities []string             `json:"required_capabilities"`
+			InputRefs            []string             `json:"input_refs"`
+			Blockers             []string             `json:"blockers"`
+			PendingDecisions     []string             `json:"pending_decisions"`
+			Intent               string               `json:"intent"`
+			InputIDs             []string             `json:"input_ids"`
+			WithIngest           bool                 `json:"with_ingest"`
+			OriginRun            string               `json:"origin_run"`
+			Channel              string               `json:"channel"`
+			At                   string               `json:"at"`
+			PackID               string               `json:"pack_id"`
+			Name                 string               `json:"name"`
+			BriefID              string               `json:"brief_id"`
+			DirectionsFile       string               `json:"directions_file"`
+			RequestedCount       int                  `json:"requested_count"`
+			VariantDimension     string               `json:"variant_dimension"`
+			ControlledDimensions []string             `json:"controlled_dimensions"`
+			BatchID              string               `json:"batch_id"`
+			BatchFile            string               `json:"batch_file"`
+			ContentFiles         []string             `json:"content_files"`
+			BaselineFile         string               `json:"baseline_file"`
+			CandidateFile        string               `json:"candidate_file"`
+			AllowedPaths         []string             `json:"allowed_paths"`
+			ContentItemID        string               `json:"content_item_id"`
+			OutputDirectory      string               `json:"output_directory"`
+			SubmissionType       string               `json:"submission_type"`
+			SubmissionID         string               `json:"submission_id"`
+			SnapshotID           string               `json:"snapshot_id"`
+			Files                []string             `json:"files"`
+			DisclosuresFile      string               `json:"disclosures_file"`
+			Message              string               `json:"message"`
+			IdempotencyKey       string               `json:"idempotency_key"`
+			PlanID               string               `json:"plan_id"`
+			PreparationID        string               `json:"preparation_id"`
+			Accept               bool                 `json:"accept"`
+			View                 string               `json:"view"`
+			Focus                *mcpProjectViewFocus `json:"focus"`
 		} `json:"arguments"`
 	}
 	if err := json.Unmarshal(raw, &params); err != nil {
@@ -719,11 +818,35 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 	}
 	var value any
 	var err error
+	var navigationRoot string
+	var navigationTarget *projectview.Target
 	switch params.Name {
-	case "contentcloud_workspace_conversation_context":
+	case "contentcloud_open_project_view":
+		arguments, decodeErr := decodeOpenProjectViewArguments(raw)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		root, resolveErr := r.resolveMCPWorkspace(arguments.Directory)
+		if resolveErr != nil {
+			workspaceErr := domain.Conflict("WORKSPACE_NOT_BOUND", "无法从 directory 或 MCP cwd 解析 ContentCloud WorkspaceBinding")
+			workspaceErr.Hint = "在 ContentCloud Workspace 中打开新对话，或显式传入 workspace directory"
+			return nil, workspaceErr
+		}
+		status, loadErr := localworkspace.LoadStatus(root)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		var focus *projectview.Focus
+		if arguments.Focus != nil {
+			focus = &projectview.Focus{Kind: arguments.Focus.Kind, ID: arguments.Focus.ID, Digest: arguments.Focus.Digest}
+		}
+		link, buildErr := projectview.Build(status.Binding.ServerURL, status.Binding.ProjectID, projectview.Target{View: arguments.View, Focus: focus})
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		return openProjectViewEnvelope(link), nil
+	case "workspace_context":
 		value, err = r.workspaceConversationContext(params.Arguments.Directory)
-	case "contentcloud_workspace_status":
-		value, err = r.contentCloudWorkspaceStatus(params.Arguments.Directory)
 	case "environment_execution_plan":
 		value, err = r.resolveLocalExecutionPlan(params.Arguments.Directory, params.Arguments.RunID, params.Arguments.Intent, params.Arguments.RequiredCapabilities, params.Arguments.InputRefs)
 	case "environment_prepare_plan":
@@ -733,9 +856,25 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 	case "environment_prepare_apply":
 		value, err = r.applyEnvironmentPreparation(ctx, environmentPreparationInput{Directory: params.Arguments.Directory, RunID: params.Arguments.RunID, Intent: params.Arguments.Intent, Capabilities: params.Arguments.RequiredCapabilities, InputRefs: params.Arguments.InputRefs}, params.Arguments.PreparationID, params.Arguments.Accept)
 	case "workspace_status":
-		value, err = localworkspace.LoadStatus(params.Arguments.Directory)
+		var root string
+		root, err = r.resolveMCPWorkspace(params.Arguments.Directory)
+		if err == nil {
+			var status localworkspace.Status
+			status, err = localworkspace.LoadStatus(root)
+			value = status
+			navigationRoot = root
+			navigationTarget = &projectview.Target{View: "overview"}
+		}
 	case "workspace_doctor":
-		value, err = r.workspaceDoctor(params.Arguments.Directory)
+		var root string
+		root, err = r.resolveMCPWorkspace(params.Arguments.Directory)
+		if err == nil {
+			var report localworkspace.DoctorReport
+			report, err = r.workspaceDoctor(root)
+			value = report
+			navigationRoot = root
+			navigationTarget = &projectview.Target{View: "setup"}
+		}
 	case "source_register":
 		if strings.TrimSpace(params.Arguments.File) == "" {
 			return nil, domain.Invalid("LOCAL_SOURCE_FILE_REQUIRED", "file 必填")
@@ -758,7 +897,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			err = domain.Invalid("LOCAL_SOURCE_VERIFY_FAILED", "本地来源完整性校验失败")
 		}
 	case "local_run_init":
-		value, err = localworkspace.InitLocalRun(localworkspace.InitLocalRunOptions{Root: params.Arguments.Directory, RunID: params.Arguments.RunID, Intent: params.Arguments.Intent, SourceRefs: params.Arguments.SourceRefs, WithIngest: params.Arguments.WithIngest, Now: time.Now()})
+		value, err = localworkspace.InitLocalRun(localworkspace.InitLocalRunOptions{Root: params.Arguments.Directory, RunID: params.Arguments.RunID, Intent: params.Arguments.Intent, InputIDs: params.Arguments.InputIDs, WithIngest: params.Arguments.WithIngest, Now: time.Now()})
 	case "local_run_show":
 		value, err = localworkspace.ShowLocalRun(params.Arguments.Directory, params.Arguments.RunID)
 	case "local_run_claim":
@@ -815,7 +954,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			return nil, resolveErr
 		}
 		value, err = localworkspace.SupersedeReadyHandoff(root, params.Arguments.HandoffID, r.currentTime())
-	case "knowledge_import_candidates":
+	case "knowledge_import":
 		if strings.TrimSpace(params.Arguments.File) == "" {
 			return nil, domain.Invalid("LOCAL_FILE_REQUIRED", "file 必填")
 		}
@@ -848,43 +987,43 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		report, brief, err = localworkspace.LintBrief(params.Arguments.Directory, params.Arguments.File)
 		value = map[string]any{"brief": brief, "report": report}
 		if err == nil && !report.Valid {
-			lintErr := domain.Invalid("BRIEF_LINT_FAILED", "Brief V2 确定性校验失败")
+			lintErr := domain.Invalid("BRIEF_LINT_FAILED", "Brief V3 确定性校验失败")
 			lintErr.Details = report
 			err = lintErr
 		}
-	case "creative_batch_init":
-		value, err = localworkspace.CreateCreativeBatch(localworkspace.CreateCreativeBatchOptions{Root: params.Arguments.Directory, BriefID: params.Arguments.BriefID, DirectionsFile: params.Arguments.DirectionsFile, RequestedCount: params.Arguments.RequestedCount, VariantDimension: params.Arguments.VariantDimension, ControlledDimensions: params.Arguments.ControlledDimensions, BatchID: params.Arguments.BatchID, Now: time.Now()})
-	case "script_lint":
-		var report localworkspace.ScriptLintReport
-		report, _, err = localworkspace.LintScriptPackage(params.Arguments.Directory, params.Arguments.File, params.Arguments.BatchFile)
+	case "content_batch_init":
+		value, err = localworkspace.CreateContentBatch(localworkspace.CreateContentBatchOptions{Root: params.Arguments.Directory, BriefID: params.Arguments.BriefID, DirectionsFile: params.Arguments.DirectionsFile, RequestedCount: params.Arguments.RequestedCount, VariantDimension: params.Arguments.VariantDimension, ControlledDimensions: params.Arguments.ControlledDimensions, BatchID: params.Arguments.BatchID, Now: time.Now()})
+	case "content_item_lint":
+		var report localworkspace.ContentItemLintReport
+		report, _, err = localworkspace.LintContentItem(params.Arguments.Directory, params.Arguments.File, params.Arguments.BatchFile)
 		value = report
 		if err == nil && !report.Valid {
-			lintErr := domain.Invalid("SCRIPT_PACKAGE_LINT_FAILED", "ScriptPackage V2 确定性校验失败")
+			lintErr := domain.Invalid("CONTENT_ITEM_LINT_FAILED", "ContentItem 确定性校验失败")
 			lintErr.Details = report
 			err = lintErr
 		}
-	case "creative_batch_lint":
-		var report localworkspace.ScriptBatchLintReport
-		report, err = localworkspace.LintCreativeBatch(params.Arguments.Directory, params.Arguments.BatchFile, params.Arguments.ScriptFiles)
+	case "content_batch_lint":
+		var report localworkspace.ContentBatchLintReport
+		report, err = localworkspace.LintContentBatch(params.Arguments.Directory, params.Arguments.BatchFile, params.Arguments.ContentFiles)
 		value = report
 		if err == nil && !report.Valid {
-			lintErr := domain.Invalid("CREATIVE_BATCH_LINT_FAILED", "CreativeBatch 确定性校验失败")
+			lintErr := domain.Invalid("CONTENT_BATCH_LINT_FAILED", "ContentBatch 确定性校验失败")
 			lintErr.Details = report
 			err = lintErr
 		}
-	case "creative_batch_finalize":
-		value, err = localworkspace.FinalizeCreativeBatch(params.Arguments.Directory, params.Arguments.BatchFile, params.Arguments.ScriptFiles, time.Now())
-	case "script_diff":
-		var diff localworkspace.ScriptDiff
-		diff, err = localworkspace.DiffScriptPackages(params.Arguments.Directory, params.Arguments.BaselineFile, params.Arguments.CandidateFile, params.Arguments.AllowedPaths)
+	case "content_batch_finalize":
+		value, err = localworkspace.FinalizeContentBatch(params.Arguments.Directory, params.Arguments.BatchFile, params.Arguments.ContentFiles, time.Now())
+	case "content_item_diff":
+		var diff localworkspace.ContentItemDiff
+		diff, err = localworkspace.DiffContentItems(params.Arguments.Directory, params.Arguments.BaselineFile, params.Arguments.CandidateFile, params.Arguments.AllowedPaths)
 		value = diff
 		if err == nil && !diff.Valid {
-			diffErr := domain.Invalid("SCRIPT_REVISION_DRIFT", "修订包含未声明字段变化")
+			diffErr := domain.Invalid("CONTENT_ITEM_REVISION_DRIFT", "ContentItem 修订包含未声明字段变化")
 			diffErr.Details = diff
 			err = diffErr
 		}
-	case "script_export":
-		value, err = localworkspace.ExportApprovedScript(params.Arguments.Directory, params.Arguments.ScriptID, params.Arguments.OutputDirectory, time.Now())
+	case "delivery_export":
+		value, err = localworkspace.ExportApprovedContentItem(params.Arguments.Directory, params.Arguments.ContentItemID, params.Arguments.OutputDirectory, time.Now())
 	case "publish_preflight":
 		if !validSubmissionType(params.Arguments.SubmissionType) {
 			return nil, domain.Invalid("SUBMISSION_TYPE_INVALID", "submission_type 无效")
@@ -910,18 +1049,25 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			var revision domain.SubmissionRevision
 			revision, err = r.applyPublishCheckpoint(ctx, root, bundle, preflight, params.Arguments.PlanID, params.Arguments.Accept)
 			value = map[string]any{"submission_revision": revision, "preflight": preflight, "cloud_write": err == nil, "business_files_modified": false}
+			if err == nil {
+				navigationRoot = root
+				navigationTarget = &projectview.Target{View: "review", Focus: &projectview.Focus{Kind: "submission_revision", ID: revision.ID, Digest: revision.ContentHash}}
+			}
 		}
 	case "submission_status":
 		if strings.TrimSpace(params.Arguments.SubmissionID) == "" {
 			return nil, domain.Invalid("SUBMISSION_ID_REQUIRED", "submission_id 必填")
 		}
-		_, client, _, clientErr := r.workspaceClient(params.Arguments.Directory)
+		root, client, _, clientErr := r.workspaceClient(params.Arguments.Directory)
 		if clientErr != nil {
 			return nil, clientErr
 		}
 		var details app.SubmissionDetails
 		err = client.Dispatch(ctx, "submission.workspace-show", map[string]any{"id": params.Arguments.SubmissionID}, &details)
 		value = map[string]any{"submission_id": details.Submission.ID, "status": details.Submission.Status, "current_revision_id": details.Submission.CurrentRevisionID, "revision_count": len(details.Revisions)}
+		navigationRoot = root
+		target := submissionStatusProjectView(details)
+		navigationTarget = &target
 	case "review_feedback_list":
 		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
 		if resolveErr != nil {
@@ -957,6 +1103,9 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			}
 		}
 		value = map[string]any{"count": len(feedback), "downloaded": items, "cloud_read": true, "business_files_modified": false}
+		navigationRoot = root
+		target := reviewFeedbackProjectView(feedback)
+		navigationTarget = &target
 	case "review_feedback_inbox":
 		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
 		if resolveErr != nil {
@@ -1005,6 +1154,9 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			downloaded, err = localworkspace.StoreApprovedSnapshots(root, snapshots, r.currentTime())
 		}
 		value = map[string]any{"count": len(snapshots), "downloaded": downloaded, "cloud_read": true, "business_files_modified": false}
+		navigationRoot = root
+		target := approvedSnapshotsProjectView(snapshots)
+		navigationTarget = &target
 	case "approved_snapshot_inbox":
 		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
 		if resolveErr != nil {
@@ -1027,16 +1179,92 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 	if err != nil {
 		return nil, err
 	}
+	var link *projectview.Link
+	if navigationTarget != nil {
+		built, buildErr := projectViewLinkForWorkspace(navigationRoot, *navigationTarget)
+		if buildErr == nil {
+			link = &built
+		}
+	}
+	return mcpToolSuccessEnvelope(value, link)
+}
+
+func submissionStatusProjectView(details app.SubmissionDetails) projectview.Target {
+	target := projectview.Target{View: "review"}
+	for _, revision := range details.Revisions {
+		if revision.ID != details.Submission.CurrentRevisionID {
+			continue
+		}
+		focused := projectview.Target{View: "review", Focus: &projectview.Focus{Kind: "submission_revision", ID: revision.ID, Digest: revision.ContentHash}}
+		if projectview.Validate(focused) == nil {
+			return focused
+		}
+		break
+	}
+	return target
+}
+
+func reviewFeedbackProjectView(feedback []domain.ReviewFeedbackBundle) projectview.Target {
+	target := projectview.Target{View: "review"}
+	if len(feedback) == 0 {
+		return target
+	}
+	revisionID := feedback[0].SubmissionRevisionID
+	digest := feedback[0].SubjectHash
+	for _, bundle := range feedback[1:] {
+		if bundle.SubmissionRevisionID != revisionID || bundle.SubjectHash != digest {
+			return target
+		}
+	}
+	focused := projectview.Target{View: "review", Focus: &projectview.Focus{Kind: "submission_revision", ID: revisionID, Digest: digest}}
+	if projectview.Validate(focused) != nil {
+		return target
+	}
+	return focused
+}
+
+func approvedSnapshotsProjectView(snapshots []domain.ApprovedSnapshot) projectview.Target {
+	target := projectview.Target{View: "delivery"}
+	if len(snapshots) != 1 {
+		return target
+	}
+	snapshot := snapshots[0]
+	focused := projectview.Target{View: "delivery", Focus: &projectview.Focus{Kind: "snapshot", ID: snapshot.ID, Digest: snapshot.ContentHash}}
+	if projectview.Validate(focused) != nil {
+		return target
+	}
+	return focused
+}
+
+func projectViewLinkForWorkspace(root string, target projectview.Target) (projectview.Link, error) {
+	status, err := localworkspace.LoadStatus(root)
+	if err != nil {
+		return projectview.Link{}, err
+	}
+	return projectview.Build(status.Binding.ServerURL, status.Binding.ProjectID, target)
+}
+
+func mcpToolSuccessEnvelope(value any, link *projectview.Link) (map[string]any, error) {
 	body, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(body)}}, "structuredContent": value, "isError": false}, nil
+	if link == nil {
+		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(body)}}, "structuredContent": value, "isError": false}, nil
+	}
+	return map[string]any{
+		"content": []map[string]any{
+			{"type": "text", "text": string(body)},
+			mcpProjectViewResourceLink(*link),
+		},
+		"structuredContent": value,
+		"isError":           false,
+	}, nil
 }
 
 func validSubmissionType(value string) bool {
 	switch value {
-	case "knowledge", "research", "strategy", "brief", "script", "delivery", "performance":
+	case "context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result":
 		return true
 	default:
 		return false
@@ -1044,7 +1272,54 @@ func validSubmissionType(value string) bool {
 }
 
 func mcpToolError(err error) map[string]any {
-	return map[string]any{"content": []map[string]string{{"type": "text", "text": err.Error()}}, "isError": true}
+	result := map[string]any{"content": []map[string]string{{"type": "text", "text": err.Error()}}, "isError": true}
+	var domainError *domain.Error
+	if errors.As(err, &domainError) {
+		result["structuredContent"] = map[string]any{"error": domainError}
+	}
+	return result
+}
+
+func decodeOpenProjectViewArguments(raw json.RawMessage) (mcpProjectViewArguments, error) {
+	var params struct {
+		Name      string                  `json:"name"`
+		Arguments mcpProjectViewArguments `json:"arguments"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&params); err != nil {
+		return mcpProjectViewArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "contentcloud_open_project_view 参数无效或包含未知字段")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return mcpProjectViewArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "contentcloud_open_project_view 参数必须是单个 JSON 对象")
+	}
+	if params.Name != "contentcloud_open_project_view" || strings.TrimSpace(params.Arguments.View) == "" {
+		return mcpProjectViewArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "contentcloud_open_project_view 需要 view")
+	}
+	return params.Arguments, nil
+}
+
+func openProjectViewEnvelope(link projectview.Link) map[string]any {
+	result := mcpProjectViewResult{
+		ProjectID: link.ProjectID,
+		View:      link.View,
+		Focus:     link.Focus,
+		BrowserHandoff: mcpBrowserHandoff{
+			Required: true, URL: link.URL, PreferredMode: "codex-internal-browser", BrowserAction: "navigate",
+		},
+	}
+	return map[string]any{
+		"content": []map[string]any{
+			{"type": "text", "text": "ContentCloud 项目页面链接已准备。请在 Browser 中打开并验证项目与焦点后再报告完成。"},
+			mcpProjectViewResourceLink(link),
+		},
+		"structuredContent": result,
+		"isError":           false,
+	}
+}
+
+func mcpProjectViewResourceLink(link projectview.Link) map[string]any {
+	return map[string]any{"type": "resource_link", "uri": link.URL, "name": link.Name, "description": link.Description, "mimeType": "text/html"}
 }
 
 func requestedMCPProtocolVersion(raw json.RawMessage) string {

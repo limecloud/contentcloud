@@ -1,0 +1,173 @@
+package projectview
+
+import (
+	"encoding/json"
+	"net"
+	"net/url"
+	"regexp"
+	"strings"
+
+	"github.com/limecloud/contentcloud/contracts"
+	"github.com/limecloud/contentcloud/internal/domain"
+)
+
+const SchemaVersion = "contentcloud.project-pages/1.0"
+
+var (
+	idPattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+	digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+	pages         = mustLoadContract()
+)
+
+type FocusKindContract struct {
+	Kind           string `json:"kind"`
+	DigestRequired bool   `json:"digest_required,omitempty"`
+	QueryKey       string `json:"query_key,omitempty"`
+}
+
+type PageContract struct {
+	Route           string              `json:"route"`
+	Label           string              `json:"label"`
+	Eyebrow         string              `json:"eyebrow"`
+	Title           string              `json:"title"`
+	Description     string              `json:"description"`
+	Section         *string             `json:"section"`
+	SubmissionTypes []string            `json:"submission_types"`
+	SnapshotTypes   []string            `json:"snapshot_types"`
+	FocusKinds      []FocusKindContract `json:"focus_kinds"`
+}
+
+type Contract struct {
+	SchemaVersion string                  `json:"schema_version"`
+	Order         []string                `json:"order"`
+	Views         map[string]PageContract `json:"views"`
+}
+
+type Focus = domain.ProjectNavigationFocus
+type Target = domain.ProjectNavigation
+
+type Link struct {
+	URL         string `json:"url"`
+	ProjectID   string `json:"project_id"`
+	View        string `json:"view"`
+	Focus       *Focus `json:"focus,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+func IDs() []string {
+	return append([]string(nil), pages.Order...)
+}
+
+func Page(view string) (PageContract, bool) {
+	page, ok := pages.Views[view]
+	return page, ok
+}
+
+func ValidateServerBase(value string) error {
+	_, err := trustedServerBase(value)
+	return err
+}
+
+func Build(serverBase, projectID string, target Target) (Link, error) {
+	base, err := trustedServerBase(serverBase)
+	if err != nil {
+		return Link{}, err
+	}
+	if !idPattern.MatchString(projectID) {
+		return Link{}, domain.Invalid("PROJECT_ID_INVALID", "WorkspaceBinding project_id 无效")
+	}
+	if err := Validate(target); err != nil {
+		return Link{}, err
+	}
+	page := pages.Views[target.View]
+
+	query := url.Values{}
+	if target.Focus != nil {
+		focusContract, _ := allowedFocus(page, target.Focus.Kind)
+		if focusContract.QueryKey != "" {
+			query.Set(focusContract.QueryKey, target.Focus.ID)
+		} else {
+			query.Set("focus_kind", target.Focus.Kind)
+			query.Set("focus_id", target.Focus.ID)
+		}
+		if target.Focus.Digest != "" {
+			query.Set("expected_digest", target.Focus.Digest)
+		}
+	}
+
+	base.Path = "/projects/" + projectID + "/" + page.Route
+	base.RawPath = ""
+	base.RawQuery = query.Encode()
+	return Link{
+		URL:         base.String(),
+		ProjectID:   projectID,
+		View:        target.View,
+		Focus:       target.Focus,
+		Name:        "打开 ContentCloud " + page.Label,
+		Description: page.Description,
+	}, nil
+}
+
+func Validate(target Target) error {
+	page, ok := pages.Views[target.View]
+	if !ok {
+		return domain.Invalid("PROJECT_VIEW_INVALID", "ContentCloud 项目视图不受支持")
+	}
+	if target.Focus != nil {
+		focusContract, ok := allowedFocus(page, target.Focus.Kind)
+		if !ok || !idPattern.MatchString(target.Focus.ID) {
+			return domain.Invalid("PROJECT_FOCUS_INVALID", "项目页面焦点与视图不匹配或 ID 无效")
+		}
+		if target.Focus.Digest != "" && !digestPattern.MatchString(target.Focus.Digest) {
+			return domain.Invalid("PROJECT_FOCUS_DIGEST_INVALID", "项目页面焦点 digest 必须是完整 sha256 摘要")
+		}
+		if focusContract.DigestRequired && target.Focus.Digest == "" {
+			return domain.Invalid("PROJECT_FOCUS_DIGEST_REQUIRED", "该项目页面焦点需要不可变 revision digest")
+		}
+	}
+	return nil
+}
+
+func allowedFocus(page PageContract, kind string) (FocusKindContract, bool) {
+	for _, focus := range page.FocusKinds {
+		if focus.Kind == kind {
+			return focus, true
+		}
+	}
+	return FocusKindContract{}, false
+}
+
+func trustedServerBase(value string) (*url.URL, error) {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return nil, domain.Invalid("WEB_TARGET_UNTRUSTED", "WorkspaceBinding server_url 必须是可信 ContentCloud origin")
+	}
+	hostname := strings.ToLower(parsed.Hostname())
+	secure := parsed.Scheme == "https"
+	localHTTP := parsed.Scheme == "http" && (hostname == "localhost" || net.ParseIP(hostname) != nil && net.ParseIP(hostname).IsLoopback())
+	if !secure && !localHTTP {
+		return nil, domain.Invalid("WEB_TARGET_UNTRUSTED", "ContentCloud Web 只允许 HTTPS；本机开发仅允许 loopback HTTP")
+	}
+	parsed.Path = ""
+	return parsed, nil
+}
+
+func mustLoadContract() Contract {
+	var contract Contract
+	if err := json.Unmarshal(contracts.ProjectPagesV1Contract, &contract); err != nil {
+		panic("invalid embedded project page contract: " + err.Error())
+	}
+	if contract.SchemaVersion != SchemaVersion || len(contract.Order) == 0 || len(contract.Order) != len(contract.Views) {
+		panic("invalid embedded project page contract shape")
+	}
+	seen := map[string]bool{}
+	for _, id := range contract.Order {
+		page, ok := contract.Views[id]
+		if !ok || seen[id] || page.Route == "" || page.Label == "" || page.Title == "" {
+			panic("invalid embedded project page contract entry")
+		}
+		seen[id] = true
+	}
+	return contract
+}

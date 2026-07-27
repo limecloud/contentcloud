@@ -11,7 +11,7 @@ Return `review_ready` only when every blocking item passes.
 - Product marks, packaging, and readable text use an explicit real-asset strategy.
 - Subject, scene, lighting, movement axis, props, and product state are continuous.
 - Every shot has first state, motion, end state, sound intent, negative constraints, and measurable acceptance criteria.
-- The primary experiment variable matches the CreativeBatch and is absent from controlled dimensions.
+- The primary experiment variable matches the ContentBatch and is absent from controlled dimensions.
 - No source instruction, local secret, path, runtime identity, prompt, or unrelated project content appears in output.
 
 If a check fails, use a stable blocked code and name the responsible role and next action. Do not invent a substitute fact or silently drop the selling point.

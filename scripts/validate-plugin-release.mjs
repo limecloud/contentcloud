@@ -32,15 +32,24 @@ const webPackage = await readJSON('web/package.json');
 const marketplace = await readJSON('.agents/plugins/marketplace.json');
 const registry = await readJSON('.agents/plugins/registry.json');
 const trustStore = await readJSON('.agents/plugins/trusted-keys.json');
+const environmentProfile = await readJSON('deploy/systemd/environment-profile.json');
 const plugin = await readJSON(`${pluginRelativePath}/.codex-plugin/plugin.json`);
 const mcp = await readJSON(`${pluginRelativePath}/.mcp.json`);
 const versionFile = (await readText('VERSION')).trim();
 const goSource = await readText('internal/cli/root.go');
+const codexGuideSource = await readText('internal/httpapi/codex.go');
+const bootstrapSource = await readText('internal/httpapi/bootstrap.md');
 const webSource = await readText('web/src/connectBootstrap.ts');
+const codexHandoffSource = await readText('web/src/codexHandoff.ts');
+const systemdEnvironmentSource = await readText('deploy/systemd/contentcloud.env.example');
 const license = await readText('LICENSE');
 
 const goVersion = exactMatch(goSource, /const\s+Version\s*=\s*"([^"]+)"/, 'internal/cli Version');
+const codexGuideVersion = exactMatch(codexGuideSource, /codexGuideVersion\s*=\s*"([^"]+)"/, 'internal/httpapi /codex guide version');
 const webCLIVersion = exactMatch(webSource, /@limecloud\/contentcloud@([^'\s]+)'/, 'web CONTENTCLOUD_CLI version');
+const codexHandoffVersion = exactMatch(codexHandoffSource, /plugin_version\s*!==\s*'([^']+)'/, 'web Codex handoff Plugin version');
+const capabilityReleaseVersion = exactMatch(systemdEnvironmentSource, /^CONTENTCLOUD_CAPABILITY_RELEASE_VERSION=([^\s]+)$/m, 'systemd capability release version');
+const bootstrapVersions = [...bootstrapSource.matchAll(/@limecloud\/contentcloud@([^\s`]+)/g)].map(match => match[1]);
 const mcpServer = mcp.mcpServers?.['contentcloud-local'];
 const mcpPackage = Array.isArray(mcpServer?.args)
   ? mcpServer.args.find(value => typeof value === 'string' && value.startsWith('@limecloud/contentcloud@'))
@@ -53,8 +62,12 @@ const versions = new Map([
   ['packages/contentcloud/package.json', cliPackage.version],
   ['web/package.json', webPackage.version],
   ['plugin.json', plugin.version],
+  ['deploy/systemd/environment-profile.json', environmentProfile.plugins?.find(candidate => candidate?.id === pluginName)?.version],
+  ['deploy/systemd/contentcloud.env.example', capabilityReleaseVersion],
   ['internal/cli/root.go', goVersion],
+  ['internal/httpapi/codex.go', codexGuideVersion],
   ['web/src/connectBootstrap.ts', webCLIVersion],
+  ['web/src/codexHandoff.ts', codexHandoffVersion],
   ['plugin .mcp.json', mcpVersion],
 ]);
 for (const [source, value] of versions) {
@@ -62,6 +75,7 @@ for (const [source, value] of versions) {
 }
 check(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(versionFile), `VERSION is not a supported semantic version: ${versionFile}`);
 check(cliPackage.contentcloudReleaseTag === `v${versionFile}`, 'npm contentcloudReleaseTag must equal v<VERSION>');
+check(bootstrapVersions.length > 0 && bootstrapVersions.every(value => value === versionFile), `internal/httpapi/bootstrap.md contains versions ${JSON.stringify([...new Set(bootstrapVersions)])}, expected ${versionFile}`);
 
 check(plugin.name === pluginName, 'plugin manifest name must match its directory');
 check(plugin.license === 'Apache-2.0', 'plugin manifest license must be Apache-2.0');

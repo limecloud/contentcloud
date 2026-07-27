@@ -15,7 +15,7 @@ import (
 func (s *Store) CreateWorkspaceBinding(ctx context.Context, value domain.WorkspaceBinding) error {
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO workspace_bindings(id,tenant_id,project_id,device_id,owner_user_id,template_id,template_version,targets,credential_hash,status,initialized_at,last_seen_at,revoked_at)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, value.ID, value.TenantID, value.ProjectID, nullable(value.DeviceID), value.OwnerUserID, value.TemplateID, value.TemplateVersion, jsonValue(value.Targets), value.CredentialHash, value.Status, value.InitializedAt, value.LastSeenAt, value.RevokedAt)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, value.ID, value.TenantID, value.ProjectID, nullable(value.DeviceID), value.OwnerUserID, value.TemplateID, value.TemplateVersion, jsonArrayValue(value.Targets), value.CredentialHash, value.Status, value.InitializedAt, value.LastSeenAt, value.RevokedAt)
 		return dbError(err)
 	})
 }
@@ -62,7 +62,7 @@ func (s *Store) WorkspaceBinding(ctx context.Context, tenantID, id string) (doma
 
 func (s *Store) SaveWorkspaceBinding(ctx context.Context, value domain.WorkspaceBinding) error {
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE workspace_bindings SET template_id=$3,template_version=$4,targets=$5,status=$6,last_seen_at=$7,revoked_at=$8 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.TemplateID, value.TemplateVersion, jsonValue(value.Targets), value.Status, value.LastSeenAt, value.RevokedAt)
+		result, err := tx.Exec(ctx, `UPDATE workspace_bindings SET template_id=$3,template_version=$4,targets=$5,status=$6,last_seen_at=$7,revoked_at=$8 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.TemplateID, value.TemplateVersion, jsonArrayValue(value.Targets), value.Status, value.LastSeenAt, value.RevokedAt)
 		if err != nil {
 			return dbError(err)
 		}
@@ -84,8 +84,8 @@ func (s *Store) CreateSubmissionRevision(ctx context.Context, submission domain.
 				return dbError(err)
 			}
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO submission_revisions(id,tenant_id,project_id,workspace_id,submission_id,revision_no,schema_version,content_hash,base_approved_snapshot_id,local_run_summary,objects,artifacts,message,idempotency_key,evidence_limited,created_by,created_at)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`, revision.ID, revision.TenantID, revision.ProjectID, revision.WorkspaceID, revision.SubmissionID, revision.RevisionNo, revision.SchemaVersion, revision.ContentHash, nullable(revision.BaseApprovedSnapshotID), jsonValue(revision.LocalRunSummary), []byte(revision.Objects), jsonValue(revision.Artifacts), revision.Message, revision.IdempotencyKey, revision.EvidenceLimited, revision.CreatedBy, revision.CreatedAt); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO submission_revisions(id,tenant_id,project_id,workspace_id,submission_id,revision_no,schema_version,content_hash,base_snapshot_ids,environment_digest,local_run_summary,objects,artifacts,message,idempotency_key,evidence_limited,created_by,created_at)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, revision.ID, revision.TenantID, revision.ProjectID, revision.WorkspaceID, revision.SubmissionID, revision.RevisionNo, revision.SchemaVersion, revision.ContentHash, jsonArrayValue(revision.BaseSnapshotIDs), revision.EnvironmentDigest, jsonValue(revision.LocalRunSummary), jsonArrayValue(revision.Objects), jsonArrayValue(revision.Artifacts), revision.Message, revision.IdempotencyKey, revision.EvidenceLimited, revision.CreatedBy, revision.CreatedAt); err != nil {
 			return dbError(err)
 		}
 		for _, disclosure := range disclosures {
@@ -176,12 +176,17 @@ func (s *Store) Submission(ctx context.Context, tenantID, id string) (domain.Sub
 
 func scanSubmissionRevision(row pgx.Row) (domain.SubmissionRevision, error) {
 	var value domain.SubmissionRevision
-	var localRun, objects, artifacts []byte
-	err := row.Scan(&value.ID, &value.TenantID, &value.ProjectID, &value.WorkspaceID, &value.SubmissionID, &value.RevisionNo, &value.SchemaVersion, &value.ContentHash, &value.BaseApprovedSnapshotID, &localRun, &objects, &artifacts, &value.Message, &value.IdempotencyKey, &value.EvidenceLimited, &value.CreatedBy, &value.CreatedAt)
+	var baseSnapshots, localRun, objects, artifacts []byte
+	err := row.Scan(&value.ID, &value.TenantID, &value.ProjectID, &value.WorkspaceID, &value.SubmissionID, &value.RevisionNo, &value.SchemaVersion, &value.ContentHash, &baseSnapshots, &value.EnvironmentDigest, &localRun, &objects, &artifacts, &value.Message, &value.IdempotencyKey, &value.EvidenceLimited, &value.CreatedBy, &value.CreatedAt)
 	if err != nil {
 		return value, err
 	}
-	value.Objects = append(json.RawMessage(nil), objects...)
+	if err := json.Unmarshal(baseSnapshots, &value.BaseSnapshotIDs); err != nil {
+		return value, err
+	}
+	if err := json.Unmarshal(objects, &value.Objects); err != nil {
+		return value, err
+	}
 	if err := json.Unmarshal(localRun, &value.LocalRunSummary); err != nil {
 		return value, err
 	}
@@ -191,7 +196,7 @@ func scanSubmissionRevision(row pgx.Row) (domain.SubmissionRevision, error) {
 	return value, nil
 }
 
-const submissionRevisionSelect = `SELECT id,tenant_id,project_id,workspace_id,submission_id,revision_no,schema_version,content_hash,COALESCE(base_approved_snapshot_id::text,''),local_run_summary,objects,artifacts,message,idempotency_key,evidence_limited,created_by,created_at FROM submission_revisions`
+const submissionRevisionSelect = `SELECT id,tenant_id,project_id,workspace_id,submission_id,revision_no,schema_version,content_hash,base_snapshot_ids,environment_digest,local_run_summary,objects,artifacts,message,idempotency_key,evidence_limited,created_by,created_at FROM submission_revisions`
 
 func (s *Store) SubmissionRevision(ctx context.Context, tenantID, id string) (domain.SubmissionRevision, error) {
 	var result domain.SubmissionRevision
@@ -264,7 +269,7 @@ func sourceDisclosures(ctx context.Context, tx pgx.Tx, tenantID, revisionID stri
 func scanApprovedSnapshot(row pgx.Row) (domain.ApprovedSnapshot, error) {
 	var value domain.ApprovedSnapshot
 	var canonical, eligible, artifacts []byte
-	err := row.Scan(&value.ID, &value.TenantID, &value.ProjectID, &value.WorkspaceID, &value.SubmissionID, &value.SubmissionRevisionID, &value.SubmissionType, &value.SchemaVersion, &value.ContentHash, &value.SubjectHash, &canonical, &eligible, &artifacts, &value.DecisionID, &value.CreatedBy, &value.CreatedAt, &value.Origin, &value.ExternalRef)
+	err := row.Scan(&value.ID, &value.TenantID, &value.ProjectID, &value.WorkspaceID, &value.SubmissionID, &value.SubmissionRevisionID, &value.SubmissionType, &value.SchemaVersion, &value.ContentHash, &value.SubjectHash, &canonical, &eligible, &artifacts, &value.DecisionID, &value.CreatedBy, &value.CreatedAt)
 	if err != nil {
 		return value, err
 	}
@@ -278,7 +283,7 @@ func scanApprovedSnapshot(row pgx.Row) (domain.ApprovedSnapshot, error) {
 	return value, nil
 }
 
-const approvedSnapshotSelect = `SELECT id,tenant_id,project_id,COALESCE(workspace_id::text,''),COALESCE(submission_id::text,''),COALESCE(submission_revision_id::text,''),submission_type,schema_version,content_hash,subject_hash,canonical_content,eligible_ids,artifacts,COALESCE(decision_id::text,''),created_by,created_at,origin,COALESCE(external_ref,'') FROM approved_snapshots`
+const approvedSnapshotSelect = `SELECT id,tenant_id,project_id,workspace_id,submission_id,submission_revision_id,submission_type,schema_version,content_hash,subject_hash,canonical_content,eligible_ids,artifacts,decision_id,created_by,created_at FROM approved_snapshots`
 
 func (s *Store) ApprovedSnapshots(ctx context.Context, tenantID, projectID, submissionType string) ([]domain.ApprovedSnapshot, error) {
 	values := []domain.ApprovedSnapshot{}
@@ -332,12 +337,12 @@ func (s *Store) ApproveSubmissionRevision(ctx context.Context, submission domain
 		if err := insertApprovedSnapshot(ctx, tx, snapshot); err != nil {
 			return err
 		}
-		result, err := tx.Exec(ctx, `UPDATE submissions SET status=$3,current_revision_id=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2`, submission.TenantID, submission.ID, submission.Status, submission.CurrentRevisionID, submission.UpdatedAt)
+		result, err := tx.Exec(ctx, `UPDATE submissions SET status=$3,current_revision_id=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2 AND current_revision_id=$4 AND status=$6`, submission.TenantID, submission.ID, submission.Status, submission.CurrentRevisionID, submission.UpdatedAt, decision.PreviousState)
 		if err != nil {
 			return dbError(err)
 		}
 		if result.RowsAffected() == 0 {
-			return domain.NotFound("Submission")
+			return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本或状态已变化")
 		}
 		if _, err := tx.Exec(ctx, `UPDATE review_grants SET revoked_at=$3 WHERE tenant_id=$1 AND subject_type='submission_revision' AND subject_id=$2 AND revoked_at IS NULL AND decision_at IS NULL`, submission.TenantID, submission.CurrentRevisionID, decision.CreatedAt); err != nil {
 			return dbError(err)
@@ -351,12 +356,12 @@ func (s *Store) RecordSubmissionApproval(ctx context.Context, submission domain.
 		if err := insertApprovalDecision(ctx, tx, decision); err != nil {
 			return err
 		}
-		result, err := tx.Exec(ctx, `UPDATE submissions SET status=$3,current_revision_id=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2 AND current_revision_id=$4`, submission.TenantID, submission.ID, submission.Status, submission.CurrentRevisionID, submission.UpdatedAt)
+		result, err := tx.Exec(ctx, `UPDATE submissions SET status=$3,current_revision_id=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2 AND current_revision_id=$4 AND status=$6`, submission.TenantID, submission.ID, submission.Status, submission.CurrentRevisionID, submission.UpdatedAt, decision.PreviousState)
 		if err != nil {
 			return dbError(err)
 		}
 		if result.RowsAffected() == 0 {
-			return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本已变化")
+			return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本或状态已变化")
 		}
 		return nil
 	})
@@ -370,12 +375,12 @@ func (s *Store) RequestSubmissionChanges(ctx context.Context, submission domain.
 		if _, err := tx.Exec(ctx, `INSERT INTO review_comments(id,tenant_id,project_id,review_cycle_id,subject_type,subject_id,carried_from_comment_id,shot_id,json_pointer,body,visibility,author_id,resolved_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, comment.ID, comment.TenantID, comment.ProjectID, comment.ReviewCycleID, comment.SubjectType, comment.SubjectID, nullable(comment.CarriedFromID), comment.ShotID, comment.JSONPointer, comment.Body, comment.Visibility, comment.AuthorID, comment.ResolvedAt, comment.CreatedAt); err != nil {
 			return dbError(err)
 		}
-		result, err := tx.Exec(ctx, `UPDATE submissions SET status=$3,current_revision_id=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2`, submission.TenantID, submission.ID, submission.Status, submission.CurrentRevisionID, submission.UpdatedAt)
+		result, err := tx.Exec(ctx, `UPDATE submissions SET status=$3,current_revision_id=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2 AND current_revision_id=$4 AND status=$6`, submission.TenantID, submission.ID, submission.Status, submission.CurrentRevisionID, submission.UpdatedAt, decision.PreviousState)
 		if err != nil {
 			return dbError(err)
 		}
 		if result.RowsAffected() == 0 {
-			return domain.NotFound("Submission")
+			return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本或状态已变化")
 		}
 		if _, err := tx.Exec(ctx, `UPDATE review_grants SET revoked_at=$3 WHERE tenant_id=$1 AND subject_type='submission_revision' AND subject_id=$2 AND revoked_at IS NULL AND decision_at IS NULL`, submission.TenantID, submission.CurrentRevisionID, decision.CreatedAt); err != nil {
 			return dbError(err)
@@ -443,11 +448,7 @@ func insertApprovalDecision(ctx context.Context, tx pgx.Tx, decision domain.Appr
 }
 
 func insertApprovedSnapshot(ctx context.Context, tx pgx.Tx, snapshot domain.ApprovedSnapshot) error {
-	origin := snapshot.Origin
-	if origin == "" {
-		origin = "current"
-	}
-	_, err := tx.Exec(ctx, `INSERT INTO approved_snapshots(id,tenant_id,project_id,workspace_id,submission_id,submission_revision_id,submission_type,schema_version,content_hash,subject_hash,canonical_content,eligible_ids,artifacts,decision_id,created_by,created_at,origin,external_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, snapshot.ID, snapshot.TenantID, snapshot.ProjectID, nullable(snapshot.WorkspaceID), nullable(snapshot.SubmissionID), nullable(snapshot.SubmissionRevisionID), snapshot.SubmissionType, snapshot.SchemaVersion, snapshot.ContentHash, snapshot.SubjectHash, []byte(snapshot.CanonicalContent), jsonValue(snapshot.EligibleIDs), jsonValue(snapshot.Artifacts), nullable(snapshot.DecisionID), snapshot.CreatedBy, snapshot.CreatedAt, origin, nullable(snapshot.ExternalRef))
+	_, err := tx.Exec(ctx, `INSERT INTO approved_snapshots(id,tenant_id,project_id,workspace_id,submission_id,submission_revision_id,submission_type,schema_version,content_hash,subject_hash,canonical_content,eligible_ids,artifacts,decision_id,created_by,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, snapshot.ID, snapshot.TenantID, snapshot.ProjectID, snapshot.WorkspaceID, snapshot.SubmissionID, snapshot.SubmissionRevisionID, snapshot.SubmissionType, snapshot.SchemaVersion, snapshot.ContentHash, snapshot.SubjectHash, []byte(snapshot.CanonicalContent), jsonArrayValue(snapshot.EligibleIDs), jsonArrayValue(snapshot.Artifacts), snapshot.DecisionID, snapshot.CreatedBy, snapshot.CreatedAt)
 	return dbError(err)
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { matchRoutes } from 'react-router-dom';
 import { appRoutes } from '../router';
-import { canonicalConsolePath, consolePath } from '../consoleRoutes';
+import { consolePath } from '../consoleRoutes';
 import { adminPath } from './routes';
 
 describe('admin routes',()=>{
@@ -20,17 +20,16 @@ describe('admin routes',()=>{
   });
 
   it('keeps the tenant console and public surfaces outside the admin route tree',()=>{
-    expect(matchRoutes(appRoutes,'/projects/project-1/scripts')?.map(item=>item.route.path)).toEqual(['/',undefined,'projects/:projectID','scripts']);
+    expect(matchRoutes(appRoutes,'/projects/project-1/creative')?.map(item=>item.route.path)).toEqual(['/',undefined,'projects/:projectID','creative']);
     expect(matchRoutes(appRoutes,'/login')?.map(item=>item.route.path)).toEqual(['/login']);
     expect(matchRoutes(appRoutes,'/review/token-1')?.map(item=>item.route.path)).toEqual(['/review/:token']);
   });
 
-  it('uses root-level canonical console URLs and normalizes released workspace links',()=>{
+  it('uses V3 root-level console URLs without legacy route aliases',()=>{
     expect(consolePath.dashboard).toBe('/');
     expect(consolePath.team).toBe('/team');
-    expect(consolePath.project('project-1','scripts')).toBe('/projects/project-1/scripts');
-    expect(canonicalConsolePath('/workspace/dashboard')).toBe('/');
-    expect(canonicalConsolePath('/workspace/team')).toBe('/team');
-    expect(canonicalConsolePath('/workspace/projects/project-1/scripts')).toBe('/projects/project-1/scripts');
+    expect(consolePath.project('project-1')).toBe('/projects/project-1/setup');
+    expect(consolePath.project('project-1','creative')).toBe('/projects/project-1/creative');
+    expect(matchRoutes(appRoutes,'/workspace/projects/project-1/scripts')?.map(item=>item.route.path)).toEqual(['/',undefined,'*']);
   });
 });

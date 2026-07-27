@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -74,41 +75,67 @@ type SubmissionArtifact struct {
 	ByteSize  int64  `json:"byte_size"`
 }
 
+type SubmissionObjectRef struct {
+	ID      string          `json:"id"`
+	Type    string          `json:"type"`
+	Version int             `json:"version"`
+	Digest  string          `json:"digest"`
+	Path    string          `json:"path"`
+	Content json.RawMessage `json:"content"`
+}
+
+func NewSubmissionObjectRef(id, objectType string, version int, objectPath string, content any) (SubmissionObjectRef, error) {
+	body, err := json.Marshal(content)
+	if err != nil {
+		return SubmissionObjectRef{}, err
+	}
+	hash, err := CanonicalHash(json.RawMessage(body))
+	if err != nil {
+		return SubmissionObjectRef{}, err
+	}
+	return SubmissionObjectRef{ID: id, Type: objectType, Version: version, Digest: "sha256:" + hash, Path: objectPath, Content: body}, nil
+}
+
+func SubmissionSchemaVersion(submissionType string) string {
+	return "contentcloud." + submissionType + "/3.0"
+}
+
 type SubmissionBundle struct {
-	BundleVersion          string               `json:"bundle_version"`
-	SchemaVersion          string               `json:"schema_version"`
-	SubmissionType         string               `json:"submission_type"`
-	ProjectID              string               `json:"project_id"`
-	WorkspaceID            string               `json:"workspace_id"`
-	BaseApprovedSnapshotID string               `json:"base_approved_snapshot_id,omitempty"`
-	LocalRunSummary        LocalRunSummary      `json:"local_run_summary"`
-	Objects                json.RawMessage      `json:"objects"`
-	SourceDisclosures      []SourceDisclosure   `json:"source_disclosures"`
-	Artifacts              []SubmissionArtifact `json:"artifacts"`
-	Message                string               `json:"message,omitempty"`
-	ContentHash            string               `json:"content_hash"`
-	IdempotencyKey         string               `json:"idempotency_key"`
+	BundleVersion     string                `json:"bundle_version"`
+	SubmissionType    string                `json:"submission_type"`
+	ProjectID         string                `json:"project_id"`
+	WorkspaceID       string                `json:"workspace_id"`
+	BaseSnapshotIDs   []string              `json:"base_snapshot_ids"`
+	Objects           []SubmissionObjectRef `json:"objects"`
+	SourceDisclosures []SourceDisclosure    `json:"source_disclosures"`
+	LocalRunSummary   LocalRunSummary       `json:"local_run_summary"`
+	EnvironmentDigest string                `json:"environment_digest"`
+	Artifacts         []SubmissionArtifact  `json:"artifacts"`
+	Message           string                `json:"message,omitempty"`
+	ContentHash       string                `json:"content_hash"`
+	IdempotencyKey    string                `json:"idempotency_key"`
 }
 
 type SubmissionRevision struct {
-	ID                     string               `json:"id"`
-	TenantID               string               `json:"tenant_id"`
-	ProjectID              string               `json:"project_id"`
-	WorkspaceID            string               `json:"workspace_id"`
-	SubmissionID           string               `json:"submission_id"`
-	RevisionNo             int                  `json:"revision_no"`
-	SchemaVersion          string               `json:"schema_version"`
-	ContentHash            string               `json:"content_hash"`
-	BaseApprovedSnapshotID string               `json:"base_approved_snapshot_id,omitempty"`
-	LocalRunSummary        LocalRunSummary      `json:"local_run_summary"`
-	Objects                json.RawMessage      `json:"objects"`
-	Artifacts              []SubmissionArtifact `json:"artifacts"`
-	Message                string               `json:"message,omitempty"`
-	IdempotencyKey         string               `json:"idempotency_key"`
-	EvidenceLimited        bool                 `json:"evidence_limited"`
-	CreatedBy              string               `json:"created_by"`
-	CreatedAt              time.Time            `json:"created_at"`
-	SourceDisclosures      []SourceDisclosure   `json:"source_disclosures"`
+	ID                string                `json:"id"`
+	TenantID          string                `json:"tenant_id"`
+	ProjectID         string                `json:"project_id"`
+	WorkspaceID       string                `json:"workspace_id"`
+	SubmissionID      string                `json:"submission_id"`
+	RevisionNo        int                   `json:"revision_no"`
+	SchemaVersion     string                `json:"schema_version"`
+	ContentHash       string                `json:"content_hash"`
+	BaseSnapshotIDs   []string              `json:"base_snapshot_ids"`
+	EnvironmentDigest string                `json:"environment_digest"`
+	LocalRunSummary   LocalRunSummary       `json:"local_run_summary"`
+	Objects           []SubmissionObjectRef `json:"objects"`
+	Artifacts         []SubmissionArtifact  `json:"artifacts"`
+	Message           string                `json:"message,omitempty"`
+	IdempotencyKey    string                `json:"idempotency_key"`
+	EvidenceLimited   bool                  `json:"evidence_limited"`
+	CreatedBy         string                `json:"created_by"`
+	CreatedAt         time.Time             `json:"created_at"`
+	SourceDisclosures []SourceDisclosure    `json:"source_disclosures"`
 }
 
 type ApprovedSnapshot struct {
@@ -128,8 +155,6 @@ type ApprovedSnapshot struct {
 	DecisionID           string               `json:"decision_id"`
 	CreatedBy            string               `json:"created_by"`
 	CreatedAt            time.Time            `json:"created_at"`
-	Origin               string               `json:"origin"`
-	ExternalRef          string               `json:"external_ref,omitempty"`
 }
 
 type ReviewFeedbackBundle struct {
@@ -149,9 +174,9 @@ type DecisionDelta struct {
 }
 
 func (b SubmissionBundle) Validate() error {
-	allowedTypes := map[string]bool{"knowledge": true, "research": true, "strategy": true, "brief": true, "script": true, "delivery": true, "performance": true}
-	if b.BundleVersion != "1.0" {
-		return Invalid("SUBMISSION_BUNDLE_VERSION_INVALID", "bundle_version 必须为 1.0")
+	allowedTypes := map[string]bool{"context": true, "knowledge": true, "brief": true, "content_batch": true, "asset_batch": true, "delivery": true, "result": true}
+	if b.BundleVersion != "3.0" {
+		return Invalid("SUBMISSION_BUNDLE_VERSION_INVALID", "bundle_version 必须为 3.0")
 	}
 	if !allowedTypes[b.SubmissionType] {
 		return Invalid("SUBMISSION_TYPE_INVALID", "submission_type 不受支持")
@@ -159,11 +184,28 @@ func (b SubmissionBundle) Validate() error {
 	if strings.TrimSpace(b.ProjectID) == "" || strings.TrimSpace(b.WorkspaceID) == "" {
 		return Invalid("SUBMISSION_CONTEXT_REQUIRED", "project_id 和 workspace_id 必填")
 	}
-	if strings.TrimSpace(b.SchemaVersion) == "" {
-		return Invalid("SUBMISSION_SCHEMA_REQUIRED", "schema_version 必填")
+	if len(b.Objects) == 0 {
+		return Invalid("SUBMISSION_OBJECTS_INVALID", "objects 必须包含至少一个版本化对象")
 	}
-	if !validJSONArray(b.Objects) {
-		return Invalid("SUBMISSION_OBJECTS_INVALID", "objects 必须是有效 JSON 数组")
+	if !sha256Pattern.MatchString(b.EnvironmentDigest) || !strings.HasPrefix(b.EnvironmentDigest, "sha256:") {
+		return Invalid("SUBMISSION_ENVIRONMENT_DIGEST_INVALID", "environment_digest 必须是带 sha256: 前缀的摘要")
+	}
+	seenObjects := map[string]bool{}
+	for _, object := range b.Objects {
+		if err := object.Validate(); err != nil {
+			return err
+		}
+		if seenObjects[object.ID] {
+			return Invalid("SUBMISSION_OBJECT_DUPLICATE", "objects 不能包含重复 ID")
+		}
+		seenObjects[object.ID] = true
+	}
+	seenSnapshots := map[string]bool{}
+	for _, id := range b.BaseSnapshotIDs {
+		if strings.TrimSpace(id) == "" || seenSnapshots[id] {
+			return Invalid("BASE_SNAPSHOT_INVALID", "base_snapshot_ids 不能包含空值或重复值")
+		}
+		seenSnapshots[id] = true
 	}
 	if strings.TrimSpace(b.IdempotencyKey) == "" || len(b.IdempotencyKey) > 128 {
 		return Invalid("IDEMPOTENCY_KEY_REQUIRED", "idempotency_key 必填且不能超过 128 字符")
@@ -183,6 +225,9 @@ func (b SubmissionBundle) Validate() error {
 		if disclosure.Level == "evidence_pack" && len(disclosure.EvidencePack) == 0 {
 			return Invalid("EVIDENCE_PACK_REQUIRED", "evidence_pack 披露必须包含可审核证据包")
 		}
+		if disclosure.Level != "evidence_pack" && len(disclosure.EvidencePack) > 0 {
+			return Invalid("EVIDENCE_PACK_LEVEL_MISMATCH", "只有 evidence_pack 披露可以携带证据包正文")
+		}
 	}
 	for _, artifact := range b.Artifacts {
 		if artifact.Name == "" || artifact.ByteSize < 0 || !sha256Pattern.MatchString(artifact.SHA256) {
@@ -201,18 +246,18 @@ func (b SubmissionBundle) Validate() error {
 
 func (b SubmissionBundle) ComputedHash() (string, error) {
 	value := struct {
-		BundleVersion          string               `json:"bundle_version"`
-		SchemaVersion          string               `json:"schema_version"`
-		SubmissionType         string               `json:"submission_type"`
-		ProjectID              string               `json:"project_id"`
-		WorkspaceID            string               `json:"workspace_id"`
-		BaseApprovedSnapshotID string               `json:"base_approved_snapshot_id,omitempty"`
-		LocalRunSummary        LocalRunSummary      `json:"local_run_summary"`
-		Objects                json.RawMessage      `json:"objects"`
-		SourceDisclosures      []SourceDisclosure   `json:"source_disclosures"`
-		Artifacts              []SubmissionArtifact `json:"artifacts"`
-		Message                string               `json:"message,omitempty"`
-	}{b.BundleVersion, b.SchemaVersion, b.SubmissionType, b.ProjectID, b.WorkspaceID, b.BaseApprovedSnapshotID, b.LocalRunSummary, b.Objects, b.SourceDisclosures, b.Artifacts, b.Message}
+		BundleVersion     string                `json:"bundle_version"`
+		SubmissionType    string                `json:"submission_type"`
+		ProjectID         string                `json:"project_id"`
+		WorkspaceID       string                `json:"workspace_id"`
+		BaseSnapshotIDs   []string              `json:"base_snapshot_ids"`
+		Objects           []SubmissionObjectRef `json:"objects"`
+		SourceDisclosures []SourceDisclosure    `json:"source_disclosures"`
+		LocalRunSummary   LocalRunSummary       `json:"local_run_summary"`
+		EnvironmentDigest string                `json:"environment_digest"`
+		Artifacts         []SubmissionArtifact  `json:"artifacts"`
+		Message           string                `json:"message,omitempty"`
+	}{b.BundleVersion, b.SubmissionType, b.ProjectID, b.WorkspaceID, b.BaseSnapshotIDs, b.Objects, b.SourceDisclosures, b.LocalRunSummary, b.EnvironmentDigest, b.Artifacts, b.Message}
 	hash, err := CanonicalHash(value)
 	if err != nil {
 		return "", err
@@ -230,27 +275,30 @@ func (b *SubmissionBundle) SetComputedHash() error {
 }
 
 func (r SubmissionRevision) EligibleObjectIDs() []string {
-	var objects []map[string]any
-	if json.Unmarshal(r.Objects, &objects) != nil {
-		return []string{}
-	}
 	ids := []string{}
-	for _, object := range objects {
-		id, _ := object["id"].(string)
-		status, _ := object["status"].(string)
-		if id == "" {
+	for _, object := range r.Objects {
+		var content map[string]any
+		if json.Unmarshal(object.Content, &content) != nil {
 			continue
 		}
+		status, _ := content["status"].(string)
 		if status == "" || status == "candidate" || status == "approved" || status == "verified" || status == "review_ready" {
-			ids = append(ids, id)
+			ids = append(ids, object.ID)
 		}
 	}
 	sort.Strings(ids)
 	return ids
 }
 
-func EvidenceLimited(objects json.RawMessage, disclosures []SourceDisclosure) bool {
-	highRisk := strings.Contains(strings.ToLower(string(objects)), `"risk_level":"high"`) || strings.Contains(strings.ToLower(string(objects)), `"risk_level": "high"`)
+func EvidenceLimited(objects []SubmissionObjectRef, disclosures []SourceDisclosure) bool {
+	highRisk := false
+	for _, object := range objects {
+		content := strings.ToLower(string(object.Content))
+		if strings.Contains(content, `"risk_level":"high"`) || strings.Contains(content, `"risk_level": "high"`) {
+			highRisk = true
+			break
+		}
+	}
 	if !highRisk {
 		return false
 	}
@@ -266,7 +314,20 @@ func normalizeHash(value string) string {
 	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), "sha256:")
 }
 
-func validJSONArray(body json.RawMessage) bool {
-	var value []json.RawMessage
-	return len(body) > 0 && json.Unmarshal(body, &value) == nil
+func (o SubmissionObjectRef) Validate() error {
+	if strings.TrimSpace(o.ID) == "" || strings.TrimSpace(o.Type) == "" || o.Version < 1 {
+		return Invalid("SUBMISSION_OBJECT_IDENTITY_INVALID", "object 需要 id、type 和正整数 version")
+	}
+	clean := path.Clean(strings.TrimSpace(o.Path))
+	if clean == "." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") || strings.Contains(clean, `\`) {
+		return Invalid("SUBMISSION_OBJECT_PATH_INVALID", "object path 必须是 Workspace 内的相对路径")
+	}
+	if len(o.Content) == 0 || !json.Valid(o.Content) || string(o.Content) == "null" {
+		return Invalid("SUBMISSION_OBJECT_CONTENT_INVALID", "object content 必须是有效 JSON")
+	}
+	hash, err := CanonicalHash(json.RawMessage(o.Content))
+	if err != nil || normalizeHash(o.Digest) != hash {
+		return Conflict("SUBMISSION_OBJECT_DIGEST_MISMATCH", "object digest 与结构化 content 不一致")
+	}
+	return nil
 }

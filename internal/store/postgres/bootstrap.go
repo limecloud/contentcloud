@@ -214,14 +214,14 @@ func (s *Store) ConsumeBootstrapAttempt(ctx context.Context, tokenHash string, d
 			return domain.Conflict("CONNECT_SESSION_UNAVAILABLE", "连接会话已过期、取消或被使用")
 		}
 		device.TenantID, device.OwnerUserID, device.ProjectIDs = v.TenantID, v.InviterUserID, []string{v.ProjectID}
-		if _, err := tx.Exec(ctx, `INSERT INTO devices(id,tenant_id,owner_user_id,display_name,hostname,platform,arch,daemon_version,token_hash,capability_manifests,last_seen_at,revoked_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, device.ID, device.TenantID, device.OwnerUserID, device.DisplayName, device.Hostname, device.Platform, device.Arch, device.Version, device.TokenHash, jsonValue(device.Capabilities), device.LastSeenAt, device.RevokedAt); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO devices(id,tenant_id,owner_user_id,display_name,hostname,platform,arch,daemon_version,token_hash,capability_manifests,last_seen_at,revoked_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, device.ID, device.TenantID, device.OwnerUserID, device.DisplayName, device.Hostname, device.Platform, device.Arch, device.Version, device.TokenHash, jsonArrayValue(device.Capabilities), device.LastSeenAt, device.RevokedAt); err != nil {
 			return dbError(err)
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO project_device_grants(tenant_id,project_id,device_id,granted_by,granted_at) VALUES($1,$2,$3,$4,$5)`, v.TenantID, v.ProjectID, device.ID, v.InviterUserID, now); err != nil {
 			return dbError(err)
 		}
 		workspace.TenantID, workspace.ProjectID, workspace.DeviceID, workspace.OwnerUserID = v.TenantID, v.ProjectID, device.ID, v.InviterUserID
-		if _, err := tx.Exec(ctx, `INSERT INTO workspace_bindings(id,tenant_id,project_id,device_id,owner_user_id,template_id,template_version,targets,credential_hash,status,initialized_at,last_seen_at,revoked_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, workspace.ID, workspace.TenantID, workspace.ProjectID, workspace.DeviceID, workspace.OwnerUserID, workspace.TemplateID, workspace.TemplateVersion, jsonValue(workspace.Targets), workspace.CredentialHash, workspace.Status, workspace.InitializedAt, workspace.LastSeenAt, workspace.RevokedAt); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO workspace_bindings(id,tenant_id,project_id,device_id,owner_user_id,template_id,template_version,targets,credential_hash,status,initialized_at,last_seen_at,revoked_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, workspace.ID, workspace.TenantID, workspace.ProjectID, workspace.DeviceID, workspace.OwnerUserID, workspace.TemplateID, workspace.TemplateVersion, jsonArrayValue(workspace.Targets), workspace.CredentialHash, workspace.Status, workspace.InitializedAt, workspace.LastSeenAt, workspace.RevokedAt); err != nil {
 			return dbError(err)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE connect_sessions SET state='verifying',consumed_at=$3,consumed_device_id=$4 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, now, device.ID); err != nil {

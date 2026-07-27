@@ -186,162 +186,6 @@ func (s *Store) SaveEvidence(_ context.Context, v domain.EvidenceSpan) error {
 	return nil
 }
 
-func (s *Store) CreateBenchmark(_ context.Context, v domain.BenchmarkContent) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.benchmarks[v.ID] = v
-	return nil
-}
-
-func (s *Store) Benchmarks(_ context.Context, tenantID, projectID string) ([]domain.BenchmarkContent, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []domain.BenchmarkContent{}
-	for _, v := range s.benchmarks {
-		if v.TenantID == tenantID && v.ProjectID == projectID {
-			out = append(out, v)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
-	return out, nil
-}
-
-func (s *Store) Benchmark(_ context.Context, tenantID, id string) (domain.BenchmarkContent, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	v, ok := s.benchmarks[id]
-	if !ok || v.TenantID != tenantID {
-		return v, domain.NotFound("对标内容")
-	}
-	return v, nil
-}
-
-func (s *Store) CreateFramework(_ context.Context, v domain.ContentFramework) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.frameworks[v.ID] = v
-	return nil
-}
-
-func (s *Store) Frameworks(_ context.Context, tenantID, projectID string) ([]domain.ContentFramework, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []domain.ContentFramework{}
-	for _, v := range s.frameworks {
-		if v.TenantID == tenantID && v.ProjectID == projectID {
-			out = append(out, v)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
-	return out, nil
-}
-
-func (s *Store) Framework(_ context.Context, tenantID, id string) (domain.ContentFramework, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	v, ok := s.frameworks[id]
-	if !ok || v.TenantID != tenantID {
-		return v, domain.NotFound("内容框架")
-	}
-	return v, nil
-}
-
-func (s *Store) CreateShotPattern(_ context.Context, v domain.ShotPattern) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.shotPatterns[v.ID] = v
-	return nil
-}
-
-func (s *Store) ShotPatterns(_ context.Context, tenantID, projectID string) ([]domain.ShotPattern, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []domain.ShotPattern{}
-	for _, v := range s.shotPatterns {
-		if v.TenantID == tenantID && v.ProjectID == projectID {
-			out = append(out, v)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
-	return out, nil
-}
-
-func (s *Store) CreateSellingPoint(_ context.Context, v domain.SellingPoint) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sellingPoints[v.ID] = v
-	return nil
-}
-
-func (s *Store) SellingPoints(_ context.Context, tenantID, projectID string) ([]domain.SellingPoint, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []domain.SellingPoint{}
-	for _, v := range s.sellingPoints {
-		if v.TenantID == tenantID && v.ProjectID == projectID {
-			out = append(out, v)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Priority == out[j].Priority {
-			return out[i].CreatedAt.Before(out[j].CreatedAt)
-		}
-		return out[i].Priority < out[j].Priority
-	})
-	return out, nil
-}
-
-func (s *Store) SellingPoint(_ context.Context, tenantID, id string) (domain.SellingPoint, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	v, ok := s.sellingPoints[id]
-	if !ok || v.TenantID != tenantID {
-		return v, domain.NotFound("卖点")
-	}
-	return v, nil
-}
-
-func (s *Store) CreateVisualizationPlan(_ context.Context, v domain.VisualizationPlan) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.visualizationPlans[v.ID] = v
-	return nil
-}
-
-func (s *Store) VisualizationPlans(_ context.Context, tenantID, projectID string) ([]domain.VisualizationPlan, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []domain.VisualizationPlan{}
-	for _, v := range s.visualizationPlans {
-		if v.TenantID == tenantID && v.ProjectID == projectID {
-			out = append(out, v)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
-	return out, nil
-}
-
-func (s *Store) VisualizationPlan(_ context.Context, tenantID, id string) (domain.VisualizationPlan, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	v, ok := s.visualizationPlans[id]
-	if !ok || v.TenantID != tenantID {
-		return v, domain.NotFound("可视化方案")
-	}
-	return v, nil
-}
-
-func (s *Store) SaveVisualizationPlan(_ context.Context, v domain.VisualizationPlan) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	old, ok := s.visualizationPlans[v.ID]
-	if !ok || old.TenantID != v.TenantID {
-		return domain.NotFound("可视化方案")
-	}
-	s.visualizationPlans[v.ID] = v
-	return nil
-}
-
 func (s *Store) CreateReviewCycle(_ context.Context, cycle domain.ReviewCycle) (domain.ReviewCycle, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -494,21 +338,15 @@ func (s *Store) RevokeReviewGrant(_ context.Context, tenantID, id string, revoke
 func (s *Store) CreateArtifact(_ context.Context, v domain.Artifact) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if v.ApprovedSnapshotID == "" {
+		return domain.Invalid("ARTIFACT_SNAPSHOT_REQUIRED", "Artifact 必须绑定 ApprovedSnapshot")
+	}
+	snapshot, exists := s.approvedSnapshots[v.ApprovedSnapshotID]
+	if !exists || snapshot.TenantID != v.TenantID || snapshot.ProjectID != v.ProjectID {
+		return domain.NotFound("ApprovedSnapshot")
+	}
 	s.artifacts[v.ID] = v
 	return nil
-}
-
-func (s *Store) Artifacts(_ context.Context, tenantID, scriptVersionID string) ([]domain.Artifact, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []domain.Artifact{}
-	for _, v := range s.artifacts {
-		if v.TenantID == tenantID && (scriptVersionID == "" || v.ScriptVersionID == scriptVersionID) {
-			out = append(out, v)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
-	return out, nil
 }
 
 func (s *Store) ArtifactsByApprovedSnapshot(_ context.Context, tenantID, snapshotID string) ([]domain.Artifact, error) {
@@ -540,7 +378,18 @@ func (s *Store) CreateDeliveryPackage(_ context.Context, value domain.DeliveryPa
 	if _, exists := s.deliveryPackages[value.ID]; exists {
 		return domain.Conflict("DELIVERY_PACKAGE_EXISTS", "交付包已存在")
 	}
+	approved := make(map[string]bool, len(value.ApprovedSnapshotIDs))
+	for _, snapshotID := range value.ApprovedSnapshotIDs {
+		snapshot, exists := s.approvedSnapshots[snapshotID]
+		if !exists || snapshot.TenantID != value.TenantID || snapshot.ProjectID != value.ProjectID {
+			return domain.NotFound("ApprovedSnapshot")
+		}
+		approved[snapshotID] = true
+	}
 	for _, artifact := range artifacts {
+		if artifact.TenantID != value.TenantID || artifact.ProjectID != value.ProjectID || !approved[artifact.ApprovedSnapshotID] {
+			return domain.Invalid("DELIVERY_ARTIFACT_SCOPE_INVALID", "交付 Artifact 必须绑定交付包中的 ApprovedSnapshot")
+		}
 		if _, exists := s.artifacts[artifact.ID]; exists {
 			return domain.Conflict("ARTIFACT_EXISTS", "交付 Artifact 已存在")
 		}

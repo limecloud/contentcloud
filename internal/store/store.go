@@ -114,27 +114,6 @@ type Store interface {
 	DecisionRequest(context.Context, string, string) (domain.DecisionRequest, error)
 	SaveDecisionRequest(context.Context, domain.DecisionRequest) error
 
-	CreateBenchmark(context.Context, domain.BenchmarkContent) error
-	Benchmarks(context.Context, string, string) ([]domain.BenchmarkContent, error)
-	Benchmark(context.Context, string, string) (domain.BenchmarkContent, error)
-	CreateFramework(context.Context, domain.ContentFramework) error
-	Frameworks(context.Context, string, string) ([]domain.ContentFramework, error)
-	Framework(context.Context, string, string) (domain.ContentFramework, error)
-	CreateShotPattern(context.Context, domain.ShotPattern) error
-	ShotPatterns(context.Context, string, string) ([]domain.ShotPattern, error)
-	CreateSellingPoint(context.Context, domain.SellingPoint) error
-	SellingPoints(context.Context, string, string) ([]domain.SellingPoint, error)
-	SellingPoint(context.Context, string, string) (domain.SellingPoint, error)
-	CreateVisualizationPlan(context.Context, domain.VisualizationPlan) error
-	VisualizationPlans(context.Context, string, string) ([]domain.VisualizationPlan, error)
-	VisualizationPlan(context.Context, string, string) (domain.VisualizationPlan, error)
-	SaveVisualizationPlan(context.Context, domain.VisualizationPlan) error
-
-	CreateBrief(context.Context, domain.BriefVersion) error
-	Briefs(context.Context, string, string) ([]domain.BriefVersion, error)
-	Brief(context.Context, string, string) (domain.BriefVersion, error)
-	SaveBrief(context.Context, domain.BriefVersion) error
-
 	CreateSnapshot(context.Context, domain.ContextSnapshot) error
 	Snapshot(context.Context, string, string) (domain.ContextSnapshot, error)
 	CreateRun(context.Context, domain.TaskRun) error
@@ -150,11 +129,6 @@ type Store interface {
 	SaveRunAttempt(context.Context, domain.RunAttempt) error
 	ExpireRunAttempts(context.Context, string, time.Time) error
 
-	CreateScript(context.Context, domain.Script, domain.ScriptVersion) (domain.ScriptVersion, error)
-	CreateScriptVersion(context.Context, domain.ScriptVersion) (domain.ScriptVersion, error)
-	Scripts(context.Context, string, string) ([]domain.ScriptVersion, error)
-	Script(context.Context, string, string) (domain.ScriptVersion, error)
-	SaveScript(context.Context, domain.ScriptVersion) error
 	CreateApproval(context.Context, domain.ApprovalDecision) error
 	Approvals(context.Context, string, string) ([]domain.ApprovalDecision, error)
 	CreateReviewCycle(context.Context, domain.ReviewCycle) (domain.ReviewCycle, error)
@@ -170,8 +144,6 @@ type Store interface {
 	ReviewGrantByTokenHash(context.Context, string) (domain.ReviewGrant, error)
 	MarkReviewGrantVerified(context.Context, string, string, time.Time) error
 	RevokeReviewGrant(context.Context, string, string, time.Time) error
-	CompleteLegacyClientReview(context.Context, domain.ScriptVersion, domain.ReviewGrant, domain.ApprovalDecision, *domain.ReviewComment) error
-
 	CreateSubmissionRevision(context.Context, domain.Submission, domain.SubmissionRevision, []domain.SourceDisclosure, domain.ReviewCycle) error
 	SubmissionByWorkspaceType(context.Context, string, string, string, string) (domain.Submission, error)
 	Submissions(context.Context, string, string) ([]domain.Submission, error)
@@ -187,17 +159,11 @@ type Store interface {
 	CompleteSubmissionClientReview(context.Context, domain.Submission, domain.ReviewGrant, domain.ApprovalDecision, *domain.ReviewComment, *domain.ApprovedSnapshot) error
 
 	CreateArtifact(context.Context, domain.Artifact) error
-	Artifacts(context.Context, string, string) ([]domain.Artifact, error)
 	ArtifactsByApprovedSnapshot(context.Context, string, string) ([]domain.Artifact, error)
 	Artifact(context.Context, string, string) (domain.Artifact, error)
 	CreateDeliveryPackage(context.Context, domain.DeliveryPackage, []domain.Artifact) error
 	DeliveryPackages(context.Context, string, string) ([]domain.DeliveryPackage, error)
 	DeliveryPackage(context.Context, string, string) (domain.DeliveryPackage, error)
-	CreateArtifactOpenRequest(context.Context, domain.ArtifactOpenRequest) error
-	ArtifactOpenRequest(context.Context, string, string) (domain.ArtifactOpenRequest, error)
-	PendingArtifactOpenRequests(context.Context, string, string, time.Time, int) ([]domain.ArtifactOpenRequest, error)
-	SaveArtifactOpenRequest(context.Context, domain.ArtifactOpenRequest) error
-	ExpireArtifactOpenRequests(context.Context, string, time.Time) error
 	CreatePerformanceImportBatch(context.Context, domain.PerformanceImportBatch, []domain.PerformanceObservation) error
 	PerformanceImportBatches(context.Context, string, string) ([]domain.PerformanceImportBatch, error)
 	PerformanceImportBatch(context.Context, string, string) (domain.PerformanceImportBatch, error)

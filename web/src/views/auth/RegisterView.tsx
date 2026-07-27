@@ -8,7 +8,7 @@ import { MIN_PASSWORD_LENGTH, hasErrors, validateRegister, type AuthErrors } fro
 
 type Mode = 'create' | 'invite';
 
-export function RegisterView({onSuccess, onNavigate, initialInviteToken}: {onSuccess: () => Promise<void>; onNavigate: (path: string) => void; initialInviteToken?: string}) {
+export function RegisterView({onSuccess, onNavigate, initialInviteToken, loginPath='/login'}: {onSuccess: () => Promise<void>; onNavigate: (path: string) => void; initialInviteToken?: string; loginPath?:string}) {
   const [mode, setMode] = useState<Mode>(initialInviteToken ? 'invite' : 'create');
   const [form, setForm] = useState({email: '', password: '', display_name: '', tenant_name: '', invite_token: initialInviteToken || ''});
   const [errors, setErrors] = useState<AuthErrors>({});
@@ -50,7 +50,7 @@ export function RegisterView({onSuccess, onNavigate, initialInviteToken}: {onSuc
 
   const tokenFilled = form.invite_token.trim().length > 0;
   return (
-    <AuthLayout footer={<>已有账号？ <button type="button" className="auth-link" onClick={() => onNavigate('/login')}>登录</button></>}>
+    <AuthLayout footer={<>已有账号？ <button type="button" className="auth-link" onClick={() => onNavigate(loginPath)}>登录</button></>}>
       <h2>{mode === 'create' ? '创建团队' : '加入团队'}</h2>
       <p>{mode === 'create' ? '注册账号并创建你的内容团队' : '凭管理员发放的邀请令牌加入现有团队'}</p>
       <div className="auth-modes" role="tablist" aria-label="注册方式">

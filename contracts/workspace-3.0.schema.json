@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.goodvision.cn/schemas/workspace-3.0.schema.json",
+  "title": "ContentCloud Workspace 3.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "workspace_id", "project_id", "layout_version", "created_at"],
+  "properties": {
+    "schema_version": {"const": "contentcloud.workspace/3.0"},
+    "workspace_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "project_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "layout_version": {"const": 3},
+    "context_version_id": {"type": "string", "maxLength": 200},
+    "environment_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "device_id": {"type": "string", "maxLength": 200},
+    "server_url": {"type": "string", "format": "uri"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

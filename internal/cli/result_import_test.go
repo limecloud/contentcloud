@@ -7,7 +7,7 @@ import (
 )
 
 func TestParseObservationCSV(t *testing.T) {
-	data := []byte("script_version_id,platform,account_alias,published_at,window_hours,sample_status,impressions,completion_rate,currency,spend,gmv\nscript-1,douyin,brand-main,2026-07-20T12:00:00Z,24,seed_candidate,12000,0.42,CNY,100,300\n")
+	data := []byte("approved_snapshot_id,platform,account_alias,published_at,window_hours,sample_status,impressions,completion_rate,currency,spend,gmv\nsnapshot-1,douyin,brand-main,2026-07-20T12:00:00Z,24,seed_candidate,12000,0.42,CNY,100,300\n")
 	items, err := parseObservationFile("results.csv", data)
 	if err != nil {
 		t.Fatal(err)
@@ -22,8 +22,8 @@ func TestParseObservationXLSX(t *testing.T) {
 	writer := zip.NewWriter(&body)
 	sheet, _ := writer.Create("xl/worksheets/sheet1.xml")
 	_, _ = sheet.Write([]byte(`<worksheet><sheetData>
-<row><c r="A1" t="inlineStr"><is><t>script_version_id</t></is></c><c r="B1" t="inlineStr"><is><t>platform</t></is></c><c r="C1" t="inlineStr"><is><t>account_alias</t></is></c><c r="D1" t="inlineStr"><is><t>published_at</t></is></c><c r="E1" t="inlineStr"><is><t>window_hours</t></is></c><c r="F1" t="inlineStr"><is><t>sample_status</t></is></c><c r="G1" t="inlineStr"><is><t>views</t></is></c></row>
-<row><c r="A2" t="inlineStr"><is><t>script-1</t></is></c><c r="B2" t="inlineStr"><is><t>douyin</t></is></c><c r="C2" t="inlineStr"><is><t>brand-main</t></is></c><c r="D2" t="inlineStr"><is><t>2026-07-20T12:00:00Z</t></is></c><c r="E2"><v>24</v></c><c r="F2" t="inlineStr"><is><t>insufficient_sample</t></is></c><c r="G2"><v>42</v></c></row>
+<row><c r="A1" t="inlineStr"><is><t>approved_snapshot_id</t></is></c><c r="B1" t="inlineStr"><is><t>platform</t></is></c><c r="C1" t="inlineStr"><is><t>account_alias</t></is></c><c r="D1" t="inlineStr"><is><t>published_at</t></is></c><c r="E1" t="inlineStr"><is><t>window_hours</t></is></c><c r="F1" t="inlineStr"><is><t>sample_status</t></is></c><c r="G1" t="inlineStr"><is><t>views</t></is></c></row>
+<row><c r="A2" t="inlineStr"><is><t>snapshot-1</t></is></c><c r="B2" t="inlineStr"><is><t>douyin</t></is></c><c r="C2" t="inlineStr"><is><t>brand-main</t></is></c><c r="D2" t="inlineStr"><is><t>2026-07-20T12:00:00Z</t></is></c><c r="E2"><v>24</v></c><c r="F2" t="inlineStr"><is><t>insufficient_sample</t></is></c><c r="G2"><v>42</v></c></row>
 </sheetData></worksheet>`))
 	_ = writer.Close()
 	items, err := parseObservationFile("results.xlsx", body.Bytes())
@@ -36,7 +36,7 @@ func TestParseObservationXLSX(t *testing.T) {
 }
 
 func TestParseObservationRejectsSpreadsheetFormula(t *testing.T) {
-	data := []byte("script_version_id,platform,account_alias,published_at,window_hours,sample_status\nscript-1,douyin,=1+1,2026-07-20T12:00:00Z,24,insufficient_sample\n")
+	data := []byte("approved_snapshot_id,platform,account_alias,published_at,window_hours,sample_status\nsnapshot-1,douyin,=1+1,2026-07-20T12:00:00Z,24,insufficient_sample\n")
 	if _, err := parseObservationFile("results.csv", data); err == nil {
 		t.Fatal("spreadsheet formula must be rejected")
 	}

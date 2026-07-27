@@ -82,6 +82,13 @@ func jsonValue(value any) []byte {
 	return body
 }
 
+func jsonArrayValue[T any](value []T) []byte {
+	if value == nil {
+		value = []T{}
+	}
+	return jsonValue(value)
+}
+
 func decodeJSON[T any](body []byte) (T, error) {
 	var value T
 	err := json.Unmarshal(body, &value)
@@ -599,7 +606,7 @@ func scanConnect(row pgx.Row) (domain.ConnectSession, error) {
 func (s *Store) ConnectSessionByID(ctx context.Context, tenantID, id string) (domain.ConnectSession, error) {
 	var result domain.ConnectSession
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		v, err := scanConnect(tx.QueryRow(ctx, `SELECT id,tenant_id,project_id,inviter_user_id,CASE WHEN state='waiting_for_computer' AND expires_at<now() THEN 'expired' ELSE state END,expires_at,consumed_at,COALESCE(consumed_device_id::text,'') FROM connect_sessions WHERE tenant_id=$1 AND id=$2`, tenantID, id))
+		v, err := scanConnect(tx.QueryRow(ctx, `SELECT id,tenant_id,project_id,inviter_user_id,state,expires_at,consumed_at,COALESCE(consumed_device_id::text,'') FROM connect_sessions WHERE tenant_id=$1 AND id=$2`, tenantID, id))
 		result = v
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("连接会话")
@@ -624,7 +631,7 @@ func (s *Store) SaveConnectSession(ctx context.Context, v domain.ConnectSession)
 
 func (s *Store) SaveDevice(ctx context.Context, v domain.Device) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE devices SET display_name=$3,hostname=$4,platform=$5,arch=$6,daemon_version=$7,capability_manifests=$8,last_seen_at=$9,revoked_at=$10 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.DisplayName, v.Hostname, v.Platform, v.Arch, v.Version, jsonValue(v.Capabilities), v.LastSeenAt, v.RevokedAt)
+		result, err := tx.Exec(ctx, `UPDATE devices SET display_name=$3,hostname=$4,platform=$5,arch=$6,daemon_version=$7,capability_manifests=$8,last_seen_at=$9,revoked_at=$10 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.DisplayName, v.Hostname, v.Platform, v.Arch, v.Version, jsonArrayValue(v.Capabilities), v.LastSeenAt, v.RevokedAt)
 		if err != nil {
 			return err
 		}

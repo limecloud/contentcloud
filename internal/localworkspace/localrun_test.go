@@ -12,7 +12,7 @@ func TestLocalRunEnforcesKnowledgeAndContentGates(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)
-	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "local-run-1", Intent: "content", SourceRefs: []string{"source:product"}, Now: now})
+	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "local-run-1", Intent: "intent:content", Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestLocalRunEnforcesKnowledgeAndContentGates(t *testing.T) {
 	if _, err := AdvanceLocalRun(root, run.RunID, "output-lint", RecordLocalRunOptions{}, now); err == nil {
 		t.Fatal("compile must record an output path")
 	}
-	if _, err := AdvanceLocalRun(root, run.RunID, "output-lint", RecordLocalRunOptions{OutputPaths: []string{"outputs/scripts/draft.json"}}, now); err != nil {
+	if _, err := AdvanceLocalRun(root, run.RunID, "output-lint", RecordLocalRunOptions{OutputPaths: []string{"50-production/scripts/draft.json"}}, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := AdvanceLocalRun(root, run.RunID, "done", RecordLocalRunOptions{}, now); err == nil {
@@ -54,7 +54,7 @@ func TestLocalRunEnforcesKnowledgeAndContentGates(t *testing.T) {
 		t.Fatalf("unexpected completed run: %+v", completed)
 	}
 	report, err := ValidateLocalRuns(root)
-	if err != nil || !report.Valid || report.RunCount != 1 || report.CurrentRun != run.RunID {
+	if err != nil || !report.Valid || report.RunCount != 1 || report.CurrentRun != "" {
 		t.Fatalf("unexpected validation: %+v %v", report, err)
 	}
 }
@@ -64,7 +64,7 @@ func TestFailedLocalRunCanResume(t *testing.T) {
 	if _, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", Target: "none", CLIVersion: "test"}); err != nil {
 		t.Fatal(err)
 	}
-	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "local-run-failure", Intent: "query"})
+	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "local-run-failure", Intent: "intent:query"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestFailedLocalRunCanResume(t *testing.T) {
 		t.Fatalf("fail run: %+v %v", failed, err)
 	}
 	resumed, err := ResumeLocalRun(root, run.RunID, time.Time{})
-	if err != nil || resumed.Status != "in_progress" {
+	if err != nil || resumed.Status != "active" {
 		t.Fatalf("resume run: %+v %v", resumed, err)
 	}
 }

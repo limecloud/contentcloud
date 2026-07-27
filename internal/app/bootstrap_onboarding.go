@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"regexp"
 	"runtime"
 	"strings"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
+	"github.com/limecloud/contentcloud/internal/projectview"
 )
 
 var bootstrapChallengePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
@@ -76,6 +76,9 @@ func (s *Service) StartBootstrapAuthorization(ctx context.Context, baseURL strin
 	if _, err := uuid.Parse(strings.TrimSpace(in.SessionID)); err != nil || !bootstrapChallengePattern.MatchString(in.CodeChallenge) {
 		return StartBootstrapAuthorizationResult{}, domain.Invalid("BOOTSTRAP_AUTHORIZATION_INPUT_INVALID", "初始化授权缺少 session_id 或有效 code_challenge")
 	}
+	if err := projectview.ValidateServerBase(baseURL); err != nil {
+		return StartBootstrapAuthorizationResult{}, err
+	}
 	attemptToken, attemptTokenHash, err := domain.NewOpaqueToken("cbt_", 32)
 	if err != nil {
 		return StartBootstrapAuthorizationResult{}, err
@@ -107,8 +110,11 @@ func (s *Service) StartBootstrapAuthorization(ctx context.Context, baseURL strin
 	if _, err := s.store.AppendBootstrapProgress(ctx, attemptTokenHash, initial, now); err != nil {
 		return StartBootstrapAuthorizationResult{}, err
 	}
-	verificationURL := strings.TrimRight(baseURL, "/") + "/projects/" + url.PathEscape(attempt.ProjectID) + "/overview?bootstrap_attempt=" + url.QueryEscape(attempt.ID)
-	return StartBootstrapAuthorizationResult{AttemptID: attempt.ID, AttemptToken: attemptToken, UserCode: attempt.UserCode, SupportCode: attempt.SupportCode, VerificationURL: verificationURL, ExpiresAt: attempt.ExpiresAt, IntervalSeconds: 3}, nil
+	verificationLink, err := projectview.Build(baseURL, attempt.ProjectID, projectview.Target{View: "setup", Focus: &projectview.Focus{Kind: "bootstrap_attempt", ID: attempt.ID}})
+	if err != nil {
+		return StartBootstrapAuthorizationResult{}, err
+	}
+	return StartBootstrapAuthorizationResult{AttemptID: attempt.ID, AttemptToken: attemptToken, UserCode: attempt.UserCode, SupportCode: attempt.SupportCode, VerificationURL: verificationLink.URL, ExpiresAt: attempt.ExpiresAt, IntervalSeconds: 3}, nil
 }
 
 func (s *Service) ApproveBootstrapAuthorization(ctx context.Context, actor Actor, sessionID, attemptID, requestID string) (domain.BootstrapAttempt, error) {
@@ -192,7 +198,7 @@ func (s *Service) CompleteBootstrapAuthorization(ctx context.Context, in Complet
 		issuedManifest = &manifest
 	}
 	deviceInput := in.Device
-	device := domain.Device{ID: domain.NewID(), DisplayName: defaultString(deviceInput.DisplayName, deviceInput.Hostname), Hostname: deviceInput.Hostname, Platform: defaultString(deviceInput.Platform, runtime.GOOS), Arch: defaultString(deviceInput.Arch, runtime.GOARCH), Version: deviceInput.Version, TokenHash: deviceTokenHash, Capabilities: deviceInput.Capabilities, LastSeenAt: now}
+	device := domain.Device{ID: domain.NewID(), DisplayName: defaultString(deviceInput.DisplayName, deviceInput.Hostname), Hostname: deviceInput.Hostname, Platform: defaultString(deviceInput.Platform, runtime.GOOS), Arch: defaultString(deviceInput.Arch, runtime.GOARCH), Version: deviceInput.Version, TokenHash: deviceTokenHash, Capabilities: append([]domain.Capability{}, deviceInput.Capabilities...), LastSeenAt: now}
 	workspace := domain.WorkspaceBinding{ID: domain.NewID(), TemplateID: "workspace_marketing_video", Targets: []string{}, CredentialHash: workspaceTokenHash, Status: "active", InitializedAt: now, LastSeenAt: now}
 	session, consumed, err := s.store.ConsumeBootstrapAttempt(ctx, tokenHash, device, workspace, now)
 	if err != nil {

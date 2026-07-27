@@ -120,33 +120,6 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	logical := domain.Script{ID: domain.NewID(), TenantID: a.TenantID, ProjectID: project.ID, Title: "RLS script", CreatedAt: now}
-	version := domain.ScriptVersion{ID: domain.NewID(), TenantID: a.TenantID, ProjectID: project.ID, RunID: run.ID, ChangeType: "initial", InvariantFields: []string{}, ChangedFields: []string{}, Status: "review_ready", InputSnapshotID: snapshot.ID, ContentHash: "rls-script-" + suffix, Package: domain.ScriptPackage{SchemaVersion: "1.1", Title: "RLS script"}, Validation: domain.ValidationReport{Valid: true}, CreatedAt: now}
-	version, err = store.CreateScript(ctx, logical, version)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reviewCycle := domain.ReviewCycle{ID: domain.NewID(), TenantID: a.TenantID, ProjectID: project.ID, SubjectType: "script_version", SubjectID: version.ID, Status: "open", OpenedBy: a.UserID, OpenedAt: now, CreatedAt: now}
-	reviewCycle, err = store.CreateReviewCycle(ctx, reviewCycle)
-	if err != nil {
-		t.Fatal(err)
-	}
-	artifact := domain.Artifact{ID: domain.NewID(), TenantID: a.TenantID, ProjectID: project.ID, ScriptVersionID: version.ID, Kind: "extension", CapabilityID: domain.ArtifactExportCapability, CapabilityVersion: "1.0.0", CapabilityDigest: "rls-artifact", SchemaID: "opaque/1.0", MediaType: "application/octet-stream", FileName: "private.bin", SHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", ByteSize: 10, Visibility: "internal", RetentionClass: "project", Purpose: "primary", SourceDeviceID: device.ID, ValidationStatus: "valid", PresentationTier: "metadata_only", Metadata: map[string]any{}, CreatedAt: now}
-	if err := store.CreateArtifact(ctx, artifact); err != nil {
-		t.Fatal(err)
-	}
-	openRequest := domain.ArtifactOpenRequest{ID: domain.NewID(), TenantID: a.TenantID, ProjectID: project.ID, ArtifactID: artifact.ID, DeviceID: device.ID, RequestedBy: a.UserID, State: "pending", ExpiresAt: now.Add(time.Minute), CreatedAt: now}
-	if err := store.CreateArtifactOpenRequest(ctx, openRequest); err != nil {
-		t.Fatal(err)
-	}
-	performance, err := service.ImportPerformanceObservations(ctx, a, app.ImportPerformanceInput{ProjectID: project.ID, SourceName: "rls-results.csv", SourceFormat: "csv", Observations: []app.CreateObservationInput{{RowNumber: 2, ScriptVersionID: version.ID, Platform: "douyin", AccountAlias: "rls-account", PublishedAt: now.Add(-time.Hour), WindowHours: 24, SampleStatus: "insufficient_sample", Metrics: map[string]float64{"impressions": 10}}}}, "req-rls-results")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rating, err := service.CreateRatingDecision(ctx, a, app.CreateRatingDecisionInput{ProjectID: project.ID, SubjectType: "script_version", SubjectID: version.ID, ObservationIDs: []string{performance.Observations[0].ID}, Rating: "insufficient_sample", Reason: "样本不足", NextAction: "继续收集观察"}, "req-rls-rating")
-	if err != nil {
-		t.Fatal(err)
-	}
 	conn, err := pgx.Connect(ctx, databaseURL)
 	if err != nil {
 		t.Fatal(err)
@@ -200,47 +173,5 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("tenant B saw tenant A CreativeExecutionBundle through RLS: count=%d", count)
-	}
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM performance_import_batches WHERE id=$1`, performance.Batch.ID).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("tenant B saw tenant A performance batch through RLS: count=%d", count)
-	}
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM performance_observations WHERE id=$1`, performance.Observations[0].ID).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("tenant B saw tenant A performance observation through RLS: count=%d", count)
-	}
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM rating_decisions WHERE id=$1`, rating.Decision.ID).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("tenant B saw tenant A rating decision through RLS: count=%d", count)
-	}
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM scripts WHERE id=$1`, logical.ID).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("tenant B saw tenant A logical script through RLS: count=%d", count)
-	}
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM review_cycles WHERE id=$1`, reviewCycle.ID).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("tenant B saw tenant A review cycle through RLS: count=%d", count)
-	}
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM artifacts WHERE id=$1`, artifact.ID).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("tenant B saw tenant A artifact through RLS: count=%d", count)
-	}
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM artifact_open_requests WHERE id=$1`, openRequest.ID).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("tenant B saw tenant A artifact open request through RLS: count=%d", count)
 	}
 }

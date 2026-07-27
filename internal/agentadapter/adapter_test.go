@@ -13,17 +13,17 @@ import (
 )
 
 func TestDecodeClaudeStructuredOutput(t *testing.T) {
-	pkg := domain.ScriptPackage{SchemaVersion: "1.1", Deliverability: "blocked", BlockedReasons: []domain.BlockReason{{Code: "missing", Message: "missing", NextAction: "review"}}}
+	pkg := domain.KnowledgeExtractionPackage{SchemaVersion: "1.0", Candidates: []domain.KnowledgeCandidate{}, Warnings: []string{"missing source"}}
 	body, _ := json.Marshal(map[string]any{"structured_output": pkg})
 	output, err := decodeClaudeOutput(body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got domain.ScriptPackage
+	var got domain.KnowledgeExtractionPackage
 	if err := json.Unmarshal(output, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.SchemaVersion != "1.1" || got.Deliverability != "blocked" {
+	if got.SchemaVersion != "1.0" || len(got.Warnings) != 1 {
 		t.Fatalf("unexpected package: %#v", got)
 	}
 }
@@ -43,9 +43,9 @@ func TestAgentEnvironmentDoesNotInheritUnrelatedSecret(t *testing.T) {
 func TestAdapterLoadsOnlyFrozenAutomationWorkspaceResources(t *testing.T) {
 	now := time.Date(2026, 7, 27, 16, 0, 0, 0, time.UTC)
 	contract := domain.TaskContract{
-		ContractVersion: "1.0", ContractID: "snapshot-1", RunID: "run-1", TaskType: "script_generate",
-		Project: domain.Project{ID: "project-1"}, InputSnapshotID: "snapshot-1", OutputSchema: domain.ScriptPackageSchema,
-		Capability: domain.Capability{ID: domain.ScriptCapability, Version: "1.1.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.ScriptPackageSchema, Digest: "sha256:" + strings.Repeat("a", 64), LocalOnly: true},
+		ContractVersion: "1.0", ContractID: "snapshot-1", RunID: "run-1", TaskType: "knowledge_extract",
+		Project: domain.Project{ID: "project-1"}, Sources: []domain.ContractSource{}, InputSnapshotID: "snapshot-1", OutputSchema: domain.KnowledgeCandidatesSchema,
+		Capability: domain.Capability{ID: domain.KnowledgeExtractCapability, Version: "1.0.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, Digest: "sha256:" + strings.Repeat("a", 64), LocalOnly: true},
 	}
 	workspace, err := automationworkspace.Begin(automationworkspace.Options{
 		BaseDir: filepath.Join(t.TempDir(), "automation"), AttemptID: "attempt-1", RunID: "run-1", ProjectID: "project-1",

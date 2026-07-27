@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -584,7 +583,7 @@ func (r *Root) sourceCommand() *cobra.Command {
 		return r.writeOK("source.status", result)
 	}}
 	revisions := r.idReadCommand("revisions <source-id>", "source.revisions", "List immutable revisions for one logical source", "source_id")
-	impact := r.idReadCommand("impact <source-id>", "source.impact", "Show knowledge, Brief, and script versions affected by a source", "source_id")
+	impact := r.idReadCommand("impact <source-id>", "source.impact", "Show governed knowledge affected by a source", "source_id")
 	var reviseMIME string
 	var reviseDryRun bool
 	revise := &cobra.Command{Use: "revise <source-id> <file>", Args: cobra.ExactArgs(2), Short: "Upload a new immutable revision for an existing logical source", RunE: func(cmd *cobra.Command, args []string) error {
@@ -845,179 +844,9 @@ func (r *Root) knowledgeCommand() *cobra.Command {
 	return cmd
 }
 
-func (r *Root) briefCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "brief", Short: "Inspect and review immutable Brief versions"}
-	cmd.AddCommand(r.projectListCommand("list", "brief.list", "List project Brief versions", "project_id"))
-	show := r.idReadCommand("show <brief-id>", "brief.show", "Show one Brief version", "id")
-
-	var createFile string
-	var createDryRun bool
-	create := &cobra.Command{Use: "create", Short: "Create an immutable Brief version from a JSON document", RunE: func(command *cobra.Command, args []string) error {
-		input, err := readBriefInput(createFile)
-		if err != nil {
-			return err
-		}
-		if createDryRun {
-			if err := r.resolveBriefInputProject(command, input, nil, localconfig.Config{}); err != nil {
-				return err
-			}
-			return r.writeOK("brief.create", map[string]any{"dry_run": true, "input": input})
-		}
-		cfg, client, _, err := r.userClient()
-		if err != nil {
-			return err
-		}
-		if err := r.resolveBriefInputProject(command, input, client, cfg); err != nil {
-			return err
-		}
-		var result domain.BriefVersion
-		if err := client.Dispatch(command.Context(), "brief.create", input, &result); err != nil {
-			return err
-		}
-		return r.writeOK("brief.create", result)
-	}}
-	create.Flags().StringVar(&createFile, "file", "", "path to a Brief input JSON document")
-	create.Flags().BoolVar(&createDryRun, "dry-run", false, "validate the local document without changing server state")
-	_ = create.MarkFlagRequired("file")
-
-	var reviseFile, revisionReason string
-	var reviseDryRun bool
-	revise := &cobra.Command{Use: "revise <brief-id>", Args: cobra.ExactArgs(1), Short: "Create a new immutable version that supersedes a Brief", RunE: func(command *cobra.Command, args []string) error {
-		input, err := readBriefInput(reviseFile)
-		if err != nil {
-			return err
-		}
-		input.SupersedesID = args[0]
-		input.RevisionReason = strings.TrimSpace(revisionReason)
-		if reviseDryRun {
-			if err := r.resolveBriefInputProject(command, input, nil, localconfig.Config{}); err != nil {
-				return err
-			}
-			return r.writeOK("brief.revise", map[string]any{"dry_run": true, "input": input})
-		}
-		cfg, client, _, err := r.userClient()
-		if err != nil {
-			return err
-		}
-		if err := r.resolveBriefInputProject(command, input, client, cfg); err != nil {
-			return err
-		}
-		var result domain.BriefVersion
-		if err := client.Dispatch(command.Context(), "brief.create", input, &result); err != nil {
-			return err
-		}
-		return r.writeOK("brief.revise", result)
-	}}
-	revise.Flags().StringVar(&reviseFile, "file", "", "path to the complete replacement Brief input JSON document")
-	revise.Flags().StringVar(&revisionReason, "reason", "", "required reason for creating a replacement version")
-	revise.Flags().BoolVar(&reviseDryRun, "dry-run", false, "validate the local document without changing server state")
-	_ = revise.MarkFlagRequired("file")
-	_ = revise.MarkFlagRequired("reason")
-
-	reviewCommand := func(use, outputCommand, decision, short string, reasonRequired bool) *cobra.Command {
-		var reason string
-		var dryRun bool
-		command := &cobra.Command{Use: use + " <brief-id>", Args: cobra.ExactArgs(1), Short: short, RunE: func(command *cobra.Command, args []string) error {
-			if reasonRequired && strings.TrimSpace(reason) == "" {
-				return domain.Invalid("BRIEF_RETURN_REASON_REQUIRED", "退回 Brief 必须填写原因")
-			}
-			params := map[string]any{"id": args[0], "decision": decision, "reason": strings.TrimSpace(reason)}
-			if dryRun {
-				params["dry_run"] = true
-				return r.writeOK(outputCommand, params)
-			}
-			_, client, _, err := r.userClient()
-			if err != nil {
-				return err
-			}
-			var result domain.BriefVersion
-			if err := client.Dispatch(command.Context(), "brief.review", params, &result); err != nil {
-				return err
-			}
-			return r.writeOK(outputCommand, result)
-		}}
-		if reasonRequired {
-			command.Flags().StringVar(&reason, "reason", "", "required review return reason")
-			_ = command.MarkFlagRequired("reason")
-		}
-		command.Flags().BoolVar(&dryRun, "dry-run", false, "validate without changing server state")
-		return command
-	}
-
-	var dryRun bool
-	approve := &cobra.Command{Use: "approve <brief-id>", Args: cobra.ExactArgs(1), Short: "Approve an internally reviewed Brief", RunE: func(cmd *cobra.Command, args []string) error {
-		if dryRun {
-			return r.writeOK("brief.approve", map[string]any{"dry_run": true, "brief_id": args[0]})
-		}
-		_, client, _, err := r.userClient()
-		if err != nil {
-			return err
-		}
-		var result domain.BriefVersion
-		if err := client.Dispatch(cmd.Context(), "brief.review", map[string]any{"id": args[0], "decision": "approve"}, &result); err != nil {
-			return err
-		}
-		return r.writeOK("brief.approve", result)
-	}}
-	approve.Flags().BoolVar(&dryRun, "dry-run", false, "validate without changing server state")
-	cmd.AddCommand(show, create, revise, reviewCommand("submit", "brief.submit", "submit", "Submit a draft Brief for internal review", false), reviewCommand("return", "brief.return", "return", "Return a Brief with a required reason", true), approve)
-	return cmd
-}
-
-func readBriefInput(path string) (*app.CreateBriefInput, error) {
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var input app.CreateBriefInput
-	decoder := json.NewDecoder(strings.NewReader(string(body)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
-		return nil, domain.Invalid("BRIEF_INPUT_INVALID", "Brief JSON 无效或包含未知字段: "+err.Error())
-	}
-	return &input, nil
-}
-
-func (r *Root) resolveBriefInputProject(command *cobra.Command, input *app.CreateBriefInput, client *apiclient.Client, cfg localconfig.Config) error {
-	if r.projectID == "" && input.ProjectID != "" {
-		return nil
-	}
-	if client == nil {
-		loaded, err := localconfig.Load()
-		if err != nil {
-			return err
-		}
-		projectID, err := localconfig.ResolveProject(r.projectID, loaded)
-		if err != nil {
-			return domain.Invalid("PROJECT_CONTEXT_REQUIRED", "Brief JSON 缺少 project_id，且未解析到 --project 或本地项目上下文")
-		}
-		input.ProjectID = projectID
-		return nil
-	}
-	projectID, err := r.resolveProject(command, cfg, client)
-	if err != nil {
-		return err
-	}
-	input.ProjectID = projectID
-	return nil
-}
-
 func (r *Root) runCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "run", Short: "Create and inspect local creative task runs"}
+	cmd := &cobra.Command{Use: "run", Short: "Inspect and cancel Automation runs"}
 	cmd.AddCommand(r.projectListCommand("list", "run.list", "List project runs", "project_id"), r.idReadCommand("show <run-id>", "run.show", "Show one run", "id"), r.idReadCommand("attempts <run-id>", "run.attempts", "Show immutable execution attempts", "id"))
-	var idem string
-	create := &cobra.Command{Use: "create <brief-id>", Args: cobra.ExactArgs(1), Short: "Create one script generation run", RunE: func(cmd *cobra.Command, args []string) error {
-		_, client, _, err := r.userClient()
-		if err != nil {
-			return err
-		}
-		var result domain.TaskRun
-		if err := client.Dispatch(cmd.Context(), "run.create", map[string]any{"brief_id": args[0], "idempotency_key": idem}, &result); err != nil {
-			return err
-		}
-		return r.writeOK("run.create", result)
-	}}
-	create.Flags().StringVar(&idem, "idempotency-key", "", "stable key for safe retries")
 	var yes, dryRun bool
 	cancel := &cobra.Command{Use: "cancel <run-id>", Args: cobra.ExactArgs(1), Short: "Request cancellation of a queued or running task", RunE: func(cmd *cobra.Command, args []string) error {
 		if dryRun {
@@ -1049,91 +878,7 @@ func (r *Root) runCommand() *cobra.Command {
 		}
 		return r.writeOK("run.log", map[string]any{"run_id": run.ID, "state": run.State, "progress_label": run.ProgressLabel, "attempt_count": run.AttemptCount, "error_code": run.ErrorCode, "updated_at": run.UpdatedAt})
 	}}
-	cmd.AddCommand(create, cancel, log)
-	return cmd
-}
-
-func (r *Root) scriptCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "script", Short: "Inspect and review canonical Script Packages"}
-	cmd.AddCommand(r.projectListCommand("list", "script.list", "List project scripts", "project_id"), r.idReadCommand("show <script-id>", "script.show", "Show one Script Package", "id"))
-	changeCommand := func(use, changeType, short string) *cobra.Command {
-		var briefID, hypothesis, reason, idempotencyKey string
-		var invariants, changedFields []string
-		var dryRun bool
-		command := &cobra.Command{Use: use + " <baseline-version-id>", Args: cobra.ExactArgs(1), Short: short, RunE: func(command *cobra.Command, args []string) error {
-			input := app.CreateScriptChangeRunInput{BriefVersionID: briefID, ChangeType: changeType, InvariantFields: invariants, ChangedFields: changedFields, Hypothesis: hypothesis, RevisionReason: reason, IdempotencyKey: idempotencyKey}
-			if input.IdempotencyKey == "" {
-				input.IdempotencyKey = domain.NewID()
-			}
-			if dryRun {
-				return r.writeOK("script.change.create", map[string]any{"dry_run": true, "baseline_script_version_id": args[0], "input": input})
-			}
-			_, client, _, err := r.userClient()
-			if err != nil {
-				return err
-			}
-			params := struct {
-				BaselineVersionID string `json:"baseline_script_version_id"`
-				app.CreateScriptChangeRunInput
-			}{BaselineVersionID: args[0], CreateScriptChangeRunInput: input}
-			var result domain.TaskRun
-			if err := client.Dispatch(command.Context(), "script.change.create", params, &result); err != nil {
-				return err
-			}
-			return r.writeOK("script.change.create", result)
-		}}
-		command.Flags().StringVar(&briefID, "brief", "", "approved BriefVersion ID; defaults to the current approved version")
-		command.Flags().StringSliceVar(&invariants, "invariant", nil, "JSON Pointer that must remain unchanged; repeat or comma-separate")
-		command.Flags().StringSliceVar(&changedFields, "changed-field", nil, "JSON Pointer expected to change; repeat or comma-separate")
-		command.Flags().StringVar(&hypothesis, "hypothesis", "", "experiment hypothesis; required for a variant")
-		command.Flags().StringVar(&reason, "reason", "", "required reason for creating the new immutable version")
-		command.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "stable key for safe retries")
-		command.Flags().BoolVar(&dryRun, "dry-run", false, "validate local arguments without creating a run")
-		_ = command.MarkFlagRequired("reason")
-		if changeType == "variant" {
-			_ = command.MarkFlagRequired("changed-field")
-			_ = command.MarkFlagRequired("hypothesis")
-		}
-		return command
-	}
-	cmd.AddCommand(changeCommand("revise", "revision", "Create a local Agent run for a new immutable script revision"), changeCommand("variant", "variant", "Create a single-variable local Agent variant run"))
-	var conclusion, assignee string
-	var dryRun bool
-	review := &cobra.Command{Use: "review <script-id> <submit|approve_internal|return>", Args: cobra.ExactArgs(2), Short: "Record one internal script review transition", RunE: func(cmd *cobra.Command, args []string) error {
-		if (args[1] == "approve_internal" || args[1] == "return") && strings.TrimSpace(conclusion) == "" {
-			return domain.Invalid("REVIEW_CONCLUSION_REQUIRED", "内审批准或退回必须填写 --conclusion")
-		}
-		if args[1] == "return" && strings.TrimSpace(assignee) == "" {
-			return domain.Invalid("REVIEW_ASSIGNEE_REQUIRED", "内审退回必须填写 --assignee")
-		}
-		if dryRun {
-			return r.writeOK("script.review", map[string]any{"dry_run": true, "id": args[0], "decision": args[1], "conclusion": conclusion, "assignee_user_id": assignee})
-		}
-		_, client, _, err := r.userClient()
-		if err != nil {
-			return err
-		}
-		var result domain.ScriptVersion
-		if err := client.Dispatch(cmd.Context(), "script.review", map[string]any{"id": args[0], "decision": args[1], "conclusion": conclusion, "assignee_user_id": assignee}, &result); err != nil {
-			return err
-		}
-		return r.writeOK("script.review", result)
-	}}
-	review.Flags().StringVar(&conclusion, "conclusion", "", "whole-version review conclusion")
-	review.Flags().StringVar(&assignee, "assignee", "", "tenant member user ID responsible for a returned revision")
-	review.Flags().BoolVar(&dryRun, "dry-run", false, "validate without changing server state")
-	cycles := &cobra.Command{Use: "cycles <script-id>", Args: cobra.ExactArgs(1), Short: "List immutable review cycles for a ScriptVersion", RunE: func(cmd *cobra.Command, args []string) error {
-		_, client, _, err := r.userClient()
-		if err != nil {
-			return err
-		}
-		var result []domain.ReviewCycle
-		if err := client.Dispatch(cmd.Context(), "review_cycle.list", map[string]any{"script_id": args[0]}, &result); err != nil {
-			return err
-		}
-		return r.writeOK("review_cycle.list", result)
-	}}
-	cmd.AddCommand(review, cycles)
+	cmd.AddCommand(cancel, log)
 	return cmd
 }
 
@@ -1267,7 +1012,7 @@ func (r *Root) resultCommand() *cobra.Command {
 	var observationIDs []string
 	var rating, reason, nextAction string
 	var ratingDryRun bool
-	rate := &cobra.Command{Use: "rate <approved_snapshot|content_framework|shot_pattern> <subject-id>", Args: cobra.ExactArgs(2), Short: "Create an immutable human rating decision", RunE: func(cmd *cobra.Command, args []string) error {
+	rate := &cobra.Command{Use: "rate <approved_snapshot> <subject-id>", Args: cobra.ExactArgs(2), Short: "Create an immutable human rating decision", RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, client, _, err := r.userClient()
 		if err != nil {
 			return err

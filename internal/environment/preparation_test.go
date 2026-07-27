@@ -17,7 +17,7 @@ func TestPreparationPlanBindsSignedPermissionsCostAndExecutionPlan(t *testing.T)
 	manifest, err := environment.BuildManifest("project-1", profile, registry, now, now.Add(24*time.Hour))
 	must(t, err)
 	execution := environment.LocalExecutionPlan{
-		SchemaVersion: "1.0", PlanID: "lep_" + repeat("1", 64), RunID: "run-1", Intent: "script", RequiredCapabilities: []string{"contentcloud.script.generate"},
+		SchemaVersion: "1.0", PlanID: "lep_" + repeat("1", 64), RunID: "run-1", Intent: "asset_generate", RequiredCapabilities: []string{"contentcloud.asset.generate"},
 		Plugins: []environment.PluginRef{manifest.Distribution.Plugins[1]}, Preparation: []environment.PluginPreparation{{Plugin: manifest.Distribution.Plugins[1], Reason: "not_installed"}},
 		InputRefs: []string{}, EnvironmentDigest: "sha256:" + repeat("2", 64), State: "environment_prepare",
 	}

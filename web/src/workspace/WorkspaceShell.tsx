@@ -5,16 +5,15 @@ import { Layout, type View } from '../components/Layout';
 import { CreateProjectModal } from '../components/CreateProjectModal';
 import { Banner } from '../components/ui';
 import { consolePath } from '../consoleRoutes';
+import { isProjectView } from '../v3/page-contracts';
 import { useWorkspace } from './context';
-
-const projectViews=new Set<View>(['overview','sources','assets','knowledge','strategy','briefs','scripts','submissions','results','lineage','audit']);
 
 export function ConsoleShell() {
   const {session,tenants,dashboard,error,clearError,refresh,switchTenant,logout}=useWorkspace();
   const location=useLocation();const navigate=useNavigate();const [createOpen,setCreateOpen]=useState(false);
   const match=location.pathname.match(/^\/projects\/([^/]+)\/([^/]+)$/);
   const project=useMemo(()=>dashboard.projects.find(item=>item.id===match?.[1]),[dashboard.projects,match?.[1]]);
-  const routeView=(match?.[2]&&projectViews.has(match[2] as View)?match[2]:location.pathname.endsWith('/team')?'team':'dashboard') as View;
+  const routeView=(match?.[2]&&isProjectView(match[2])?match[2]:location.pathname.endsWith('/team')?'team':'dashboard') as View;
   const selectProject=(value:Project)=>navigate(consolePath.project(value.id));
   const selectView=(view:View)=>navigate(view==='dashboard'?consolePath.dashboard:view==='team'?consolePath.team:project?consolePath.project(project.id,view):consolePath.dashboard);
   const signOut=async()=>{await logout();navigate('/login',{replace:true})};

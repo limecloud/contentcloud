@@ -262,85 +262,6 @@ paths:
   /bff/decision-requests/{id}/resolve:
     parameters: [{$ref: '#/components/parameters/ID'}]
     post: *jsonWrite
-  /bff/projects/{project_id}/benchmarks:
-    parameters: [{$ref: '#/components/parameters/ProjectID'}]
-    get: *jsonRead
-    post: *jsonWrite
-  /bff/projects/{project_id}/frameworks:
-    parameters: [{$ref: '#/components/parameters/ProjectID'}]
-    get: *jsonRead
-  /bff/benchmarks/{id}/frameworks:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    post: *jsonWrite
-  /bff/projects/{project_id}/shot-patterns:
-    parameters: [{$ref: '#/components/parameters/ProjectID'}]
-    get: *jsonRead
-  /bff/frameworks/{id}/shot-patterns:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    post: *jsonWrite
-  /bff/projects/{project_id}/selling-points:
-    parameters: [{$ref: '#/components/parameters/ProjectID'}]
-    get: *jsonRead
-    post: *jsonWrite
-  /bff/projects/{project_id}/visualization-plans:
-    parameters: [{$ref: '#/components/parameters/ProjectID'}]
-    get: *jsonRead
-  /bff/selling-points/{id}/visualization-plans:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    post: *jsonWrite
-  /bff/visualization-plans/{id}/review:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    post: *jsonWrite
-  /bff/projects/{project_id}/briefs:
-    parameters: [{$ref: '#/components/parameters/ProjectID'}]
-    get: *jsonRead
-    post:
-      tags: [Web BFF]
-      security: [{cookieAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json: {schema: {$ref: '#/components/schemas/BriefInput'}}
-      responses:
-        '200': {$ref: '#/components/responses/Success'}
-        '400': {$ref: '#/components/responses/Error'}
-        '401': {$ref: '#/components/responses/Error'}
-        '403': {$ref: '#/components/responses/Error'}
-        '409': {$ref: '#/components/responses/Error'}
-  /bff/briefs/{id}/versions:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    post:
-      tags: [Web BFF]
-      security: [{cookieAuth: []}]
-      description: Create an immutable replacement version; the path ID is authoritative for supersedes_id and project ownership.
-      requestBody:
-        required: true
-        content:
-          application/json: {schema: {$ref: '#/components/schemas/BriefInput'}}
-      responses:
-        '200': {$ref: '#/components/responses/Success'}
-        '400': {$ref: '#/components/responses/Error'}
-        '401': {$ref: '#/components/responses/Error'}
-        '403': {$ref: '#/components/responses/Error'}
-        '409': {$ref: '#/components/responses/Error'}
-  /bff/briefs/{id}/review:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    post:
-      tags: [Web BFF]
-      security: [{cookieAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json: {schema: {$ref: '#/components/schemas/BriefReviewInput'}}
-      responses:
-        '200': {$ref: '#/components/responses/Success'}
-        '400': {$ref: '#/components/responses/Error'}
-        '401': {$ref: '#/components/responses/Error'}
-        '403': {$ref: '#/components/responses/Error'}
-        '409': {$ref: '#/components/responses/Error'}
-  /bff/briefs/{id}/runs:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    post: *jsonWrite
   /bff/projects/{project_id}/runs:
     parameters: [{$ref: '#/components/parameters/ProjectID'}]
     get: *jsonRead
@@ -363,61 +284,6 @@ paths:
   /bff/runs/{id}/cancel:
     parameters: [{$ref: '#/components/parameters/ID'}]
     post: *jsonWrite
-  /bff/projects/{project_id}/scripts:
-    parameters: [{$ref: '#/components/parameters/ProjectID'}]
-    get: *jsonRead
-  /bff/scripts/{id}:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    get: *jsonRead
-  /bff/scripts/{id}/runs:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    post:
-      tags: [Web BFF]
-      operationId: createScriptChangeRun
-      security: [{cookieAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json: {schema: {$ref: '#/components/schemas/ScriptChangeRunInput'}}
-      responses:
-        '200': {$ref: '#/components/responses/Success'}
-        '400': {$ref: '#/components/responses/Error'}
-        '401': {$ref: '#/components/responses/Error'}
-        '403': {$ref: '#/components/responses/Error'}
-        '409': {$ref: '#/components/responses/Error'}
-  /bff/scripts/{id}/review:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    post:
-      tags: [Web BFF]
-      operationId: reviewScriptVersion
-      security: [{cookieAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json: {schema: {$ref: '#/components/schemas/ReviewScriptInput'}}
-      responses:
-        '200': {$ref: '#/components/responses/Success'}
-        '400': {$ref: '#/components/responses/Error'}
-        '401': {$ref: '#/components/responses/Error'}
-        '403': {$ref: '#/components/responses/Error'}
-        '409': {$ref: '#/components/responses/Error'}
-  /bff/scripts/{id}/comments:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    get: *jsonRead
-    post: *jsonWrite
-  /bff/scripts/{id}/review-cycles:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    get:
-      tags: [Web BFF]
-      operationId: listScriptReviewCycles
-      security: [{cookieAuth: []}]
-      responses:
-        '200':
-          description: Review cycles ordered newest first.
-          content:
-            application/json: {schema: {$ref: '#/components/schemas/ReviewCycleListEnvelope'}}
-        '401': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
   /bff/comments/{id}/resolve:
     parameters: [{$ref: '#/components/parameters/ID'}]
     post: *jsonWrite
@@ -479,19 +345,6 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
-  /bff/scripts/{id}/review-grants:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    get:
-      tags: [Web BFF]
-      operationId: listScriptReviewGrants
-      security: [{cookieAuth: []}]
-      responses:
-        '200':
-          description: Legacy ScriptVersion review grant history without token or OTP hashes. New grants use SubmissionRevision.
-          content:
-            application/json: {schema: {$ref: '#/components/schemas/ReviewGrantListEnvelope'}}
-        '401': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
   /bff/review-grants/{id}/revoke:
     parameters: [{$ref: '#/components/parameters/ID'}]
     post:
@@ -510,26 +363,10 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-  /bff/scripts/{id}/artifacts:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    get:
-      tags: [Web BFF]
-      operationId: listArtifactPresentations
-      security: [{cookieAuth: []}]
-      responses:
-        '200':
-          description: Server-computed presentation decisions for immutable ScriptVersion artifacts.
-          content:
-            application/json: {schema: {$ref: '#/components/schemas/ArtifactPresentationListEnvelope'}}
-        '401': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
-  /bff/scripts/{id}/exports:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    post: *jsonWrite
   /bff/projects/{project_id}/approved-snapshots:
     parameters:
       - {$ref: '#/components/parameters/ProjectID'}
-      - {name: type, in: query, schema: {type: string, enum: [knowledge, research, strategy, brief, script, delivery, performance]}}
+      - {name: type, in: query, schema: {type: string, enum: [context, knowledge, brief, content_batch, asset_batch, delivery, result]}}
     get: *jsonRead
   /bff/approved-snapshots/{id}/artifacts:
     parameters: [{$ref: '#/components/parameters/ID'}]
@@ -572,51 +409,6 @@ paths:
   /bff/delivery-packages/{id}:
     parameters: [{$ref: '#/components/parameters/ID'}]
     get: *jsonRead
-  /bff/artifacts/{id}/presentation:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    get:
-      tags: [Web BFF]
-      operationId: getArtifactPresentation
-      security: [{cookieAuth: []}]
-      responses:
-        '200':
-          description: Presentation tier and actions computed from server facts.
-          content:
-            application/json: {schema: {$ref: '#/components/schemas/ArtifactPresentationEnvelope'}}
-        '401': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
-  /bff/artifacts/{id}/local-open:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    post:
-      tags: [Web BFF]
-      operationId: createArtifactLocalOpen
-      security: [{cookieAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json: {schema: {$ref: '#/components/schemas/CreateArtifactOpenInput'}}
-      responses:
-        '200':
-          description: Dry-run plan or a 60-second declarative local-open request.
-          content:
-            application/json: {schema: {$ref: '#/components/schemas/ArtifactOpenResultEnvelope'}}
-        '401': {$ref: '#/components/responses/Error'}
-        '403': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
-        '409': {$ref: '#/components/responses/Error'}
-  /bff/artifact-open-requests/{id}:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    get:
-      tags: [Web BFF]
-      operationId: getArtifactOpenRequest
-      security: [{cookieAuth: []}]
-      responses:
-        '200':
-          description: Current declarative local-open request state.
-          content:
-            application/json: {schema: {$ref: '#/components/schemas/ArtifactOpenRequestEnvelope'}}
-        '401': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
   /bff/artifacts/{id}/download:
     parameters: [{$ref: '#/components/parameters/ID'}]
     get:
@@ -715,7 +507,7 @@ paths:
       operationId: getReviewProjection
       responses:
         '200':
-          description: Token-bound legacy ScriptVersion or current SubmissionRevision projection.
+          description: Token-bound SubmissionRevision projection.
           content:
             application/json: {schema: {$ref: '#/components/schemas/ReviewProjectionEnvelope'}}
         '401': {$ref: '#/components/responses/Error'}
@@ -815,39 +607,6 @@ components:
         request_id: {type: string}
         data: {$ref: '#/components/schemas/ImpactAnalysis'}
         meta: {type: object}
-    BriefInput:
-      type: object
-      additionalProperties: false
-      required: [objective, audience, demand_moment, scene, conflict, primary_selling_point, evidence_summary, cta, channel, aspect_ratio, target_duration_seconds, primary_test_variable, approved_knowledge_ids, framework_ids, visualization_plan_ids]
-      properties:
-        project_id: {type: string, format: uuid, description: Used by CLI transport; Web BFF derives it from the route.}
-        objective: {type: string, minLength: 1}
-        audience: {type: string, minLength: 1}
-        demand_moment: {type: string, minLength: 1}
-        scene: {type: string, minLength: 1}
-        conflict: {type: string, minLength: 1}
-        primary_selling_point: {type: string, minLength: 1}
-        secondary_selling_points: {type: array, maxItems: 2, items: {type: string}}
-        evidence_summary: {type: string, minLength: 1}
-        cta: {type: string, minLength: 1}
-        channel: {type: string, minLength: 1}
-        aspect_ratio: {const: '9:16'}
-        target_duration_seconds: {type: integer, minimum: 10, maximum: 120}
-        primary_test_variable: {type: string, minLength: 1}
-        approved_knowledge_ids: {type: array, minItems: 1, uniqueItems: true, items: {type: string, format: uuid}}
-        framework_ids: {type: array, minItems: 1, uniqueItems: true, items: {type: string, format: uuid}}
-        visualization_plan_ids: {type: array, minItems: 1, uniqueItems: true, items: {type: string, format: uuid}}
-        viewpoint: {type: string, default: user}
-        constraints: {type: array, uniqueItems: true, items: {type: string}}
-        supersedes_id: {type: string, format: uuid, description: CLI transport only; revision BFF derives it from the route.}
-        revision_reason: {type: string}
-    BriefReviewInput:
-      type: object
-      additionalProperties: false
-      required: [decision]
-      properties:
-        decision: {type: string, enum: [submit, approve, return]}
-        reason: {type: string, description: Required when decision is return.}
     RunAttempt:
       type: object
       additionalProperties: false
@@ -873,56 +632,6 @@ components:
         usage: {type: object, description: Optional client-reported and sanitized usage summary.}
         transcript_summary: {type: string, description: Sanitized summary only; never prompt or source content.}
         created_at: {type: string, format: date-time}
-    ScriptChangeRunInput:
-      type: object
-      additionalProperties: false
-      required: [change_type, invariant_fields, changed_fields, revision_reason]
-      properties:
-        brief_version_id: {type: string, format: uuid}
-        change_type: {type: string, enum: [revision, variant]}
-        invariant_fields: {type: array, uniqueItems: true, items: {type: string, pattern: '^/'}}
-        changed_fields: {type: array, uniqueItems: true, items: {type: string, pattern: '^/'}}
-        hypothesis: {type: string, description: Required for variant.}
-        revision_reason: {type: string, minLength: 1}
-        idempotency_key: {type: string}
-    ScriptVersionLineage:
-      type: object
-      description: Immutable logical-script version lineage fields included in every ScriptVersion projection.
-      required: [id, project_id, script_id, run_id, version, change_type, invariant_fields, changed_fields, status, content_hash, created_at]
-      properties:
-        id: {type: string, format: uuid}
-        project_id: {type: string, format: uuid}
-        script_id: {type: string, format: uuid}
-        run_id: {type: string, format: uuid}
-        version: {type: integer, minimum: 1}
-        supersedes_id: {type: string, format: uuid}
-        baseline_script_version_id: {type: string, format: uuid}
-        change_type: {type: string, enum: [initial, revision, variant]}
-        invariant_fields: {type: array, uniqueItems: true, items: {type: string, pattern: '^/'}}
-        changed_fields: {type: array, uniqueItems: true, items: {type: string, pattern: '^/'}}
-        hypothesis: {type: string}
-        revision_reason: {type: string}
-        status: {type: string, enum: [blocked, review_ready, internal_review, internally_approved, client_review, revision_requested, approved, superseded]}
-        content_hash: {type: string}
-        created_at: {type: string, format: date-time}
-    ReviewScriptInput:
-      type: object
-      additionalProperties: false
-      required: [decision]
-      properties:
-        decision: {type: string, enum: [submit, approve_internal, return]}
-        conclusion: {type: string, description: Required for approve_internal and return.}
-        assignee_user_id: {type: string, format: uuid, description: Required for return.}
-      allOf:
-        - if:
-            properties: {decision: {enum: [approve_internal, return]}}
-          then:
-            required: [conclusion]
-            properties: {conclusion: {type: string, minLength: 1}}
-        - if:
-            properties: {decision: {const: return}}
-          then:
-            required: [assignee_user_id]
     Submission:
       type: object
       additionalProperties: false
@@ -932,7 +641,7 @@ components:
         tenant_id: {type: string, format: uuid}
         project_id: {type: string, format: uuid}
         workspace_id: {type: string, format: uuid}
-        submission_type: {type: string, enum: [knowledge, research, strategy, brief, script, delivery, performance]}
+        submission_type: {type: string, enum: [context, knowledge, brief, content_batch, asset_batch, delivery, result]}
         status: {type: string, enum: [submitted, in_review, internally_approved, client_review, approved, changes_requested, superseded]}
         current_revision_id: {type: string, format: uuid}
         created_by: {type: string}
@@ -977,10 +686,10 @@ components:
         id: {type: string, format: uuid}
         tenant_id: {type: string, format: uuid}
         project_id: {type: string, format: uuid}
-        subject_type: {type: string, enum: [submission_revision, script_version]}
+        subject_type: {type: string, enum: [submission_revision]}
         subject_id: {type: string, format: uuid}
         subject_hash: {type: string}
-        decision_stage: {type: string, enum: [internal, client, legacy]}
+        decision_stage: {type: string, enum: [internal, client]}
         actor_id: {type: string}
         decision: {type: string, enum: [approve, return, request_changes]}
         reason: {type: string}
@@ -990,7 +699,7 @@ components:
     ApprovedSnapshot:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, project_id, workspace_id, submission_id, submission_revision_id, submission_type, schema_version, content_hash, subject_hash, canonical_content, eligible_ids, artifacts, decision_id, created_by, created_at, origin]
+      required: [id, tenant_id, project_id, workspace_id, submission_id, submission_revision_id, submission_type, schema_version, content_hash, subject_hash, canonical_content, eligible_ids, artifacts, decision_id, created_by, created_at]
       properties:
         id: {type: string, format: uuid}
         tenant_id: {type: string, format: uuid}
@@ -998,7 +707,7 @@ components:
         workspace_id: {type: string, format: uuid}
         submission_id: {type: string, format: uuid}
         submission_revision_id: {type: string, format: uuid}
-        submission_type: {type: string, enum: [knowledge, research, strategy, brief, script, delivery, performance]}
+        submission_type: {type: string, enum: [context, knowledge, brief, content_batch, asset_batch, delivery, result]}
         schema_version: {type: string}
         content_hash: {type: string}
         subject_hash: {type: string}
@@ -1008,8 +717,6 @@ components:
         decision_id: {type: string, format: uuid}
         created_by: {type: string}
         created_at: {type: string, format: date-time}
-        origin: {type: string, enum: [current, v1_import]}
-        external_ref: {type: string}
     ApproveSubmissionInput:
       type: object
       additionalProperties: false
@@ -1039,7 +746,6 @@ components:
       required: [project, comments, verified]
       properties:
         project: {type: object}
-        script: {type: object, description: Legacy ScriptVersion projection.}
         submission: {$ref: '#/components/schemas/SubmissionReviewSubject'}
         comments: {type: array, items: {type: object}}
         verified: {type: boolean}
@@ -1053,25 +759,6 @@ components:
         request_id: {type: string}
         data: {$ref: '#/components/schemas/ReviewProjection'}
         meta: {type: object}
-    ReviewCycle:
-      type: object
-      additionalProperties: false
-      required: [id, tenant_id, project_id, subject_type, subject_id, cycle_number, status, opened_by, opened_at, created_at]
-      properties:
-        id: {type: string, format: uuid}
-        tenant_id: {type: string, format: uuid}
-        project_id: {type: string, format: uuid}
-        subject_type: {type: string, enum: [submission_revision, script_version]}
-        subject_id: {type: string, format: uuid}
-        cycle_number: {type: integer, minimum: 1}
-        status: {type: string, enum: [open, approved, changes_requested, superseded]}
-        conclusion: {type: string}
-        assignee_user_id: {type: string, format: uuid}
-        opened_by: {type: string}
-        decided_by: {type: string}
-        opened_at: {type: string, format: date-time}
-        decided_at: {type: string, format: date-time}
-        created_at: {type: string, format: date-time}
     ReviewGrantBase:
       type: object
       required: [id, tenant_id, project_id, subject_type, subject_id, subject_hash, reviewer_email, expires_at, created_at]
@@ -1079,7 +766,7 @@ components:
         id: {type: string, format: uuid}
         tenant_id: {type: string, format: uuid}
         project_id: {type: string, format: uuid}
-        subject_type: {type: string, enum: [submission_revision, script_version]}
+        subject_type: {type: string, enum: [submission_revision]}
         subject_id: {type: string, format: uuid}
         subject_hash: {type: string}
         reviewer_email: {type: string, format: email}
@@ -1107,59 +794,16 @@ components:
       required: [reviewer_email]
       properties:
         reviewer_email: {type: string, format: email}
-    ArtifactCapabilityRef:
-      type: object
-      additionalProperties: false
-      required: [id, version, digest]
-      properties:
-        id: {type: string, minLength: 1}
-        version: {type: string, pattern: '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$'}
-        digest: {type: string, minLength: 1}
-    ArtifactRef:
-      type: object
-      additionalProperties: false
-      required: [sha256, media_type, size]
-      properties:
-        sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
-        media_type: {type: string, minLength: 1}
-        size: {type: integer, minimum: 1, maximum: 107374182400}
-    ArtifactRenditionRef:
-      type: object
-      additionalProperties: false
-      required: [purpose, artifact]
-      properties:
-        purpose: {type: string, enum: [thumbnail, preview, poster, transcript]}
-        artifact: {$ref: '#/components/schemas/ArtifactRef'}
-    ExtensionArtifactEnvelopeV1:
-      type: object
-      additionalProperties: false
-      required: [envelope_version, project_id, script_version_id, capability, schema_id, media_type, sha256, size, renditions, metadata]
-      properties:
-        envelope_version: {const: '1.0'}
-        project_id: {type: string, format: uuid}
-        script_version_id: {type: string, format: uuid}
-        capability: {$ref: '#/components/schemas/ArtifactCapabilityRef'}
-        schema_id: {type: string, minLength: 1, maxLength: 160}
-        media_type: {type: string, minLength: 1, maxLength: 160}
-        sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
-        size: {type: integer, minimum: 1, maximum: 107374182400}
-        review_projection: {$ref: '#/components/schemas/ArtifactRef'}
-        renditions: {type: array, maxItems: 16, items: {$ref: '#/components/schemas/ArtifactRenditionRef'}}
-        metadata:
-          type: object
-          maxProperties: 64
-          additionalProperties: {type: [string, number, boolean]}
     Artifact:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, project_id, kind, capability_id, capability_version, capability_digest, schema_id, media_type, file_name, sha256, byte_size, visibility, retention_class, purpose, validation_status, presentation_tier, metadata, created_at]
+      required: [id, tenant_id, project_id, approved_snapshot_id, kind, capability_id, capability_version, capability_digest, schema_id, media_type, file_name, sha256, byte_size, visibility, retention_class, purpose, metadata, created_at]
       properties:
         id: {type: string, format: uuid}
         tenant_id: {type: string, format: uuid}
         project_id: {type: string, format: uuid}
         approved_snapshot_id: {type: string, format: uuid}
-        script_version_id: {type: string, format: uuid}
-        kind: {type: string, enum: [core, export, extension, rendition, review_projection, delivery]}
+        kind: {const: delivery}
         capability_id: {type: string}
         capability_version: {type: string}
         capability_digest: {type: string}
@@ -1170,13 +814,7 @@ components:
         byte_size: {type: integer, minimum: 0}
         visibility: {type: string, enum: [internal, client, restricted]}
         retention_class: {type: string, enum: [attempt, project, audit]}
-        derived_from_artifact_id: {type: string, format: uuid}
         purpose: {type: string}
-        source_device_id: {type: string, format: uuid}
-        validation_status: {type: string, enum: [pending, valid, rejected]}
-        validation_error: {type: string}
-        envelope: {$ref: '#/components/schemas/ExtensionArtifactEnvelopeV1'}
-        presentation_tier: {type: string, enum: [cloud_native, hosted_preview, safe_rendition, local_open, metadata_only]}
         metadata: {type: object}
         created_at: {type: string, format: date-time}
     ExportApprovedSnapshotInput:
@@ -1184,77 +822,27 @@ components:
       additionalProperties: false
       required: [format]
       properties:
-        script_id: {type: string, description: Required only when a snapshot contains multiple script objects.}
+        content_item_id: {type: string, description: Required only when a snapshot contains multiple ContentItem objects.}
         format: {type: string, enum: [json, markdown, xlsx]}
     CreateDeliveryPackageInput:
       type: object
       additionalProperties: false
       properties:
-        script_id: {type: string, description: Required only when a snapshot contains multiple script objects.}
+        content_item_id: {type: string, description: Required only when a snapshot contains multiple ContentItem objects.}
     DeliveryPackage:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, project_id, approved_snapshot_ids, script_id, status, manifest, created_by, created_at]
+      required: [id, tenant_id, project_id, approved_snapshot_ids, content_item_id, status, manifest, created_by, created_at]
       properties:
         id: {type: string, format: uuid}
         tenant_id: {type: string, format: uuid}
         project_id: {type: string, format: uuid}
         approved_snapshot_ids: {type: array, minItems: 1, uniqueItems: true, items: {type: string, format: uuid}}
-        script_id: {type: string}
+        content_item_id: {type: string}
         status: {const: ready}
         manifest: {type: array, minItems: 3, maxItems: 3, items: {$ref: '#/components/schemas/Artifact'}}
         created_by: {type: string}
         created_at: {type: string, format: date-time}
-    ArtifactPresentation:
-      type: object
-      additionalProperties: false
-      required: [artifact, tier, renditions, actions]
-      properties:
-        artifact: {$ref: '#/components/schemas/Artifact'}
-        tier: {type: string, enum: [cloud_native, hosted_preview, safe_rendition, local_open, metadata_only]}
-        review_projection: {$ref: '#/components/schemas/Artifact'}
-        renditions: {type: array, items: {$ref: '#/components/schemas/Artifact'}}
-        actions: {type: array, uniqueItems: true, items: {type: string, enum: [view_native, preview, local_open, download]}}
-        source_device:
-          type: object
-          additionalProperties: false
-          required: [id, display_name, online]
-          properties:
-            id: {type: string, format: uuid}
-            display_name: {type: string}
-            online: {type: boolean}
-    CreateArtifactOpenInput:
-      type: object
-      additionalProperties: false
-      required: [device_id]
-      properties:
-        device_id: {type: string, format: uuid}
-        dry_run: {type: boolean, default: false}
-    ArtifactOpenRequest:
-      type: object
-      additionalProperties: false
-      required: [open_request_id, tenant_id, project_id, artifact_id, device_id, requested_by, state, expires_at, created_at]
-      properties:
-        open_request_id: {type: string, format: uuid}
-        tenant_id: {type: string, format: uuid}
-        project_id: {type: string, format: uuid}
-        artifact_id: {type: string, format: uuid}
-        device_id: {type: string, format: uuid}
-        requested_by: {type: string}
-        state: {type: string, enum: [pending, accepted, opened, not_available, failed, expired]}
-        reason: {type: string, enum: [local_index_missing, file_changed, launcher_unavailable, open_failed]}
-        expires_at: {type: string, format: date-time}
-        accepted_at: {type: string, format: date-time}
-        completed_at: {type: string, format: date-time}
-        created_at: {type: string, format: date-time}
-    ArtifactOpenResult:
-      type: object
-      additionalProperties: false
-      required: [dry_run, presentation]
-      properties:
-        dry_run: {type: boolean}
-        request: {$ref: '#/components/schemas/ArtifactOpenRequest'}
-        presentation: {$ref: '#/components/schemas/ArtifactPresentation'}
     PerformanceImportRowError:
       type: object
       additionalProperties: false
@@ -1267,17 +855,11 @@ components:
     PerformanceObservationInput:
       type: object
       additionalProperties: false
-      required: [platform, account_alias, published_at, window_hours, sample_status, metrics]
-      oneOf:
-        - required: [approved_snapshot_id]
-          not: {required: [script_version_id]}
-        - required: [script_version_id]
-          not: {required: [approved_snapshot_id]}
+      required: [approved_snapshot_id, platform, account_alias, published_at, window_hours, sample_status, metrics]
       properties:
         row_number: {type: integer, minimum: 1}
         project_id: {type: string, format: uuid}
         approved_snapshot_id: {type: string, format: uuid}
-        script_version_id: {type: string, format: uuid, deprecated: true, description: Read/import compatibility for V1 records only; mutually exclusive with approved_snapshot_id.}
         platform: {type: string, minLength: 1}
         account_alias: {type: string, minLength: 1}
         published_at: {type: string, format: date-time}
@@ -1324,7 +906,7 @@ components:
     PerformanceObservation:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, project_id, import_batch_id, row_number, platform, account_alias, published_at, window_hours, sample_status, metrics, spend, gmv, dedup_key, issue_category, notes, created_at]
+      required: [id, tenant_id, project_id, import_batch_id, row_number, approved_snapshot_id, platform, account_alias, published_at, window_hours, sample_status, metrics, spend, gmv, dedup_key, issue_category, notes, created_at]
       properties:
         id: {type: string, description: UUID when persisted; empty only in a dry-run result.}
         tenant_id: {type: string, format: uuid}
@@ -1332,7 +914,6 @@ components:
         import_batch_id: {type: string}
         row_number: {type: integer, minimum: 1}
         approved_snapshot_id: {type: string, format: uuid}
-        script_version_id: {type: string, format: uuid, deprecated: true}
         platform: {type: string}
         account_alias: {type: string}
         published_at: {type: string, format: date-time}
@@ -1368,7 +949,7 @@ components:
       required: [subject_type, subject_id, observation_ids, rating, reason, next_action]
       properties:
         project_id: {type: string, format: uuid, description: CLI transport only; Web BFF derives it from the route.}
-        subject_type: {type: string, enum: [approved_snapshot, script_version, content_framework, shot_pattern]}
+        subject_type: {type: string, enum: [approved_snapshot]}
         subject_id: {type: string, format: uuid}
         observation_ids: {type: array, minItems: 1, maxItems: 100, uniqueItems: true, items: {type: string, format: uuid}}
         rating: {type: string, enum: [insufficient_sample, seed_candidate, repairable, discarded]}
@@ -1383,7 +964,7 @@ components:
         id: {type: string, description: UUID when persisted; empty only in a dry-run result.}
         tenant_id: {type: string, format: uuid}
         project_id: {type: string, format: uuid}
-        subject_type: {type: string, enum: [approved_snapshot, script_version, content_framework, shot_pattern]}
+        subject_type: {type: string, enum: [approved_snapshot]}
         subject_id: {type: string, format: uuid}
         observation_ids: {type: array, minItems: 1, maxItems: 100, uniqueItems: true, items: {type: string, format: uuid}}
         rating: {type: string, enum: [insufficient_sample, seed_candidate, repairable, discarded]}
@@ -1391,56 +972,6 @@ components:
         next_action: {type: string}
         created_by: {type: string, format: uuid}
         created_at: {type: string, format: date-time}
-    ArtifactPresentationListEnvelope:
-      type: object
-      additionalProperties: false
-      required: [ok, command, request_id, data, meta]
-      properties:
-        ok: {const: true}
-        command: {const: artifact.list}
-        request_id: {type: string}
-        data: {type: array, items: {$ref: '#/components/schemas/ArtifactPresentation'}}
-        meta: {type: object}
-    ArtifactPresentationEnvelope:
-      type: object
-      additionalProperties: false
-      required: [ok, command, request_id, data, meta]
-      properties:
-        ok: {const: true}
-        command: {const: artifact.presentation}
-        request_id: {type: string}
-        data: {$ref: '#/components/schemas/ArtifactPresentation'}
-        meta: {type: object}
-    ArtifactOpenResultEnvelope:
-      type: object
-      additionalProperties: false
-      required: [ok, command, request_id, data, meta]
-      properties:
-        ok: {const: true}
-        command: {const: artifact.open}
-        request_id: {type: string}
-        data: {$ref: '#/components/schemas/ArtifactOpenResult'}
-        meta: {type: object}
-    ArtifactOpenRequestEnvelope:
-      type: object
-      additionalProperties: false
-      required: [ok, command, request_id, data, meta]
-      properties:
-        ok: {const: true}
-        command: {const: artifact.open.status}
-        request_id: {type: string}
-        data: {$ref: '#/components/schemas/ArtifactOpenRequest'}
-        meta: {type: object}
-    ReviewCycleListEnvelope:
-      type: object
-      additionalProperties: false
-      required: [ok, command, request_id, data, meta]
-      properties:
-        ok: {const: true}
-        command: {const: review_cycle.list}
-        request_id: {type: string}
-        data: {type: array, items: {$ref: '#/components/schemas/ReviewCycle'}}
-        meta: {type: object}
     ReviewGrantListEnvelope:
       type: object
       additionalProperties: false

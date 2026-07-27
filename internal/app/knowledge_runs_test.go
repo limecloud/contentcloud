@@ -31,8 +31,9 @@ func TestKnowledgeExtractionRunsLocallyAndImportsGroundedCandidates(t *testing.T
 
 	run, err := service.CreateKnowledgeExtractionRun(ctx, actor, app.CreateKnowledgeExtractionRunInput{ProjectID: project.ID, SourceRevisionIDs: []string{ref.SourceRevisionID}, IdempotencyKey: "extract-1", OutputCount: 5}, "")
 	must(t, err)
-	if _, err := service.Poll(ctx, deviceActor, device, capabilities()[1:]); err == nil {
-		t.Fatal("script-only capability must not lease a knowledge extraction run")
+	wrongCapability := domain.Capability{ID: "contentcloud.content.generate", Version: "3.0.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: "contentcloud.content-item/3.0", LocalOnly: true}
+	if _, err := service.Poll(ctx, deviceActor, device, []domain.Capability{wrongCapability}); err == nil {
+		t.Fatal("unrelated capability must not lease a knowledge extraction run")
 	}
 	lease, err := service.Poll(ctx, deviceActor, device, capabilities())
 	must(t, err)

@@ -11,7 +11,7 @@ import (
 
 func (s *Store) CreateDeliveryPackage(ctx context.Context, value domain.DeliveryPackage, artifacts []domain.Artifact) error {
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `INSERT INTO delivery_packages(id,tenant_id,project_id,script_id,status,created_by,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, value.ID, value.TenantID, value.ProjectID, value.ScriptID, value.Status, value.CreatedBy, value.CreatedAt); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO delivery_packages(id,tenant_id,project_id,content_item_id,status,created_by,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, value.ID, value.TenantID, value.ProjectID, value.ContentItemID, value.Status, value.CreatedBy, value.CreatedAt); err != nil {
 			return dbError(err)
 		}
 		for position, snapshotID := range value.ApprovedSnapshotIDs {
@@ -34,14 +34,14 @@ func (s *Store) CreateDeliveryPackage(ctx context.Context, value domain.Delivery
 func (s *Store) DeliveryPackages(ctx context.Context, tenantID, projectID string) ([]domain.DeliveryPackage, error) {
 	values := []domain.DeliveryPackage{}
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT id,tenant_id,project_id,script_id,status,created_by,created_at FROM delivery_packages WHERE tenant_id=$1 AND ($2='' OR project_id::text=$2) ORDER BY created_at DESC`, tenantID, projectID)
+		rows, err := tx.Query(ctx, `SELECT id,tenant_id,project_id,content_item_id,status,created_by,created_at FROM delivery_packages WHERE tenant_id=$1 AND ($2='' OR project_id::text=$2) ORDER BY created_at DESC`, tenantID, projectID)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var value domain.DeliveryPackage
-			if err := rows.Scan(&value.ID, &value.TenantID, &value.ProjectID, &value.ScriptID, &value.Status, &value.CreatedBy, &value.CreatedAt); err != nil {
+			if err := rows.Scan(&value.ID, &value.TenantID, &value.ProjectID, &value.ContentItemID, &value.Status, &value.CreatedBy, &value.CreatedAt); err != nil {
 				return err
 			}
 			values = append(values, value)
@@ -62,7 +62,7 @@ func (s *Store) DeliveryPackages(ctx context.Context, tenantID, projectID string
 func (s *Store) DeliveryPackage(ctx context.Context, tenantID, id string) (domain.DeliveryPackage, error) {
 	var value domain.DeliveryPackage
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		err := tx.QueryRow(ctx, `SELECT id,tenant_id,project_id,script_id,status,created_by,created_at FROM delivery_packages WHERE tenant_id=$1 AND id=$2`, tenantID, id).Scan(&value.ID, &value.TenantID, &value.ProjectID, &value.ScriptID, &value.Status, &value.CreatedBy, &value.CreatedAt)
+		err := tx.QueryRow(ctx, `SELECT id,tenant_id,project_id,content_item_id,status,created_by,created_at FROM delivery_packages WHERE tenant_id=$1 AND id=$2`, tenantID, id).Scan(&value.ID, &value.TenantID, &value.ProjectID, &value.ContentItemID, &value.Status, &value.CreatedBy, &value.CreatedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("DeliveryPackage")
 		}

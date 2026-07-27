@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.goodvision.cn/schemas/source-registry-3.0.schema.json",
+  "title": "ContentCloud Source Registry 3.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sources"],
+  "properties": {
+    "schema_version": {"const": "contentcloud.source-registry/3.0"},
+    "sources": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/source"}
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "location", "sha256", "mime_type", "source_kind", "ingest_status", "registered_at"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^source:[A-Za-z0-9][A-Za-z0-9._:-]*$"},
+        "title": {"type": "string", "minLength": 1},
+        "location": {"$ref": "#/$defs/location"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "mime_type": {"type": "string", "minLength": 1},
+        "source_kind": {"type": "string", "minLength": 1},
+        "byte_size": {"type": "integer", "minimum": 1},
+        "ingest_status": {"enum": ["registered", "extracted", "needs_review", "unsupported", "failed"]},
+        "extraction_ref": {"type": "string", "maxLength": 300},
+        "registered_at": {"type": "string", "format": "date-time"},
+        "ingested_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["workspace_file", "external_readonly_ref", "cloud_assignment"]},
+        "path": {"type": "string", "maxLength": 1024},
+        "ref": {"type": "string", "maxLength": 1024}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "workspace_file"}}}, "then": {"required": ["path"]}},
+        {"if": {"properties": {"kind": {"enum": ["external_readonly_ref", "cloud_assignment"]}}}, "then": {"required": ["ref"]}}
+      ]
+    }
+  }
+}

@@ -38,18 +38,10 @@ type Store struct {
 	knowledge            map[string]domain.KnowledgeItem
 	knowledgeConflicts   map[string]domain.KnowledgeConflict
 	decisionRequests     map[string]domain.DecisionRequest
-	benchmarks           map[string]domain.BenchmarkContent
-	frameworks           map[string]domain.ContentFramework
-	shotPatterns         map[string]domain.ShotPattern
-	sellingPoints        map[string]domain.SellingPoint
-	visualizationPlans   map[string]domain.VisualizationPlan
-	briefs               map[string]domain.BriefVersion
 	snapshots            map[string]domain.ContextSnapshot
 	runs                 map[string]domain.TaskRun
 	executionBundles     map[string]environment.CreativeExecutionBundle
 	runAttempts          map[string]domain.RunAttempt
-	logicalScripts       map[string]domain.Script
-	scripts              map[string]domain.ScriptVersion
 	approvals            map[string]domain.ApprovalDecision
 	reviewCycles         map[string]domain.ReviewCycle
 	reviewComments       map[string]domain.ReviewComment
@@ -59,7 +51,6 @@ type Store struct {
 	approvedSnapshots    map[string]domain.ApprovedSnapshot
 	artifacts            map[string]domain.Artifact
 	deliveryPackages     map[string]domain.DeliveryPackage
-	artifactOpenRequests map[string]domain.ArtifactOpenRequest
 	performanceBatches   map[string]domain.PerformanceImportBatch
 	observations         map[string]domain.PerformanceObservation
 	ratingDecisions      map[string]domain.RatingDecision
@@ -72,9 +63,8 @@ func New() *Store {
 		tenants: map[string]domain.Tenant{}, memberships: map[string]domain.Membership{}, membershipInvites: map[string]domain.MembershipInvite{}, projects: map[string]domain.Project{}, projectTemplates: map[string]domain.ProjectTemplate{},
 		connects: map[string]domain.ConnectSession{}, bootstrapAttempts: map[string]domain.BootstrapAttempt{}, bootstrapEvents: map[string]map[int64]domain.BootstrapProgressEvent{}, bootstrapDiagnostics: map[string]domain.BootstrapDiagnostic{}, devices: map[string]domain.Device{}, workspaceBindings: map[string]domain.WorkspaceBinding{}, userDeviceFlows: map[string]domain.UserDeviceFlow{}, cliTokens: map[string]domain.CLIToken{},
 		sources: map[string]domain.Source{}, revisions: map[string]domain.SourceRevision{}, evidence: map[string]domain.EvidenceSpan{}, assets: map[string]domain.Asset{}, rightsRecords: map[string]domain.RightsRecord{}, knowledge: map[string]domain.KnowledgeItem{}, knowledgeConflicts: map[string]domain.KnowledgeConflict{}, decisionRequests: map[string]domain.DecisionRequest{},
-		benchmarks: map[string]domain.BenchmarkContent{}, frameworks: map[string]domain.ContentFramework{}, shotPatterns: map[string]domain.ShotPattern{}, sellingPoints: map[string]domain.SellingPoint{}, visualizationPlans: map[string]domain.VisualizationPlan{},
-		briefs: map[string]domain.BriefVersion{}, snapshots: map[string]domain.ContextSnapshot{}, runs: map[string]domain.TaskRun{}, executionBundles: map[string]environment.CreativeExecutionBundle{}, runAttempts: map[string]domain.RunAttempt{}, logicalScripts: map[string]domain.Script{},
-		scripts: map[string]domain.ScriptVersion{}, approvals: map[string]domain.ApprovalDecision{}, reviewCycles: map[string]domain.ReviewCycle{}, reviewComments: map[string]domain.ReviewComment{}, reviewGrants: map[string]domain.ReviewGrant{}, submissions: map[string]domain.Submission{}, submissionRevisions: map[string]domain.SubmissionRevision{}, approvedSnapshots: map[string]domain.ApprovedSnapshot{}, artifacts: map[string]domain.Artifact{}, deliveryPackages: map[string]domain.DeliveryPackage{}, artifactOpenRequests: map[string]domain.ArtifactOpenRequest{}, performanceBatches: map[string]domain.PerformanceImportBatch{}, observations: map[string]domain.PerformanceObservation{}, ratingDecisions: map[string]domain.RatingDecision{}, audits: []domain.AuditEvent{},
+		snapshots: map[string]domain.ContextSnapshot{}, runs: map[string]domain.TaskRun{}, executionBundles: map[string]environment.CreativeExecutionBundle{}, runAttempts: map[string]domain.RunAttempt{},
+		approvals: map[string]domain.ApprovalDecision{}, reviewCycles: map[string]domain.ReviewCycle{}, reviewComments: map[string]domain.ReviewComment{}, reviewGrants: map[string]domain.ReviewGrant{}, submissions: map[string]domain.Submission{}, submissionRevisions: map[string]domain.SubmissionRevision{}, approvedSnapshots: map[string]domain.ApprovedSnapshot{}, artifacts: map[string]domain.Artifact{}, deliveryPackages: map[string]domain.DeliveryPackage{}, performanceBatches: map[string]domain.PerformanceImportBatch{}, observations: map[string]domain.PerformanceObservation{}, ratingDecisions: map[string]domain.RatingDecision{}, audits: []domain.AuditEvent{},
 	}
 }
 
@@ -499,9 +489,6 @@ func (s *Store) ConnectSessionByID(_ context.Context, tenantID, id string) (doma
 	if !ok || v.TenantID != tenantID {
 		return v, domain.NotFound("连接会话")
 	}
-	if v.State == "waiting_for_computer" && time.Now().After(v.ExpiresAt) {
-		v.State = "expired"
-	}
 	return v, nil
 }
 func (s *Store) SaveConnectSession(_ context.Context, v domain.ConnectSession) error {
@@ -749,43 +736,6 @@ func (s *Store) SaveKnowledge(_ context.Context, v domain.KnowledgeItem) error {
 	return nil
 }
 
-func (s *Store) CreateBrief(_ context.Context, v domain.BriefVersion) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.briefs[v.ID] = v
-	return nil
-}
-func (s *Store) Briefs(_ context.Context, tenantID, projectID string) ([]domain.BriefVersion, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []domain.BriefVersion{}
-	for _, v := range s.briefs {
-		if v.TenantID == tenantID && v.ProjectID == projectID {
-			out = append(out, v)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
-	return out, nil
-}
-func (s *Store) Brief(_ context.Context, tenantID, id string) (domain.BriefVersion, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	v, ok := s.briefs[id]
-	if !ok || v.TenantID != tenantID {
-		return v, domain.NotFound("Brief")
-	}
-	return v, nil
-}
-func (s *Store) SaveBrief(_ context.Context, v domain.BriefVersion) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if old, ok := s.briefs[v.ID]; !ok || old.TenantID != v.TenantID {
-		return domain.NotFound("Brief")
-	}
-	s.briefs[v.ID] = v
-	return nil
-}
-
 func (s *Store) CreateSnapshot(_ context.Context, v domain.ContextSnapshot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -920,67 +870,6 @@ func (s *Store) LeaseNextRun(_ context.Context, tenantID, deviceID string, eligi
 	return v, attempt, nil
 }
 
-func (s *Store) CreateScript(_ context.Context, script domain.Script, version domain.ScriptVersion) (domain.ScriptVersion, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, exists := s.logicalScripts[script.ID]; exists {
-		return version, domain.Conflict("SCRIPT_EXISTS", "逻辑剧本已存在")
-	}
-	version.ScriptID = script.ID
-	version.Version = 1
-	s.logicalScripts[script.ID] = script
-	s.scripts[version.ID] = version
-	return version, nil
-}
-func (s *Store) CreateScriptVersion(_ context.Context, version domain.ScriptVersion) (domain.ScriptVersion, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	logical, exists := s.logicalScripts[version.ScriptID]
-	if !exists || logical.TenantID != version.TenantID {
-		return version, domain.NotFound("逻辑剧本")
-	}
-	maxVersion := 0
-	for _, existing := range s.scripts {
-		if existing.ScriptID == version.ScriptID && existing.Version > maxVersion {
-			maxVersion = existing.Version
-		}
-	}
-	version.Version = maxVersion + 1
-	s.scripts[version.ID] = version
-	return version, nil
-}
-func (s *Store) Scripts(_ context.Context, tenantID, projectID string) ([]domain.ScriptVersion, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []domain.ScriptVersion{}
-	for _, v := range s.scripts {
-		if v.TenantID == tenantID && v.ProjectID == projectID {
-			out = append(out, v)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
-	return out, nil
-}
-func (s *Store) Script(_ context.Context, tenantID, id string) (domain.ScriptVersion, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	v, ok := s.scripts[id]
-	if !ok || v.TenantID != tenantID {
-		return v, domain.NotFound("剧本")
-	}
-	return v, nil
-}
-func (s *Store) SaveScript(_ context.Context, v domain.ScriptVersion) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	old, ok := s.scripts[v.ID]
-	if !ok || old.TenantID != v.TenantID {
-		return domain.NotFound("剧本")
-	}
-	old.Status = v.Status
-	s.scripts[v.ID] = old
-	return nil
-}
 func (s *Store) CreateApproval(_ context.Context, v domain.ApprovalDecision) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

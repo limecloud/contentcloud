@@ -268,7 +268,7 @@ func safePulledBundleID(value string) bool {
 
 func approvedSubmissionType(value string) bool {
 	switch value {
-	case "knowledge", "research", "strategy", "brief", "script", "delivery", "performance":
+	case "context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result":
 		return true
 	default:
 		return false

@@ -5,6 +5,8 @@ import "time"
 const (
 	KnowledgeExtractCapability = "contentcloud.knowledge.extract"
 	ArtifactExportCapability   = "contentcloud.artifact.export"
+	ArtifactExportSchemaMD     = "contentcloud.content-delivery.markdown/3.0"
+	ArtifactExportSchemaXLSX   = "contentcloud.content-delivery.xlsx/3.0"
 )
 
 type Source struct {
@@ -146,85 +148,13 @@ type AssetBundle struct {
 	Rights RightsRecord `json:"rights"`
 }
 
-type BenchmarkContent struct {
-	ID              string    `json:"id"`
-	TenantID        string    `json:"tenant_id"`
-	ProjectID       string    `json:"project_id"`
-	Title           string    `json:"title"`
-	Platform        string    `json:"platform"`
-	OriginalURL     string    `json:"original_url,omitempty"`
-	RightsMode      string    `json:"rights_mode"`
-	ValidationLevel string    `json:"validation_level"`
-	ValidationNote  string    `json:"validation_note"`
-	CreatedAt       time.Time `json:"created_at"`
-}
-
-type ContentFramework struct {
-	ID             string    `json:"id"`
-	TenantID       string    `json:"tenant_id"`
-	ProjectID      string    `json:"project_id"`
-	BenchmarkID    string    `json:"benchmark_id"`
-	Name           string    `json:"name"`
-	VisualSequence []string  `json:"visual_sequence"`
-	CopySequence   []string  `json:"copy_sequence"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"created_at"`
-}
-
-type ShotPattern struct {
-	ID           string    `json:"id"`
-	TenantID     string    `json:"tenant_id"`
-	ProjectID    string    `json:"project_id"`
-	FrameworkID  string    `json:"framework_id"`
-	Role         string    `json:"role"`
-	Purpose      string    `json:"purpose"`
-	Subject      string    `json:"subject"`
-	Action       string    `json:"action"`
-	ProofType    string    `json:"proof_type"`
-	FailureModes []string  `json:"failure_modes"`
-	CreatedAt    time.Time `json:"created_at"`
-}
-
-type SellingPoint struct {
-	ID           string    `json:"id"`
-	TenantID     string    `json:"tenant_id"`
-	ProjectID    string    `json:"project_id"`
-	Title        string    `json:"title"`
-	Description  string    `json:"description"`
-	Priority     int       `json:"priority"`
-	KnowledgeIDs []string  `json:"knowledge_ids"`
-	Status       string    `json:"status"`
-	CreatedAt    time.Time `json:"created_at"`
-}
-
-type VisualizationPlan struct {
-	ID                   string    `json:"id"`
-	TenantID             string    `json:"tenant_id"`
-	ProjectID            string    `json:"project_id"`
-	SellingPointID       string    `json:"selling_point_id"`
-	Title                string    `json:"title"`
-	ProofType            string    `json:"proof_type"`
-	ShotPatternID        string    `json:"shot_pattern_id,omitempty"`
-	Subjects             []string  `json:"subjects"`
-	Setting              string    `json:"setting"`
-	Props                []string  `json:"props"`
-	Implementation       string    `json:"implementation"`
-	ProductTruthStrategy string    `json:"product_truth_strategy"`
-	Risks                []string  `json:"risks"`
-	PlanB                string    `json:"plan_b"`
-	AcceptanceCriteria   []string  `json:"acceptance_criteria"`
-	Status               string    `json:"status"`
-	CreatedAt            time.Time `json:"created_at"`
-}
-
 type PerformanceObservation struct {
 	ID                 string             `json:"id"`
 	TenantID           string             `json:"tenant_id"`
 	ProjectID          string             `json:"project_id"`
 	ImportBatchID      string             `json:"import_batch_id"`
 	RowNumber          int                `json:"row_number"`
-	ApprovedSnapshotID string             `json:"approved_snapshot_id,omitempty"`
-	ScriptVersionID    string             `json:"script_version_id,omitempty"`
+	ApprovedSnapshotID string             `json:"approved_snapshot_id"`
 	Platform           string             `json:"platform"`
 	AccountAlias       string             `json:"account_alias"`
 	PublishedAt        time.Time          `json:"published_at"`
@@ -317,32 +247,25 @@ type ReviewCycle struct {
 }
 
 type Artifact struct {
-	ID                    string                       `json:"id"`
-	TenantID              string                       `json:"tenant_id"`
-	ProjectID             string                       `json:"project_id"`
-	ApprovedSnapshotID    string                       `json:"approved_snapshot_id,omitempty"`
-	ScriptVersionID       string                       `json:"script_version_id,omitempty"`
-	Kind                  string                       `json:"kind"`
-	CapabilityID          string                       `json:"capability_id"`
-	CapabilityVersion     string                       `json:"capability_version"`
-	CapabilityDigest      string                       `json:"capability_digest"`
-	SchemaID              string                       `json:"schema_id"`
-	MediaType             string                       `json:"media_type"`
-	FileName              string                       `json:"file_name"`
-	SHA256                string                       `json:"sha256"`
-	ByteSize              int64                        `json:"byte_size"`
-	ObjectKey             string                       `json:"-"`
-	Visibility            string                       `json:"visibility"`
-	RetentionClass        string                       `json:"retention_class"`
-	DerivedFromArtifactID string                       `json:"derived_from_artifact_id,omitempty"`
-	Purpose               string                       `json:"purpose"`
-	SourceDeviceID        string                       `json:"source_device_id,omitempty"`
-	ValidationStatus      string                       `json:"validation_status"`
-	ValidationError       string                       `json:"validation_error,omitempty"`
-	Envelope              *ExtensionArtifactEnvelopeV1 `json:"envelope,omitempty"`
-	PresentationTier      string                       `json:"presentation_tier"`
-	Metadata              map[string]any               `json:"metadata"`
-	CreatedAt             time.Time                    `json:"created_at"`
+	ID                 string         `json:"id"`
+	TenantID           string         `json:"tenant_id"`
+	ProjectID          string         `json:"project_id"`
+	ApprovedSnapshotID string         `json:"approved_snapshot_id"`
+	Kind               string         `json:"kind"`
+	CapabilityID       string         `json:"capability_id"`
+	CapabilityVersion  string         `json:"capability_version"`
+	CapabilityDigest   string         `json:"capability_digest"`
+	SchemaID           string         `json:"schema_id"`
+	MediaType          string         `json:"media_type"`
+	FileName           string         `json:"file_name"`
+	SHA256             string         `json:"sha256"`
+	ByteSize           int64          `json:"byte_size"`
+	ObjectKey          string         `json:"-"`
+	Visibility         string         `json:"visibility"`
+	RetentionClass     string         `json:"retention_class"`
+	Purpose            string         `json:"purpose"`
+	Metadata           map[string]any `json:"metadata"`
+	CreatedAt          time.Time      `json:"created_at"`
 }
 
 type DeliveryPackage struct {
@@ -350,94 +273,11 @@ type DeliveryPackage struct {
 	TenantID            string     `json:"tenant_id"`
 	ProjectID           string     `json:"project_id"`
 	ApprovedSnapshotIDs []string   `json:"approved_snapshot_ids"`
-	ScriptID            string     `json:"script_id"`
+	ContentItemID       string     `json:"content_item_id"`
 	Status              string     `json:"status"`
 	Manifest            []Artifact `json:"manifest"`
 	CreatedBy           string     `json:"created_by"`
 	CreatedAt           time.Time  `json:"created_at"`
-}
-
-type ArtifactCapabilityRef struct {
-	ID      string `json:"id"`
-	Version string `json:"version"`
-	Digest  string `json:"digest"`
-}
-
-type ArtifactRef struct {
-	SHA256    string `json:"sha256"`
-	MediaType string `json:"media_type"`
-	Size      int64  `json:"size"`
-}
-
-type ArtifactRenditionRef struct {
-	Purpose  string      `json:"purpose"`
-	Artifact ArtifactRef `json:"artifact"`
-}
-
-type ExtensionArtifactEnvelopeV1 struct {
-	EnvelopeVersion  string                 `json:"envelope_version"`
-	ProjectID        string                 `json:"project_id"`
-	ScriptVersionID  string                 `json:"script_version_id"`
-	Capability       ArtifactCapabilityRef  `json:"capability"`
-	SchemaID         string                 `json:"schema_id"`
-	MediaType        string                 `json:"media_type"`
-	SHA256           string                 `json:"sha256"`
-	Size             int64                  `json:"size"`
-	ReviewProjection *ArtifactRef           `json:"review_projection,omitempty"`
-	Renditions       []ArtifactRenditionRef `json:"renditions"`
-	Metadata         map[string]any         `json:"metadata"`
-}
-
-type ReviewProjectionSectionV1 struct {
-	ID              string   `json:"id"`
-	Label           string   `json:"label"`
-	Summary         string   `json:"summary"`
-	ScriptPointer   string   `json:"script_pointer,omitempty"`
-	ThumbnailSHA256 string   `json:"thumbnail_sha256,omitempty"`
-	Warnings        []string `json:"warnings"`
-}
-
-type ArtifactReviewProjectionV1 struct {
-	SchemaVersion   string                      `json:"schema_version"`
-	Title           string                      `json:"title"`
-	Summary         string                      `json:"summary"`
-	ScriptVersionID string                      `json:"script_version_id"`
-	Sections        []ReviewProjectionSectionV1 `json:"sections"`
-}
-
-type ArtifactSourceDevice struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"display_name"`
-	Online      bool   `json:"online"`
-}
-
-type ArtifactPresentation struct {
-	Artifact         Artifact              `json:"artifact"`
-	Tier             string                `json:"tier"`
-	ReviewProjection *Artifact             `json:"review_projection,omitempty"`
-	Renditions       []Artifact            `json:"renditions"`
-	Actions          []string              `json:"actions"`
-	SourceDevice     *ArtifactSourceDevice `json:"source_device,omitempty"`
-}
-
-type ArtifactOpenRequest struct {
-	ID          string     `json:"open_request_id"`
-	TenantID    string     `json:"tenant_id"`
-	ProjectID   string     `json:"project_id"`
-	ArtifactID  string     `json:"artifact_id"`
-	DeviceID    string     `json:"device_id"`
-	RequestedBy string     `json:"requested_by"`
-	State       string     `json:"state"`
-	Reason      string     `json:"reason,omitempty"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	AcceptedAt  *time.Time `json:"accepted_at,omitempty"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-}
-
-type ArtifactOpenLease struct {
-	OpenRequestID string `json:"open_request_id"`
-	ArtifactID    string `json:"artifact_id"`
 }
 
 type ReviewGrant struct {

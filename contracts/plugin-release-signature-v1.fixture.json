@@ -35,7 +35,7 @@
     },
     "output_schemas": [
       "contracts/knowledge-candidates-1.0.schema.json",
-      "contracts/script-package-2.0.schema.json"
+      "contracts/content-item-3.0.schema.json"
     ],
     "evaluation": {
       "status": "passed",
@@ -57,5 +57,5 @@
       "status": "active"
     }
   },
-  "payload_sha256": "sha256:0b3dc4d70b63c109eaaca410e4120d28ecac3a72d0878c8e07865331dbc4be3f"
+  "payload_sha256": "sha256:7569b9fc3beb81a8734b042f8f6e0da1c8f105aa3e1f9d75ada656340a08e9e4"
 }
