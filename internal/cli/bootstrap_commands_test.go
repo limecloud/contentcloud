@@ -73,7 +73,7 @@ func TestBootstrapPlanIsReadOnlyAndUsesOnlyPublicSessionID(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode output: %v; output=%s", err, stdout.String())
 	}
-	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.8.0" || len(envelope.Data.Plugin.Actions) != 2 {
+	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.9.0" || len(envelope.Data.Plugin.Actions) != 2 {
 		t.Fatalf("unexpected plan: %s", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "connect_key") || envelope.Data.AuthorizationMode != "browser_device" || !envelope.Data.WouldAuthorizeDevice {
@@ -207,6 +207,78 @@ func TestBootstrapApplyInstallsInitializesDoctorsAndRegisters(t *testing.T) {
 	}
 }
 
+func TestBootstrapApplyUpgradesExistingPluginAndInitializesWorkspace(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "upgraded-workspace")
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	now := time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)
+	manifest, verifier, registry, registryVerifier := bootstrapEnvironmentFixture(t, now)
+	server, registered := newBootstrapRegisterServer(t, manifest, registry)
+	defer server.Close()
+
+	runner := successfulBootstrapUpgradeRunner()
+	var stdout, stderr bytes.Buffer
+	root := &Root{
+		stdout:               &stdout,
+		stderr:               &stderr,
+		serverURL:            server.URL,
+		codexRunner:          runner,
+		now:                  func() time.Time { return now },
+		manifestVerifierHook: fixedManifestVerifier(verifier),
+		registryVerifierHook: fixedRegistryVerifier(registryVerifier),
+		bootstrapCheckHook:   healthyBootstrapCheck,
+		bootstrapAuthorizeHook: func(_ context.Context, sessionID, _ string) (localconfig.Config, app.ConnectDeviceResult, *bootstrapProgressReporter, error) {
+			if sessionID != testBootstrapSessionID {
+				t.Fatalf("unexpected ConnectSession: %s", sessionID)
+			}
+			return localconfig.Config{ServerURL: server.URL, DeviceID: "device-1", WorkspaceID: "workspace-1", ProjectID: "project-1"}, app.ConnectDeviceResult{
+				Device: domain.Device{ID: "device-1"}, WorkspaceID: "workspace-1", WorkspaceToken: "wt_test", ProjectID: "project-1", EnvironmentManifest: &manifest,
+			}, nil, nil
+		},
+	}
+	plan, _, err := root.buildBootstrapPlan(t.Context(), directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err = root.withBootstrapPrerequisites(t.Context(), plan, testBootstrapSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Plugin.State != "ready" || len(plan.Plugin.Actions) != 4 {
+		t.Fatalf("unexpected upgrade plan: %#v", plan.Plugin)
+	}
+
+	command := root.command()
+	command.SetArgs([]string{"--json", "--server-url", server.URL, "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", plan.PlanID, "--accept", "--open-codex=false"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("bootstrap upgrade apply failed: %v; stderr=%s", err, stderr.String())
+	}
+	if !*registered {
+		t.Fatal("bootstrap upgrade did not register the workspace")
+	}
+	status, err := localworkspace.LoadStatus(directory)
+	if err != nil {
+		t.Fatalf("upgraded workspace status is unreadable: %v", err)
+	}
+	doctor, err := localworkspace.Doctor(directory)
+	if err != nil || !doctor.OK {
+		t.Fatalf("upgraded workspace is unhealthy: status=%#v doctor=%#v error=%v", status, doctor, err)
+	}
+	wantMutations := []string{"plugin remove", "plugin marketplace remove", "plugin marketplace add", "plugin add"}
+	mutationIndex := 0
+	for _, call := range runner.calls {
+		joined := strings.Join(call[1:], " ")
+		if mutationIndex < len(wantMutations) && strings.HasPrefix(joined, wantMutations[mutationIndex]) {
+			mutationIndex++
+		}
+	}
+	if mutationIndex != len(wantMutations) {
+		t.Fatalf("upgrade mutations were incomplete or out of order: %#v", runner.calls)
+	}
+	if len(runner.responses) != 0 {
+		t.Fatalf("unused Codex responses: %d", len(runner.responses))
+	}
+}
+
 func TestBootstrapResumeInitializesEmptyDirectoryFromSavedBinding(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "recovered-workspace")
 	configPath := filepath.Join(t.TempDir(), "config.json")
@@ -236,6 +308,68 @@ func TestBootstrapResumeInitializesEmptyDirectoryFromSavedBinding(t *testing.T) 
 	}
 	if status.Binding.ProjectID != "project-1" || status.Binding.WorkspaceID != "workspace-1" || !hasBootstrapTarget(status.Template.Targets) {
 		t.Fatalf("unexpected recovered workspace: %#v", status)
+	}
+}
+
+func TestBootstrapResumeUpgradesExistingPluginWithoutReinitializingWorkspace(t *testing.T) {
+	directory := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", configPath)
+	t.Setenv("CONTENTCLOUD_WORKSPACE_TOKEN", "wt_test")
+	now := time.Date(2026, 7, 29, 11, 0, 0, 0, time.UTC)
+	manifest, verifier, registry, registryVerifier := bootstrapEnvironmentFixture(t, now)
+	server, registered := newBootstrapRegisterServer(t, manifest, registry)
+	defer server.Close()
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{
+		Root: directory, ProjectID: "project-1", WorkspaceID: "workspace-1", DeviceID: "device-1",
+		ServerURL: server.URL, CLIVersion: "0.7.0", Target: "codex-plugin", Now: now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sentinelPath := filepath.Join(directory, "50-production", "scripts", "existing.json")
+	if err := os.WriteFile(sentinelPath, []byte("existing business content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := localconfig.Save(localconfig.Config{ServerURL: server.URL, DeviceID: "device-1", WorkspaceID: "workspace-1", ProjectID: "project-1", WorkspaceRoot: directory}); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := successfulBootstrapUpgradeRunner()
+	runner.responses = runner.responses[2:]
+	var stdout, stderr bytes.Buffer
+	root := &Root{
+		stdout: &stdout, stderr: &stderr, codexRunner: runner, now: func() time.Time { return now },
+		manifestVerifierHook: fixedManifestVerifier(verifier), registryVerifierHook: fixedRegistryVerifier(registryVerifier),
+	}
+	command := root.command()
+	command.SetArgs([]string{"--json", "bootstrap", "resume", directory, "--accept", "--open-codex=false"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("bootstrap resume upgrade failed: %v; stderr=%s", err, stderr.String())
+	}
+	if !*registered {
+		t.Fatal("bootstrap resume upgrade did not register the existing Workspace")
+	}
+	body, err := os.ReadFile(sentinelPath)
+	if err != nil || string(body) != "existing business content" {
+		t.Fatalf("bootstrap resume changed existing business content: body=%q error=%v", body, err)
+	}
+	status, err := localworkspace.LoadStatus(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Binding.ProjectID != "project-1" || status.Template.CLIVersion != "0.7.0" {
+		t.Fatalf("bootstrap resume silently reinitialized the Workspace: %#v", status)
+	}
+	wantMutations := []string{"plugin remove", "plugin marketplace remove", "plugin marketplace add", "plugin add"}
+	mutationIndex := 0
+	for _, call := range runner.calls {
+		joined := strings.Join(call[1:], " ")
+		if mutationIndex < len(wantMutations) && strings.HasPrefix(joined, wantMutations[mutationIndex]) {
+			mutationIndex++
+		}
+	}
+	if mutationIndex != len(wantMutations) || len(runner.responses) != 0 {
+		t.Fatalf("bootstrap resume upgrade was incomplete: calls=%#v unused=%d", runner.calls, len(runner.responses))
 	}
 }
 
@@ -313,8 +447,8 @@ func TestBootstrapApplyRejectsPlanAfterCodexStateChanges(t *testing.T) {
 	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
 	approvedPlanID := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
 	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
-		{stdout: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.8.0"}}]}`},
-		{stdout: `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.8.0","installed":true,"enabled":true}],"available":[]}`},
+		{stdout: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.9.0"}}]}`},
+		{stdout: `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.9.0","installed":true,"enabled":true}],"available":[]}`},
 	}}
 	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner, bootstrapCheckHook: healthyBootstrapCheck}
 	command := root.command()
@@ -379,13 +513,30 @@ func TestRequireHealthyWorkspaceBlocksRegistration(t *testing.T) {
 func successfulBootstrapRunner() *bootstrapRunner {
 	missingMarketplace := `{"marketplaces":[]}`
 	missingPlugin := `{"installed":[],"available":[]}`
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.8.0"}}]}`
-	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.8.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.9.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.9.0","installed":true,"enabled":true}],"available":[]}`
 	return &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
-		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.8.0","installedPath":"/tmp/plugin"}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.9.0","installedPath":"/tmp/plugin"}`},
+		{stdout: currentMarketplace}, {stdout: currentPlugin},
+	}}
+}
+
+func successfulBootstrapUpgradeRunner() *bootstrapRunner {
+	oldMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache-old","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.7.0"}}]}`
+	oldPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.7.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.9.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.9.0","installed":true,"enabled":true}],"available":[]}`
+	return &bootstrapRunner{responses: []bootstrapRunnerResponse{
+		{stdout: oldMarketplace}, {stdout: oldPlugin},
+		{stdout: oldMarketplace}, {stdout: oldPlugin},
+		{stdout: oldMarketplace}, {stdout: oldPlugin},
+		{stdout: `{}`},
+		{stdout: `{}`},
+		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.9.0","installedPath":"/tmp/plugin"}`},
 		{stdout: currentMarketplace}, {stdout: currentPlugin},
 	}}
 }

@@ -1,9 +1,9 @@
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, EyeOff, Laptop2, LoaderCircle, MonitorUp, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { capabilityStatus, loadAgentClients, loadProjectAgentHandoff, loadReviewFeedbackAgentHandoff, normalizeDigest as normalizeHandoffDigest, type AgentClient, type AgentHandoff } from '../agentHandoff';
 import { api, post } from '../api';
-import { loadProjectCodexHandoff, loadReviewFeedbackCodexHandoff, normalizeDigest as normalizeHandoffDigest, type CodexHandoff } from '../codexHandoff';
-import { ContinueInCodexModal } from '../components/ContinueInCodexModal';
+import { ContinueInAgentModal } from '../components/ContinueInCodexModal';
 import { InitializeWorkspaceModal } from '../components/InitializeWorkspaceModal';
 import { ProjectPageState } from '../components/ProjectPageState';
 import { Banner, Button, Empty, IconButton, Loading, Status } from '../components/ui';
@@ -40,8 +40,11 @@ export function V3ProjectPage({view}:{view:ProjectView}) {
   const [focusLoading,setFocusLoading]=useState(false);
   const [focusIssue,setFocusIssue]=useState<ProjectPageIssue>();
   const [focusReload,setFocusReload]=useState(0);
-  const [codexHandoff,setCodexHandoff]=useState<CodexHandoff>();
-  const [codexHandoffBusy,setCodexHandoffBusy]=useState('');
+  const [agentClients,setAgentClients]=useState<AgentClient[]>();
+  const [agentHandoff,setAgentHandoff]=useState<AgentHandoff>();
+  const [agentHandoffKind,setAgentHandoffKind]=useState<'project'|'review_feedback'>();
+  const [agentHandoffBusy,setAgentHandoffBusy]=useState('');
+  const [agentHandoffError,setAgentHandoffError]=useState('');
   const pageFocus=projectFocusFromSearch(view,location.search);
   const focusKind=pageFocus.focus?.kind||'';
   const focusID=pageFocus.focus?.id||'';
@@ -57,7 +60,13 @@ export function V3ProjectPage({view}:{view:ProjectView}) {
     finally{setLoading(false);setRefreshing(false)}
   },[project?.id,projectID]);
 
-  useEffect(()=>{setProjection(undefined);setConnect(undefined);setConnectOpen(false);setCodexHandoff(undefined);void load()},[load]);
+  useEffect(()=>{setProjection(undefined);setConnect(undefined);setConnectOpen(false);setAgentHandoff(undefined);setAgentHandoffKind(undefined);void load()},[load]);
+  useEffect(()=>{
+    if(agentClients)return;
+    let active=true;
+    loadAgentClients().then(value=>{if(active)setAgentClients(value)}).catch(()=>{});
+    return()=>{active=false};
+  },[agentClients]);
   useEffect(()=>{
     if(view!=='setup'||!projectID)return;
     const attemptID=focusKind==='bootstrap_attempt'?focusID:'';
@@ -117,20 +126,25 @@ export function V3ProjectPage({view}:{view:ProjectView}) {
     if(!path){setError('服务端返回了不受支持的页面导航目标');return}
     navigate(path);
   };
-  const openProjectHandoff=async()=>{
-    if(!projectID)return;
-    setCodexHandoffBusy('project');setError('');
-    try{setCodexHandoff(await loadProjectCodexHandoff(projectID))}
-    catch(value){setError(message(value,'无法创建 Codex 恢复入口'))}
-    finally{setCodexHandoffBusy('')}
+  const openAgentPicker=async(kind:'project'|'review_feedback')=>{
+    setAgentHandoffKind(kind);setAgentHandoff(undefined);setAgentHandoffError('');
+    if(agentClients)return;
+    setAgentHandoffBusy('catalog');
+    try{setAgentClients(await loadAgentClients())}
+    catch(value){setAgentHandoffError(message(value,'无法读取 Agent 客户端目录'))}
+    finally{setAgentHandoffBusy('')}
   };
-  const openReviewHandoff=async()=>{
-    if(!projectID||!focusedRevision)return;
-    setCodexHandoffBusy('review');setError('');
-    try{setCodexHandoff(await loadReviewFeedbackCodexHandoff(projectID,focusedRevision.revision.id,normalizeHandoffDigest(focusedRevision.revision.content_hash)))}
-    catch(value){setError(message(value,'无法创建审核修订入口'))}
-    finally{setCodexHandoffBusy('')}
+  const selectAgent=async(client:AgentClient)=>{
+    if(!projectID||!agentHandoffKind||capabilityStatus(client,'interactive_handoff')!=='available')return;
+    setAgentHandoffBusy(client.id);setAgentHandoffError('');
+    try{
+      if(agentHandoffKind==='project')setAgentHandoff(await loadProjectAgentHandoff(projectID,client));
+      else if(focusedRevision)setAgentHandoff(await loadReviewFeedbackAgentHandoff(projectID,focusedRevision.revision.id,normalizeHandoffDigest(focusedRevision.revision.content_hash),client));
+    }catch(value){setAgentHandoffError(message(value,'无法创建 Agent 恢复入口'))}
+    finally{setAgentHandoffBusy('')}
   };
+  const openProjectHandoff=()=>openAgentPicker('project');
+  const openReviewHandoff=()=>openAgentPicker('review_feedback');
 
   if(!project)return <div className="page v3-page"><ProjectPageState issue={inaccessibleProjectIssue()} onBack={()=>navigate(consolePath.dashboard)}/></div>;
   if(loading&&!projection)return <div className="page v3-loading"><Loading/></div>;
@@ -147,19 +161,19 @@ export function V3ProjectPage({view}:{view:ProjectView}) {
   return <div className="page v3-page">
     <header className="v3-page-heading">
       <div><span className="eyebrow">{project.brand_name} · {contract.eyebrow}</span><h1>{contract.title}</h1><p>{contract.description}</p></div>
-      <div className="v3-heading-actions">{project.connected_devices>0&&<Button variant="secondary" disabled={Boolean(codexHandoffBusy)} onClick={()=>void openProjectHandoff()}>{codexHandoffBusy==='project'?<LoaderCircle className="is-spinning" size={16}/>:<MonitorUp size={16}/>}在 Codex 继续</Button>}<Status value={section.status}/><IconButton label="刷新项目状态" disabled={refreshing} onClick={()=>void load(true)}><RefreshCw className={refreshing?'is-spinning':''} size={17}/></IconButton></div>
+      <div className="v3-heading-actions">{project.connected_devices>0&&<Button variant="secondary" disabled={Boolean(agentHandoffBusy)} onClick={()=>void openProjectHandoff()}>{agentHandoffBusy==='catalog'?<LoaderCircle className="is-spinning" size={16}/>:<MonitorUp size={16}/>}在 Agent 中继续</Button>}<Status value={section.status}/><IconButton label="刷新项目状态" disabled={refreshing} onClick={()=>void load(true)}><RefreshCw className={refreshing?'is-spinning':''} size={17}/></IconButton></div>
     </header>
     {projectionIssue&&projection&&<ProjectPageState compact issue={projectionIssue} retryLabel={projectionIssue.kind==='auth'?'重新登录':'重试'} onRetry={()=>recoverIssue(projectionIssue,()=>void load(true))} onBack={()=>navigate(consolePath.dashboard)}/>}
     {error&&<Banner kind="error" onClose={()=>setError('')}>{error}</Banner>}
     {pageFocus.error&&<Banner kind="error"><b>{pageFocus.error.code}</b>：{pageFocus.error.message}</Banner>}
     {focusLoading&&<Banner kind="info">正在读取目标 SubmissionRevision…</Banner>}
     {focusIssue&&<ProjectPageState compact issue={focusIssue} backLabel="返回审核页" retryLabel={focusIssue.kind==='auth'?'重新登录':'重试'} onRetry={()=>recoverIssue(focusIssue,()=>setFocusReload(value=>value+1))} onBack={()=>navigate(consolePath.project(project.id,'review'))}/>}
-    {focusedRevision&&<FocusedRevision value={focusedRevision} expectedDigest={focusDigest} stale={staleFocus} handoffBusy={codexHandoffBusy==='review'} onContinue={openReviewHandoff}/>}
+    {focusedRevision&&<FocusedRevision value={focusedRevision} expectedDigest={focusDigest} stale={staleFocus} handoffBusy={Boolean(agentHandoffBusy)} onContinue={openReviewHandoff}/>}
     {view==='setup'&&focusKind==='environment_health'&&<Banner kind="info">当前焦点：创作环境健康。云端状态只反映已上报事实；本地写探针和 Environment Lock 仍以 Workspace doctor 为准。</Banner>}
     {projection&&projection.schema_version!=='contentcloud.project-projection/3.0'&&<Banner kind="error">服务端返回了不受支持的项目投影版本：{projection.schema_version}</Banner>}
-    {view==='setup'?<SetupView projection={projection} connect={connect} canInitialize={Boolean(initialize)} busy={connectBusy==='connect'} onInitialize={initialize} onNavigate={navigateTarget}/>:view==='overview'?<Overview projection={projection} onNavigate={next=>navigate(consolePath.project(project.id,next))} onNavigateTarget={navigateTarget}/>:<DomainView view={view} section={section} submissions={submissions} snapshots={snapshots} projection={projection} onNavigate={next=>navigate(consolePath.project(project.id,next))} onNavigateTarget={navigateTarget}/>}
+    {view==='setup'?<SetupView projection={projection} connect={connect} clients={agentClients} canInitialize={Boolean(initialize)} busy={connectBusy==='connect'} onInitialize={initialize} onNavigate={navigateTarget}/>:view==='overview'?<Overview projection={projection} onNavigate={next=>navigate(consolePath.project(project.id,next))} onNavigateTarget={navigateTarget}/>:<DomainView view={view} section={section} submissions={submissions} snapshots={snapshots} projection={projection} onNavigate={next=>navigate(consolePath.project(project.id,next))} onNavigateTarget={navigateTarget}/>}
     {connect&&connectOpen&&<InitializeWorkspaceModal session={connect} projectName={`${project.brand_name} / ${project.product_name}`} serverURL={window.location.origin} canceling={connectBusy==='cancel'} retrying={connectBusy==='connect'} approving={connectBusy==='approve'} denying={connectBusy==='deny'} onClose={()=>setConnectOpen(false)} onCancel={cancelConnect} onRetry={createConnect} onApprove={()=>decideAuthorization('approve')} onDeny={()=>decideAuthorization('deny')}/>}
-    {codexHandoff&&<ContinueInCodexModal handoff={codexHandoff} onClose={()=>setCodexHandoff(undefined)}/>}
+    {agentHandoffKind&&<ContinueInAgentModal clients={agentClients} handoff={agentHandoff} kind={agentHandoffKind} loading={Boolean(agentHandoffBusy)} error={agentHandoffError} onSelect={selectAgent} onBack={()=>{setAgentHandoff(undefined);setAgentHandoffError('')}} onClose={()=>{setAgentHandoff(undefined);setAgentHandoffKind(undefined);setAgentHandoffError('')}}/>}
   </div>;
 }
 
@@ -170,18 +184,18 @@ function FocusedRevision({value,expectedDigest,stale,handoffBusy,onContinue}:{va
   return <><section className={`v3-focus-strip ${stale?'is-stale':''}`} aria-label="当前深链焦点">
     <div><span className="section-kicker">Focused Revision</span><h2>{value.submission.submission_type} · Revision {revision.revision_no}</h2><p>{shortID(revision.id)} · {value.comments.length} 条审核评论</p></div>
     <dl><div><dt>当前摘要</dt><dd><code>{normalizeDigest(revision.content_hash)}</code></dd></div>{expectedDigest&&<div><dt>链接摘要</dt><dd><code>{expectedDigest}</code></dd></div>}</dl>
-    <div className="v3-focus-state">{stale?<><AlertTriangle size={18}/><span><b>版本摘要不匹配</b><small>保留历史读取，禁止将决定静默应用到其他版本。</small></span></>:<><ShieldCheck size={18}/><span><b>不可变版本已验证</b><small>页面焦点与链接摘要一致。</small></span></>}<Status value={value.submission.status}/>{hasFeedback&&<Button variant="secondary" disabled={handoffBusy} onClick={()=>void onContinue()}>{handoffBusy?<LoaderCircle className="is-spinning" size={15}/>:<MonitorUp size={15}/>}在 Codex 修订</Button>}</div>
+    <div className="v3-focus-state">{stale?<><AlertTriangle size={18}/><span><b>版本摘要不匹配</b><small>保留历史读取，禁止将决定静默应用到其他版本。</small></span></>:<><ShieldCheck size={18}/><span><b>不可变版本已验证</b><small>页面焦点与链接摘要一致。</small></span></>}<Status value={value.submission.status}/>{hasFeedback&&<Button variant="secondary" disabled={handoffBusy} onClick={()=>void onContinue()}>{handoffBusy?<LoaderCircle className="is-spinning" size={15}/>:<MonitorUp size={15}/>}在 Agent 中修订</Button>}</div>
   </section><section className={`v3-disclosure-state ${disclosure.limited?'is-limited':''}`} aria-label="来源披露状态">
     {disclosure.limited?<EyeOff size={18}/>:<ShieldCheck size={18}/>}<div><strong>{disclosure.limited?'证据披露受限':'来源披露范围'}</strong><p>{disclosure.limited?'当前 Revision 的证据不足以支持完整审核；页面只显示披露元数据，不展示未授权 Evidence 正文。':disclosure.total?'页面仅按当前 Revision 已声明的级别展示来源，不扩大披露范围。':'当前 Revision 未声明来源披露。'}</p></div>
     <dl><div><dt>Metadata</dt><dd>{disclosure.metadataOnly}</dd></div><div><dt>Evidence Pack</dt><dd>{disclosure.evidencePack}</dd></div><div><dt>Full Source</dt><dd>{disclosure.fullSource}</dd></div>{disclosure.unknown>0&&<div><dt>Unknown</dt><dd>{disclosure.unknown}</dd></div>}</dl>
   </section></>;
 }
 
-function SetupView({projection,connect,canInitialize,busy,onInitialize,onNavigate}:{projection?:ProjectProjection;connect?:ConnectSession;canInitialize:boolean;busy:boolean;onInitialize?:()=>Promise<void>;onNavigate:(target:ProjectNavigationTarget)=>void}) {
+function SetupView({projection,connect,clients,canInitialize,busy,onInitialize,onNavigate}:{projection?:ProjectProjection;connect?:ConnectSession;clients?:AgentClient[];canInitialize:boolean;busy:boolean;onInitialize?:()=>Promise<void>;onNavigate:(target:ProjectNavigationTarget)=>void}) {
   const connected=(projection?.sections.onboarding?.count||0)>0;
   const steps=[
     {label:'云端项目',detail:'项目与角色边界已建立',done:Boolean(projection)},
-    {label:'本地 Workspace',detail:connected?'至少一台设备已经绑定':'等待 Codex 完成初始化',done:connected,current:!connected},
+    {label:'本地 Workspace',detail:connected?'至少一台设备已经绑定':'等待 Agent 完成初始化',done:connected,current:!connected},
     {label:'可信知识',detail:'形成可审核的 Knowledge Revision',done:(projection?.sections.knowledge?.count||0)>0,current:connected&&(projection?.sections.knowledge?.count||0)===0},
     {label:'内容生产',detail:'以批准快照启动 ContentBatch',done:(projection?.sections.creative?.count||0)>0}
   ];
@@ -189,7 +203,7 @@ function SetupView({projection,connect,canInitialize,busy,onInitialize,onNavigat
     {connect&&isActiveConnectState(connect.state)&&<Banner kind="info"><b>{connectStateCopy(connect).title}</b>：{connectStateCopy(connect).detail}</Banner>}
     <section className="v3-steps" aria-label="初始化进度">{steps.map((step,index)=><article key={step.label} className={`${step.done?'is-done':''} ${step.current?'is-current':''}`}><span>{step.done?<CheckCircle2 size={16}/>:index+1}</span><div><strong>{step.label}</strong><small>{step.detail}</small></div></article>)}</section>
     <div className="v3-two-column v3-setup-columns">
-      <section className="v3-panel"><header><div><span className="section-kicker">Workspace Binding</span><h2>{connected?'创作环境已连接':'等待初始化'}</h2></div><Status value={connected?'connected':'waiting_for_computer'}/></header><div className="v3-panel-body v3-setup-state">{connected?<ShieldCheck size={28}/>:<Laptop2 size={28}/>}<div><strong>{connected?`${projection?.sections.onboarding.count} 台设备已绑定`:'在 Codex 中初始化 V3 Workspace'}</strong><p>{connected?'本地负责创作，服务端负责 Assignment、Submission、Decision 和正式快照。':'初始化会先生成可核对的计划，再安装 Plugin、写入 Workspace 绑定并运行 doctor。'}</p></div></div>{!connected&&<footer><Button disabled={!canInitialize||busy} onClick={()=>void onInitialize?.()}>{busy?<LoaderCircle className="is-spinning" size={16}/>:<Laptop2 size={16}/>}初始化创作环境</Button></footer>}</section>
+      <section className="v3-panel"><header><div><span className="section-kicker">Workspace Binding</span><h2>{connected?'创作环境已连接':'等待初始化'}</h2></div><Status value={connected?'connected':'waiting_for_computer'}/></header><div className="v3-panel-body v3-setup-state">{connected?<ShieldCheck size={28}/>:<Laptop2 size={28}/>}<div><strong>{connected?`${projection?.sections.onboarding.count} 台设备已绑定`:'初始化 V3 Agent Workspace'}</strong><p>{connected?'本地负责创作，服务端负责 Assignment、Submission、Decision 和正式快照。':'当前由 Codex Adapter 执行初始化；其他客户端按能力逐步接入。'}</p></div></div>{!connected&&clients&&<div className="v3-agent-reservation">{clients.map(client=>{const available=capabilityStatus(client,'workspace_bootstrap')==='available';return <span key={client.id} className={available?'is-available':''}><b>{client.display_name}</b><small>{available?'可用':'即将支持'}</small></span>})}</div>}{!connected&&<footer><Button disabled={!canInitialize||busy} onClick={()=>void onInitialize?.()}>{busy?<LoaderCircle className="is-spinning" size={16}/>:<Laptop2 size={16}/>}使用 Codex 初始化</Button></footer>}</section>
       <NextActions actions={projection?.next_actions||[]} onNavigate={onNavigate} onInitialize={onInitialize}/>
     </div>
   </>;

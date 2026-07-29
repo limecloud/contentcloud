@@ -33,7 +33,7 @@ import (
 	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
-const Version = "0.8.0"
+const Version = "0.9.0"
 
 type Root struct {
 	json                   bool
@@ -443,7 +443,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 	}}
 	run.Flags().BoolVar(&once, "once", false, "poll at most once")
 	run.Flags().BoolVar(&fixture, "fixture", false, "use deterministic local fixture adapter for development")
-	run.Flags().StringVar(&adapterKind, "adapter", "auto", "local Agent adapter: auto, codex, or claude")
+	run.Flags().StringVar(&adapterKind, "adapter", "auto", "local Agent adapter: auto, codex, or claude-code; other registered clients are planned")
 	cmd.AddCommand(run)
 	return cmd
 }

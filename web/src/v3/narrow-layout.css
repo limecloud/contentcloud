@@ -121,3 +121,4 @@
   .v3-table th:nth-child(4),
   .v3-table td:nth-child(4) { display: none; }
 }
+.v3-agent-reservation{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin:0 18px 16px;border:1px solid var(--line);background:var(--line)}.v3-agent-reservation>span{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;background:var(--surface-subtle);color:var(--muted)}.v3-agent-reservation>span.is-available{background:var(--info-soft);color:var(--info)}.v3-agent-reservation b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-caption)}.v3-agent-reservation small{flex:0 0 auto;font-size:var(--fs-micro)}

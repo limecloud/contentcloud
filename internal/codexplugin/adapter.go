@@ -77,6 +77,9 @@ type ComponentState struct {
 	Current string `json:"current,omitempty"`
 	Wanted  string `json:"wanted"`
 	Reason  string `json:"reason,omitempty"`
+	Source  string `json:"source,omitempty"`
+	Ref     string `json:"ref,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 type State struct {
@@ -103,10 +106,15 @@ type Plan struct {
 }
 
 type Receipt struct {
-	MarketplaceAdded     bool   `json:"marketplace_added"`
-	AddedMarketplaceName string `json:"added_marketplace_name,omitempty"`
-	PluginAdded          bool   `json:"plugin_added"`
-	AddedPluginID        string `json:"added_plugin_id,omitempty"`
+	MarketplaceAdded          bool   `json:"marketplace_added"`
+	AddedMarketplaceName      string `json:"added_marketplace_name,omitempty"`
+	PluginAdded               bool   `json:"plugin_added"`
+	AddedPluginID             string `json:"added_plugin_id,omitempty"`
+	MarketplaceRemoved        bool   `json:"marketplace_removed"`
+	PreviousMarketplaceSource string `json:"previous_marketplace_source,omitempty"`
+	PreviousMarketplaceRef    string `json:"previous_marketplace_ref,omitempty"`
+	PluginRemoved             bool   `json:"plugin_removed"`
+	PreviousPluginVersion     string `json:"previous_plugin_version,omitempty"`
 }
 
 type ApplyResult struct {
@@ -127,9 +135,60 @@ type LaunchResult struct {
 }
 
 type Adapter struct {
-	Spec   Spec
-	Runner CommandRunner
-	GOOS   string
+	Spec        Spec
+	Runner      CommandRunner
+	GOOS        string
+	Marketplace MarketplaceInspector
+}
+
+type MarketplaceInspection struct {
+	Ref     string
+	Matches bool
+}
+
+type MarketplaceInspector interface {
+	Inspect(context.Context, marketplaceListItem, string) MarketplaceInspection
+}
+
+type gitMarketplaceInspector struct{}
+
+func (gitMarketplaceInspector) Inspect(ctx context.Context, item marketplaceListItem, wantedRef string) MarketplaceInspection {
+	currentRef := item.MarketplaceSource.Ref
+	if currentRef == "" {
+		currentRef = item.MarketplaceSource.RefName
+	}
+	if currentRef != "" {
+		return MarketplaceInspection{Ref: currentRef, Matches: currentRef == wantedRef}
+	}
+	if strings.TrimSpace(item.Root) == "" {
+		return MarketplaceInspection{}
+	}
+	head, err := gitMarketplaceCommand(ctx, item.Root, "rev-parse", "HEAD")
+	if err != nil {
+		return MarketplaceInspection{}
+	}
+	expected, err := gitMarketplaceCommand(ctx, item.Root, "rev-parse", "--verify", wantedRef+"^{commit}")
+	if err != nil {
+		return MarketplaceInspection{Ref: gitMarketplaceRef(ctx, item.Root)}
+	}
+	currentRef = gitMarketplaceRef(ctx, item.Root)
+	return MarketplaceInspection{Ref: currentRef, Matches: currentRef == wantedRef && head == expected}
+}
+
+func gitMarketplaceRef(ctx context.Context, root string) string {
+	if ref, err := gitMarketplaceCommand(ctx, root, "symbolic-ref", "--short", "HEAD"); err == nil {
+		return ref
+	}
+	if ref, err := gitMarketplaceCommand(ctx, root, "describe", "--tags", "--exact-match", "HEAD"); err == nil {
+		return ref
+	}
+	return ""
+}
+
+func gitMarketplaceCommand(ctx context.Context, root string, args ...string) (string, error) {
+	commandArgs := append([]string{"-C", root}, args...)
+	output, err := exec.CommandContext(ctx, "git", commandArgs...).Output()
+	return strings.TrimSpace(string(output)), err
 }
 
 func New(spec Spec, runner CommandRunner) (*Adapter, error) {
@@ -139,7 +198,7 @@ func New(spec Spec, runner CommandRunner) (*Adapter, error) {
 	if runner == nil {
 		runner = ExecRunner{}
 	}
-	return &Adapter{Spec: spec, Runner: runner, GOOS: runtime.GOOS}, nil
+	return &Adapter{Spec: spec, Runner: runner, GOOS: runtime.GOOS, Marketplace: gitMarketplaceInspector{}}, nil
 }
 
 func (a *Adapter) Detect(ctx context.Context) (State, error) {
@@ -151,7 +210,7 @@ func (a *Adapter) Detect(ctx context.Context) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	marketplace := detectMarketplace(a.Spec, marketplaces)
+	marketplace := detectMarketplace(ctx, a.Spec, marketplaces, a.Marketplace)
 	plugin := detectPlugin(a.Spec, plugins)
 	status := combinedStatus(marketplace.Status, plugin.Status)
 	return State{Status: status, Marketplace: marketplace, Plugin: plugin}, nil
@@ -224,6 +283,19 @@ func (a *Adapter) Apply(ctx context.Context, approved Plan, confirmed bool) (res
 			if applyErr != nil {
 				return result, applyErr
 			}
+		case "marketplace.remove":
+			if err := a.runMutation(ctx, action.Kind, action.Arguments...); err != nil {
+				return result, err
+			}
+			result.Receipt.MarketplaceRemoved = true
+			result.Receipt.PreviousMarketplaceSource = fresh.Detected.Marketplace.Source
+			result.Receipt.PreviousMarketplaceRef = fresh.Detected.Marketplace.Ref
+		case "plugin.remove":
+			if err := a.runMutation(ctx, action.Kind, action.Arguments...); err != nil {
+				return result, err
+			}
+			result.Receipt.PluginRemoved = true
+			result.Receipt.PreviousPluginVersion = fresh.Detected.Plugin.Version
 		case "plugin.add":
 			pluginID, added, applyErr := a.addPlugin(ctx, action)
 			result.Receipt.PluginAdded = added
@@ -261,6 +333,22 @@ func (a *Adapter) Rollback(ctx context.Context, receipt Receipt) []string {
 			marketplaceName = a.Spec.MarketplaceName
 		}
 		if err := a.runMutation(ctx, "marketplace.remove", "plugin", "marketplace", "remove", marketplaceName, "--json"); err != nil {
+			errorsFound = append(errorsFound, err.Error())
+		}
+	}
+	marketplaceRestored := false
+	if receipt.MarketplaceRemoved && receipt.PreviousMarketplaceSource != "" {
+		action := marketplaceAddAction(a.Spec, receipt.PreviousMarketplaceSource, receipt.PreviousMarketplaceRef)
+		if _, _, err := a.addMarketplace(ctx, action); err != nil {
+			errorsFound = append(errorsFound, err.Error())
+		} else {
+			marketplaceRestored = true
+		}
+	}
+	if receipt.PluginRemoved && receipt.PreviousPluginVersion != "" {
+		if !marketplaceRestored {
+			errorsFound = append(errorsFound, "cannot restore the previous Plugin without its Marketplace source and ref")
+		} else if err := a.runMutation(ctx, "plugin.add", "plugin", "add", a.Spec.PluginID, "--json"); err != nil {
 			errorsFound = append(errorsFound, err.Error())
 		}
 	}
@@ -436,25 +524,35 @@ func (a *Adapter) runMutation(ctx context.Context, operation string, args ...str
 
 func planForState(spec Spec, detected State) Plan {
 	plan := Plan{SchemaVersion: PlanSchemaVersion, Spec: spec, Detected: detected, Actions: []Action{}, BlockingReasons: []string{}}
-	if detected.Marketplace.Status == "outdated" || detected.Marketplace.Status == "broken" {
+	if detected.Marketplace.Status == "broken" {
 		plan.BlockingReasons = append(plan.BlockingReasons, detected.Marketplace.Reason)
 	}
-	if detected.Plugin.Status == "outdated" || detected.Plugin.Status == "broken" {
+	if detected.Plugin.Status == "broken" {
 		plan.BlockingReasons = append(plan.BlockingReasons, detected.Plugin.Reason)
 	}
 	if len(plan.BlockingReasons) > 0 {
 		plan.State = "blocked"
 		return plan
 	}
-	if detected.Marketplace.Status == "absent" {
-		arguments := []string{"plugin", "marketplace", "add", spec.MarketplaceSource}
-		if spec.MarketplaceRef != "" {
-			arguments = append(arguments, "--ref", spec.MarketplaceRef)
-		}
-		arguments = append(arguments, "--json")
-		plan.Actions = append(plan.Actions, Action{Kind: "marketplace.add", Command: spec.CodexBinary, Arguments: arguments, Description: "Add the pinned ContentCloud Codex marketplace"})
+	if detected.Marketplace.Status == "current" && detected.Plugin.Status == "outdated" {
+		plan.State = "blocked"
+		plan.BlockingReasons = append(plan.BlockingReasons, "ContentCloud Plugin 与已固定的 Marketplace 版本不一致，无法保证失败时恢复旧 Plugin")
+		return plan
 	}
-	if detected.Plugin.Status == "absent" {
+	if detected.Marketplace.Status == "outdated" {
+		if detected.Plugin.Status != "absent" {
+			plan.Actions = append(plan.Actions, Action{Kind: "plugin.remove", Command: spec.CodexBinary, Arguments: []string{"plugin", "remove", spec.PluginID, "--json"}, Description: "Remove the previous ContentCloud Plugin before replacing its Marketplace"})
+		}
+		plan.Actions = append(plan.Actions, Action{Kind: "marketplace.remove", Command: spec.CodexBinary, Arguments: []string{"plugin", "marketplace", "remove", spec.MarketplaceName, "--json"}, Description: "Remove the previous ContentCloud Marketplace before pinning the requested ref"})
+		plan.Actions = append(plan.Actions, marketplaceAddAction(spec, spec.MarketplaceSource, spec.MarketplaceRef))
+	}
+	if detected.Marketplace.Status == "absent" {
+		plan.Actions = append(plan.Actions, marketplaceAddAction(spec, spec.MarketplaceSource, spec.MarketplaceRef))
+	}
+	if detected.Plugin.Status == "absent" || detected.Plugin.Status == "outdated" || detected.Marketplace.Status == "outdated" {
+		if detected.Plugin.Status == "outdated" && detected.Marketplace.Status != "outdated" {
+			plan.Actions = append(plan.Actions, Action{Kind: "plugin.remove", Command: spec.CodexBinary, Arguments: []string{"plugin", "remove", spec.PluginID, "--json"}, Description: "Remove the previous ContentCloud Plugin before installing the requested version"})
+		}
 		plan.Actions = append(plan.Actions, Action{Kind: "plugin.add", Command: spec.CodexBinary, Arguments: []string{"plugin", "add", spec.PluginID, "--json"}, Description: "Install the pinned ContentCloud video-production plugin"})
 	}
 	if len(plan.Actions) == 0 {
@@ -466,7 +564,7 @@ func planForState(spec Spec, detected State) Plan {
 	return plan
 }
 
-func detectMarketplace(spec Spec, items []marketplaceListItem) ComponentState {
+func detectMarketplace(ctx context.Context, spec Spec, items []marketplaceListItem, inspector MarketplaceInspector) ComponentState {
 	wanted := marketplaceIdentity(spec)
 	for _, item := range items {
 		if item.Name != spec.MarketplaceName {
@@ -481,18 +579,23 @@ func detectMarketplace(spec Spec, items []marketplaceListItem) ComponentState {
 			return ComponentState{Status: "broken", Current: current, Wanted: wanted, Reason: "ContentCloud Marketplace 来源类型与固定规格不一致"}
 		}
 		if !sameSource(spec.MarketplaceSource, item.MarketplaceSource.Source) {
-			return ComponentState{Status: "outdated", Current: current, Wanted: wanted, Reason: "同名 ContentCloud Marketplace 指向了非受管来源"}
+			return ComponentState{Status: "broken", Current: current, Wanted: wanted, Source: item.MarketplaceSource.Source, Reason: "同名 ContentCloud Marketplace 指向了非受管来源"}
+		}
+		currentRef := item.MarketplaceSource.Ref
+		if currentRef == "" {
+			currentRef = item.MarketplaceSource.RefName
+		}
+		inspection := MarketplaceInspection{Ref: currentRef, Matches: currentRef != "" && currentRef == spec.MarketplaceRef}
+		if currentRef == "" && inspector != nil {
+			inspection = inspector.Inspect(ctx, item, spec.MarketplaceRef)
 		}
 		if spec.MarketplaceRef != "" {
-			currentRef := item.MarketplaceSource.Ref
-			if currentRef == "" {
-				currentRef = item.MarketplaceSource.RefName
+			if !inspection.Matches {
+				return ComponentState{Status: "outdated", Current: current, Wanted: wanted, Source: item.MarketplaceSource.Source, Ref: inspection.Ref, Reason: "ContentCloud Marketplace Git ref 与固定版本不一致"}
 			}
-			if currentRef != spec.MarketplaceRef {
-				return ComponentState{Status: "outdated", Current: current, Wanted: wanted, Reason: "ContentCloud Marketplace Git ref 与固定版本不一致"}
-			}
+			currentRef = spec.MarketplaceRef
 		}
-		return ComponentState{Status: "current", Current: current, Wanted: wanted}
+		return ComponentState{Status: "current", Current: marketplaceSourceIdentity(marketplaceSource{Source: item.MarketplaceSource.Source, Ref: currentRef}), Wanted: wanted, Source: item.MarketplaceSource.Source, Ref: currentRef}
 	}
 	return ComponentState{Status: "absent", Wanted: wanted, Reason: "ContentCloud Marketplace 尚未安装"}
 }
@@ -505,14 +608,23 @@ func detectPlugin(spec Spec, items []pluginListItem) ComponentState {
 		}
 		current := item.PluginID + "@" + item.Version
 		if item.Name != spec.PluginName || item.MarketplaceName != spec.MarketplaceName || !item.Installed || !item.Enabled {
-			return ComponentState{Status: "broken", Current: current, Wanted: wanted, Reason: "ContentCloud Plugin 已存在，但身份、安装或启用状态无效"}
+			return ComponentState{Status: "broken", Current: current, Wanted: wanted, Version: item.Version, Reason: "ContentCloud Plugin 已存在，但身份、安装或启用状态无效"}
 		}
 		if item.Version != spec.PluginVersion {
-			return ComponentState{Status: "outdated", Current: current, Wanted: wanted, Reason: "ContentCloud Plugin 版本与固定版本不一致"}
+			return ComponentState{Status: "outdated", Current: current, Wanted: wanted, Version: item.Version, Reason: "ContentCloud Plugin 版本与固定版本不一致"}
 		}
-		return ComponentState{Status: "current", Current: current, Wanted: wanted}
+		return ComponentState{Status: "current", Current: current, Wanted: wanted, Version: item.Version}
 	}
 	return ComponentState{Status: "absent", Wanted: wanted, Reason: "ContentCloud Plugin 尚未安装"}
+}
+
+func marketplaceAddAction(spec Spec, source, ref string) Action {
+	arguments := []string{"plugin", "marketplace", "add", source}
+	if ref != "" {
+		arguments = append(arguments, "--ref", ref)
+	}
+	arguments = append(arguments, "--json")
+	return Action{Kind: "marketplace.add", Command: spec.CodexBinary, Arguments: arguments, Description: "Add the pinned ContentCloud Codex marketplace"}
 }
 
 func combinedStatus(values ...string) string {

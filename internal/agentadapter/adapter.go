@@ -24,12 +24,8 @@ type Adapter interface {
 }
 
 func Select(kind string) (Adapter, error) {
-	switch kind {
-	case "codex":
-		return Codex{}, nil
-	case "claude", "claude-code":
-		return Claude{}, nil
-	case "", "auto":
+	normalized := strings.ToLower(strings.TrimSpace(kind))
+	if normalized == "" || normalized == "auto" {
 		if err := (Codex{}).Detect(); err == nil {
 			return Codex{}, nil
 		}
@@ -37,9 +33,21 @@ func Select(kind string) (Adapter, error) {
 			return Claude{}, nil
 		}
 		return nil, domain.Policy("AGENT_ADAPTER_REQUIRED", "未检测到可用的 Codex 或 Claude Code", "在本机安装并登录其中一个 Agent，或显式使用 --fixture 进行开发验证")
-	default:
-		return nil, domain.Invalid("AGENT_ADAPTER_INVALID", "--adapter 必须为 auto、codex 或 claude")
 	}
+	client, err := RequireCapability(normalized, CapabilityLocalAutomation)
+	if err != nil {
+		return nil, err
+	}
+	factory, ok := automationFactories[client.ID]
+	if !ok {
+		return nil, domain.Policy("AGENT_ADAPTER_NOT_IMPLEMENTED", client.DisplayName+" 的本地 Automation Adapter 尚未实现", "选择已实现的客户端 Adapter")
+	}
+	return factory(), nil
+}
+
+var automationFactories = map[ClientID]func() Adapter{
+	ClientCodex:      func() Adapter { return Codex{} },
+	ClientClaudeCode: func() Adapter { return Claude{} },
 }
 
 type Codex struct{}

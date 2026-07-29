@@ -41,6 +41,7 @@ const codexGuideSource = await readText('internal/httpapi/codex.go');
 const bootstrapSource = await readText('internal/httpapi/bootstrap.md');
 const webSource = await readText('web/src/connectBootstrap.ts');
 const codexHandoffSource = await readText('web/src/codexHandoff.ts');
+const agentHandoffSource = await readText('web/src/agentHandoff.ts');
 const systemdEnvironmentSource = await readText('deploy/systemd/contentcloud.env.example');
 const license = await readText('LICENSE');
 
@@ -48,6 +49,7 @@ const goVersion = exactMatch(goSource, /const\s+Version\s*=\s*"([^"]+)"/, 'inter
 const codexGuideVersion = exactMatch(codexGuideSource, /codexGuideVersion\s*=\s*"([^"]+)"/, 'internal/httpapi /codex guide version');
 const webCLIVersion = exactMatch(webSource, /@limecloud\/contentcloud@([^'\s]+)'/, 'web CONTENTCLOUD_CLI version');
 const codexHandoffVersion = exactMatch(codexHandoffSource, /plugin_version\s*!==\s*'([^']+)'/, 'web Codex handoff Plugin version');
+const agentHandoffVersion = exactMatch(agentHandoffSource, /integration\.version\s*!==\s*'([^']+)'/, 'web Agent handoff Plugin version');
 const capabilityReleaseVersion = exactMatch(systemdEnvironmentSource, /^CONTENTCLOUD_CAPABILITY_RELEASE_VERSION=([^\s]+)$/m, 'systemd capability release version');
 const bootstrapVersions = [...bootstrapSource.matchAll(/@limecloud\/contentcloud@([^\s`]+)/g)].map(match => match[1]);
 const mcpServer = mcp.mcpServers?.['contentcloud-local'];
@@ -68,6 +70,7 @@ const versions = new Map([
   ['internal/httpapi/codex.go', codexGuideVersion],
   ['web/src/connectBootstrap.ts', webCLIVersion],
   ['web/src/codexHandoff.ts', codexHandoffVersion],
+  ['web/src/agentHandoff.ts', agentHandoffVersion],
   ['plugin .mcp.json', mcpVersion],
 ]);
 for (const [source, value] of versions) {

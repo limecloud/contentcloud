@@ -30,8 +30,11 @@ func TestConnectSessionCompletesOnlyAfterWorkspaceRegistration(t *testing.T) {
 
 	workspaceActor, binding, err := service.WorkspaceActor(t.Context(), device.WorkspaceToken)
 	must(t, err)
-	_, err = service.RegisterWorkspace(t.Context(), workspaceActor, binding, "workspace_marketing_video", "2.0.0", []string{"codex"}, "workspace-register")
+	registered, err := service.RegisterWorkspace(t.Context(), workspaceActor, binding, "workspace_marketing_video", "2.0.0", []string{"codex-plugin"}, "workspace-register")
 	must(t, err)
+	if len(registered.Targets) != 1 || registered.Targets[0] != "codex" {
+		t.Fatalf("registered targets = %#v, want normalized codex target", registered.Targets)
+	}
 	status, err = service.ConnectSession(t.Context(), actor, connect.ID)
 	must(t, err)
 	if status.State != "connected" {

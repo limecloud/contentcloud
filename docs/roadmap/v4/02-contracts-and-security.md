@@ -181,20 +181,28 @@ type ProjectViewContract = {
 
 Projection 返回类型化目标，不返回任意绝对 URL。Web 和 MCP 分别通过同一 Page Contract 构造适合当前宿主的链接。
 
-### 5.1 Web 到 Codex 恢复契约
+### 5.1 Web 到 Agent 恢复契约
 
-已实现两个受会话保护的 BFF 读取入口：
+客户端目录和通用恢复入口均受会话保护：
 
 ```text
-GET /api/bff/projects/{projectID}/codex-handoff
-GET /api/bff/projects/{projectID}/submission-revisions/{revisionID}/codex-handoff
+GET /api/bff/agent-clients
+GET /api/bff/projects/{projectID}/agent-handoff?client={clientID}
+GET /api/bff/projects/{projectID}/submission-revisions/{revisionID}/agent-handoff?client={clientID}
 ```
 
-统一响应：
+`agent-clients` 是客户端 ID、显示名和逐项能力状态的唯一事实源。固定客户端 ID 为 `codex`、`claude-code`、`workbuddy`、`cursor`、`hermes`、`openclaw`；能力状态只有 `available` 和 `planned`。`planned` 只允许 UI 展示“即将支持”，服务端不得生成恢复入口。
+
+通用恢复响应：
 
 ```json
 {
-  "schema_version": "contentcloud.codex-handoff/1.0",
+  "schema_version": "contentcloud.agent-handoff/1.0",
+  "client": {
+    "id": "codex",
+    "display_name": "Codex",
+    "capabilities": [{"id": "interactive_handoff", "status": "available"}]
+  },
   "kind": "review_feedback",
   "project_id": "prj_01H...",
   "target": {
@@ -202,11 +210,14 @@ GET /api/bff/projects/{projectID}/submission-revisions/{revisionID}/codex-handof
     "id": "rev_01H...",
     "digest": "sha256:..."
   },
-  "plugin_id": "contentcloud-video-production@contentcloud",
-  "plugin_version": "0.6.0",
-  "requires_new_chat": true,
+  "integration": {
+    "kind": "plugin",
+    "id": "contentcloud-video-production@contentcloud",
+    "version": "0.9.0"
+  },
+  "requires_new_session": true,
   "requires_workspace_selection": true,
-  "launch_url": "codex://new?prompt=...",
+  "launch": {"mode": "deep_link", "url": "codex://new?prompt=..."},
   "prompt": "...",
   "steps": ["..."],
   "fallback_url": "/codex"
@@ -215,13 +226,15 @@ GET /api/bff/projects/{projectID}/submission-revisions/{revisionID}/codex-handof
 
 约束：
 
-1. Project 必须存在且至少已有一个 Workspace/Device 绑定；服务端仍不持有本机 Workspace 路径。
-2. review feedback 入口先验证 Revision 属于 URL 中的 project，再要求存在审核评论或 `changes_requested` 状态；跨 project/tenant 统一返回 404。
-3. `launch_url` 固定为 `codex://new?prompt=...`，只有一个 `prompt` query；禁止 `path`、`originUrl`、token、客户正文、评论正文和本机路径。
-4. Prompt 固定引用 Plugin ID、project ID；feedback 额外包含 Revision ID 与完整 digest。它先调用 `workspace_context` 并验证 `project_id`，不匹配则停止。
-5. feedback Prompt 只先调用 `review_feedback_list`；pull、claim、本地写入和新修订 Run 都需要用户后续明确要求。
-6. Web 在打开自定义协议前再次校验 schema、Plugin 版本、new-chat/workspace gate、当前页面 project/revision/digest、query allowlist 和 Prompt 一致性。校验失败只显示错误，不导航。
-7. Assignment handoff 尚未实现，等待 V3 W3-01 的 WorkAssignment 与 pull 契约，不能复用 project target 冒充精确 Assignment。
+1. `internal/agentadapter` 使用 Registry + Strategy：Registry 声明能力成熟度，各能力的 Strategy factory 必须与 `available` 状态一一对应。
+2. Project 必须存在且至少已有一个 Workspace/Device 绑定；服务端仍不持有本机 Workspace 路径。
+3. review feedback 入口先验证 Revision 属于 URL 中的 project，再要求存在审核评论或 `changes_requested` 状态；跨 project/tenant 统一返回 404。
+4. Codex Strategy 的 URL 固定为 `codex://new?prompt=...`，只有一个 `prompt` query；禁止 `path`、`originUrl`、token、客户正文、评论正文和本机路径。其他客户端必须提供自己的独立 URL 校验 Strategy。
+5. Prompt 固定引用 Integration ID、project ID；feedback 额外包含 Revision ID 与完整 digest。它先调用 `workspace_context` 并验证 `project_id`，不匹配则停止。
+6. feedback Prompt 只先调用 `review_feedback_list`；pull、claim、本地写入和新修订 Run 都需要用户后续明确要求。
+7. Web 在打开自定义协议前按客户端再次校验 schema、Integration 版本、new-session/workspace gate、当前页面 project/revision/digest、query allowlist 和 Prompt 一致性。校验失败只显示错误，不导航。
+8. 原 `/codex-handoff` 与 `contentcloud.codex-handoff/1.0` 保留为兼容层，内部复用 Codex Strategy，不再承载新 UI。
+9. Assignment handoff 尚未实现，等待 V3 W3-01 的 WorkAssignment 与 pull 契约，不能复用 project target 冒充精确 Assignment。
 
 ## 6. 既有 Tool 的链接复用
 

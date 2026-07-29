@@ -9,7 +9,7 @@
     "id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
     "version": {"$ref": "#/$defs/version"},
     "environment_version": {"$ref": "#/$defs/version"},
-    "harness": {"const": "codex"},
+    "harness": {"enum": ["codex", "claude-code", "workbuddy", "cursor", "hermes", "openclaw"]},
     "marketplace": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
     "plugins": {
       "type": "array",

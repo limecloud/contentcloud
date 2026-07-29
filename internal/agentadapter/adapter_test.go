@@ -2,15 +2,87 @@ package agentadapter
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/limecloud/contentcloud/internal/automationworkspace"
 	"github.com/limecloud/contentcloud/internal/domain"
 )
+
+func TestClientRegistryResolvesAliasesAndPlannedCapabilities(t *testing.T) {
+	claude, ok := Lookup(" Claude ")
+	if !ok || claude.ID != ClientClaudeCode || claude.CapabilityStatus(CapabilityLocalAutomation) != SupportAvailable {
+		t.Fatalf("unexpected Claude registry entry: %#v", claude)
+	}
+	openClaw, ok := Lookup("open-claw")
+	if !ok || openClaw.ID != ClientOpenClaw || openClaw.CapabilityStatus(CapabilityInteractiveHandoff) != SupportPlanned {
+		t.Fatalf("unexpected OpenClaw registry entry: %#v", openClaw)
+	}
+	_, err := RequireCapability("cursor", CapabilityInteractiveHandoff)
+	var domainError *domain.Error
+	if !errors.As(err, &domainError) || domainError.Code != "AGENT_CLIENT_CAPABILITY_UNAVAILABLE" {
+		t.Fatalf("planned capability was not rejected explicitly: %v", err)
+	}
+}
+
+func TestAutomationStrategiesMatchAvailableRegistryCapabilities(t *testing.T) {
+	for _, client := range Clients() {
+		_, implemented := automationFactories[client.ID]
+		available := client.CapabilityStatus(CapabilityLocalAutomation) == SupportAvailable
+		if implemented != available {
+			t.Fatalf("automation strategy drift for %s: implemented=%t available=%t", client.ID, implemented, available)
+		}
+	}
+	adapter, err := Select("claude")
+	if err != nil || adapter.Kind() != "claude-code" {
+		t.Fatalf("legacy Claude alias was not normalized: adapter=%#v err=%v", adapter, err)
+	}
+}
+
+func TestHandoffStrategiesMatchAvailableRegistryCapabilities(t *testing.T) {
+	for _, client := range Clients() {
+		_, implemented := handoffFactories[client.ID]
+		available := client.CapabilityStatus(CapabilityInteractiveHandoff) == SupportAvailable
+		if implemented != available {
+			t.Fatalf("handoff strategy drift for %s: implemented=%t available=%t", client.ID, implemented, available)
+		}
+	}
+	adapter, err := SelectHandoff("codex", "0.8.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoff, err := adapter.Build(HandoffRequest{Kind: "project", ProjectID: "project-1", Target: HandoffTarget{Kind: "project", ID: "project-1"}})
+	if err != nil || handoff.Client.ID != ClientCodex || handoff.Launch.Mode != "deep_link" || !strings.HasPrefix(handoff.Launch.URL, "codex://new?") {
+		t.Fatalf("unexpected Codex handoff: %#v err=%v", handoff, err)
+	}
+}
+
+func TestSelectionAndHandoffFailClosedForUnsupportedInputs(t *testing.T) {
+	for _, client := range []string{"unknown-agent", "cursor"} {
+		_, err := Select(client)
+		var domainError *domain.Error
+		if !errors.As(err, &domainError) {
+			t.Fatalf("%s selection did not return a domain error: %v", client, err)
+		}
+		if client == "unknown-agent" && domainError.Code != "AGENT_CLIENT_INVALID" {
+			t.Fatalf("unknown client error = %s", domainError.Code)
+		}
+		if client == "cursor" && domainError.Code != "AGENT_CLIENT_CAPABILITY_UNAVAILABLE" {
+			t.Fatalf("planned client error = %s", domainError.Code)
+		}
+	}
+	adapter, err := SelectHandoff("codex", "0.9.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adapter.Build(HandoffRequest{Kind: "unsupported", ProjectID: "project-1", Target: HandoffTarget{Kind: "project", ID: "project-1"}})
+	var domainError *domain.Error
+	if !errors.As(err, &domainError) || domainError.Code != "AGENT_HANDOFF_KIND_INVALID" {
+		t.Fatalf("invalid handoff kind was not rejected: %v", err)
+	}
+}
 
 func TestDecodeClaudeStructuredOutput(t *testing.T) {
 	pkg := domain.KnowledgeExtractionPackage{SchemaVersion: "1.0", Candidates: []domain.KnowledgeCandidate{}, Warnings: []string{"missing source"}}
@@ -41,29 +113,37 @@ func TestAgentEnvironmentDoesNotInheritUnrelatedSecret(t *testing.T) {
 }
 
 func TestAdapterLoadsOnlyFrozenAutomationWorkspaceResources(t *testing.T) {
-	now := time.Date(2026, 7, 27, 16, 0, 0, 0, time.UTC)
 	contract := domain.TaskContract{
 		ContractVersion: "1.0", ContractID: "snapshot-1", RunID: "run-1", TaskType: "knowledge_extract",
 		Project: domain.Project{ID: "project-1"}, Sources: []domain.ContractSource{}, InputSnapshotID: "snapshot-1", OutputSchema: domain.KnowledgeCandidatesSchema,
 		Capability: domain.Capability{ID: domain.KnowledgeExtractCapability, Version: "1.0.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, Digest: "sha256:" + strings.Repeat("a", 64), LocalOnly: true},
 	}
-	workspace, err := automationworkspace.Begin(automationworkspace.Options{
-		BaseDir: filepath.Join(t.TempDir(), "automation"), AttemptID: "attempt-1", RunID: "run-1", ProjectID: "project-1",
-		Contract: contract, OutputSchema: []byte(`{"type":"object"}`), Skill: []byte("# Test Skill\n"), Now: now, ExpiresAt: now.Add(5 * time.Minute),
-	})
+	root := filepath.Join(t.TempDir(), "attempt-1")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	contractBody, err := json.Marshal(contract)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer workspace.Cleanup()
-	directory, loaded, schema, skill, err := loadWorkspace(workspace.Root)
-	if err != nil || directory != workspace.Root || loaded.RunID != contract.RunID || string(schema) != `{"type":"object"}` || string(skill) != "# Test Skill\n" {
+	for name, body := range map[string][]byte{
+		"contract.json":      contractBody,
+		"output.schema.json": []byte(`{"type":"object"}`),
+		"SKILL.md":           []byte("# Test Skill\n"),
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), body, 0o400); err != nil {
+			t.Fatal(err)
+		}
+	}
+	directory, loaded, schema, skill, err := loadWorkspace(root)
+	if err != nil || directory != root || loaded.RunID != contract.RunID || string(schema) != `{"type":"object"}` || string(skill) != "# Test Skill\n" {
 		t.Fatalf("loaded workspace: directory=%s contract=%#v schema=%s skill=%s err=%v", directory, loaded, schema, skill, err)
 	}
-	contractPath := filepath.Join(workspace.Root, "contract.json")
+	contractPath := filepath.Join(root, "contract.json")
 	if err := os.Chmod(contractPath, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, err := loadWorkspace(workspace.Root); err == nil {
+	if _, _, _, _, err := loadWorkspace(root); err == nil {
 		t.Fatal("writable frozen contract unexpectedly accepted")
 	}
 }

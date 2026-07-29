@@ -27,6 +27,13 @@ func TestPlanRejectsNonEmptyUnknownDirectory(t *testing.T) {
 	}
 }
 
+func TestPlanRecognizesReservedButUnavailableClient(t *testing.T) {
+	_, err := Plan(t.TempDir(), "cursor")
+	if err == nil || !strings.Contains(err.Error(), "尚未提供") {
+		t.Fatalf("reserved client must fail with an explicit capability error: %v", err)
+	}
+}
+
 func TestInitializeCreatesLocalFirstWorkspace(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	now := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)

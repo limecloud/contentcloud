@@ -2,7 +2,11 @@ package contracts
 
 import (
 	"encoding/json"
+	"reflect"
+	"sort"
 	"testing"
+
+	"github.com/limecloud/contentcloud/internal/agentadapter"
 )
 
 func TestEmbeddedSchemasAreValidJSON(t *testing.T) {
@@ -37,6 +41,31 @@ func TestEmbeddedSchemasAreValidJSON(t *testing.T) {
 		var schema map[string]any
 		if len(body) == 0 || json.Unmarshal(body, &schema) != nil || schema["$id"] == "" {
 			t.Fatalf("embedded schema %s is missing or invalid", name)
+		}
+	}
+}
+
+func TestEnvironmentSchemasReserveRegisteredAgentClients(t *testing.T) {
+	want := agentadapter.ClientIDs()
+	for name, body := range map[string][]byte{
+		"profile":  CreativeEnvironmentProfileSchema,
+		"manifest": CreativeEnvironmentManifestSchema,
+		"lock":     EnvironmentLockSchema,
+	} {
+		var schema struct {
+			Properties struct {
+				Harness struct {
+					Enum []string `json:"enum"`
+				} `json:"harness"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(body, &schema); err != nil {
+			t.Fatal(err)
+		}
+		got := schema.Properties.Harness.Enum
+		sort.Strings(got)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s harness enum=%v, want registry IDs %v", name, got, want)
 		}
 	}
 }

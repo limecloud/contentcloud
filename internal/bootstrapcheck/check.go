@@ -188,7 +188,6 @@ func Run(ctx context.Context, options Options) Report {
 		{"network.contentcloud.reachable", strings.TrimRight(options.ServerURL, "/") + "/healthz", "retry.network.contentcloud"},
 		{"network.npm.reachable", "https://registry.npmjs.org/@limecloud%2Fcontentcloud/latest", "guide.network.npm"},
 		{"network.marketplace.reachable", "https://github.com/limecloud/contentcloud", "guide.network.marketplace"},
-		{"network.openai.reachable", "https://developers.openai.com/codex/", "guide.network.openai"},
 	}
 	for _, target := range targets {
 		if reachable(ctx, client, target.rawURL) {
@@ -197,6 +196,9 @@ func Run(ctx context.Context, options Options) Report {
 			add(failed("network_ready", target.id, strings.ToUpper(strings.ReplaceAll(target.id, ".", "_"))+"_FAILED", target.action, map[string]any{"reachable": false, "latency_bucket": "failed"}))
 		}
 	}
+	// Codex readiness is verified by local CLI/Desktop checks and the real plugin flow.
+	// The public documentation site is not a reliable proxy for the active Codex session.
+	add(skipped("network_ready", "network.openai.reachable", "guide.network.openai"))
 	return report
 }
 

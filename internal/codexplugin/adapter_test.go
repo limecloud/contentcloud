@@ -22,6 +22,14 @@ type fakeRunner struct {
 	calls     [][]string
 }
 
+type fakeMarketplaceInspector struct {
+	inspection MarketplaceInspection
+}
+
+func (f fakeMarketplaceInspector) Inspect(context.Context, marketplaceListItem, string) MarketplaceInspection {
+	return f.inspection
+}
+
 func (f *fakeRunner) Run(_ context.Context, name string, args ...string) (CommandResult, error) {
 	f.calls = append(f.calls, append([]string{name}, args...))
 	if len(f.responses) == 0 {
@@ -92,6 +100,103 @@ func TestDetectClassifiesCurrentOutdatedAndBroken(t *testing.T) {
 				t.Fatalf("status=%s, want %s; state=%#v", state.Status, test.want, state)
 			}
 		})
+	}
+}
+
+func TestDetectAcceptsMarketplaceListWithoutRefWhenCheckoutMatchesPinnedRef(t *testing.T) {
+	runner := &fakeRunner{responses: []fakeResponse{
+		{stdout: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"https://github.com/limecloud/contentcloud.git"}}]}`},
+		{stdout: `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.8.0","installed":true,"enabled":true}],"available":[]}`},
+	}}
+	adapter := mustAdapter(t, DefaultSpec("0.8.0"), runner)
+	adapter.Marketplace = fakeMarketplaceInspector{inspection: MarketplaceInspection{Ref: "v0.8.0", Matches: true}}
+	state, err := adapter.Detect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Status != "current" || state.Marketplace.Ref != "v0.8.0" {
+		t.Fatalf("Codex list without ref was not verified from checkout: %#v", state)
+	}
+}
+
+func TestPlanRepairsSameSourceMarketplaceRef(t *testing.T) {
+	runner := &fakeRunner{responses: []fakeResponse{
+		{stdout: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"https://github.com/limecloud/contentcloud.git"}}]}`},
+		{stdout: `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.7.0","installed":true,"enabled":true}],"available":[]}`},
+	}}
+	adapter := mustAdapter(t, DefaultSpec("0.8.0"), runner)
+	adapter.Marketplace = fakeMarketplaceInspector{inspection: MarketplaceInspection{Ref: "main", Matches: false}}
+	plan, err := adapter.Plan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.State != "ready" || !plan.RequiresConfirmation || len(plan.Actions) != 4 {
+		t.Fatalf("unexpected upgrade plan: %#v", plan)
+	}
+	wantKinds := []string{"plugin.remove", "marketplace.remove", "marketplace.add", "plugin.add"}
+	for index, want := range wantKinds {
+		if plan.Actions[index].Kind != want {
+			t.Fatalf("action %d = %s, want %s: %#v", index, plan.Actions[index].Kind, want, plan.Actions)
+		}
+	}
+	if got := plan.Actions[2].Arguments; !reflect.DeepEqual(got, []string{"plugin", "marketplace", "add", "limecloud/contentcloud", "--ref", "v0.8.0", "--json"}) {
+		t.Fatalf("upgrade did not pin the requested ref: %#v", got)
+	}
+}
+
+func TestPlanBlocksPluginOnlyDriftThatCannotBeRolledBack(t *testing.T) {
+	runner := &fakeRunner{responses: []fakeResponse{
+		{stdout: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.8.0"}}]}`},
+		{stdout: `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.7.0","installed":true,"enabled":true}],"available":[]}`},
+	}}
+	adapter := mustAdapter(t, DefaultSpec("0.8.0"), runner)
+	plan, err := adapter.Plan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.State != "blocked" || plan.RequiresConfirmation || len(plan.Actions) != 0 || len(plan.BlockingReasons) != 1 {
+		t.Fatalf("unsafe Plugin-only upgrade was not blocked: %#v", plan)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("blocked plan ran a mutation: %#v", runner.calls)
+	}
+}
+
+func TestUpgradeFailureRestoresPreviousMarketplaceAndPlugin(t *testing.T) {
+	marketplaceOld := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"https://github.com/limecloud/contentcloud.git"}}]}`
+	pluginOld := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.7.0","installed":true,"enabled":true}],"available":[]}`
+	validMarketplace := `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache-new","alreadyAdded":false}`
+	runner := &fakeRunner{responses: []fakeResponse{
+		{stdout: marketplaceOld}, {stdout: pluginOld},
+		{stdout: marketplaceOld}, {stdout: pluginOld},
+		{stdout: `{}`},
+		{stdout: `{}`},
+		{stdout: validMarketplace},
+		{stderr: "plugin unavailable", exitCode: 1},
+		{stdout: `{}`},
+		{stdout: validMarketplace},
+		{stdout: `{}`},
+	}}
+	adapter := mustAdapter(t, DefaultSpec("0.8.0"), runner)
+	adapter.Marketplace = fakeMarketplaceInspector{inspection: MarketplaceInspection{Ref: "main", Matches: false}}
+	plan, err := adapter.Plan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := adapter.Apply(t.Context(), plan, true)
+	if err == nil {
+		t.Fatal("upgrade failure must be returned")
+	}
+	if len(result.RollbackErrors) != 0 {
+		t.Fatalf("upgrade rollback failed: %#v", result)
+	}
+	wantSuffix := [][]string{
+		{"codex", "plugin", "marketplace", "remove", "contentcloud", "--json"},
+		{"codex", "plugin", "marketplace", "add", "https://github.com/limecloud/contentcloud.git", "--ref", "main", "--json"},
+		{"codex", "plugin", "add", "contentcloud-video-production@contentcloud", "--json"},
+	}
+	if !reflect.DeepEqual(runner.calls[len(runner.calls)-3:], wantSuffix) {
+		t.Fatalf("rollback did not restore previous installation: %#v", runner.calls)
 	}
 }
 

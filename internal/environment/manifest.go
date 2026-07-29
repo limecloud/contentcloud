@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
@@ -144,7 +145,7 @@ func validateManifest(manifest Manifest, requireSignature bool) error {
 	if manifest.SchemaVersion != ManifestSchemaVersion || strings.TrimSpace(manifest.ProjectID) == "" || !dottedIDPattern.MatchString(manifest.ProfileID) || !versionPattern.MatchString(manifest.ProfileVersion) || !versionPattern.MatchString(manifest.EnvironmentVersion) {
 		return domain.Invalid("ENVIRONMENT_MANIFEST_INVALID", "Environment Manifest 缺少有效项目、Profile 或版本")
 	}
-	if manifest.Harness != "codex" || !pluginIDPattern.MatchString(manifest.Distribution.Marketplace) {
+	if _, err := agentadapter.RequireCapability(manifest.Harness, agentadapter.CapabilityCreativeEnvironment); err != nil || !pluginIDPattern.MatchString(manifest.Distribution.Marketplace) {
 		return domain.Invalid("ENVIRONMENT_DISTRIBUTION_INVALID", "Environment Manifest Harness 或 Marketplace 无效")
 	}
 	if !dottedIDPattern.MatchString(manifest.WorkspaceTemplate.ID) || !versionPattern.MatchString(manifest.WorkspaceTemplate.Version) || !digestPattern.MatchString(manifest.WorkspaceTemplate.Digest) {

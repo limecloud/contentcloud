@@ -49,6 +49,9 @@ func TestBuildManifestUsesOnlyExactPublishedCompatibleRegistryEntries(t *testing
 	if manifest.Distribution.Plugins[0].SourceRef != "v0.8.0" || manifest.Distribution.Plugins[1].SourceRef != "v1.2.0" {
 		t.Fatalf("registry refs were not preserved: %#v", manifest.Distribution.Plugins)
 	}
+	plannedHarness := profile
+	plannedHarness.Harness = "cursor"
+	assertCode(t, buildManifestError(plannedHarness, registry, now), "ENVIRONMENT_PROFILE_INVALID")
 
 	tampered := signedRegistry
 	tampered.Entries = append([]environment.RegistryEntry(nil), signedRegistry.Entries...)

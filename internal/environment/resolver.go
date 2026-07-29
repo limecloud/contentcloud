@@ -8,12 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
 func BuildManifest(projectID string, profile Profile, verifiedRegistry VerifiedRegistry, issuedAt, expiresAt time.Time) (Manifest, error) {
 	registry := verifiedRegistry.raw()
-	if strings.TrimSpace(projectID) == "" || !dottedIDPattern.MatchString(profile.ID) || !versionPattern.MatchString(profile.Version) || !versionPattern.MatchString(profile.EnvironmentVersion) || profile.Harness != "codex" || !pluginIDPattern.MatchString(profile.Marketplace) {
+	_, harnessErr := agentadapter.RequireCapability(profile.Harness, agentadapter.CapabilityCreativeEnvironment)
+	if strings.TrimSpace(projectID) == "" || !dottedIDPattern.MatchString(profile.ID) || !versionPattern.MatchString(profile.Version) || !versionPattern.MatchString(profile.EnvironmentVersion) || harnessErr != nil || !pluginIDPattern.MatchString(profile.Marketplace) {
 		return Manifest{}, domain.Invalid("ENVIRONMENT_PROFILE_INVALID", "Creative Environment Profile 缺少有效项目、版本、Harness 或 Marketplace")
 	}
 	if issuedAt.IsZero() || expiresAt.IsZero() || !expiresAt.After(issuedAt) {
@@ -92,7 +94,7 @@ func (resolver *Resolver) ResolveLocal(manifest Manifest, verifiedRegistry Verif
 	if strings.TrimSpace(request.ProjectID) == "" || strings.TrimSpace(request.RunID) == "" || strings.TrimSpace(request.Intent) == "" {
 		return LocalExecutionPlan{}, domain.Invalid("LOCAL_EXECUTION_REQUEST_INVALID", "LocalExecutionPlan 需要 project_id、run_id 和 intent")
 	}
-	if err := resolver.verifier.Verify(manifest, VerifyOptions{ProjectID: request.ProjectID, Harness: "codex", Now: now}); err != nil {
+	if err := resolver.verifier.Verify(manifest, VerifyOptions{ProjectID: request.ProjectID, Harness: manifest.Harness, Now: now}); err != nil {
 		return LocalExecutionPlan{}, err
 	}
 	if err := validateUniqueStrings(request.RequiredCapabilities, dottedIDPattern, "LOCAL_EXECUTION_CAPABILITIES_INVALID"); err != nil {
