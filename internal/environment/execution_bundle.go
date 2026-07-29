@@ -124,7 +124,7 @@ func (verifier *Verifier) VerifyBundle(bundle CreativeExecutionBundle, manifest 
 	if projectID == "" {
 		projectID = bundle.ProjectID
 	}
-	if err := verifier.Verify(manifest, VerifyOptions{ProjectID: projectID, ProfileID: bundle.ProfileID, Harness: "codex", Now: now}); err != nil {
+	if err := verifier.Verify(manifest, VerifyOptions{ProjectID: projectID, ProfileID: bundle.ProfileID, Harness: manifest.Harness, Now: now}); err != nil {
 		return err
 	}
 	if bundle.ProjectID != manifest.ProjectID || bundle.ProjectID != projectID {

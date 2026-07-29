@@ -11,7 +11,7 @@
     "profile_id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
     "profile_version": {"$ref": "#/$defs/version"},
     "environment_version": {"$ref": "#/$defs/version"},
-    "harness": {"const": "codex"},
+    "harness": {"enum": ["codex", "claude-code", "workbuddy", "cursor", "hermes", "openclaw"]},
     "distribution": {
       "type": "object",
       "additionalProperties": false,

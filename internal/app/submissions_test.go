@@ -42,9 +42,12 @@ func TestWorkspaceSubmissionApprovalCreatesImmutableSnapshotWithoutTaskRun(t *te
 	if binding.CredentialHash != "" {
 		t.Fatal("workspace authentication leaked the credential hash")
 	}
-	binding, err = service.RegisterWorkspace(ctx, workspaceActor, binding, "workspace_marketing_video", "2.0.0", []string{"codex"}, "req-register")
+	binding, err = service.RegisterWorkspace(ctx, workspaceActor, binding, "workspace_marketing_video", "2.0.0", []string{"codex-plugin"}, "req-register")
 	if err != nil || binding.CredentialHash != "" {
 		t.Fatalf("workspace registration failed or leaked token hash: %#v %v", binding, err)
+	}
+	if len(binding.Targets) != 1 || binding.Targets[0] != "codex" {
+		t.Fatalf("legacy distribution target was not normalized: %#v", binding.Targets)
 	}
 	if _, _, err := service.DeviceActor(ctx, connected.DeviceToken); err != nil {
 		t.Fatalf("workspace registration must not invalidate the optional Device Credential: %v", err)

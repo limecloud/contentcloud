@@ -20,7 +20,7 @@
       "label": "接入与初始化",
       "eyebrow": "Workspace",
       "title": "连接本地创作 Workspace",
-      "description": "检查项目绑定、Codex 创作环境和 V3 Workspace 是否已经就绪。",
+      "description": "检查项目绑定、Agent 创作环境和 V3 Workspace 是否已经就绪。",
       "section": "onboarding",
       "submission_types": [],
       "snapshot_types": [],

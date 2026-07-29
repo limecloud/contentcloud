@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/limecloud/contentcloud/contracts"
+	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/capabilityrouting"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
@@ -545,16 +546,18 @@ func template(targets []string) ([]templateFile, []string, error) {
 }
 
 func targets(value string) ([]string, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
 	case "", "codex-plugin":
 		return []string{"codex-plugin"}, nil
-	case "codex":
-		return []string{"codex"}, nil
 	case "none":
 		return []string{}, nil
-	default:
-		return nil, domain.Invalid("WORKSPACE_TARGET_INVALID", "--target 必须为 codex-plugin、codex 或 none")
 	}
+	client, err := agentadapter.RequireCapability(normalized, agentadapter.CapabilityWorkspaceBootstrap)
+	if err != nil {
+		return nil, err
+	}
+	return []string{string(client.ID)}, nil
 }
 
 func inspectTarget(root string) (string, []string, error) {

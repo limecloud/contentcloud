@@ -2,6 +2,24 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.9.0] - 2026-07-29
+
+### Added
+
+- 增加统一 Agent Client Registry，集中登记 Codex、Claude Code、WorkBuddy、Cursor、Hermes 和 OpenClaw，并按客户端显式公布自动化、Workspace 注册、初始化、交接和创作环境能力状态。
+- 增加通用 Agent Handoff API 和 Web 客户端选择器，支持从项目与审核反馈页面生成绑定精确项目、Revision 与 digest 的受验证交接。
+
+### Changed
+
+- Workspace 注册、bootstrap、Automation Adapter 与 Environment Manifest/Profile/Lock 统一使用 Agent Client Registry，并将未实现的客户端能力明确标记为 `planned`。
+- Codex 交接收敛为通用 Handoff 策略的已发布实现，旧 Codex 响应保留兼容层；CLI、Web、npm 安装器、Plugin、MCP、Environment Profile 和 bootstrap 固定版本统一升级到 `0.9.0`。
+- bootstrap 增加同源 Marketplace/Plugin 版本检测、显式升级计划与 `resume` 恢复；旧 Marketplace 与 Plugin 必须作为同一可回滚快照更新，异常的 Plugin-only 版本漂移会 fail closed。
+
+### Fixed
+
+- 拒绝未知 Agent 客户端和尚未提供的能力，避免将保留客户端误报为可初始化或可交接。
+- 收紧 Agent Handoff Web 校验，要求 Codex Prompt 同时绑定 Plugin、Workspace 上下文、项目以及审核反馈的 Revision/digest。
+
 ## [0.8.0] - 2026-07-29
 
 ### Added

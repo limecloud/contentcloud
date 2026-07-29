@@ -69,7 +69,7 @@ func StoreEnvironment(root string, manifest environment.Manifest, installed []en
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	if err := verifier.Verify(manifest, environment.VerifyOptions{ProjectID: binding.ProjectID, Harness: "codex", Now: now}); err != nil {
+	if err := verifier.Verify(manifest, environment.VerifyOptions{ProjectID: binding.ProjectID, Harness: manifest.Harness, Now: now}); err != nil {
 		return EnvironmentState{}, err
 	}
 	lock := environment.EnvironmentLock{
@@ -143,7 +143,7 @@ func LoadEnvironment(root string, verifier *environment.Verifier, now time.Time)
 	if err != nil {
 		return EnvironmentState{}, err
 	}
-	if err := verifier.Verify(manifest, environment.VerifyOptions{ProjectID: binding.ProjectID, Harness: "codex", Now: now}); err != nil {
+	if err := verifier.Verify(manifest, environment.VerifyOptions{ProjectID: binding.ProjectID, Harness: manifest.Harness, Now: now}); err != nil {
 		return EnvironmentState{}, err
 	}
 	if err := environment.ValidateLock(manifest, lock); err != nil {

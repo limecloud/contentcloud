@@ -11,6 +11,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -44,7 +45,7 @@ func TestBootstrapDocumentIsPublicAndAgentReady(t *testing.T) {
 		t.Fatalf("Cache-Control = %q", got)
 	}
 	document := string(body)
-	for _, required := range []string{"session-id", "browser device authorization", "@limecloud/contentcloud@0.8.0", "bootstrap preflight", "bootstrap plan", "bootstrap apply", "bootstrap resume", "plan_id", "--plan-id <plan_id-from-plan-json>", "new Codex chat", "must not upload existing files"} {
+	for _, required := range []string{"session-id", "browser device authorization", "@limecloud/contentcloud@0.9.0", "bootstrap preflight", "bootstrap plan", "bootstrap apply", "bootstrap resume", "plan_id", "--plan-id <plan_id-from-plan-json>", "new Codex chat", "must not upload existing files"} {
 		if !strings.Contains(document, required) {
 			t.Fatalf("bootstrap document is missing %q", required)
 		}
@@ -95,7 +96,10 @@ func TestConnectSessionHTTPStateTracksWorkspaceInitialization(t *testing.T) {
 		t.Fatalf("HTTP state after device connection = %q, want verifying", status.State)
 	}
 
-	callDispatch[domain.WorkspaceBinding](t, client, server.URL, device.WorkspaceToken, "workspace.register", map[string]any{"template_id": "workspace_marketing_video", "template_version": "2.0.0", "targets": []string{"codex"}})
+	registered := callDispatch[domain.WorkspaceBinding](t, client, server.URL, device.WorkspaceToken, "workspace.register", map[string]any{"template_id": "workspace_marketing_video", "template_version": "2.0.0", "targets": []string{"codex-plugin"}})
+	if !reflect.DeepEqual(registered.Targets, []string{"codex"}) {
+		t.Fatalf("workspace.register did not normalize CLI target: %#v", registered.Targets)
+	}
 	status = callBFF[domain.ConnectSession](t, client, http.MethodGet, server.URL+"/api/bff/connect-sessions/"+connect.ID, nil)
 	if status.State != "connected" {
 		t.Fatalf("HTTP state after workspace registration = %q, want connected", status.State)

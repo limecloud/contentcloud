@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
@@ -35,14 +36,26 @@ func (s *Service) RegisterWorkspace(ctx context.Context, actor Actor, binding do
 	if strings.TrimSpace(templateID) == "" || strings.TrimSpace(templateVersion) == "" {
 		return binding, domain.Invalid("WORKSPACE_TEMPLATE_REQUIRED", "template_id 和 template_version 必填")
 	}
+	normalizedTargets := make([]string, 0, len(targets))
+	seenTargets := map[agentadapter.ClientID]struct{}{}
 	for _, target := range targets {
-		if target != "codex" && target != "claude" {
-			return binding, domain.Invalid("WORKSPACE_TARGET_INVALID", "工作区 target 只允许 codex 或 claude")
+		// codex-plugin 是早期 Bootstrap 的分发模式，不是独立客户端。
+		if strings.EqualFold(strings.TrimSpace(target), "codex-plugin") {
+			target = string(agentadapter.ClientCodex)
 		}
+		client, err := agentadapter.RequireCapability(target, agentadapter.CapabilityWorkspaceRegister)
+		if err != nil {
+			return binding, err
+		}
+		if _, exists := seenTargets[client.ID]; exists {
+			continue
+		}
+		seenTargets[client.ID] = struct{}{}
+		normalizedTargets = append(normalizedTargets, string(client.ID))
 	}
 	binding.TemplateID = templateID
 	binding.TemplateVersion = templateVersion
-	binding.Targets = append([]string{}, targets...)
+	binding.Targets = normalizedTargets
 	binding.LastSeenAt = s.now().UTC()
 	if err := s.store.SaveWorkspaceBinding(ctx, binding); err != nil {
 		return binding, err
@@ -58,7 +71,7 @@ func (s *Service) RegisterWorkspace(ctx context.Context, actor Actor, binding do
 		}
 	}
 	binding.CredentialHash = ""
-	s.audit(ctx, actor, binding.ProjectID, "workspace.registered", "workspace_binding", binding.ID, requestID, map[string]any{"template_version": templateVersion, "targets": targets})
+	s.audit(ctx, actor, binding.ProjectID, "workspace.registered", "workspace_binding", binding.ID, requestID, map[string]any{"template_version": templateVersion, "targets": normalizedTargets})
 	return binding, nil
 }
 

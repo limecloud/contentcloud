@@ -3,6 +3,7 @@ package bootstrapcheck_test
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/limecloud/contentcloud/internal/bootstrapcheck"
@@ -14,6 +15,12 @@ type runnerResponse struct {
 }
 
 type fakeRunner map[string]runnerResponse
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
 
 func (r fakeRunner) Run(_ context.Context, name string, _ ...string) (string, error) {
 	response, ok := r[name]
@@ -98,6 +105,40 @@ func TestOfflinePreflightSkipsEveryNetworkCheck(t *testing.T) {
 	if err := bootstrapcheck.ValidateReport(report); err != nil {
 		t.Fatalf("offline report schema is invalid: %v", err)
 	}
+}
+
+func TestOnlinePreflightDoesNotProbeOpenAIDocumentation(t *testing.T) {
+	openAIRequested := false
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host == "developers.openai.com" {
+			openAIRequested = true
+			return nil, errors.New("OpenAI documentation unavailable")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header), Request: request}, nil
+	})}
+	report := bootstrapcheck.Run(t.Context(), bootstrapcheck.Options{
+		Directory:  t.TempDir(),
+		ServerURL:  "https://content.example.com",
+		Platform:   "darwin",
+		Arch:       "arm64",
+		Runner:     healthyRunner(),
+		HTTPClient: client,
+	})
+	if openAIRequested {
+		t.Fatal("preflight used the OpenAI documentation site as a Codex readiness probe")
+	}
+	if !report.OK || report.FirstFailure != nil {
+		t.Fatalf("healthy online report failed: %#v", report.FirstFailure)
+	}
+	for _, check := range report.Checks {
+		if check.CheckID == "network.openai.reachable" {
+			if check.Status != "skipped" || check.ActionID != "guide.network.openai" {
+				t.Fatalf("unexpected OpenAI network check: %#v", check)
+			}
+			return
+		}
+	}
+	t.Fatal("OpenAI network check is missing")
 }
 
 func healthyRunner() fakeRunner {

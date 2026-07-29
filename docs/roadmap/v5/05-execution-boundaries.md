@@ -13,6 +13,20 @@ Codex + 本机 Workspace             ContentCloud 服务端              外部�
 
 本文中的 `Codex` 特指运行在用户机器、绑定本机 Workspace 的 Codex/Plugin Agent，不包括服务端 LLM worker。首版不设置服务端创意生成 worker。
 
+## 1.1 版本与升级边界
+
+ContentCloud 的 CLI、Codex Marketplace/Plugin、Workspace 模板、Environment
+Manifest/Registry 和 Seedance provider profile 都是独立版本事实，不能因为 CLI
+升级就静默替换其他对象。安装器必须先生成确定性的只读计划，再由用户确认同一个
+`plan_id`。
+
+- 同源且版本相同：Plugin plan 为 `noop`，不产生安装副作用。
+- 同源但 ref 或 Plugin 版本较旧：生成显式升级动作；必要时先移除旧 Plugin/Marketplace，再按固定 source/ref 安装新版本，并在失败时局部回滚。
+- 同名异源：保持 `blocked`，由用户人工处理，禁止覆盖未知 Marketplace。
+- 已有 Workspace：使用 `bootstrap plan` 查看 `resume_required` 和 Plugin 升级计划，再用 `bootstrap resume --accept` 复用绑定、刷新签名 Environment、运行 doctor 并重新注册；业务文件不上传、不静默覆盖。
+- 模板或 schema 迁移：与 Plugin 升级分开，必须提供独立、可审计的 Workspace migration；旧的已批准剧本、分镜和 Seedance 交付包保持不可变。
+- Plugin/Skill/路由更新后：结果标记为需要新 Codex 会话；旧会话不假定会热加载新能力。
+
 执行位置按四条规则确定：
 
 1. 需要未披露原始素材、频繁交互或可恢复生成的工作放在 Codex 本机。

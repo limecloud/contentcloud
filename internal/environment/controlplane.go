@@ -48,7 +48,7 @@ func NewControlPlaneWithVerifier(issuer *Issuer, verifier *Verifier, profile Pro
 	if err != nil {
 		return nil, err
 	}
-	if err := verifier.Verify(signedManifest, VerifyOptions{ProjectID: "control-plane-validation", ProfileID: profileCopy.ID, Harness: "codex", Now: validationTime}); err != nil {
+	if err := verifier.Verify(signedManifest, VerifyOptions{ProjectID: "control-plane-validation", ProfileID: profileCopy.ID, Harness: profileCopy.Harness, Now: validationTime}); err != nil {
 		return nil, err
 	}
 	resolver, err := NewResolver(verifier)
