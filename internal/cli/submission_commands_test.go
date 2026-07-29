@@ -174,6 +174,47 @@ func TestPublishPreflightRejectsBriefThatSkippedLocalLint(t *testing.T) {
 	}
 }
 
+func TestStrategyPublishPreflightIncludesApprovedTaxonomyBaseline(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspace")
+	now := time.Now().UTC()
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-1", WorkspaceID: "workspace-1", Target: "none", CLIVersion: "test", Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	taxonomy := domain.AudienceTaxonomySnapshot{
+		ID: "taxonomy-1", Type: "audience_taxonomy_snapshot", SchemaVersion: domain.AudienceTaxonomySchema,
+		Provider: "oceanengine_yuntu", TaxonomyID: "douyin-commerce-eight-audiences", TaxonomyVersion: now.Format("2006-01-02"),
+		Segments: domain.DefaultDouyinAudienceSegments(), SourceURL: "https://school.oceanengine.com/", CapturedAt: now,
+		EffectiveFrom: now, ExpiresAt: now.Add(30 * 24 * time.Hour), VerificationStatus: "human_verified", SourceSHA256: strings.Repeat("a", 64), Status: "review_ready",
+	}
+	canonical, err := json.Marshal(map[string]any{"schema_version": "contentcloud.strategy/3.0", "submission_type": "strategy", "objects": []any{taxonomy}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := domain.ApprovedSnapshot{
+		ID: "taxonomy-snapshot", ProjectID: "project-1", WorkspaceID: "workspace-1", SubmissionType: "strategy", SchemaVersion: "contentcloud.strategy/3.0",
+		CanonicalContent: canonical, EligibleIDs: []string{taxonomy.ID}, CreatedAt: now,
+	}
+	if _, err := localworkspace.StoreApprovedSnapshots(root, []domain.ApprovedSnapshot{snapshot}, now); err != nil {
+		t.Fatal(err)
+	}
+	strategy := domain.AudienceStrategyVersion{
+		ID: "strategy-1", Type: "audience_strategy_version", SchemaVersion: domain.AudienceStrategySchema, ProjectID: "project-1",
+		TaxonomySnapshotID: taxonomy.ID, AudienceCode: taxonomy.Segments[0].Code, AudienceLabel: taxonomy.Segments[0].Label, SegmentDefinition: taxonomy.Segments[0].Definition,
+		Objective: "conversion", DemandMoment: "通勤", InsightStatement: "有证据的洞察", HookHypotheses: []string{"场景钩子"}, Scenario: "通勤",
+		ProofOrder: []string{"规格"}, Objections: []string{"体积"}, CTAStrategy: "查看详情", EvidenceRefs: []string{"evidence-1"}, Confidence: "medium",
+		TestType: "audience_expression_fit_test", PrimaryVariable: "audience", ControlledVariables: []string{"cta"}, TargetMetrics: []string{"ctr"}, Constraints: []string{}, Status: "review_ready",
+	}
+	strategyPath := filepath.Join(root, "50-production", "strategies", "strategy-1.json")
+	writeJSONFixture(t, strategyPath, strategy)
+	bundle, preflight, err := buildPublishCheckpoint(publishBuildOptions{Root: root, SubmissionType: "strategy", Files: []string{strategyPath}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.BaseSnapshotIDs) != 1 || bundle.BaseSnapshotIDs[0] != snapshot.ID || len(preflight.BaseSnapshotIDs) != 1 || preflight.BaseSnapshotIDs[0] != snapshot.ID {
+		t.Fatalf("strategy preflight omitted taxonomy baseline: bundle=%v preflight=%v", bundle.BaseSnapshotIDs, preflight.BaseSnapshotIDs)
+	}
+}
+
 func TestPublishReadersRejectSymlinksOutsideWorkspace(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "workspace")
 	if err := os.MkdirAll(root, 0o700); err != nil {

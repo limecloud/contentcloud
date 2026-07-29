@@ -128,6 +128,11 @@ func ShowApprovedSnapshot(root, snapshotID string) (ApprovedSnapshotCacheRecord,
 	return loadApprovedSnapshot(resolved, snapshotID)
 }
 
+func ApprovedSnapshotForObject(root, submissionType, objectID string) (domain.ApprovedSnapshot, error) {
+	_, snapshot, err := latestApprovedObject(root, submissionType, objectID)
+	return snapshot, err
+}
+
 func loadApprovedSnapshot(root, snapshotID string) (ApprovedSnapshotCacheRecord, error) {
 	path := approvedSnapshotPath(root, snapshotID)
 	body, err := os.ReadFile(path)
@@ -267,12 +272,7 @@ func safePulledBundleID(value string) bool {
 }
 
 func approvedSubmissionType(value string) bool {
-	switch value {
-	case "context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result":
-		return true
-	default:
-		return false
-	}
+	return domain.ValidSubmissionType(value)
 }
 
 func normalizeApprovedHash(value string) string {

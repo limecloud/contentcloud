@@ -59,7 +59,7 @@ func TestBrowserBootstrapReturnsProjectBoundSignedEnvironmentManifest(t *testing
 func appEnvironmentProfile() environment.Profile {
 	return environment.Profile{
 		ID: "contentcloud.video-production", Version: "1.0.0", EnvironmentVersion: "2026.7.1", Harness: "codex", Marketplace: "contentcloud",
-		Plugins:           []environment.ProfilePlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.7.0", Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}}},
+		Plugins:           []environment.ProfilePlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.8.0", Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}}},
 		WorkspaceTemplate: environment.WorkspaceTemplateRef{ID: "workspace_marketing_video", Version: "2.2.0", Digest: "sha256:" + strings.Repeat("c", 64)},
 		Capabilities:      []string{domain.KnowledgeExtractCapability}, Policies: environment.Policies{PublishRequiresConfirmation: true},
 	}
@@ -67,8 +67,8 @@ func appEnvironmentProfile() environment.Profile {
 
 func appEnvironmentRegistry() environment.Registry {
 	return environment.Registry{SchemaVersion: "1.0", Entries: []environment.RegistryEntry{{
-		ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.7.0",
-		Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v0.7.0"}, License: "Apache-2.0", Digest: "sha256:" + strings.Repeat("a", 64),
+		ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.8.0",
+		Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v0.8.0"}, License: "Apache-2.0", Digest: "sha256:" + strings.Repeat("a", 64),
 		Signature: environment.RegistrySignature{Status: "pending"}, CompatibleProfiles: []string{"contentcloud.video-production"}, Permissions: []string{"workspace:read"},
 		DataFlow: environment.RegistryDataFlow{LocalByDefault: true, CloudActions: []string{}}, OutputSchemas: []string{"contracts/content-item-3.0.schema.json"},
 		Cost:       environment.RegistryCost{Model: "included", Notice: "Included in tests."},

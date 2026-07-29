@@ -12,7 +12,7 @@ import (
 
 func (r *Root) localCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "local", Short: "Run client-first source, knowledge, and LocalRun workflows"}
-	cmd.AddCommand(r.localSourceCommand(), r.localRunCommand(), r.localHandoffCommand(), r.localKnowledgeCommand(), r.localBriefCommand(), r.localContentCommand())
+	cmd.AddCommand(r.localSourceCommand(), r.localRunCommand(), r.localHandoffCommand(), r.localKnowledgeCommand(), r.localAudienceCommand(), r.localOfferCommand(), r.localBriefCommand(), r.localContentCommand(), r.localStoryboardCommand(), r.localSeedanceCommand())
 	return cmd
 }
 

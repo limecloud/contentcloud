@@ -1,7 +1,7 @@
 {
   "name": "contentcloud-video-production",
-  "version": "0.7.0",
-  "description": "Governed V3 workspace, knowledge, content, handoff, and review workflows for ContentCloud.",
+  "version": "0.8.0",
+  "description": "Governed ContentCloud workflows for evidence, marketing scripts, Douyin audiences, storyboards, Seedance delivery, review, and results.",
   "author": {
     "name": "GoodVision",
     "url": "https://github.com/limecloud/contentcloud"
@@ -26,6 +26,9 @@
       "V3 workspace routing",
       "Markdown knowledge",
       "Governed content batches",
+      "Douyin audience strategy",
+      "Local storyboard production",
+      "Seedance prompt export",
       "Cross-conversation handoff",
       "Review and delivery"
     ],

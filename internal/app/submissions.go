@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
 )
@@ -68,19 +69,20 @@ func (s *Service) CreateSubmission(ctx context.Context, actor Actor, binding dom
 	if err := bundle.Validate(); err != nil {
 		return domain.SubmissionRevision{}, err
 	}
+	now := s.now().UTC()
+	if err := validateGovernedSubmissionObjects(bundle.SubmissionType, bundle.ProjectID, bundle.BaseSnapshotIDs, bundle.Objects, now); err != nil {
+		return domain.SubmissionRevision{}, err
+	}
 	if _, err := s.store.Project(ctx, binding.TenantID, binding.ProjectID); err != nil {
 		return domain.SubmissionRevision{}, err
 	}
-	for _, snapshotID := range bundle.BaseSnapshotIDs {
-		snapshot, err := s.store.ApprovedSnapshot(ctx, binding.TenantID, snapshotID)
-		if err != nil {
-			return domain.SubmissionRevision{}, err
-		}
-		if snapshot.ProjectID != binding.ProjectID {
-			return domain.SubmissionRevision{}, domain.Conflict("BASE_SNAPSHOT_MISMATCH", "批准基线不属于当前项目")
-		}
+	baseSnapshots, err := s.loadSubmissionBaseSnapshots(ctx, binding.TenantID, binding.ProjectID, bundle.BaseSnapshotIDs)
+	if err != nil {
+		return domain.SubmissionRevision{}, err
 	}
-	now := s.now().UTC()
+	if err := validateGovernedBaseSnapshotTypes(bundle.SubmissionType, bundle.Objects, baseSnapshots, now); err != nil {
+		return domain.SubmissionRevision{}, err
+	}
 	submission, err := s.store.SubmissionByWorkspaceType(ctx, binding.TenantID, binding.ProjectID, binding.ID, bundle.SubmissionType)
 	if err != nil && !isNotFound(err) {
 		return domain.SubmissionRevision{}, err
@@ -225,10 +227,20 @@ func (s *Service) ApproveSubmission(ctx context.Context, actor Actor, revisionID
 	if revision.EvidenceLimited {
 		return SubmissionApprovalResult{}, domain.Policy("EVIDENCE_LEVEL_INSUFFICIENT", "高风险内容的来源披露不足，不能远程批准", "上传 evidence_pack/full_source，或完成受治理的本地核验")
 	}
+	now := s.now().UTC()
+	if err := validateGovernedSubmissionObjects(submission.SubmissionType, revision.ProjectID, revision.BaseSnapshotIDs, revision.Objects, now); err != nil {
+		return SubmissionApprovalResult{}, err
+	}
+	baseSnapshots, err := s.loadSubmissionBaseSnapshots(ctx, actor.TenantID, revision.ProjectID, revision.BaseSnapshotIDs)
+	if err != nil {
+		return SubmissionApprovalResult{}, err
+	}
+	if err := validateGovernedBaseSnapshotTypes(submission.SubmissionType, revision.Objects, baseSnapshots, now); err != nil {
+		return SubmissionApprovalResult{}, err
+	}
 	if err := s.requireResolvedComments(ctx, actor.TenantID, revision.ID, ""); err != nil {
 		return SubmissionApprovalResult{}, err
 	}
-	now := s.now().UTC()
 	resultingState := "approved"
 	if submission.SubmissionType == "content_batch" {
 		resultingState = "internally_approved"
@@ -329,6 +341,182 @@ func cloneSubmissionObjects(values []domain.SubmissionObjectRef) []domain.Submis
 		cloned[index].Content = append(json.RawMessage(nil), values[index].Content...)
 	}
 	return cloned
+}
+
+func validateGovernedSubmissionObjects(submissionType, projectID string, baseSnapshotIDs []string, objects []domain.SubmissionObjectRef, now time.Time) error {
+	if submissionType == "storyboard" && len(objects) != 1 {
+		return domain.Invalid("STORYBOARD_SUBMISSION_CARDINALITY_INVALID", "storyboard SubmissionRevision 必须且只能包含一个 StoryboardPackage")
+	}
+	for _, object := range objects {
+		if submissionType == "strategy" || submissionType == "offer" || submissionType == "storyboard" {
+			var identity struct {
+				ID   string `json:"id"`
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(object.Content, &identity); err != nil || identity.ID != object.ID || identity.Type != object.Type {
+				return domain.Invalid("SUBMISSION_OBJECT_IDENTITY_MISMATCH", "V5 object ref 的 id/type 必须与结构化正文一致")
+			}
+		}
+		switch submissionType {
+		case "strategy":
+			switch object.Type {
+			case "audience_taxonomy_snapshot":
+				var value domain.AudienceTaxonomySnapshot
+				if err := json.Unmarshal(object.Content, &value); err != nil {
+					return domain.Invalid("AUDIENCE_TAXONOMY_JSON_INVALID", "人群目录不是有效 JSON")
+				}
+				if err := value.Validate(now, true); err != nil {
+					return err
+				}
+			case "audience_strategy_version":
+				var value domain.AudienceStrategyVersion
+				if err := json.Unmarshal(object.Content, &value); err != nil {
+					return domain.Invalid("AUDIENCE_STRATEGY_JSON_INVALID", "人群策略不是有效 JSON")
+				}
+				if value.ProjectID != projectID {
+					return domain.Conflict("AUDIENCE_STRATEGY_PROJECT_MISMATCH", "人群策略不属于当前项目")
+				}
+				if err := value.Validate(true); err != nil {
+					return err
+				}
+			default:
+				return domain.Invalid("STRATEGY_OBJECT_TYPE_INVALID", "strategy 只接受 AudienceTaxonomySnapshot 或 AudienceStrategyVersion")
+			}
+		case "offer":
+			if object.Type != "commerce_offer_snapshot" {
+				return domain.Invalid("OFFER_OBJECT_TYPE_INVALID", "offer 只接受 CommerceOfferSnapshot")
+			}
+			var value domain.CommerceOfferSnapshot
+			if err := json.Unmarshal(object.Content, &value); err != nil {
+				return domain.Invalid("COMMERCE_OFFER_JSON_INVALID", "Offer 不是有效 JSON")
+			}
+			if value.ProjectID != projectID {
+				return domain.Conflict("COMMERCE_OFFER_PROJECT_MISMATCH", "Offer 不属于当前项目")
+			}
+			if err := value.Validate(now, true); err != nil {
+				return err
+			}
+		case "storyboard":
+			if object.Type != "storyboard_package" {
+				return domain.Invalid("STORYBOARD_OBJECT_TYPE_INVALID", "storyboard 只接受 StoryboardPackage")
+			}
+			var value domain.StoryboardPackage
+			if err := json.Unmarshal(object.Content, &value); err != nil {
+				return domain.Invalid("STORYBOARD_JSON_INVALID", "StoryboardPackage 不是有效 JSON")
+			}
+			if value.ProjectID != projectID {
+				return domain.Conflict("STORYBOARD_PROJECT_MISMATCH", "StoryboardPackage 不属于当前项目")
+			}
+			if !containsSubmissionString(baseSnapshotIDs, value.ApprovedSnapshotID) {
+				return domain.Invalid("STORYBOARD_BASE_SNAPSHOT_REQUIRED", "StoryboardPackage approved_snapshot_id 必须出现在 SubmissionRevision base_snapshot_ids 中")
+			}
+			if err := value.Validate(true); err != nil {
+				return err
+			}
+			lockedDigest, err := value.ComputedLockedDigest()
+			if err != nil {
+				return err
+			}
+			if lockedDigest != value.LockedDigest {
+				return domain.Conflict("STORYBOARD_LOCKED_DIGEST_MISMATCH", "StoryboardPackage locked_digest 与服务端复算结果不一致")
+			}
+		}
+	}
+	return nil
+}
+
+func validateGovernedBaseSnapshotTypes(submissionType string, objects []domain.SubmissionObjectRef, baseSnapshots map[string]domain.ApprovedSnapshot, now time.Time) error {
+	for _, object := range objects {
+		switch submissionType {
+		case "strategy":
+			if object.Type != "audience_strategy_version" {
+				continue
+			}
+			var strategy domain.AudienceStrategyVersion
+			if err := json.Unmarshal(object.Content, &strategy); err != nil {
+				return domain.Invalid("AUDIENCE_STRATEGY_JSON_INVALID", "AudienceStrategyVersion 不是有效 JSON")
+			}
+			taxonomy, found, err := audienceTaxonomyFromBaseSnapshots(strategy.TaxonomySnapshotID, baseSnapshots)
+			if err != nil {
+				return err
+			}
+			if !found {
+				return domain.Conflict("AUDIENCE_TAXONOMY_BASE_SNAPSHOT_INVALID", "AudienceStrategyVersion 必须引用当前项目已批准的 taxonomy 基线")
+			}
+			if err := strategy.ValidateAgainstTaxonomy(taxonomy, now); err != nil {
+				return err
+			}
+		case "storyboard":
+			var value domain.StoryboardPackage
+			if err := json.Unmarshal(object.Content, &value); err != nil {
+				return domain.Invalid("STORYBOARD_JSON_INVALID", "StoryboardPackage 不是有效 JSON")
+			}
+			snapshot, ok := baseSnapshots[value.ApprovedSnapshotID]
+			if !ok || snapshot.SubmissionType != "content_batch" {
+				return domain.Conflict("STORYBOARD_CONTENT_SNAPSHOT_INVALID", "StoryboardPackage 必须引用当前项目的 content_batch ApprovedSnapshot")
+			}
+			raw, err := approvedSnapshotObject(snapshot, value.ContentItemID)
+			if err != nil {
+				if domain.IsNotFound(err) {
+					return domain.Conflict("STORYBOARD_CONTENT_ITEM_BASE_INVALID", "StoryboardPackage content_item_id 不在所引用 ApprovedSnapshot 的 eligible objects 中")
+				}
+				return err
+			}
+			hash, err := domain.CanonicalHash(json.RawMessage(raw))
+			if err != nil {
+				return err
+			}
+			if value.SourceDigest != "sha256:"+hash {
+				return domain.Conflict("STORYBOARD_SOURCE_DIGEST_MISMATCH", "StoryboardPackage source_digest 与批准 ContentItem 不一致")
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Service) loadSubmissionBaseSnapshots(ctx context.Context, tenantID, projectID string, snapshotIDs []string) (map[string]domain.ApprovedSnapshot, error) {
+	values := make(map[string]domain.ApprovedSnapshot, len(snapshotIDs))
+	for _, snapshotID := range snapshotIDs {
+		snapshot, err := s.store.ApprovedSnapshot(ctx, tenantID, snapshotID)
+		if err != nil {
+			return nil, err
+		}
+		if snapshot.ProjectID != projectID {
+			return nil, domain.Conflict("BASE_SNAPSHOT_MISMATCH", "批准基线不属于当前项目")
+		}
+		values[snapshot.ID] = snapshot
+	}
+	return values, nil
+}
+
+func audienceTaxonomyFromBaseSnapshots(objectID string, snapshots map[string]domain.ApprovedSnapshot) (domain.AudienceTaxonomySnapshot, bool, error) {
+	for _, snapshot := range snapshots {
+		if snapshot.SubmissionType != "strategy" || !containsSubmissionString(snapshot.EligibleIDs, objectID) {
+			continue
+		}
+		raw, err := approvedSnapshotObject(snapshot, objectID)
+		if err != nil {
+			if domain.IsNotFound(err) {
+				return domain.AudienceTaxonomySnapshot{}, false, domain.Conflict("AUDIENCE_TAXONOMY_BASE_SNAPSHOT_INVALID", "taxonomy ApprovedSnapshot eligible_ids 与 canonical objects 不一致")
+			}
+			return domain.AudienceTaxonomySnapshot{}, false, err
+		}
+		var taxonomy domain.AudienceTaxonomySnapshot
+		if err := json.Unmarshal(raw, &taxonomy); err != nil || taxonomy.Type != "audience_taxonomy_snapshot" {
+			return domain.AudienceTaxonomySnapshot{}, false, domain.Conflict("AUDIENCE_TAXONOMY_BASE_SNAPSHOT_INVALID", "taxonomy_snapshot_id 未引用有效 AudienceTaxonomySnapshot")
+		}
+		return taxonomy, true, nil
+	}
+	return domain.AudienceTaxonomySnapshot{}, false, nil
+}
+
+func containsSubmissionString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) ApprovedSnapshots(ctx context.Context, actor Actor, projectID, submissionType string) ([]domain.ApprovedSnapshot, error) {

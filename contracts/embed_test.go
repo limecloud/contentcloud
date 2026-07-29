@@ -27,6 +27,12 @@ func TestEmbeddedSchemasAreValidJSON(t *testing.T) {
 		"environment-preparation-plan-1.0":  EnvironmentPreparationPlanSchema,
 		"local-execution-plan-1.0":          LocalExecutionPlanSchema,
 		"creative-execution-bundle-1.0":     CreativeExecutionBundleSchema,
+		"audience-taxonomy-1.0":             AudienceTaxonomyV1Schema,
+		"audience-strategy-1.0":             AudienceStrategyV1Schema,
+		"commerce-offer-1.0":                CommerceOfferV1Schema,
+		"storyboard-package-1.0":            StoryboardPackageV1Schema,
+		"seedance-prompt-package-1.0":       SeedancePromptPackageV1Schema,
+		"published-creative-binding-1.0":    PublishedCreativeBindingV1Schema,
 	} {
 		var schema map[string]any
 		if len(body) == 0 || json.Unmarshal(body, &schema) != nil || schema["$id"] == "" {

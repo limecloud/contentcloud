@@ -9,8 +9,8 @@ import (
 )
 
 func TestBuiltinsUseDeterministicSHA256Digests(t *testing.T) {
-	first := capabilitycatalog.Builtins("0.7.0")
-	second := capabilitycatalog.Builtins("0.7.0")
+	first := capabilitycatalog.Builtins("0.8.0")
+	second := capabilitycatalog.Builtins("0.8.0")
 	if len(first) != 1 || len(second) != len(first) {
 		t.Fatalf("builtin capabilities = %#v", first)
 	}
@@ -27,13 +27,13 @@ func TestBuiltinsUseDeterministicSHA256Digests(t *testing.T) {
 }
 
 func TestDigestCanonicalizesPresentationProfiles(t *testing.T) {
-	capability, ok := capabilitycatalog.Exact(domain.KnowledgeExtractCapability, "0.7.0")
+	capability, ok := capabilitycatalog.Exact(domain.KnowledgeExtractCapability, "0.8.0")
 	if !ok {
 		t.Fatal("knowledge capability missing")
 	}
 	reversed := capability
 	reversed.PresentationProfiles = []string{"cloud_native"}
-	if capabilitycatalog.Digest(capability, "0.7.0") != capabilitycatalog.Digest(reversed, "0.7.0") {
+	if capabilitycatalog.Digest(capability, "0.8.0") != capabilitycatalog.Digest(reversed, "0.8.0") {
 		t.Fatal("presentation profile order changed the canonical digest")
 	}
 }

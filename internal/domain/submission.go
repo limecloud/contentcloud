@@ -100,6 +100,19 @@ func SubmissionSchemaVersion(submissionType string) string {
 	return "contentcloud." + submissionType + "/3.0"
 }
 
+func SubmissionTypes() []string {
+	return []string{"context", "knowledge", "strategy", "offer", "brief", "content_batch", "asset_batch", "storyboard", "delivery", "result"}
+}
+
+func ValidSubmissionType(value string) bool {
+	for _, candidate := range SubmissionTypes() {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 type SubmissionBundle struct {
 	BundleVersion     string                `json:"bundle_version"`
 	SubmissionType    string                `json:"submission_type"`
@@ -174,11 +187,10 @@ type DecisionDelta struct {
 }
 
 func (b SubmissionBundle) Validate() error {
-	allowedTypes := map[string]bool{"context": true, "knowledge": true, "brief": true, "content_batch": true, "asset_batch": true, "delivery": true, "result": true}
 	if b.BundleVersion != "3.0" {
 		return Invalid("SUBMISSION_BUNDLE_VERSION_INVALID", "bundle_version 必须为 3.0")
 	}
-	if !allowedTypes[b.SubmissionType] {
+	if !ValidSubmissionType(b.SubmissionType) {
 		return Invalid("SUBMISSION_TYPE_INVALID", "submission_type 不受支持")
 	}
 	if strings.TrimSpace(b.ProjectID) == "" || strings.TrimSpace(b.WorkspaceID) == "" {

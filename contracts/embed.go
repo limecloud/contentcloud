@@ -64,3 +64,21 @@ var EnvironmentTrustedKeysSchema []byte
 
 //go:embed environment-preparation-plan-1.0.schema.json
 var EnvironmentPreparationPlanSchema []byte
+
+//go:embed audience-taxonomy-1.0.schema.json
+var AudienceTaxonomyV1Schema []byte
+
+//go:embed audience-strategy-1.0.schema.json
+var AudienceStrategyV1Schema []byte
+
+//go:embed commerce-offer-1.0.schema.json
+var CommerceOfferV1Schema []byte
+
+//go:embed storyboard-package-1.0.schema.json
+var StoryboardPackageV1Schema []byte
+
+//go:embed seedance-prompt-package-1.0.schema.json
+var SeedancePromptPackageV1Schema []byte
+
+//go:embed published-creative-binding-1.0.schema.json
+var PublishedCreativeBindingV1Schema []byte

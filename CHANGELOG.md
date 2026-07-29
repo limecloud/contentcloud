@@ -2,6 +2,24 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.8.0] - 2026-07-29
+
+### Added
+
+- 增加 V5 抖音电商人群目录、人群策略、商品权益、分镜包、Seedance 提示词包和已发布创意绑定契约，明确本机候选、服务端批准与外部平台人工操作的执行边界。
+- 增加人群单选、2 至 3 类对比和八类探索的本地生成与 lint，以及基于已拉取 ApprovedSnapshot 的分镜准备和确定性 Seedance 导出命令。
+- 增加抖音人群策略、分镜生产和 Seedance 导出三个 Plugin Skill，并为 V5 本地纵向切片增加独立确定性评测场景。
+
+### Changed
+
+- Submission 与 ApprovedSnapshot 扩展支持 `strategy`、`offer` 和 `storyboard`，服务端在 publish 与批准阶段复核 taxonomy 有效期、ApprovedSnapshot 血缘和分镜锁定摘要。
+- CLI、Web、npm 安装器、Plugin、MCP、Environment Profile 和 bootstrap 固定版本统一升级到 `0.8.0`，Plugin 发布门改为校验明确的六 Skill 清单。
+- V5 当前按受治理的本地纵向切片发布；Web 审核交互、媒体生成能力、PublishedCreativeBinding 结果归因和真实 Seedance/抖音 E2E 仍保留为后续发布门，不宣称完整生产闭环已验收。
+
+### Fixed
+
+- 修复 bootstrap 测试夹具依赖历史绝对时间、会在日期推进后因测试会话过期而失败的问题。
+
 ## [0.7.0] - 2026-07-27
 
 ### Added

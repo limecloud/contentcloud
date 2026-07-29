@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.goodvision.cn/schemas/commerce-offer-1.0.schema.json",
+  "title": "ContentCloud CommerceOfferSnapshot 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "type", "schema_version", "project_id", "sku_id", "product_version_id", "approved_claim_refs", "display_price", "currency", "benefits", "conditions", "evidence_refs", "captured_at", "valid_from", "valid_until", "status"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "type": {"const": "commerce_offer_snapshot"},
+    "schema_version": {"const": "contentcloud.commerce-offer/1.0"},
+    "project_id": {"type": "string", "minLength": 1},
+    "sku_id": {"type": "string", "minLength": 1},
+    "product_version_id": {"type": "string", "minLength": 1},
+    "approved_claim_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "display_price": {"type": "string", "minLength": 1},
+    "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+    "benefits": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "conditions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "evidence_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "captured_at": {"type": "string", "format": "date-time"},
+    "valid_from": {"type": "string", "format": "date-time"},
+    "valid_until": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["candidate", "verified", "expired", "revoked"]}
+  }
+}

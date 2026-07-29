@@ -22,6 +22,8 @@ import (
 
 type publishPreflight struct {
 	PlanID             string         `json:"plan_id"`
+	PreflightPlane     string         `json:"preflight_execution_plane"`
+	ApplyPlane         string         `json:"apply_execution_plane"`
 	SubmissionType     string         `json:"submission_type"`
 	SchemaVersion      string         `json:"schema_version"`
 	Files              []string       `json:"files"`
@@ -51,7 +53,7 @@ type publishBuildOptions struct {
 
 func (r *Root) publishCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "publish", Short: "Publish an immutable local checkpoint for cloud review"}
-	for _, submissionType := range []string{"context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"} {
+	for _, submissionType := range domain.SubmissionTypes() {
 		typeName := submissionType
 		var files []string
 		var disclosuresFile, message, idempotencyKey, planID string
@@ -119,6 +121,11 @@ func buildPublishCheckpoint(options publishBuildOptions) (domain.SubmissionBundl
 	if status.Sync.ApprovedSnapshotID != "" {
 		baseSnapshotIDs = append(baseSnapshotIDs, status.Sync.ApprovedSnapshotID)
 	}
+	derivedBaseSnapshotIDs, err := requiredSubmissionBaseSnapshotIDs(options.Root, options.SubmissionType, objects)
+	if err != nil {
+		return domain.SubmissionBundle{}, publishPreflight{}, err
+	}
+	baseSnapshotIDs = uniqueSortedCLIStrings(append(baseSnapshotIDs, derivedBaseSnapshotIDs...))
 	bundle := domain.SubmissionBundle{
 		BundleVersion: "3.0", SubmissionType: options.SubmissionType, ProjectID: status.Binding.ProjectID, WorkspaceID: status.Binding.WorkspaceID, BaseSnapshotIDs: baseSnapshotIDs,
 		LocalRunSummary: domain.LocalRunSummary{Stage: "publish_preflight", Checks: publishChecks(options.SubmissionType), InputHash: inputHash, OutputHash: inputHash, Versions: map[string]string{"cli": Version, "template": status.Template.TemplateVersion, "environment": environmentDigest}},
@@ -138,6 +145,7 @@ func buildPublishCheckpoint(options publishBuildOptions) (domain.SubmissionBundl
 		counts[disclosure.Level]++
 	}
 	preflight := publishPreflight{
+		PreflightPlane: codexLocalExecutionPlane, ApplyPlane: "contentcloud_server",
 		SubmissionType: options.SubmissionType, SchemaVersion: domain.SubmissionSchemaVersion(options.SubmissionType), Files: relativePaths(options.Root, resolvedFiles), ObjectCount: len(objects), BlockedCount: blocked,
 		DisclosureCount: counts, UploadBytes: fileBytes + disclosureBytes, ContentHash: bundle.ContentHash, IdempotencyKey: bundle.IdempotencyKey, EnvironmentHash: environmentDigest, WorkspaceStateHash: "sha256:" + workspaceStateHash, BaseSnapshotIDs: append([]string(nil), bundle.BaseSnapshotIDs...),
 		ReviewVisible: []string{"objects", "local_run_summary", "source_disclosures", "artifact_manifest"}, ExternalEffects: []string{"create an immutable SubmissionRevision", "make structured objects and declared source disclosures visible to ContentCloud reviewers"}, RawFilesUpload: false, RequiresConfirm: true,
@@ -382,11 +390,28 @@ func resolvePublishFiles(root, submissionType string, explicit []string) ([]stri
 	if submissionType == "content_batch" {
 		return discoverContentBatchPublishFiles(root)
 	}
+	if submissionType == "storyboard" {
+		values, err := filepath.Glob(filepath.Join(root, "50-production", "media", "storyboards", "*", "manifest.json"))
+		if err != nil {
+			return nil, err
+		}
+		sort.Strings(values)
+		if len(values) == 0 {
+			return nil, domain.Invalid("PUBLISH_FILE_REQUIRED", "没有找到可发布 StoryboardPackage manifest；使用 --file 明确指定 manifest.json")
+		}
+		if len(values) > 1 {
+			return nil, domain.Invalid("PUBLISH_FILE_AMBIGUOUS", "发现多个 StoryboardPackage manifest；使用 --file 明确指定本次审核的 manifest.json")
+		}
+		return values, nil
+	}
 	directory := map[string]string{
 		"context":     "10-context/submissions",
 		"knowledge":   "30-knowledge/packs",
+		"strategy":    "50-production/strategies",
+		"offer":       "50-production/offers",
 		"brief":       "50-production/briefs",
 		"asset_batch": "50-production/assets",
+		"storyboard":  "50-production/media/storyboards",
 		"delivery":    "60-delivery/packages",
 		"result":      "70-results/submissions",
 	}[submissionType]
@@ -444,6 +469,48 @@ func contentBatchPublishFiles(root, manifest string) ([]string, error) {
 
 func validatePublishDomainFiles(root, submissionType string, files []string) error {
 	switch submissionType {
+	case "strategy":
+		for _, file := range files {
+			body, err := os.ReadFile(file)
+			if err != nil {
+				return err
+			}
+			var identity struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(body, &identity); err != nil {
+				return domain.Invalid("STRATEGY_JSON_INVALID", "strategy 发布文件不是有效 JSON："+file)
+			}
+			var report localworkspace.V5LintReport
+			switch identity.Type {
+			case "audience_taxonomy_snapshot":
+				report, _, err = localworkspace.LintAudienceTaxonomy(root, file, time.Now())
+			case "audience_strategy_version":
+				report, _, err = localworkspace.LintAudienceStrategy(root, file, time.Now())
+			default:
+				return domain.Invalid("STRATEGY_OBJECT_TYPE_INVALID", "strategy 只接受 AudienceTaxonomySnapshot 或 AudienceStrategyVersion："+file)
+			}
+			if err != nil {
+				return err
+			}
+			if !report.Valid {
+				lintErr := domain.Invalid("STRATEGY_LINT_FAILED", "strategy 发布前校验失败："+report.File)
+				lintErr.Details = report
+				return lintErr
+			}
+		}
+	case "offer":
+		for _, file := range files {
+			report, _, err := localworkspace.LintCommerceOffer(root, file, time.Now())
+			if err != nil {
+				return err
+			}
+			if !report.Valid {
+				lintErr := domain.Invalid("COMMERCE_OFFER_LINT_FAILED", "Offer 发布前校验失败："+report.File)
+				lintErr.Details = report
+				return lintErr
+			}
+		}
 	case "brief":
 		for _, file := range files {
 			report, _, err := localworkspace.LintBrief(root, file)
@@ -468,8 +535,68 @@ func validatePublishDomainFiles(root, submissionType string, files []string) err
 				return lintErr
 			}
 		}
+	case "storyboard":
+		for _, file := range files {
+			report, _, err := localworkspace.LintStoryboardPackage(root, file)
+			if err != nil {
+				return err
+			}
+			if !report.Valid {
+				lintErr := domain.Invalid("STORYBOARD_LINT_FAILED", "StoryboardPackage 发布前校验失败："+report.File)
+				lintErr.Details = report
+				return lintErr
+			}
+		}
 	}
 	return nil
+}
+
+func requiredSubmissionBaseSnapshotIDs(root, submissionType string, objects []domain.SubmissionObjectRef) ([]string, error) {
+	values := []string{}
+	for _, object := range objects {
+		switch submissionType {
+		case "strategy":
+			if object.Type != "audience_strategy_version" {
+				continue
+			}
+			var strategy domain.AudienceStrategyVersion
+			if err := json.Unmarshal(object.Content, &strategy); err != nil {
+				return nil, domain.Invalid("AUDIENCE_STRATEGY_JSON_INVALID", "AudienceStrategyVersion 不是有效 JSON")
+			}
+			snapshot, err := localworkspace.ApprovedSnapshotForObject(root, "strategy", strategy.TaxonomySnapshotID)
+			if err != nil {
+				if domain.IsNotFound(err) {
+					return nil, domain.Policy("AUDIENCE_TAXONOMY_BASE_SNAPSHOT_REQUIRED", "AudienceStrategyVersion 必须引用本机已 pull 的 taxonomy ApprovedSnapshot", "先执行 contentcloud pull approved --type strategy")
+				}
+				return nil, err
+			}
+			values = append(values, snapshot.ID)
+		case "storyboard":
+			var storyboard domain.StoryboardPackage
+			if err := json.Unmarshal(object.Content, &storyboard); err != nil {
+				return nil, domain.Invalid("STORYBOARD_JSON_INVALID", "StoryboardPackage 不是有效 JSON")
+			}
+			if strings.TrimSpace(storyboard.ApprovedSnapshotID) == "" {
+				return nil, domain.Invalid("STORYBOARD_BASE_SNAPSHOT_REQUIRED", "StoryboardPackage 缺少 approved_snapshot_id")
+			}
+			values = append(values, storyboard.ApprovedSnapshotID)
+		}
+	}
+	return uniqueSortedCLIStrings(values), nil
+}
+
+func uniqueSortedCLIStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func publishChecks(submissionType string) []domain.LocalRunCheck {
@@ -478,6 +605,8 @@ func publishChecks(submissionType string) []domain.LocalRunCheck {
 		checks[1].Name = "content-batch-lint"
 	} else if submissionType == "brief" {
 		checks[1].Name = "brief-lint"
+	} else if submissionType == "strategy" || submissionType == "offer" || submissionType == "storyboard" {
+		checks[1].Name = submissionType + "-lint"
 	}
 	return checks
 }
@@ -580,6 +709,18 @@ func validatePublishObject(submissionType string, body json.RawMessage) (bool, e
 			if !ok || len(reasons) == 0 {
 				return false, fmt.Errorf("blocked content item 需要 blocked_reasons")
 			}
+		}
+	case "strategy":
+		if objectType := stringField(object, "type"); objectType != "audience_taxonomy_snapshot" && objectType != "audience_strategy_version" {
+			return false, fmt.Errorf("strategy type 必须是 audience_taxonomy_snapshot 或 audience_strategy_version")
+		}
+	case "offer":
+		if stringField(object, "type") != "commerce_offer_snapshot" {
+			return false, fmt.Errorf("offer type 必须是 commerce_offer_snapshot")
+		}
+	case "storyboard":
+		if stringField(object, "type") != "storyboard_package" || stringField(object, "status") != "review_ready" {
+			return false, fmt.Errorf("storyboard 必须是 review_ready StoryboardPackage")
 		}
 	}
 	deliverability := stringField(object, "deliverability")

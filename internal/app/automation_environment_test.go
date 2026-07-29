@@ -100,7 +100,7 @@ func automationProfile() environment.Profile {
 	return environment.Profile{
 		ID: "contentcloud.video-production", Version: "1.0.0", EnvironmentVersion: "2026.7.1", Harness: "codex", Marketplace: "contentcloud",
 		Plugins: []environment.ProfilePlugin{
-			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.7.0", Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}},
+			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.8.0", Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}},
 			{ID: "contentcloud-evidence-reasoning", Kind: "skill_pack", Version: "1.0.0", Scope: "task", Capabilities: []string{domain.KnowledgeExtractCapability}},
 		},
 		WorkspaceTemplate: environment.WorkspaceTemplateRef{ID: "workspace_marketing_video", Version: "2.2.0", Digest: "sha256:" + strings.Repeat("c", 64)},
@@ -114,7 +114,7 @@ func automationVerifiedRegistry(t *testing.T) environment.VerifiedRegistry {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	must(t, err)
 	registry := environment.Registry{SchemaVersion: "1.0", Entries: []environment.RegistryEntry{
-		automationRegistryEntry("contentcloud-video-production", "scene_plugin", "0.7.0", "v0.7.0", "a"),
+		automationRegistryEntry("contentcloud-video-production", "scene_plugin", "0.8.0", "v0.8.0", "a"),
 		automationRegistryEntry("contentcloud-evidence-reasoning", "skill_pack", "1.0.0", "v1.0.0", "b"),
 	}}
 	for index := range registry.Entries {
