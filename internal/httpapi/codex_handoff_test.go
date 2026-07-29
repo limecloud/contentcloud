@@ -66,7 +66,7 @@ func TestProjectCodexHandoffRequiresBoundWorkspaceAndOmitsPrivateData(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	connected, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, app.ConnectDeviceInput{Hostname: "PRIVATE_HOST", Platform: "darwin", Arch: "arm64", Version: "0.7.0"})
+	connected, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, app.ConnectDeviceInput{Hostname: "PRIVATE_HOST", Platform: "darwin", Arch: "arm64", Version: "0.8.0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestReviewFeedbackCodexHandoffIsProjectScopedAndReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connected, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, app.ConnectDeviceInput{Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "0.7.0"})
+	connected, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, app.ConnectDeviceInput{Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "0.8.0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestReviewFeedbackCodexHandoffIsProjectScopedAndReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := testsupport.ConnectBootstrap(t.Context(), service, actor, otherConnect, app.ConnectDeviceInput{Hostname: "other", Platform: "darwin", Arch: "arm64", Version: "0.7.0"}); err != nil {
+	if _, err := testsupport.ConnectBootstrap(t.Context(), service, actor, otherConnect, app.ConnectDeviceInput{Hostname: "other", Platform: "darwin", Arch: "arm64", Version: "0.8.0"}); err != nil {
 		t.Fatal(err)
 	}
 	crossProject := codexHandoffRequest(t, client, server.URL+"/api/bff/projects/"+otherProject.ID+"/submission-revisions/"+revision.ID+"/codex-handoff")
@@ -187,7 +187,7 @@ func assertProjectCodexHandoff(t *testing.T, handoff codexHandoffResponse, proje
 	if handoff.SchemaVersion != "contentcloud.codex-handoff/1.0" || handoff.Kind != "project" || handoff.ProjectID != projectID || handoff.Target.Kind != "project" || handoff.Target.ID != projectID {
 		t.Fatalf("unexpected project handoff: %#v", handoff)
 	}
-	if handoff.PluginID != "contentcloud-video-production@contentcloud" || handoff.PluginVersion != "0.7.0" || !handoff.RequiresNewChat || !handoff.RequiresWorkspaceSelection || handoff.FallbackURL != "/codex" || len(handoff.Steps) != 3 {
+	if handoff.PluginID != "contentcloud-video-production@contentcloud" || handoff.PluginVersion != "0.8.0" || !handoff.RequiresNewChat || !handoff.RequiresWorkspaceSelection || handoff.FallbackURL != "/codex" || len(handoff.Steps) != 3 {
 		t.Fatalf("project handoff gates are incomplete: %#v", handoff)
 	}
 	parsed, err := url.Parse(handoff.LaunchURL)

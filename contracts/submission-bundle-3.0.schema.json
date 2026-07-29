@@ -7,7 +7,7 @@
   "required": ["bundle_version", "submission_type", "project_id", "workspace_id", "base_snapshot_ids", "objects", "source_disclosures", "local_run_summary", "environment_digest", "artifacts", "content_hash", "idempotency_key"],
   "properties": {
     "bundle_version": {"const": "3.0"},
-    "submission_type": {"enum": ["context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"]},
+    "submission_type": {"enum": ["context", "knowledge", "strategy", "offer", "brief", "content_batch", "asset_batch", "storyboard", "delivery", "result"]},
     "project_id": {"type": "string", "minLength": 1},
     "workspace_id": {"type": "string", "minLength": 1},
     "base_snapshot_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},

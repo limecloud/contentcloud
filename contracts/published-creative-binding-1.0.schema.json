@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.goodvision.cn/schemas/published-creative-binding-1.0.schema.json",
+  "title": "ContentCloud PublishedCreativeBinding 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "schema_version", "project_id", "delivery_package_id", "rendered_creative_artifact_id", "platform", "account_alias", "platform_creative_id", "platform_post_id", "audience_strategy_version_id", "experiment_id", "experiment_arm_id", "test_type", "published_at", "binding_hash"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "schema_version": {"const": "contentcloud.published-creative-binding/1.0"},
+    "project_id": {"type": "string", "minLength": 1},
+    "delivery_package_id": {"type": "string", "minLength": 1},
+    "rendered_creative_artifact_id": {"type": "string", "minLength": 1},
+    "platform": {"const": "douyin"},
+    "account_alias": {"type": "string", "minLength": 1},
+    "platform_creative_id": {"type": "string"},
+    "platform_post_id": {"type": "string"},
+    "audience_strategy_version_id": {"type": "string", "minLength": 1},
+    "experiment_id": {"type": "string", "minLength": 1},
+    "experiment_arm_id": {"type": "string", "minLength": 1},
+    "test_type": {"enum": ["strict_ab", "exploration_batch", "audience_expression_fit_test"]},
+    "offer_snapshot_id": {"type": "string"},
+    "published_at": {"type": "string", "format": "date-time"},
+    "binding_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  },
+  "anyOf": [
+    {"properties": {"platform_creative_id": {"type": "string", "minLength": 1}}},
+    {"properties": {"platform_post_id": {"type": "string", "minLength": 1}}}
+  ]
+}

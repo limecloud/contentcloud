@@ -26,7 +26,7 @@ func TestLoadEnvironmentBuildsVerifiedControlPlaneAndAutomationPolicy(t *testing
 	if !runtime.Enabled || runtime.ControlPlane == nil || len(runtime.AutomationRequirements) != 1 {
 		t.Fatalf("environment runtime = %#v", runtime)
 	}
-	expected, _ := capabilitycatalog.Exact(domain.KnowledgeExtractCapability, "0.7.0")
+	expected, _ := capabilitycatalog.Exact(domain.KnowledgeExtractCapability, "0.8.0")
 	if runtime.AutomationRequirements[0].Digest != expected.Digest || len(runtime.AutomationPackIDs[expected.ID]) != 1 {
 		t.Fatalf("automation policy did not use canonical capability catalog: %#v", runtime)
 	}
@@ -113,7 +113,7 @@ func environmentConfigFixture(t *testing.T) serverconfig.EnvironmentConfig {
 	profile := environment.Profile{
 		ID: "contentcloud.video-production", Version: "1.0.0", EnvironmentVersion: "2026.7.1", Harness: "codex", Marketplace: "contentcloud",
 		Plugins: []environment.ProfilePlugin{
-			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.7.0", Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}},
+			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.8.0", Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}},
 			{ID: "contentcloud-evidence-reasoning", Kind: "skill_pack", Version: "1.0.0", Required: true, Scope: "task", Capabilities: []string{domain.KnowledgeExtractCapability}},
 		},
 		WorkspaceTemplate: environment.WorkspaceTemplateRef{ID: "workspace_marketing_video", Version: "2.2.0", Digest: "sha256:" + strings.Repeat("c", 64)},
@@ -121,7 +121,7 @@ func environmentConfigFixture(t *testing.T) serverconfig.EnvironmentConfig {
 		Policies:          environment.Policies{PublishRequiresConfirmation: true, AutomationEnabled: true},
 	}
 	registry := environment.Registry{SchemaURL: "test", SchemaVersion: "1.0", Entries: []environment.RegistryEntry{
-		configRegistryEntry("contentcloud-video-production", "scene_plugin", "0.7.0", "v0.7.0", "a"),
+		configRegistryEntry("contentcloud-video-production", "scene_plugin", "0.8.0", "v0.8.0", "a"),
 		configRegistryEntry("contentcloud-evidence-reasoning", "skill_pack", "1.0.0", "v1.0.0", "b"),
 	}}
 	for index := range registry.Entries {
@@ -147,7 +147,7 @@ func environmentConfigFixture(t *testing.T) serverconfig.EnvironmentConfig {
 	}
 	return serverconfig.EnvironmentConfig{
 		ProfilePath: profilePath, RegistryPath: registryPath, RegistryTrustPath: registryTrustPath, EnvironmentTrustPath: environmentTrustPath,
-		SigningKeyPath: signingKeyPath, SigningKeyID: "environment-config-test", CapabilityReleaseVersion: "0.7.0", ManifestTTL: 24 * time.Hour, RepositoryRoot: repositoryRoot,
+		SigningKeyPath: signingKeyPath, SigningKeyID: "environment-config-test", CapabilityReleaseVersion: "0.8.0", ManifestTTL: 24 * time.Hour, RepositoryRoot: repositoryRoot,
 	}
 }
 

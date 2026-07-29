@@ -219,7 +219,18 @@ for (const path of pluginFiles) {
   }
 }
 const skillDirectories = await directoryNames(resolve(pluginRoot, 'skills'));
-check(skillDirectories.length === 3, `expected 3 bundled skills, found ${skillDirectories.length}`);
+const expectedSkillDirectories = [
+  'contentcloud-douyin-audience-strategy',
+  'contentcloud-knowledge-extraction',
+  'contentcloud-marketing-video-script',
+  'contentcloud-seedance-export',
+  'contentcloud-storyboard-production',
+  'contentcloud-workspace',
+];
+check(
+  JSON.stringify(skillDirectories) === JSON.stringify(expectedSkillDirectories),
+  `bundled skills ${JSON.stringify(skillDirectories)} do not match expected ${JSON.stringify(expectedSkillDirectories)}`,
+);
 for (const skill of skillDirectories) {
   const skillMarkdown = await readText(`${pluginRelativePath}/skills/${skill}/SKILL.md`);
   const declaredName = exactMatch(skillMarkdown, /^name:\s*["']?([^\n"']+)["']?\s*$/m, `${skill} skill name`);

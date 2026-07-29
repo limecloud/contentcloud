@@ -50,7 +50,10 @@ func TestLocalCLIExecutesClientFirstKnowledgeFlow(t *testing.T) {
 		"local.run.claim", "local.run.renew", "local.run.release", "local.run.claim-status",
 		"local.handoff.create-ready", "local.handoff.list-ready", "local.handoff.accept", "local.handoff.complete", "local.handoff.supersede",
 		"local.knowledge.import", "local.knowledge.lint", "local.knowledge.query", "local.knowledge.diagnose", "local.knowledge.pack",
+		"local.audience.taxonomy.lint", "local.audience.strategy.scaffold", "local.audience.strategy.lint", "local.offer.lint",
 		"local.brief.lint", "local.content.batch.init", "local.content.batch.lint", "local.content.batch.finalize", "local.content.item.lint", "local.content.item.diff", "local.content.delivery.export",
+		"local.storyboard.create", "local.storyboard.prepare", "local.storyboard.lint",
+		"local.seedance.export", "local.seedance.lint",
 	} {
 		if commandSchemas()[name] == nil {
 			t.Fatalf("missing command schema %s", name)

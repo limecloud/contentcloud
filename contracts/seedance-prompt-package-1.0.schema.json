@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.goodvision.cn/schemas/seedance-prompt-package-1.0.schema.json",
+  "title": "ContentCloud SeedancePromptPackage 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "type", "schema_version", "storyboard_snapshot_id", "storyboard_package_id", "storyboard_locked_digest", "provider", "provider_profile_version", "adapter_capability", "mode", "settings", "upload_manifest", "segments", "post_production_plan", "validation", "status"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "type": {"const": "seedance_prompt_package"},
+    "schema_version": {"const": "contentcloud.seedance-prompt-package/1.0"},
+    "storyboard_snapshot_id": {"type": "string", "minLength": 1},
+    "storyboard_package_id": {"type": "string", "minLength": 1},
+    "storyboard_locked_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "provider": {"const": "seedance"},
+    "provider_profile_version": {"type": "string", "minLength": 1},
+    "adapter_capability": {"$ref": "#/$defs/capability"},
+    "mode": {"enum": ["first_last_frame", "all_reference", "extend"]},
+    "settings": {"$ref": "#/$defs/settings"},
+    "upload_manifest": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/upload"}},
+    "segments": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/segment"}},
+    "post_production_plan": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "validation": {"$ref": "#/$defs/validation"},
+    "status": {"enum": ["draft", "validated", "exported", "stale", "superseded"]}
+  },
+  "$defs": {
+    "capability": {"type": "object", "additionalProperties": false, "required": ["id", "version", "digest"], "properties": {"id": {"type": "string"}, "version": {"type": "string"}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}},
+    "settings": {"type": "object", "additionalProperties": false, "required": ["aspect_ratio", "duration_seconds", "sound"], "properties": {"aspect_ratio": {"enum": ["9:16", "16:9", "1:1", "4:5"]}, "duration_seconds": {"type": "integer", "minimum": 1}, "sound": {"type": "string"}}},
+    "upload": {"type": "object", "additionalProperties": false, "required": ["reference", "artifact_id", "file", "purpose", "sha256"], "properties": {"reference": {"type": "string", "pattern": "^@(图片|视频|音频)[1-9][0-9]*$"}, "artifact_id": {"type": "string", "minLength": 1}, "file": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"}, "purpose": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "segment": {"type": "object", "additionalProperties": false, "required": ["id", "order", "start_ms", "end_ms", "prompt_zh", "incoming_state", "outgoing_state", "acceptance_criteria"], "properties": {"id": {"type": "string", "minLength": 1}, "order": {"type": "integer", "minimum": 1}, "start_ms": {"type": "integer", "minimum": 0}, "end_ms": {"type": "integer", "minimum": 1}, "prompt_zh": {"type": "string", "minLength": 1}, "incoming_state": {"type": "string"}, "outgoing_state": {"type": "string"}, "acceptance_criteria": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}}},
+    "validation": {"type": "object", "additionalProperties": false, "required": ["references_checked", "limits_checked", "rights_checked", "offer_checked", "digest_checked"], "properties": {"references_checked": {"type": "boolean"}, "limits_checked": {"type": "boolean"}, "rights_checked": {"type": "boolean"}, "offer_checked": {"type": "boolean"}, "digest_checked": {"type": "boolean"}}}
+  }
+}

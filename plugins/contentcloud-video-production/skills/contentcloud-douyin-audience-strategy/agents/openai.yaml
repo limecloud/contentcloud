@@ -1,0 +1,4 @@
+interface:
+  display_name: "抖音八大人群策略"
+  short_description: "在本机生成抖音八大人群策略候选，并交由服务端审核"
+  default_prompt: "Use $contentcloud-douyin-audience-strategy to create evidence-gated local Douyin audience candidates and hand them off for server review."

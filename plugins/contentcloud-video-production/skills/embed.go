@@ -8,17 +8,22 @@ import (
 	"strings"
 )
 
-//go:embed contentcloud-workspace contentcloud-marketing-video-script contentcloud-knowledge-extraction
+//go:embed contentcloud-workspace contentcloud-marketing-video-script contentcloud-knowledge-extraction contentcloud-douyin-audience-strategy contentcloud-storyboard-production contentcloud-seedance-export
 var embedded embed.FS
 
 const Workspace = "contentcloud-workspace"
 const MarketingVideoScript = "contentcloud-marketing-video-script"
 const KnowledgeExtraction = "contentcloud-knowledge-extraction"
+const DouyinAudienceStrategy = "contentcloud-douyin-audience-strategy"
+const StoryboardProduction = "contentcloud-storyboard-production"
+const SeedanceExport = "contentcloud-seedance-export"
 
-func Names() []string { return []string{Workspace, KnowledgeExtraction, MarketingVideoScript} }
+func Names() []string {
+	return []string{Workspace, KnowledgeExtraction, MarketingVideoScript, DouyinAudienceStrategy, StoryboardProduction, SeedanceExport}
+}
 
 func Read(name, path string) ([]byte, error) {
-	if name != Workspace && name != MarketingVideoScript && name != KnowledgeExtraction {
+	if !validName(name) {
 		return nil, fmt.Errorf("skill %q not found", name)
 	}
 	clean := strings.TrimPrefix(path, "/")
@@ -32,7 +37,7 @@ func Read(name, path string) ([]byte, error) {
 }
 
 func Files(name string) ([]string, error) {
-	if name != Workspace && name != MarketingVideoScript && name != KnowledgeExtraction {
+	if !validName(name) {
 		return nil, fmt.Errorf("skill %q not found", name)
 	}
 	var out []string
@@ -47,4 +52,13 @@ func Files(name string) ([]string, error) {
 	})
 	sort.Strings(out)
 	return out, err
+}
+
+func validName(name string) bool {
+	for _, candidate := range Names() {
+		if name == candidate {
+			return true
+		}
+	}
+	return false
 }

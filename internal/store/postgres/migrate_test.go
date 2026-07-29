@@ -6,8 +6,8 @@ import (
 )
 
 func TestValidateV3MigrationSet(t *testing.T) {
-	available := []string{v3BaselineMigration}
-	for _, applied := range [][]string{nil, {v3BaselineMigration}} {
+	available := []string{v3BaselineMigration, v5SubmissionTypesMigration}
+	for _, applied := range [][]string{nil, {v3BaselineMigration}, {v3BaselineMigration, v5SubmissionTypesMigration}} {
 		if err := validateV3MigrationSet(available, applied); err != nil {
 			t.Fatalf("current V3 migration set was rejected: %v", err)
 		}
@@ -15,16 +15,23 @@ func TestValidateV3MigrationSet(t *testing.T) {
 }
 
 func TestValidateV3MigrationSetRejectsLegacyHistory(t *testing.T) {
-	err := validateV3MigrationSet([]string{v3BaselineMigration}, []string{"00001_core.sql"})
+	err := validateV3MigrationSet([]string{v3BaselineMigration, v5SubmissionTypesMigration}, []string{"00001_core.sql"})
 	if err == nil || !strings.Contains(err.Error(), "需重建开发数据库") {
 		t.Fatalf("legacy migration history must require a development database rebuild: %v", err)
 	}
 }
 
-func TestValidateV3MigrationSetRejectsMultipleAvailableMigrations(t *testing.T) {
+func TestValidateV3MigrationSetRejectsUnexpectedAvailableMigrations(t *testing.T) {
 	err := validateV3MigrationSet([]string{v3BaselineMigration, "00002_compat.sql"}, nil)
 	if err == nil {
-		t.Fatal("V3 migration set must remain a single baseline")
+		t.Fatal("unexpected migration set was accepted")
+	}
+}
+
+func TestValidateV3MigrationSetRejectsV5WithoutBaseline(t *testing.T) {
+	err := validateV3MigrationSet([]string{v3BaselineMigration, v5SubmissionTypesMigration}, []string{v5SubmissionTypesMigration})
+	if err == nil || !strings.Contains(err.Error(), "migration 历史无效") {
+		t.Fatalf("V5 migration without baseline must fail: %v", err)
 	}
 }
 

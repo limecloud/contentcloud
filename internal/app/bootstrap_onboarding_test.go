@@ -45,7 +45,7 @@ func TestBootstrapAuthorizationRequiresApprovalAndMatchingVerifier(t *testing.T)
 		AttemptID:     started.AttemptID,
 		Platform:      "darwin",
 		Arch:          "arm64",
-		Versions:      map[string]string{"contentcloud_cli": "0.7.0"},
+		Versions:      map[string]string{"contentcloud_cli": "0.8.0"},
 		Checks:        []domain.BootstrapDiagnosticCheck{{CheckID: "runtime.node.version", Status: "passed"}},
 	}
 	diagnostic, err := service.UploadBootstrapDiagnostic(t.Context(), workspaceActor, binding, summary)
@@ -175,7 +175,7 @@ func TestBootstrapAttemptCannotCompleteBeforeAuthorizationIsConsumed(t *testing.
 func bootstrapFixture(t *testing.T) (*Service, Actor, domain.ConnectSession) {
 	t.Helper()
 	service := New(memory.New(), slog.Default())
-	now := time.Date(2026, 7, 27, 9, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	service.now = func() time.Time { return now }
 	session, err := service.Register(t.Context(), domain.NewID()+"@example.com", "long-enough-password", "Owner", "Tenant")
 	if err != nil {
