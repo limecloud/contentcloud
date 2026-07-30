@@ -11,6 +11,7 @@ import (
 
 const v3BaselineMigration = "00001_v3_baseline.sql"
 const v5SubmissionTypesMigration = "00002_v5_submission_types.sql"
+const tenantContentCapabilitiesMigration = "00003_tenant_content_capabilities.sql"
 
 func (s *Store) Migrate(ctx context.Context) error {
 	conn, err := s.pool.Acquire(ctx)
@@ -81,7 +82,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 func validateV3MigrationSet(available, applied []string) error {
-	expected := []string{v3BaselineMigration, v5SubmissionTypesMigration}
+	expected := []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration}
 	if len(available) != len(expected) {
 		return fmt.Errorf("migration 集合必须为 %v，当前为 %v", expected, available)
 	}
@@ -90,21 +91,21 @@ func validateV3MigrationSet(available, applied []string) error {
 			return fmt.Errorf("migration 集合必须为 %v，当前为 %v", expected, available)
 		}
 	}
-	seenBaseline := false
-	for _, version := range applied {
-		if version == v3BaselineMigration {
-			seenBaseline = true
+	for index, version := range applied {
+		if index < len(expected) && version == expected[index] {
 			continue
 		}
-		if version == v5SubmissionTypesMigration && seenBaseline {
-			continue
+		known := false
+		for _, candidate := range expected {
+			if version == candidate {
+				known = true
+				break
+			}
 		}
-		if version == v5SubmissionTypesMigration {
-			return fmt.Errorf("检测到 %s 但缺少 %s；migration 历史无效", version, v3BaselineMigration)
-		}
-		if version != v3BaselineMigration && version != v5SubmissionTypesMigration {
+		if !known {
 			return fmt.Errorf("检测到旧数据库 migration %s；V3 不提供历史兼容升级，需重建开发数据库", version)
 		}
+		return fmt.Errorf("migration 历史必须是 %v 的连续前缀，当前为 %v；migration 历史无效", expected, applied)
 	}
 	return nil
 }

@@ -228,7 +228,8 @@ func (s *Store) PlatformTenants(ctx context.Context) ([]domain.PlatformTenant, e
 			(SELECT count(*) FROM brand_projects p WHERE p.tenant_id=t.id),
 			(SELECT count(*) FROM devices d WHERE d.tenant_id=t.id AND d.revoked_at IS NULL AND d.last_seen_at>now()-interval '2 minutes'),
 			(SELECT count(*) FROM task_runs r WHERE r.tenant_id=t.id AND r.state IN ('queued','leased','running')),
-			(SELECT max(p.updated_at) FROM brand_projects p WHERE p.tenant_id=t.id)
+			(SELECT max(p.updated_at) FROM brand_projects p WHERE p.tenant_id=t.id),
+			COALESCE((SELECT array_agg(c.content_type ORDER BY c.content_type) FROM tenant_content_capabilities c WHERE c.tenant_id=t.id AND c.enabled), '{}'::text[])
 		FROM tenants t ORDER BY t.created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -237,12 +238,62 @@ func (s *Store) PlatformTenants(ctx context.Context) ([]domain.PlatformTenant, e
 	out := []domain.PlatformTenant{}
 	for rows.Next() {
 		var value domain.PlatformTenant
-		if err := rows.Scan(&value.ID, &value.Slug, &value.Name, &value.Status, &value.CreatedAt, &value.MemberCount, &value.ProjectCount, &value.DeviceCount, &value.ActiveRunCount, &value.LastActivityAt); err != nil {
+		var optionalContentTypes []string
+		if err := rows.Scan(&value.ID, &value.Slug, &value.Name, &value.Status, &value.CreatedAt, &value.MemberCount, &value.ProjectCount, &value.DeviceCount, &value.ActiveRunCount, &value.LastActivityAt, &optionalContentTypes); err != nil {
 			return nil, err
 		}
+		capabilities := make([]domain.TenantContentCapability, 0, len(optionalContentTypes))
+		for _, contentType := range optionalContentTypes {
+			capabilities = append(capabilities, domain.TenantContentCapability{ContentType: contentType, Enabled: true})
+		}
+		value.ContentTypes = domain.EnabledTenantContentTypes(capabilities)
 		out = append(out, value)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) TenantContentCapabilities(ctx context.Context, tenantID string) ([]domain.TenantContentCapability, error) {
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tenants WHERE id=$1)`, tenantID).Scan(&exists); err != nil {
+		return nil, dbError(err)
+	}
+	if !exists {
+		return nil, domain.NotFound("租户")
+	}
+	rows, err := s.pool.Query(ctx, `SELECT tenant_id,content_type,enabled,updated_by,updated_at FROM tenant_content_capabilities WHERE tenant_id=$1 ORDER BY content_type`, tenantID)
+	if err != nil {
+		return nil, dbError(err)
+	}
+	defer rows.Close()
+	values := []domain.TenantContentCapability{}
+	for rows.Next() {
+		var value domain.TenantContentCapability
+		if err := rows.Scan(&value.TenantID, &value.ContentType, &value.Enabled, &value.UpdatedBy, &value.UpdatedAt); err != nil {
+			return nil, dbError(err)
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+func (s *Store) SetTenantContentCapability(ctx context.Context, value domain.TenantContentCapability) error {
+	var updated bool
+	err := s.pool.QueryRow(ctx, `
+		WITH upserted AS (
+			INSERT INTO tenant_content_capabilities(tenant_id,content_type,enabled,updated_by,updated_at)
+			SELECT id,$2,$3,$4,$5 FROM tenants WHERE id=$1
+			ON CONFLICT(tenant_id,content_type) DO UPDATE
+			SET enabled=EXCLUDED.enabled,updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at
+			RETURNING tenant_id
+		)
+		SELECT EXISTS(SELECT 1 FROM upserted)`, value.TenantID, value.ContentType, value.Enabled, value.UpdatedBy, value.UpdatedAt).Scan(&updated)
+	if err != nil {
+		return dbError(err)
+	}
+	if !updated {
+		return domain.NotFound("租户")
+	}
+	return nil
 }
 
 func (s *Store) PlatformUsers(ctx context.Context) ([]domain.PlatformUser, error) {

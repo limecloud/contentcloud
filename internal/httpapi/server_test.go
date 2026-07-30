@@ -149,6 +149,10 @@ func TestPlatformAdminOverviewAndTenantStatusEndpoint(t *testing.T) {
 	if overview.Counts.Tenants != 2 || overview.Counts.Users != 2 {
 		t.Fatalf("unexpected platform overview %#v", overview.Counts)
 	}
+	capabilityTenant := callBFF[domain.PlatformTenant](t, client, http.MethodPut, server.URL+"/api/v1/admin/tenants/"+targetActor.TenantID+"/content-capabilities/"+domain.ContentTypeWeChatArticle, map[string]bool{"enabled": true})
+	if len(capabilityTenant.ContentTypes) != 2 || capabilityTenant.ContentTypes[1] != domain.ContentTypeWeChatArticle {
+		t.Fatalf("unexpected tenant content capabilities %#v", capabilityTenant.ContentTypes)
+	}
 	tenant := callBFF[domain.Tenant](t, client, http.MethodPatch, server.URL+"/api/v1/admin/tenants/"+targetActor.TenantID, map[string]string{"status": "suspended"})
 	if tenant.Status != "suspended" {
 		t.Fatalf("unexpected tenant status %#v", tenant)

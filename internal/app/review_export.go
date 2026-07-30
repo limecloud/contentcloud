@@ -265,6 +265,19 @@ func (s *Service) decideSubmissionReviewGrant(ctx context.Context, grant domain.
 	var snapshot *domain.ApprovedSnapshot
 	switch decision {
 	case "approve":
+		if err := s.validateTenantSubmissionContentTypes(ctx, grant.TenantID, submission.SubmissionType, revision.ProjectID, revision.Objects); err != nil {
+			return ReviewDecisionResult{}, err
+		}
+		if err := validateGovernedSubmissionObjects(submission.SubmissionType, revision.ProjectID, revision.BaseSnapshotIDs, revision.Objects, now); err != nil {
+			return ReviewDecisionResult{}, err
+		}
+		baseSnapshots, err := s.loadSubmissionBaseSnapshots(ctx, grant.TenantID, revision.ProjectID, revision.BaseSnapshotIDs)
+		if err != nil {
+			return ReviewDecisionResult{}, err
+		}
+		if err := validateGovernedBaseSnapshotTypes(submission.SubmissionType, revision.Objects, baseSnapshots, now); err != nil {
+			return ReviewDecisionResult{}, err
+		}
 		if err := s.requireResolvedComments(ctx, grant.TenantID, revision.ID, "client"); err != nil {
 			return ReviewDecisionResult{}, err
 		}

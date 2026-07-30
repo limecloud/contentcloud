@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, CheckCircle2, Clipboard, Clock3, ExternalLink, LoaderCircle, ShieldCheck, Terminal, XCircle } from 'lucide-react';
+import { AlertTriangle, BookOpen, Check, CheckCircle2, Clipboard, Clock3, ExternalLink, LoaderCircle, ShieldCheck, Terminal, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { BOOTSTRAP_PLAN_CONFIRMATION, buildBootstrapCommands, buildBootstrapPrompt, connectStateCopy, type ConnectSession } from '../connectBootstrap';
 import { Banner, Button, IconButton, Modal } from './ui';
@@ -84,6 +84,7 @@ export function InitializeWorkspaceModal({session,projectName,serverURL,cancelin
     {session.state!=='connected'&&<details className="manual-install"><summary><Terminal size={15}/>手动排查</summary><p>按顺序运行固定命令；只根据 JSON 中的检查、错误码和下一动作处理。</p><Command label="1. 环境检查" value={commands.preflight} kind="preflight" copied={copied} onCopy={copy}/><Command label="2. 生成计划" value={commands.plan} kind="plan" copied={copied} onCopy={copy}/>{progress&&<Command label="恢复初始化" value={commands.resume} kind="resume" copied={copied} onCopy={copy}/>} {commands.diagnostics&&<Command label="生成脱敏诊断" value={commands.diagnostics} kind="diagnostics" copied={copied} onCopy={copy}/>}</details>}
 
     <footer className="modal-actions">
+      <a className="button button-ghost" href="/docs/clients/codex" target="_blank" rel="noreferrer"><BookOpen size={15}/>接入指南</a>
       {!progress&&session.state==='waiting_for_computer'&&<Button variant="ghost" disabled={canceling} onClick={()=>void onCancel()}>{canceling?'取消中…':'取消初始化'}</Button>}
       {(session.state==='waiting_for_computer'||session.state==='verifying')&&<Button variant="secondary" onClick={onClose}>后台等待</Button>}
       {session.state==='connected'&&<Button onClick={onClose}><Check size={16}/>完成</Button>}

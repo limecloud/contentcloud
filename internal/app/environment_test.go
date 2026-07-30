@@ -24,7 +24,7 @@ func TestBrowserBootstrapReturnsProjectBoundSignedEnvironmentManifest(t *testing
 	must(t, err)
 	controlPlane, err := environment.NewControlPlane(issuer, appEnvironmentProfile(), appVerifiedEnvironmentRegistry(t), 24*time.Hour)
 	must(t, err)
-	service := app.New(memory.New(), slog.Default(), app.WithEnvironmentControlPlane(controlPlane))
+	service := app.New(memory.New(), slog.Default(), app.WithEnvironmentControlPlane(controlPlane), app.WithPlatformAdminEmails("environment@example.com"))
 	session, err := service.Register(t.Context(), "environment@example.com", "long-enough-password", "Environment", "Environment Tenant")
 	must(t, err)
 	actor, _, err := service.SessionActor(t.Context(), session.ID)
@@ -39,14 +39,22 @@ func TestBrowserBootstrapReturnsProjectBoundSignedEnvironmentManifest(t *testing
 	if connected.EnvironmentManifest == nil {
 		t.Fatal("browser bootstrap did not return an Environment Manifest")
 	}
+	if len(connected.EnvironmentManifest.ContentTypes) != 1 || connected.EnvironmentManifest.ContentTypes[0] != domain.ContentTypeVideoScript {
+		t.Fatalf("bootstrap manifest must default to video scripts only: %#v", connected.EnvironmentManifest.ContentTypes)
+	}
 	verifier, err := environment.NewVerifier([]environment.TrustedKey{{KeyID: "environment-release-test", Status: "active", PublicKey: publicKey}})
 	must(t, err)
 	must(t, verifier.Verify(*connected.EnvironmentManifest, environment.VerifyOptions{ProjectID: project.ID, ProfileID: "contentcloud.video-production", Harness: "codex", Now: time.Now().UTC()}))
 	workspaceActor, binding, err := service.WorkspaceActor(t.Context(), connected.WorkspaceToken)
 	must(t, err)
+	_, err = service.UpdatePlatformTenantContentCapability(t.Context(), actor, actor.TenantID, domain.ContentTypeWeChatArticle, true, "enable-wechat")
+	must(t, err)
 	refreshed, err := service.EnvironmentManifest(t.Context(), workspaceActor, binding)
 	must(t, err)
 	must(t, verifier.Verify(refreshed, environment.VerifyOptions{ProjectID: project.ID, ProfileID: "contentcloud.video-production", Harness: "codex", Now: time.Now().UTC()}))
+	if len(refreshed.ContentTypes) != 2 || refreshed.ContentTypes[0] != domain.ContentTypeVideoScript || refreshed.ContentTypes[1] != domain.ContentTypeWeChatArticle {
+		t.Fatalf("refreshed manifest did not project tenant content capabilities: %#v", refreshed.ContentTypes)
+	}
 	body, err := json.Marshal(connected.EnvironmentManifest)
 	must(t, err)
 	for _, forbidden := range []string{connected.DeviceToken, connected.WorkspaceToken, "private_key", "model_key"} {

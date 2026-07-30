@@ -126,7 +126,7 @@ func TestGenericReviewFeedbackHandoffBindsRevisionAndTenant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connected, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, app.ConnectDeviceInput{Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "0.9.0"})
+	connected, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, app.ConnectDeviceInput{Hostname: "local", Platform: "darwin", Arch: "arm64", Version: "0.10.0"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -37,6 +37,8 @@ type Store interface {
 	PlatformTenants(context.Context) ([]domain.PlatformTenant, error)
 	PlatformUsers(context.Context) ([]domain.PlatformUser, error)
 	SetTenantStatus(context.Context, string, string, time.Time) (domain.Tenant, error)
+	TenantContentCapabilities(context.Context, string) ([]domain.TenantContentCapability, error)
+	SetTenantContentCapability(context.Context, domain.TenantContentCapability) error
 
 	CreateProject(context.Context, domain.Project) error
 	Projects(context.Context, string) ([]domain.Project, error)

@@ -51,6 +51,8 @@ func (s *Server) Handler() http.Handler {
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, s.securityHeaders, s.accessLog)
 	r.Get("/healthz", s.health)
 	r.Get("/codex", codex)
+	r.Get("/api/docs/catalog", s.docsCatalog)
+	r.Get("/api/docs/pages/*", s.docsPage)
 	r.Get("/api/bootstrap", s.bootstrap)
 	r.Get("/api/bootstrap/actions", s.bootstrapActions)
 	r.Route("/api/v1", func(r chi.Router) {
@@ -64,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 			r.Use(s.requireSession)
 			r.Get("/dashboard", s.platformOverview)
 			r.Patch("/tenants/{tenantID}", s.updatePlatformTenant)
+			r.Put("/tenants/{tenantID}/content-capabilities/{contentType}", s.updatePlatformTenantContentCapability)
 		})
 	})
 	r.Route("/api/review/{token}", func(r chi.Router) {
@@ -141,6 +144,9 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		if r.URL.Path == "/docs" || strings.HasPrefix(r.URL.Path, "/docs/") || strings.HasPrefix(r.URL.Path, "/api/docs/") {
+			w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+		}
 		next.ServeHTTP(w, r)
 	})
 }

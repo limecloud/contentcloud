@@ -30,7 +30,7 @@ func TestLoadEnvironmentBuildsVerifiedControlPlaneAndAutomationPolicy(t *testing
 	if runtime.AutomationRequirements[0].Digest != expected.Digest || len(runtime.AutomationPackIDs[expected.ID]) != 1 {
 		t.Fatalf("automation policy did not use canonical capability catalog: %#v", runtime)
 	}
-	manifest, err := runtime.ControlPlane.Issue("project-1", time.Now().UTC())
+	manifest, err := runtime.ControlPlane.Issue("project-1", []string{domain.ContentTypeVideoScript}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}

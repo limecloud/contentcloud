@@ -26,6 +26,10 @@ web/                     React + TypeScript 工作台与客户审批页
 docs/roadmap/v2/         V2 产品、架构、流程、安全、计划与实现状态
 ```
 
+## 使用文档
+
+多客户端、多内容形态的用户指南以 [`docs/content/README.md`](docs/content/README.md) 为单一事实源。运行服务后可通过公开 `/docs` 文档中心查看；Agent 可使用 `Accept: text/markdown` 读取同源页面。内部扩展架构稿位于 `docs/content/internal/`，不会进入公开文档 API。
+
 ## 本地开发
 
 要求 Go 1.24+、Node.js 22+、pnpm 10+。

@@ -40,7 +40,7 @@ func NewControlPlaneWithVerifier(issuer *Issuer, verifier *Verifier, profile Pro
 		return nil, err
 	}
 	validationTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	manifest, err := BuildManifest("control-plane-validation", profileCopy, registry, validationTime, validationTime.Add(ttl))
+	manifest, err := BuildManifest("control-plane-validation", []string{domain.ContentTypeVideoScript}, profileCopy, registry, validationTime, validationTime.Add(ttl))
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func NewControlPlaneWithVerifier(issuer *Issuer, verifier *Verifier, profile Pro
 	return &ControlPlane{issuer: issuer, profile: profileCopy, registry: registry, ttl: ttl, resolver: resolver}, nil
 }
 
-func (controlPlane *ControlPlane) Issue(projectID string, now time.Time) (Manifest, error) {
+func (controlPlane *ControlPlane) Issue(projectID string, contentTypes []string, now time.Time) (Manifest, error) {
 	if controlPlane == nil {
 		return Manifest{}, domain.Conflict("ENVIRONMENT_CONTROL_PLANE_UNAVAILABLE", "Environment Control Plane 未配置")
 	}
@@ -66,7 +66,7 @@ func (controlPlane *ControlPlane) Issue(projectID string, now time.Time) (Manife
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	manifest, err := BuildManifest(projectID, controlPlane.profile, controlPlane.registry, now, now.Add(controlPlane.ttl))
+	manifest, err := BuildManifest(projectID, contentTypes, controlPlane.profile, controlPlane.registry, now, now.Add(controlPlane.ttl))
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -81,7 +81,7 @@ func (controlPlane *ControlPlane) IssueExecutionBundle(request ExecutionBundleRe
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	manifest, err := BuildManifest(request.ProjectID, controlPlane.profile, controlPlane.registry, now, now.Add(controlPlane.ttl))
+	manifest, err := BuildManifest(request.ProjectID, request.ContentTypes, controlPlane.profile, controlPlane.registry, now, now.Add(controlPlane.ttl))
 	if err != nil {
 		return CreativeExecutionBundle{}, err
 	}

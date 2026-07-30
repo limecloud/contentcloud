@@ -52,6 +52,7 @@ type Manifest struct {
 	Distribution       Distribution         `json:"distribution"`
 	WorkspaceTemplate  WorkspaceTemplateRef `json:"workspace_template"`
 	Capabilities       []string             `json:"capabilities"`
+	ContentTypes       []string             `json:"content_types"`
 	Policies           Policies             `json:"policies"`
 	IssuedAt           time.Time            `json:"issued_at"`
 	ExpiresAt          time.Time            `json:"expires_at"`
@@ -165,6 +166,7 @@ type CreativeExecutionBundle struct {
 
 type ExecutionBundleRequest struct {
 	ProjectID            string
+	ContentTypes         []string
 	Subject              ExecutionSubject
 	RequiredCapabilities []CapabilityRequirement
 	PackIDs              []string

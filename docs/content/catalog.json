@@ -1,0 +1,135 @@
+{
+  "schema_version": "contentcloud.docs-catalog/1.0",
+  "home": {
+    "slug": "overview",
+    "source": "README.md",
+    "title": "ContentCloud 使用文档",
+    "description": "按客户端、内容形态和真实可用场景查找 ContentCloud 使用方法。",
+    "kind": "overview",
+    "status": "available"
+  },
+  "pages": [
+    {
+      "slug": "getting-started",
+      "source": "getting-started.md",
+      "title": "开始使用",
+      "description": "选择客户端和内容形态，并进入第一条可用工作流。",
+      "kind": "getting_started",
+      "status": "available"
+    },
+    {
+      "slug": "concepts/governed-workflow",
+      "source": "concepts/governed-workflow.md",
+      "title": "受治理的内容工作流",
+      "description": "理解本地候选、云端审核、批准快照和交付边界。",
+      "kind": "concept",
+      "status": "available"
+    },
+    {
+      "slug": "clients/codex",
+      "source": "clients/codex.md",
+      "title": "Codex",
+      "description": "使用 Codex 接入 Workspace、恢复项目状态并生产内容。",
+      "kind": "client",
+      "status": "available"
+    },
+    {
+      "slug": "clients/claude-code",
+      "source": "clients/claude-code.md",
+      "title": "Claude Code",
+      "description": "了解 Claude Code 当前可用能力和尚未开放的边界。",
+      "kind": "client",
+      "status": "limited"
+    },
+    {
+      "slug": "content-types/marketing-video",
+      "source": "content-types/marketing-video.md",
+      "title": "营销视频",
+      "description": "从可信知识到剧本、分镜和交付的当前能力范围。",
+      "kind": "content_type",
+      "status": "available"
+    },
+    {
+      "slug": "content-types/wechat-article",
+      "source": "content-types/wechat-article.md",
+      "title": "微信公众号文章",
+      "description": "公众号文章的租户开通、结构化创作、审核与本地交付边界。",
+      "kind": "content_type",
+      "status": "available"
+    },
+    {
+      "slug": "guides/marketing-video/codex",
+      "source": "guides/marketing-video/codex.md",
+      "title": "使用 Codex 制作营销视频内容",
+      "description": "当前唯一完整可执行的客户端与内容形态场景教程。",
+      "kind": "guide",
+      "status": "available"
+    },
+    {
+      "slug": "guides/wechat-article/codex",
+      "source": "guides/wechat-article/codex.md",
+      "title": "使用 Codex 制作微信公众号文章",
+      "description": "从租户开通到 ArticleBrief、文章审核和人工发布包的完整流程。",
+      "kind": "guide",
+      "status": "available"
+    },
+    {
+      "slug": "troubleshooting/workspace-and-handoff",
+      "source": "troubleshooting/workspace-and-handoff.md",
+      "title": "Workspace 与 Handoff 故障排查",
+      "description": "按确定性检查定位初始化、Workspace 和恢复入口问题。",
+      "kind": "troubleshooting",
+      "status": "available"
+    }
+  ],
+  "sections": [
+    {
+      "id": "start",
+      "title": "开始使用",
+      "description": "先理解工作边界，再选择具体路径。",
+      "page_slugs": ["getting-started", "concepts/governed-workflow"]
+    },
+    {
+      "id": "troubleshooting",
+      "title": "故障排查",
+      "description": "处理 Workspace、初始化和 Handoff 问题。",
+      "page_slugs": ["troubleshooting/workspace-and-handoff"]
+    }
+  ],
+  "content_types": [
+    {
+      "id": "marketing-video",
+      "title": "营销视频",
+      "status": "available",
+      "summary": "可信知识、Brief、营销视频剧本、分镜和 Seedance 交付链。",
+      "page_slug": "content-types/marketing-video"
+    },
+    {
+      "id": "wechat-article",
+      "title": "微信公众号文章",
+      "status": "available",
+      "summary": "按租户开通，支持 ArticleBrief、结构化长文、文章审核和本地人工发布包。",
+      "page_slug": "content-types/wechat-article"
+    }
+  ],
+  "guides": [
+    {
+      "id": "marketing-video/codex",
+      "title": "使用 Codex 制作营销视频内容",
+      "client_id": "codex",
+      "content_type_id": "marketing-video",
+      "status": "available",
+      "summary": "从连接 Workspace 到提交审核和交付的完整流程。",
+      "page_slug": "guides/marketing-video/codex"
+    },
+    {
+      "id": "wechat-article/codex",
+      "title": "使用 Codex 制作微信公众号文章",
+      "client_id": "codex",
+      "content_type_id": "wechat-article",
+      "status": "available",
+      "summary": "从租户开通、结构化创作和审核到本地人工发布包。",
+      "page_slug": "guides/wechat-article/codex"
+    }
+  ]
+}

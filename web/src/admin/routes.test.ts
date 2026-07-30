@@ -23,6 +23,7 @@ describe('admin routes',()=>{
     expect(matchRoutes(appRoutes,'/projects/project-1/creative')?.map(item=>item.route.path)).toEqual(['/',undefined,'projects/:projectID','creative']);
     expect(matchRoutes(appRoutes,'/login')?.map(item=>item.route.path)).toEqual(['/login']);
     expect(matchRoutes(appRoutes,'/review/token-1')?.map(item=>item.route.path)).toEqual(['/review/:token']);
+    expect(matchRoutes(appRoutes,'/docs/clients/codex')?.map(item=>item.route.path)).toEqual(['/docs','clients/:clientID']);
   });
 
   it('uses V3 root-level console URLs without legacy route aliases',()=>{

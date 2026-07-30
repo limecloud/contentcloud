@@ -25,7 +25,7 @@ func TestCreativeExecutionBundleIsDeterministicAndBindsSubjectEnvironmentAndTrus
 	must(t, err)
 	subject := environment.ExecutionSubject{Type: "approved_snapshot", ID: "aps-1", Digest: "sha256:" + repeat("1", 64)}
 	required := []environment.CapabilityRequirement{{ID: "contentcloud.asset.generate", SchemaVersion: "1.0.0", Digest: "sha256:" + repeat("2", 64)}}
-	request := environment.ExecutionBundleRequest{ProjectID: "project-1", Subject: subject, RequiredCapabilities: required, PackIDs: []string{"contentcloud-visual-storytelling"}}
+	request := environment.ExecutionBundleRequest{ProjectID: "project-1", ContentTypes: []string{domain.ContentTypeVideoScript}, Subject: subject, RequiredCapabilities: required, PackIDs: []string{"contentcloud-visual-storytelling"}}
 
 	bundle, err := controlPlane.IssueExecutionBundle(request, now)
 	must(t, err)
@@ -75,7 +75,7 @@ func TestCreativeExecutionBundleFailsClosedForPackRegistryLockAndCapabilityDrift
 	must(t, err)
 	subject := environment.ExecutionSubject{Type: "automation_task", ID: "run-1", Digest: "sha256:" + repeat("4", 64)}
 	required := environment.CapabilityRequirement{ID: "contentcloud.asset.generate", SchemaVersion: "1.0.0", Digest: "sha256:" + repeat("5", 64)}
-	bundle, err := controlPlane.IssueExecutionBundle(environment.ExecutionBundleRequest{ProjectID: "project-1", Subject: subject, RequiredCapabilities: []environment.CapabilityRequirement{required}, PackIDs: []string{"contentcloud-visual-storytelling"}}, now)
+	bundle, err := controlPlane.IssueExecutionBundle(environment.ExecutionBundleRequest{ProjectID: "project-1", ContentTypes: []string{domain.ContentTypeVideoScript}, Subject: subject, RequiredCapabilities: []environment.CapabilityRequirement{required}, PackIDs: []string{"contentcloud-visual-storytelling"}}, now)
 	must(t, err)
 	manifest := signedManifest(t, issuer, now)
 	lock := lockForManifest(manifest)
@@ -105,12 +105,12 @@ func TestCreativeExecutionBundleFailsClosedForPackRegistryLockAndCapabilityDrift
 	_, verifiedRevoked, _ := signAndVerifyRegistry(t, revoked)
 	assertCode(t, resolveBundleError(resolver, bundle, manifest, verifiedRevoked, lock, matching, options), "REGISTRY_ENTRY_HIGH_RISK_REVOKED")
 
-	_, err = controlPlane.IssueExecutionBundle(environment.ExecutionBundleRequest{ProjectID: "project-1", Subject: subject, RequiredCapabilities: []environment.CapabilityRequirement{required}, PackIDs: []string{"contentcloud-video-production"}}, now)
+	_, err = controlPlane.IssueExecutionBundle(environment.ExecutionBundleRequest{ProjectID: "project-1", ContentTypes: []string{domain.ContentTypeVideoScript}, Subject: subject, RequiredCapabilities: []environment.CapabilityRequirement{required}, PackIDs: []string{"contentcloud-video-production"}}, now)
 	assertCode(t, err, "EXECUTION_BUNDLE_PACK_DENIED")
 
 	unsupported := required
 	unsupported.ID = "contentcloud.video.compose"
-	_, err = controlPlane.IssueExecutionBundle(environment.ExecutionBundleRequest{ProjectID: "project-1", Subject: subject, RequiredCapabilities: []environment.CapabilityRequirement{unsupported}}, now)
+	_, err = controlPlane.IssueExecutionBundle(environment.ExecutionBundleRequest{ProjectID: "project-1", ContentTypes: []string{domain.ContentTypeVideoScript}, Subject: subject, RequiredCapabilities: []environment.CapabilityRequirement{unsupported}}, now)
 	assertCode(t, err, "EXECUTION_BUNDLE_CAPABILITY_DENIED")
 }
 

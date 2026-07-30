@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -84,6 +85,9 @@ type ContentBatch struct {
 	SchemaVersion         string              `json:"schema_version" yaml:"schema_version"`
 	ID                    string              `json:"id" yaml:"id"`
 	IntentID              string              `json:"intent_id" yaml:"intent_id"`
+	ContentKind           string              `json:"content_kind" yaml:"content_kind"`
+	ContentSchemaRef      string              `json:"content_schema_ref" yaml:"content_schema_ref"`
+	DeliveryProfiles      []string            `json:"delivery_profiles" yaml:"delivery_profiles"`
 	BriefRef              string              `json:"brief_ref" yaml:"brief_ref"`
 	KnowledgeSnapshotRefs []string            `json:"knowledge_snapshot_refs" yaml:"knowledge_snapshot_refs"`
 	Status                string              `json:"status" yaml:"status"`
@@ -92,19 +96,18 @@ type ContentBatch struct {
 	BlockedReasons        []string            `json:"blocked_reasons" yaml:"blocked_reasons"`
 	Checks                []ContentBatchCheck `json:"checks" yaml:"checks"`
 
-	ProjectID            string     `json:"-" yaml:"-"`
-	BriefSnapshotID      string     `json:"-" yaml:"-"`
-	ContextSnapshotID    string     `json:"-" yaml:"-"`
-	DirectionIDs         []string   `json:"-" yaml:"-"`
-	RequestedCount       int        `json:"-" yaml:"-"`
-	VariantDimension     string     `json:"-" yaml:"-"`
-	ControlledDimensions []string   `json:"-" yaml:"-"`
-	OutputSchema         string     `json:"-" yaml:"-"`
-	DeliveryProfiles     []string   `json:"-" yaml:"-"`
-	ContentHash          string     `json:"-" yaml:"-"`
-	CreatedAt            time.Time  `json:"-" yaml:"-"`
-	UpdatedAt            time.Time  `json:"-" yaml:"-"`
-	ProducedAt           *time.Time `json:"-" yaml:"-"`
+	ProjectID            string          `json:"-" yaml:"-"`
+	BriefSnapshotID      string          `json:"-" yaml:"-"`
+	ContextSnapshotID    string          `json:"-" yaml:"-"`
+	DirectionIDs         []string        `json:"-" yaml:"-"`
+	RequestedCount       int             `json:"-" yaml:"-"`
+	VariantDimension     string          `json:"-" yaml:"-"`
+	ControlledDimensions []string        `json:"-" yaml:"-"`
+	ContentHash          string          `json:"-" yaml:"-"`
+	BriefRaw             json.RawMessage `json:"-" yaml:"-"`
+	CreatedAt            time.Time       `json:"-" yaml:"-"`
+	UpdatedAt            time.Time       `json:"-" yaml:"-"`
+	ProducedAt           *time.Time      `json:"-" yaml:"-"`
 }
 
 type ContentBatchCheck struct {
@@ -122,11 +125,12 @@ type LocalContentContext struct {
 	RequestedCount       int                   `json:"requested_count"`
 	VariantDimension     string                `json:"variant_dimension"`
 	ControlledDimensions []string              `json:"controlled_dimensions"`
-	OutputSchema         string                `json:"output_schema"`
+	ContentKind          string                `json:"content_kind"`
+	ContentSchemaRef     string                `json:"content_schema_ref"`
 	DeliveryProfiles     []string              `json:"delivery_profiles"`
 	ContentHash          string                `json:"content_hash"`
-	Brief                LocalBrief            `json:"brief"`
-	Directions           []CreativeDirection   `json:"directions"`
+	Brief                json.RawMessage       `json:"brief"`
+	Plan                 json.RawMessage       `json:"plan"`
 	Eligible             []KnowledgeQueryEntry `json:"eligible_knowledge"`
 	Blocked              []KnowledgeQueryEntry `json:"blocked_knowledge"`
 	GeneratedAt          time.Time             `json:"generated_at"`
@@ -562,7 +566,8 @@ func CreateContentBatch(options CreateContentBatchOptions) (CreateContentBatchRe
 	if containsString(controlled, variant) {
 		return CreateContentBatchResult{}, domain.Invalid("CONTENT_BATCH_EXPERIMENT_INVALID", "variant_dimension 不能同时被 controlled_dimensions 锁定")
 	}
-	hashInput := map[string]any{"project_id": status.Binding.ProjectID, "brief_id": brief.ID, "brief_snapshot_id": briefSnapshot.ID, "knowledge_snapshot_id": query.ApprovedSnapshotID, "direction_ids": directionIDs, "requested_count": count, "variant_dimension": variant, "controlled_dimensions": controlled}
+	deliveryProfiles := []string{"json", "markdown", "xlsx"}
+	hashInput := map[string]any{"project_id": status.Binding.ProjectID, "content_kind": domain.ContentTypeVideoScript, "content_schema_ref": ContentItemSchema, "delivery_profiles": deliveryProfiles, "brief_id": brief.ID, "brief_snapshot_id": briefSnapshot.ID, "knowledge_snapshot_id": query.ApprovedSnapshotID, "direction_ids": directionIDs, "requested_count": count, "variant_dimension": variant, "controlled_dimensions": controlled}
 	hash, err := domain.CanonicalHash(hashInput)
 	if err != nil {
 		return CreateContentBatchResult{}, err
@@ -581,10 +586,18 @@ func CreateContentBatch(options CreateContentBatchOptions) (CreateContentBatchRe
 		intentID = "intent:" + intentID
 	}
 	batch := ContentBatch{
-		SchemaVersion: ContentBatchSchema, ID: batchID, IntentID: intentID, BriefRef: brief.ID, KnowledgeSnapshotRefs: []string{query.ApprovedSnapshotID}, Status: "candidate", Publishable: false,
+		SchemaVersion: ContentBatchSchema, ID: batchID, IntentID: intentID, ContentKind: domain.ContentTypeVideoScript, ContentSchemaRef: ContentItemSchema, DeliveryProfiles: deliveryProfiles, BriefRef: brief.ID, KnowledgeSnapshotRefs: []string{query.ApprovedSnapshotID}, Status: "candidate", Publishable: false,
 		ContentItemRefs: []string{}, BlockedReasons: []string{"批次尚未完成本地内容校验"}, Checks: []ContentBatchCheck{{Name: "context_freeze", Status: "passed"}},
 		ProjectID: status.Binding.ProjectID, BriefSnapshotID: briefSnapshot.ID, ContextSnapshotID: "project-context-" + contextHash[:12], DirectionIDs: directionIDs, RequestedCount: count, VariantDimension: variant,
-		ControlledDimensions: controlled, OutputSchema: ContentItemSchema, DeliveryProfiles: []string{"json", "markdown", "xlsx"}, ContentHash: "sha256:" + hash, CreatedAt: now, UpdatedAt: now,
+		ControlledDimensions: controlled, ContentHash: "sha256:" + hash, CreatedAt: now, UpdatedAt: now,
+	}
+	briefJSON, err := json.Marshal(brief)
+	if err != nil {
+		return CreateContentBatchResult{}, err
+	}
+	planJSON, err := json.Marshal(selected)
+	if err != nil {
+		return CreateContentBatchResult{}, err
 	}
 	batchRoot := filepath.Join(root, "50-production", "batches", localSafeName(batchID))
 	batchPath := filepath.Join(batchRoot, "manifest.yaml")
@@ -600,8 +613,8 @@ func CreateContentBatch(options CreateContentBatchOptions) (CreateContentBatchRe
 	context := LocalContentContext{
 		SchemaVersion: ContentContextSchema, Batch: batch, ProjectID: batch.ProjectID, BriefSnapshotID: batch.BriefSnapshotID, ContextSnapshotID: batch.ContextSnapshotID,
 		DirectionIDs: batch.DirectionIDs, RequestedCount: batch.RequestedCount, VariantDimension: batch.VariantDimension, ControlledDimensions: batch.ControlledDimensions,
-		OutputSchema: batch.OutputSchema, DeliveryProfiles: batch.DeliveryProfiles, ContentHash: batch.ContentHash,
-		Brief: brief, Directions: selected, Eligible: query.Eligible, Blocked: query.Blocked, GeneratedAt: now,
+		ContentKind: batch.ContentKind, ContentSchemaRef: batch.ContentSchemaRef, DeliveryProfiles: batch.DeliveryProfiles, ContentHash: batch.ContentHash,
+		Brief: briefJSON, Plan: planJSON, Eligible: query.Eligible, Blocked: query.Blocked, GeneratedAt: now,
 	}
 	contextPath := filepath.Join(batchRoot, "context.json")
 	if err := replaceYAML(batchPath, batch); err != nil {
@@ -856,6 +869,9 @@ func lintContentItem(pkg ContentItem, batch ContentBatch, query KnowledgeQueryRe
 	report := ContentItemLintReport{Valid: true, ContentItemID: pkg.ID, Deliverability: pkg.Deliverability, Issues: []ContentLintIssue{}}
 	add := func(code, path, message string) {
 		report.Issues = append(report.Issues, ContentLintIssue{Severity: "error", Code: code, Path: path, Message: message})
+	}
+	if batch.ContentKind != domain.ContentTypeVideoScript || batch.ContentSchemaRef != ContentItemSchema {
+		add("CONTENT_BATCH_ROUTE_MISMATCH", "/content_batch_id", "视频剧本只能属于 video_script / contentcloud.content-item/3.0 批次")
 	}
 	if pkg.SchemaVersion != ContentItemSchema || pkg.ID == "" || pkg.Type != "content_item" || pkg.ContentID == "" {
 		add("CONTENT_ITEM_IDENTITY_INVALID", "/", "ContentItem 需要 V3 schema_version、id、content_id 和 type=content_item")
@@ -1119,7 +1135,7 @@ func loadContentBatch(root, file, expectedID string) (ContentBatch, error) {
 	if err := readYAML(resolved, &batch); err != nil {
 		return ContentBatch{}, domain.Invalid("CONTENT_BATCH_INVALID", err.Error())
 	}
-	if batch.SchemaVersion != ContentBatchSchema || batch.ID == "" || batch.IntentID == "" || batch.BriefRef == "" || len(batch.KnowledgeSnapshotRefs) == 0 || batch.ContentItemRefs == nil || batch.BlockedReasons == nil || batch.Checks == nil || (expectedID != "" && batch.ID != expectedID) {
+	if batch.SchemaVersion != ContentBatchSchema || batch.ID == "" || batch.IntentID == "" || !domain.ValidTenantContentType(batch.ContentKind) || batch.ContentSchemaRef == "" || len(batch.DeliveryProfiles) == 0 || !allUnique(batch.DeliveryProfiles) || batch.BriefRef == "" || len(batch.KnowledgeSnapshotRefs) == 0 || batch.ContentItemRefs == nil || batch.BlockedReasons == nil || batch.Checks == nil || (expectedID != "" && batch.ID != expectedID) {
 		return ContentBatch{}, domain.Invalid("CONTENT_BATCH_INVALID", "ContentBatch manifest identity 或必填数组无效")
 	}
 	if batch.Publishable && (batch.Status != "review_ready" && batch.Status != "approved" && batch.Status != "delivered" || len(batch.BlockedReasons) > 0) {
@@ -1133,7 +1149,7 @@ func loadContentBatch(root, file, expectedID string) (ContentBatch, error) {
 	if err := readStrictJSON(contextPath, &frozen); err != nil {
 		return ContentBatch{}, domain.Invalid("CONTENT_CONTEXT_INVALID", err.Error())
 	}
-	if frozen.SchemaVersion != ContentContextSchema || frozen.Batch.ID != batch.ID || frozen.ProjectID == "" || frozen.BriefSnapshotID == "" || frozen.ContextSnapshotID == "" || frozen.RequestedCount < 1 || frozen.OutputSchema != ContentItemSchema {
+	if frozen.SchemaVersion != ContentContextSchema || frozen.Batch.ID != batch.ID || frozen.ProjectID == "" || frozen.BriefSnapshotID == "" || frozen.ContextSnapshotID == "" || frozen.RequestedCount < 1 || frozen.ContentKind != batch.ContentKind || frozen.ContentSchemaRef != batch.ContentSchemaRef || !slices.Equal(frozen.DeliveryProfiles, batch.DeliveryProfiles) {
 		return ContentBatch{}, domain.Invalid("CONTENT_CONTEXT_INVALID", "ContentBatch 冻结上下文无效")
 	}
 	batch.ProjectID = frozen.ProjectID
@@ -1143,9 +1159,8 @@ func loadContentBatch(root, file, expectedID string) (ContentBatch, error) {
 	batch.RequestedCount = frozen.RequestedCount
 	batch.VariantDimension = frozen.VariantDimension
 	batch.ControlledDimensions = append([]string(nil), frozen.ControlledDimensions...)
-	batch.OutputSchema = frozen.OutputSchema
-	batch.DeliveryProfiles = append([]string(nil), frozen.DeliveryProfiles...)
 	batch.ContentHash = frozen.ContentHash
+	batch.BriefRaw = append(json.RawMessage(nil), frozen.Brief...)
 	batch.CreatedAt = frozen.GeneratedAt
 	batch.UpdatedAt = frozen.GeneratedAt
 	return batch, nil

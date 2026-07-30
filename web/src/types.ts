@@ -1,7 +1,8 @@
 export interface User { id: string; email: string; display_name: string }
 export interface Tenant { id: string; name: string; slug: string; status:string; created_at:string }
 export interface Session { user: User; tenant: Tenant; role: string; is_platform_admin:boolean }
-export interface PlatformTenant extends Tenant { member_count:number; project_count:number; device_count:number; active_run_count:number; last_activity_at?:string }
+export type ContentType = 'video_script'|'wechat_article';
+export interface PlatformTenant extends Tenant { member_count:number; project_count:number; device_count:number; active_run_count:number; content_types:ContentType[]; last_activity_at?:string }
 export interface PlatformUserMembership { tenant_id:string; tenant_name:string; role:string; status:string }
 export interface PlatformUser { id:string; email:string; display_name:string; verified_at?:string; created_at:string; is_platform_admin:boolean; memberships:PlatformUserMembership[] }
 export interface PlatformOverview { counts:{tenants:number;active_tenants:number;users:number;projects:number;online_devices:number;active_runs:number}; tenants:PlatformTenant[]; users:PlatformUser[]; generated_at:string }
@@ -48,6 +49,10 @@ export interface ImpactItem { node:LineageNode; depth:number; severity:'blocked'
 export interface ImpactAnalysis { project_id:string; focus?:LineageNode; items:ImpactItem[]; generated_at:string }
 export interface ContentShot { shot_id:string; start_ms:number; end_ms:number; role:string; narrative_purpose:string; subject:string; visual_intent:string; subject_action:string; composition:string; camera_motion:string; voiceover?:string; on_screen_text?:string; acceptance_criteria:string[] }
 export interface ContentItem { id:string; type:'content_item'; status:string; schema_version:'contentcloud.content-item/3.0'; deliverability:string; project_id:string; content_id:string; content_batch_id:string; title:string; channel:string; duration_ms:number; aspect_ratio:string; direction:{title:string;angle:string}; experiment:{primary_variable:string;hypothesis:string}; shots:ContentShot[] }
+export interface ArticleTitle { id:string; text:string; strategy:string; risk_refs:string[] }
+export interface ArticleAssertion { id:string; type:'fact'|'commercial_claim'|'quotation'|'editorial_opinion'|'personal_experience'|'hypothesis'; knowledge_refs:string[]; evidence_refs:string[]; attribution:string }
+export interface ArticleBlock { id:string; type:'heading'|'paragraph'|'list'|'quote'|'image'|'callout'|'divider'|'cta'; text:string; level:number; ordered:boolean; items:string[]; asset_ref:string; rights_ref:string; alt_text:string; caption:string; purpose:string; callout_kind:string; target:string; assertions:ArticleAssertion[]; style_marks:string[] }
+export interface ArticleItem { id:string; type:'article_item'; status:string; schema_version:'contentcloud.article/1.0'; deliverability:string; project_id:string; content_id:string; content_batch_id:string; brief_ref:string; language:string; title_candidates:ArticleTitle[]; selected_title_id:string; summary:string; author_display_name:string; blocks:ArticleBlock[]; attribution:{source_names:string[];disclosure:string} }
 export interface SubmissionReviewSubject { submission_id:string; submission_revision_id:string; subject_hash:string; schema_version:string; base_snapshot_ids:string[]; environment_digest:string; object_refs:SubmissionObjectRef[]; objects:Record<string,unknown>[] }
 export interface ReviewProjection { project:Project; submission?:SubmissionReviewSubject; comments:ReviewComment[]; verified:boolean }
 

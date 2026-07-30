@@ -9,6 +9,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/localworkspace"
 )
 
 type SubmissionDetails struct {
@@ -80,6 +81,9 @@ func (s *Service) CreateSubmission(ctx context.Context, actor Actor, binding dom
 		return domain.SubmissionRevision{}, domain.Policy("WORKSPACE_SCOPE_DENIED", "提交不属于当前工作区和项目", "检查本地 .contentcloud/workspace.yaml 后重试")
 	}
 	if err := bundle.Validate(); err != nil {
+		return domain.SubmissionRevision{}, err
+	}
+	if err := s.validateTenantSubmissionContentTypes(ctx, binding.TenantID, bundle.SubmissionType, bundle.ProjectID, bundle.Objects); err != nil {
 		return domain.SubmissionRevision{}, err
 	}
 	now := s.now().UTC()
@@ -241,6 +245,9 @@ func (s *Service) ApproveSubmission(ctx context.Context, actor Actor, revisionID
 		return SubmissionApprovalResult{}, domain.Policy("EVIDENCE_LEVEL_INSUFFICIENT", "高风险内容的来源披露不足，不能远程批准", "上传 evidence_pack/full_source，或完成受治理的本地核验")
 	}
 	now := s.now().UTC()
+	if err := s.validateTenantSubmissionContentTypes(ctx, actor.TenantID, submission.SubmissionType, revision.ProjectID, revision.Objects); err != nil {
+		return SubmissionApprovalResult{}, err
+	}
 	if err := validateGovernedSubmissionObjects(submission.SubmissionType, revision.ProjectID, revision.BaseSnapshotIDs, revision.Objects, now); err != nil {
 		return SubmissionApprovalResult{}, err
 	}
@@ -438,9 +445,105 @@ func validateGovernedSubmissionObjects(submissionType, projectID string, baseSna
 	return nil
 }
 
+func (s *Service) validateTenantSubmissionContentTypes(ctx context.Context, tenantID, submissionType, projectID string, objects []domain.SubmissionObjectRef) error {
+	contentType := ""
+	for _, object := range objects {
+		var identity struct {
+			SchemaVersion string `json:"schema_version"`
+		}
+		if err := json.Unmarshal(object.Content, &identity); err != nil {
+			return domain.Invalid("SUBMISSION_OBJECT_JSON_INVALID", "Submission object 不是有效 JSON")
+		}
+		objectContentType := ""
+		switch submissionType {
+		case "brief":
+			if identity.SchemaVersion == localworkspace.ArticleBriefSchema {
+				if _, err := localworkspace.ValidateArticleBriefForSubmission(object.Content); err != nil {
+					return err
+				}
+				objectContentType = domain.ContentTypeWeChatArticle
+			}
+		case "content_batch":
+			switch identity.SchemaVersion {
+			case localworkspace.ContentItemSchema:
+				objectContentType = domain.ContentTypeVideoScript
+			case localworkspace.ArticleSchema:
+				if _, err := localworkspace.ValidateArticleItemForSubmission(object.Content, projectID); err != nil {
+					return err
+				}
+				objectContentType = domain.ContentTypeWeChatArticle
+			case localworkspace.ContentBatchSchema:
+				var batchIdentity struct {
+					ContentKind string `json:"content_kind"`
+				}
+				if err := json.Unmarshal(object.Content, &batchIdentity); err != nil || !domain.ValidTenantContentType(batchIdentity.ContentKind) {
+					return domain.Invalid("CONTENT_BATCH_KIND_INVALID", "ContentBatch manifest 缺少受支持的 content_kind")
+				}
+				objectContentType = batchIdentity.ContentKind
+			default:
+				return domain.Invalid("CONTENT_SCHEMA_UNSUPPORTED", "content_batch 包含不受支持的内容 Schema")
+			}
+		}
+		if objectContentType == "" {
+			continue
+		}
+		if contentType != "" && contentType != objectContentType {
+			return domain.Invalid("CONTENT_BATCH_KIND_MIXED", "同一 SubmissionRevision 不能混合不同内容类型")
+		}
+		contentType = objectContentType
+	}
+	if contentType == "" || contentType == domain.ContentTypeVideoScript {
+		return nil
+	}
+	enabled, err := s.TenantContentTypes(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	for _, value := range enabled {
+		if value == contentType {
+			return nil
+		}
+	}
+	return domain.Policy("CONTENT_TYPE_NOT_ENABLED", "当前租户未开通内容类型 "+contentType, "联系平台管理员开通后刷新 Workspace Environment Manifest")
+}
+
 func validateGovernedBaseSnapshotTypes(submissionType string, objects []domain.SubmissionObjectRef, baseSnapshots map[string]domain.ApprovedSnapshot, now time.Time) error {
 	for _, object := range objects {
 		switch submissionType {
+		case "content_batch":
+			var identity struct {
+				SchemaVersion string `json:"schema_version"`
+			}
+			if err := json.Unmarshal(object.Content, &identity); err != nil || identity.SchemaVersion != localworkspace.ArticleSchema {
+				continue
+			}
+			var item localworkspace.ArticleItem
+			if err := json.Unmarshal(object.Content, &item); err != nil {
+				return domain.Invalid("ARTICLE_ITEM_JSON_INVALID", "ArticleItem 不是有效 JSON")
+			}
+			briefFound := false
+			for _, snapshot := range baseSnapshots {
+				if snapshot.SubmissionType == "brief" && containsSubmissionString(snapshot.EligibleIDs, item.BriefRef) {
+					briefFound = true
+					break
+				}
+			}
+			if !briefFound {
+				return domain.Policy("ARTICLE_BRIEF_BASE_SNAPSHOT_REQUIRED", "ArticleItem 必须引用当前项目已批准的 ArticleBrief", "发布时包含冻结的 Brief ApprovedSnapshot")
+			}
+			for _, block := range item.Blocks {
+				for _, assertion := range block.Assertions {
+					for _, reference := range assertion.KnowledgeRefs {
+						kind, found := submissionKnowledgeKind(baseSnapshots, reference)
+						if !found {
+							return domain.Policy("ARTICLE_KNOWLEDGE_BASE_SNAPSHOT_REQUIRED", "ArticleItem assertion 引用未进入 Knowledge ApprovedSnapshot："+reference, "刷新知识快照并重新发布")
+						}
+						if assertion.Type == "commercial_claim" && kind != "claim" {
+							return domain.Policy("ARTICLE_CLAIM_BASE_INVALID", "commercial_claim 必须引用已批准 Claim："+reference, "改用已批准 Claim 或调整 assertion 类型")
+						}
+					}
+				}
+			}
 		case "strategy":
 			if object.Type != "audience_strategy_version" {
 				continue
@@ -485,6 +588,30 @@ func validateGovernedBaseSnapshotTypes(submissionType string, objects []domain.S
 		}
 	}
 	return nil
+}
+
+func submissionKnowledgeKind(baseSnapshots map[string]domain.ApprovedSnapshot, objectID string) (string, bool) {
+	for _, snapshot := range baseSnapshots {
+		if snapshot.SubmissionType != "knowledge" || !containsSubmissionString(snapshot.EligibleIDs, objectID) {
+			continue
+		}
+		var canonical struct {
+			Objects []json.RawMessage `json:"objects"`
+		}
+		if json.Unmarshal(snapshot.CanonicalContent, &canonical) != nil {
+			continue
+		}
+		for _, raw := range canonical.Objects {
+			var identity struct {
+				ID   string `json:"id"`
+				Kind string `json:"kind"`
+			}
+			if json.Unmarshal(raw, &identity) == nil && identity.ID == objectID {
+				return identity.Kind, true
+			}
+		}
+	}
+	return "", false
 }
 
 func (s *Service) loadSubmissionBaseSnapshots(ctx context.Context, tenantID, projectID string, snapshotIDs []string) (map[string]domain.ApprovedSnapshot, error) {

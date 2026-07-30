@@ -657,6 +657,17 @@ func mcpTools() []map[string]any {
 		"required":             []string{"directions_file", "requested_count", "variant_dimension"},
 		"additionalProperties": false,
 	}
+	articleBatchCreate := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":       map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"brief_id":        map[string]any{"type": "string"},
+			"requested_count": map[string]any{"type": "integer", "minimum": 1, "maximum": 10},
+			"batch_id":        map[string]any{"type": "string"},
+		},
+		"required":             []string{"requested_count"},
+		"additionalProperties": false,
+	}
 	contentItemLint := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -740,6 +751,14 @@ func mcpTools() []map[string]any {
 		{"name": "content_batch_finalize", "description": "Finalize a validated local ContentBatch without creating a cloud TaskRun", "inputSchema": contentBatchFiles},
 		{"name": "content_item_diff", "description": "Detect undeclared JSON Pointer drift in a content revision or variant", "inputSchema": contentItemDiff},
 		{"name": "delivery_export", "description": "Export a pulled approved content item as JSON, Markdown, and XLSX", "inputSchema": contentDeliveryExport},
+		{"name": "article_brief_lint", "description": "Validate a WeChat ArticleBrief against eligible knowledge and tenant capability", "inputSchema": localFile},
+		{"name": "article_batch_create", "description": "Freeze an approved ArticleBrief and Knowledge snapshot into a WeChat ContentBatch", "inputSchema": articleBatchCreate},
+		{"name": "article_item_lint", "description": "Validate ArticleItem blocks, assertions, evidence, rights, and channel constraints", "inputSchema": contentItemLint},
+		{"name": "article_batch_lint", "description": "Validate every ArticleItem in a WeChat ContentBatch", "inputSchema": contentBatchFiles},
+		{"name": "article_batch_finalize", "description": "Finalize a validated WeChat article batch", "inputSchema": contentBatchFiles},
+		{"name": "article_item_diff", "description": "Detect undeclared JSON Pointer drift in an ArticleItem revision", "inputSchema": contentItemDiff},
+		{"name": "wechat_package_export", "description": "Export an approved ArticleItem to a local operator-ready WeChat package", "inputSchema": contentDeliveryExport},
+		{"name": "wechat_package_lint", "description": "Verify WeChat package files and digests without external publishing", "inputSchema": localFile},
 		{"name": "publish_preflight", "description": "Validate a local immutable checkpoint and return the exact plan_id, environment digest, disclosure scope, and cloud effects without publishing", "inputSchema": preflight, "annotations": readOnlyAnnotations},
 		{"name": "publish_apply", "description": "Publish only the exact user-confirmed preflight plan as an immutable SubmissionRevision", "inputSchema": publishApply, "annotations": cloudWriteAnnotations},
 		{"name": "submission_status", "description": "Read the current cloud governance status for a workspace submission", "inputSchema": submissionStatus, "annotations": cloudReadAnnotations},
@@ -1024,6 +1043,99 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		}
 	case "delivery_export":
 		value, err = localworkspace.ExportApprovedContentItem(params.Arguments.Directory, params.Arguments.ContentItemID, params.Arguments.OutputDirectory, time.Now())
+	case "article_brief_lint":
+		var root string
+		root, err = r.requireMCPContentType(params.Arguments.Directory, domain.ContentTypeWeChatArticle)
+		if err != nil {
+			break
+		}
+		var report localworkspace.ArticleBriefLintReport
+		var brief localworkspace.ArticleBrief
+		report, brief, err = localworkspace.LintArticleBrief(root, params.Arguments.File)
+		value = map[string]any{"brief": brief, "report": report}
+		if err == nil && !report.Valid {
+			lintErr := domain.Invalid("ARTICLE_BRIEF_LINT_FAILED", "ArticleBrief 确定性校验失败")
+			lintErr.Details = report
+			err = lintErr
+		}
+	case "article_batch_create":
+		var root string
+		root, err = r.requireMCPContentType(params.Arguments.Directory, domain.ContentTypeWeChatArticle)
+		if err == nil {
+			value, err = localworkspace.CreateArticleBatch(localworkspace.CreateArticleBatchOptions{Root: root, BriefID: params.Arguments.BriefID, RequestedCount: params.Arguments.RequestedCount, BatchID: params.Arguments.BatchID, Now: r.currentTime()})
+		}
+	case "article_item_lint":
+		var root string
+		root, err = r.requireMCPContentType(params.Arguments.Directory, domain.ContentTypeWeChatArticle)
+		if err != nil {
+			break
+		}
+		var report localworkspace.ArticleItemLintReport
+		report, _, err = localworkspace.LintArticleItem(root, params.Arguments.File, params.Arguments.BatchFile)
+		value = report
+		if err == nil && !report.Valid {
+			lintErr := domain.Invalid("ARTICLE_ITEM_LINT_FAILED", "ArticleItem 确定性校验失败")
+			lintErr.Details = report
+			err = lintErr
+		}
+	case "article_batch_lint":
+		var root string
+		root, err = r.requireMCPContentType(params.Arguments.Directory, domain.ContentTypeWeChatArticle)
+		if err != nil {
+			break
+		}
+		var report localworkspace.ArticleBatchLintReport
+		report, err = localworkspace.LintArticleBatch(root, params.Arguments.BatchFile, params.Arguments.ContentFiles)
+		value = report
+		if err == nil && !report.Valid {
+			lintErr := domain.Invalid("ARTICLE_BATCH_LINT_FAILED", "公众号文章批次校验失败")
+			lintErr.Details = report
+			err = lintErr
+		}
+	case "article_batch_finalize":
+		var root string
+		root, err = r.requireMCPContentType(params.Arguments.Directory, domain.ContentTypeWeChatArticle)
+		if err != nil {
+			break
+		}
+		var batch localworkspace.ContentBatch
+		var report localworkspace.ArticleBatchLintReport
+		batch, report, err = localworkspace.FinalizeArticleBatch(root, params.Arguments.BatchFile, params.Arguments.ContentFiles, r.currentTime())
+		value = map[string]any{"batch": batch, "report": report}
+	case "article_item_diff":
+		var root string
+		root, err = r.requireMCPContentType(params.Arguments.Directory, domain.ContentTypeWeChatArticle)
+		if err != nil {
+			break
+		}
+		var diff localworkspace.ArticleItemDiff
+		diff, err = localworkspace.DiffArticleItems(root, params.Arguments.BaselineFile, params.Arguments.CandidateFile, params.Arguments.AllowedPaths)
+		value = diff
+		if err == nil && !diff.Valid {
+			diffErr := domain.Invalid("ARTICLE_ITEM_REVISION_DRIFT", "ArticleItem 修订包含未声明字段变化")
+			diffErr.Details = diff
+			err = diffErr
+		}
+	case "wechat_package_export":
+		var root string
+		root, err = r.requireMCPContentType(params.Arguments.Directory, domain.ContentTypeWeChatArticle)
+		if err == nil {
+			value, err = localworkspace.ExportWeChatPackage(root, params.Arguments.ContentItemID, params.Arguments.OutputDirectory, r.currentTime())
+		}
+	case "wechat_package_lint":
+		var root string
+		root, err = r.requireMCPContentType(params.Arguments.Directory, domain.ContentTypeWeChatArticle)
+		if err != nil {
+			break
+		}
+		var report localworkspace.WeChatPackageLintReport
+		report, err = localworkspace.LintWeChatPackage(root, params.Arguments.File)
+		value = report
+		if err == nil && !report.Valid {
+			lintErr := domain.Invalid("WECHAT_PACKAGE_LINT_FAILED", "公众号交付包校验失败")
+			lintErr.Details = report
+			err = lintErr
+		}
 	case "publish_preflight":
 		if !validSubmissionType(params.Arguments.SubmissionType) {
 			return nil, domain.Invalid("SUBMISSION_TYPE_INVALID", "submission_type 无效")
@@ -1393,6 +1505,17 @@ func (r *Root) workspaceConversationContext(directory string) (localworkspace.Wo
 	}
 	if report.OK {
 		context.EnvironmentHealth = "ready"
+		status, loadErr := localworkspace.LoadStatus(context.Root)
+		if loadErr != nil {
+			return localworkspace.WorkspaceConversationContext{}, loadErr
+		}
+		if hasBootstrapTarget(status.Template.Targets) {
+			verified, verifyErr := r.loadVerifiedLocalEnvironment(context.Root)
+			if verifyErr != nil {
+				return localworkspace.WorkspaceConversationContext{}, verifyErr
+			}
+			context.ContentTypes = append([]string(nil), verified.State.Manifest.ContentTypes...)
+		}
 	} else {
 		context.EnvironmentHealth = "repair_required"
 	}

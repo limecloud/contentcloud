@@ -37,6 +37,12 @@ func TestEnvironmentStateStoresAndVerifiesSignedManifestAndExactLock(t *testing.
 	if err != nil || loaded.Manifest.Digest != manifest.Digest || len(loaded.Lock.Plugins) != 1 {
 		t.Fatalf("loaded environment = %#v, err = %v", loaded, err)
 	}
+	if _, err := RequireContentType(root, domain.ContentTypeVideoScript, verifier, now.Add(time.Minute)); err != nil {
+		t.Fatalf("default video content type was denied: %v", err)
+	}
+	if _, err := RequireContentType(root, domain.ContentTypeWeChatArticle, verifier, now.Add(time.Minute)); domainCode(err) != "CONTENT_TYPE_NOT_ENABLED" {
+		t.Fatalf("disabled WeChat content type was not denied: %v", err)
+	}
 	claim, err := ReadEnvironmentClaim(root)
 	if err != nil || claim.Health != "unverified_claim" || claim.Manifest.Digest != manifest.Digest || claim.Lock.ManifestDigest != manifest.Digest {
 		t.Fatalf("automation environment claim = %#v, err = %v", claim, err)
@@ -145,7 +151,7 @@ func workspaceEnvironmentFixture(t *testing.T, now time.Time) (environment.Manif
 	if err != nil {
 		t.Fatal(err)
 	}
-	unsigned, err := environment.BuildManifest("project-1", profile, verifiedRegistry, now, now.Add(24*time.Hour))
+	unsigned, err := environment.BuildManifest("project-1", []string{domain.ContentTypeVideoScript}, profile, verifiedRegistry, now, now.Add(24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}

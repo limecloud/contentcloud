@@ -27,8 +27,13 @@ func (s *Service) createTaskRun(ctx context.Context, run domain.TaskRun, snapsho
 	if !exists || requirement.ID != run.CapabilityID || requirement.SchemaVersion != run.CapabilityVersion {
 		return domain.Policy("AUTOMATION_CAPABILITY_POLICY_MISSING", "TaskRun capability 没有精确的 Automation Execution Policy", "配置 capability schema version 和 digest 后再创建任务")
 	}
+	contentTypes, err := s.TenantContentTypes(ctx, run.TenantID)
+	if err != nil {
+		return err
+	}
 	bundle, err := s.environmentControl.IssueExecutionBundle(environment.ExecutionBundleRequest{
-		ProjectID: run.ProjectID,
+		ProjectID:    run.ProjectID,
+		ContentTypes: contentTypes,
 		Subject: environment.ExecutionSubject{
 			Type: "context_snapshot", ID: snapshot.ID, Digest: normalizedSnapshotDigest(snapshot.ManifestHash),
 		},

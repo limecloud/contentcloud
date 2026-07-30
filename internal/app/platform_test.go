@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/limecloud/contentcloud/internal/app"
+	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/store/memory"
 )
 
@@ -39,8 +40,38 @@ func TestPlatformOverviewAndTenantLifecycle(t *testing.T) {
 	if len(overview.Tenants) != 2 || len(overview.Users) != 2 {
 		t.Fatalf("unexpected platform projections: tenants=%d users=%d", len(overview.Tenants), len(overview.Users))
 	}
+	for _, tenant := range overview.Tenants {
+		if len(tenant.ContentTypes) != 1 || tenant.ContentTypes[0] != domain.ContentTypeVideoScript {
+			t.Fatalf("tenant must default to video scripts only: %#v", tenant.ContentTypes)
+		}
+	}
 	if project.TenantID != member.TenantID {
 		t.Fatal("project fixture belongs to the wrong tenant")
+	}
+	if _, err := service.UpdatePlatformTenantContentCapability(t.Context(), member, member.TenantID, domain.ContentTypeWeChatArticle, true, "member-enable"); err == nil {
+		t.Fatal("tenant administrator must not change platform content capabilities")
+	} else {
+		assertDomainCode(t, err, "PLATFORM_ADMIN_REQUIRED")
+	}
+	if _, err := service.UpdatePlatformTenantContentCapability(t.Context(), admin, member.TenantID, domain.ContentTypeVideoScript, false, "disable-video"); err == nil {
+		t.Fatal("the default video script capability must not be mutable")
+	} else {
+		assertDomainCode(t, err, "TENANT_CONTENT_TYPE_INVALID")
+	}
+	updated, err := service.UpdatePlatformTenantContentCapability(t.Context(), admin, member.TenantID, domain.ContentTypeWeChatArticle, true, "enable-wechat")
+	must(t, err)
+	if len(updated.ContentTypes) != 2 || updated.ContentTypes[0] != domain.ContentTypeVideoScript || updated.ContentTypes[1] != domain.ContentTypeWeChatArticle {
+		t.Fatalf("wechat article capability was not enabled: %#v", updated.ContentTypes)
+	}
+	adminTypes, err := service.TenantContentTypes(t.Context(), admin.TenantID)
+	must(t, err)
+	if len(adminTypes) != 1 || adminTypes[0] != domain.ContentTypeVideoScript {
+		t.Fatalf("content capability leaked across tenants: %#v", adminTypes)
+	}
+	updated, err = service.UpdatePlatformTenantContentCapability(t.Context(), admin, member.TenantID, domain.ContentTypeWeChatArticle, false, "disable-wechat")
+	must(t, err)
+	if len(updated.ContentTypes) != 1 || updated.ContentTypes[0] != domain.ContentTypeVideoScript {
+		t.Fatalf("wechat article capability was not disabled: %#v", updated.ContentTypes)
 	}
 
 	if _, err := service.UpdatePlatformTenantStatus(t.Context(), admin, admin.TenantID, "suspended", "suspend-current"); err == nil {

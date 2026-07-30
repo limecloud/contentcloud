@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
 )
 
@@ -56,7 +57,7 @@ func TestReleaseRegistryAndProfileUseBuiltInTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC)
-	manifest, err := environment.BuildManifest("release-validation", profile, verified, now, now.Add(24*time.Hour))
+	manifest, err := environment.BuildManifest("release-validation", []string{domain.ContentTypeVideoScript}, profile, verified, now, now.Add(24*time.Hour))
 	if err != nil {
 		t.Fatalf("build release Manifest: %v", err)
 	}

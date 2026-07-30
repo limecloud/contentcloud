@@ -513,9 +513,31 @@ func validatePublishDomainFiles(root, submissionType string, files []string) err
 		}
 	case "brief":
 		for _, file := range files {
-			report, _, err := localworkspace.LintBrief(root, file)
+			body, err := os.ReadFile(file)
 			if err != nil {
 				return err
+			}
+			var identity struct {
+				SchemaVersion string `json:"schema_version"`
+			}
+			if err := json.Unmarshal(body, &identity); err != nil {
+				return domain.Invalid("BRIEF_JSON_INVALID", "Brief 发布文件不是有效 JSON："+file)
+			}
+			if identity.SchemaVersion == localworkspace.ArticleBriefSchema {
+				report, _, lintErr := localworkspace.LintArticleBrief(root, file)
+				if lintErr != nil {
+					return lintErr
+				}
+				if !report.Valid {
+					lintErr := domain.Invalid("ARTICLE_BRIEF_LINT_FAILED", "ArticleBrief 发布前校验失败："+file)
+					lintErr.Details = report
+					return lintErr
+				}
+				continue
+			}
+			report, _, lintErr := localworkspace.LintBrief(root, file)
+			if lintErr != nil {
+				return lintErr
 			}
 			if !report.Valid {
 				lintErr := domain.Invalid("BRIEF_LINT_FAILED", "Brief 发布前校验失败："+file)
@@ -525,14 +547,39 @@ func validatePublishDomainFiles(root, submissionType string, files []string) err
 		}
 	case "content_batch":
 		for _, file := range files {
-			report, _, err := localworkspace.LintContentItem(root, file, "")
+			body, err := os.ReadFile(file)
 			if err != nil {
 				return err
 			}
-			if !report.Valid {
-				lintErr := domain.Invalid("CONTENT_ITEM_LINT_FAILED", "ContentItem 发布前校验失败："+report.File)
-				lintErr.Details = report
-				return lintErr
+			var identity struct {
+				SchemaVersion string `json:"schema_version"`
+			}
+			if err := json.Unmarshal(body, &identity); err != nil {
+				return domain.Invalid("CONTENT_ITEM_JSON_INVALID", "内容对象不是有效 JSON："+file)
+			}
+			switch identity.SchemaVersion {
+			case localworkspace.ContentItemSchema:
+				report, _, lintErr := localworkspace.LintContentItem(root, file, "")
+				if lintErr != nil {
+					return lintErr
+				}
+				if !report.Valid {
+					lintErr := domain.Invalid("CONTENT_ITEM_LINT_FAILED", "ContentItem 发布前校验失败："+report.File)
+					lintErr.Details = report
+					return lintErr
+				}
+			case localworkspace.ArticleSchema:
+				report, _, lintErr := localworkspace.LintArticleItem(root, file, "")
+				if lintErr != nil {
+					return lintErr
+				}
+				if !report.Valid {
+					lintErr := domain.Invalid("ARTICLE_ITEM_LINT_FAILED", "ArticleItem 发布前校验失败："+report.File)
+					lintErr.Details = report
+					return lintErr
+				}
+			default:
+				return domain.Invalid("CONTENT_SCHEMA_UNSUPPORTED", "ContentBatch 包含不受支持的内容 Schema："+identity.SchemaVersion)
 			}
 		}
 	case "storyboard":
@@ -580,6 +627,23 @@ func requiredSubmissionBaseSnapshotIDs(root, submissionType string, objects []do
 				return nil, domain.Invalid("STORYBOARD_BASE_SNAPSHOT_REQUIRED", "StoryboardPackage 缺少 approved_snapshot_id")
 			}
 			values = append(values, storyboard.ApprovedSnapshotID)
+		case "content_batch":
+			var identity struct {
+				SchemaVersion  string `json:"schema_version"`
+				ContentBatchID string `json:"content_batch_id"`
+			}
+			if err := json.Unmarshal(object.Content, &identity); err != nil {
+				return nil, domain.Invalid("CONTENT_ITEM_JSON_INVALID", "ContentBatch 对象不是有效 JSON")
+			}
+			if identity.SchemaVersion != localworkspace.ArticleSchema {
+				continue
+			}
+			batch, err := localworkspace.LoadContentBatch(root, filepath.ToSlash(filepath.Join("50-production", "batches", identity.ContentBatchID, "manifest.yaml")))
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, batch.BriefSnapshotID)
+			values = append(values, batch.KnowledgeSnapshotRefs...)
 		}
 	}
 	return uniqueSortedCLIStrings(values), nil
@@ -696,13 +760,27 @@ func validatePublishObject(submissionType string, body json.RawMessage) (bool, e
 			return false, fmt.Errorf("brief 需要 objective 和 audience")
 		}
 	case "content_batch":
-		if stringField(object, "schema_version") == "" || stringField(object, "title") == "" {
-			return false, fmt.Errorf("content item 需要 schema_version 和 title")
-		}
+		schemaVersion := stringField(object, "schema_version")
 		blocked := stringField(object, "deliverability") == "blocked" || stringField(object, "status") == "blocked"
-		shots, ok := object["shots"].([]any)
-		if !ok || (!blocked && len(shots) == 0) {
-			return false, fmt.Errorf("非 blocked content item 需要至少一个 shot")
+		switch schemaVersion {
+		case localworkspace.ContentItemSchema:
+			if stringField(object, "title") == "" {
+				return false, fmt.Errorf("视频 ContentItem 需要 title")
+			}
+			shots, ok := object["shots"].([]any)
+			if !ok || (!blocked && len(shots) == 0) {
+				return false, fmt.Errorf("非 blocked 视频 ContentItem 需要至少一个 shot")
+			}
+		case localworkspace.ArticleSchema:
+			if stringField(object, "type") != "article_item" || stringField(object, "selected_title_id") == "" {
+				return false, fmt.Errorf("ArticleItem 需要 type=article_item 和 selected_title_id")
+			}
+			blocks, ok := object["blocks"].([]any)
+			if !ok || (!blocked && len(blocks) == 0) {
+				return false, fmt.Errorf("非 blocked ArticleItem 需要至少一个 block")
+			}
+		default:
+			return false, fmt.Errorf("content schema 不受支持：%s", schemaVersion)
 		}
 		if blocked {
 			reasons, ok := object["blocked_reasons"].([]any)

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
 )
 
@@ -14,7 +15,7 @@ func TestPreparationPlanBindsSignedPermissionsCostAndExecutionPlan(t *testing.T)
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 	profile, rawRegistry := fixtureProfileAndRegistry()
 	_, registry, _ := signAndVerifyRegistry(t, rawRegistry)
-	manifest, err := environment.BuildManifest("project-1", profile, registry, now, now.Add(24*time.Hour))
+	manifest, err := environment.BuildManifest("project-1", []string{domain.ContentTypeVideoScript}, profile, registry, now, now.Add(24*time.Hour))
 	must(t, err)
 	execution := environment.LocalExecutionPlan{
 		SchemaVersion: "1.0", PlanID: "lep_" + repeat("1", 64), RunID: "run-1", Intent: "asset_generate", RequiredCapabilities: []string{"contentcloud.asset.generate"},
@@ -44,7 +45,7 @@ func TestPreparedLockAddsOnlyExactConfirmedTaskPack(t *testing.T) {
 	must(t, err)
 	issuer, err := environment.NewIssuer("environment-preparation-test", privateKey)
 	must(t, err)
-	unsigned, err := environment.BuildManifest("project-1", profile, registry, now, now.Add(24*time.Hour))
+	unsigned, err := environment.BuildManifest("project-1", []string{domain.ContentTypeVideoScript}, profile, registry, now, now.Add(24*time.Hour))
 	must(t, err)
 	manifest, err := issuer.Sign(unsigned)
 	must(t, err)

@@ -32,9 +32,13 @@ export function AdminShell() {
     {mobileOpen&&<button className="sidebar-scrim" aria-label="关闭后台导航" onClick={()=>setMobileOpen(false)}/>}
     <main className="admin-main">
       <header className="admin-topbar"><div><strong>{routeTitles[location.pathname]||'系统后台'}</strong><span>{data?`更新于 ${formatDateTime(data.generated_at)}`:'正在读取平台数据'}</span></div><div className="admin-topbar-actions"><IconButton label="刷新数据" disabled={refreshing} onClick={()=>refresh(true)}><RefreshCw className={refreshing?'is-spinning':''} size={17}/></IconButton><Link className="button button-secondary" to="/"><LayoutDashboard size={15}/>工作台</Link></div></header>
-      <div className="admin-page">{error&&<Banner kind="error" onClose={clearError}>{error}</Banner>}{loading?<div className="admin-loading"><Loading/></div>:!data?<div className="fatal"><Banner kind="error">系统后台暂不可用</Banner><button className="button button-primary" onClick={()=>refresh()}>重试</button></div>:<Outlet/>}</div>
+      <div className="admin-page"><AdminFeedback error={error} onClose={clearError}/>{loading?<div className="admin-loading"><Loading/></div>:!data?<div className="fatal"><Banner kind="error">系统后台暂不可用</Banner><button className="button button-primary" onClick={()=>refresh()}>重试</button></div>:<Outlet/>}</div>
     </main>
   </div>;
+}
+
+export function AdminFeedback({error,onClose}:{error:string;onClose:()=>void}) {
+  return error?<Banner kind="error" onClose={onClose}>{error}</Banner>:null;
 }
 
 function AdminNav({to,icon:Icon,label,count,onClick}:{to:string;icon:typeof Gauge;label:string;count?:number;onClick:()=>void}) {return <NavLink to={to} className={({isActive})=>isActive?'active':''} onClick={onClick}><Icon size={18}/><strong>{label}</strong>{count!==undefined&&<small>{count}</small>}</NavLink>}

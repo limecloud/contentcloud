@@ -38,7 +38,7 @@ func TestImportFixtureV3IsIdempotentAndBuildsProjection(t *testing.T) {
 			},
 			{
 				SubmissionType: "content_batch", Outcome: "changes_requested", BaseSnapshotTypes: []string{"context"}, Message: "content", ChangeReason: "Knowledge is pending", ChangePointer: "/objects/0/content/blocked_reasons",
-				Objects: []fixturev3.SubmissionObject{{ID: "content-batch:fixture:v1", Type: "content_batch", Version: 1, Path: "50-production/batches/fixture/manifest.yaml", Content: json.RawMessage(`{"status":"blocked","publishable":false,"blocked_reasons":["knowledge pending"]}`)}},
+				Objects: []fixturev3.SubmissionObject{{ID: "content-batch:fixture:v1", Type: "content_batch", Version: 1, Path: "50-production/batches/fixture/manifest.yaml", Content: json.RawMessage(`{"schema_version":"contentcloud.content-batch/3.0","content_kind":"video_script","status":"blocked","publishable":false,"blocked_reasons":["knowledge pending"]}`)}},
 			},
 		},
 	}

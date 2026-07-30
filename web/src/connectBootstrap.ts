@@ -68,7 +68,7 @@ export interface ConnectStateCopy {
   tone: 'waiting'|'progress'|'success'|'error';
 }
 
-export const CONTENTCLOUD_CLI='npx --yes @limecloud/contentcloud@0.9.0';
+export const CONTENTCLOUD_CLI='npx --yes @limecloud/contentcloud@0.10.0';
 export const BOOTSTRAP_PLAN_CONFIRMATION='Codex 会先展示只读计划和计划编号（plan_id）；确认后，apply 必须原样携带该 plan_id，状态变化时会要求重新确认。';
 
 const stageNames:Record<string,string>={
