@@ -73,7 +73,7 @@ func TestSelectionAndHandoffFailClosedForUnsupportedInputs(t *testing.T) {
 			t.Fatalf("planned client error = %s", domainError.Code)
 		}
 	}
-	adapter, err := SelectHandoff("codex", "0.9.0")
+	adapter, err := SelectHandoff("codex", "0.10.0")
 	if err != nil {
 		t.Fatal(err)
 	}

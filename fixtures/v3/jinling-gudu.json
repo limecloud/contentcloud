@@ -156,7 +156,7 @@
       "change_reason": "补充当前有效的产品实拍和权利证明后再提交",
       "change_pointer": "/objects/0/content/blocked_reasons",
       "objects": [
-        {"id":"content-batch:jinling-demo:v3","type":"content_batch","version":1,"path":"50-production/batches/content-batch-jinling-demo-v3/manifest.yaml","content":{"status":"blocked","publishable":false,"requested_count":10,"received_count":10,"blocked_reasons":["缺少授权产品实拍和有效权利证明"]}}
+        {"id":"content-batch:jinling-demo:v3","type":"content_batch","version":1,"path":"50-production/batches/content-batch-jinling-demo-v3/manifest.yaml","content":{"schema_version":"contentcloud.content-batch/3.0","content_kind":"video_script","content_schema_ref":"contentcloud.content-item/3.0","delivery_profiles":["json","markdown","xlsx"],"status":"blocked","publishable":false,"requested_count":10,"received_count":10,"blocked_reasons":["缺少授权产品实拍和有效权利证明"]}}
       ]
     }
   ]

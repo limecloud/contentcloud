@@ -2,6 +2,18 @@ import { Navigate, type RouteObject } from 'react-router-dom';
 import { projectRoute, projectViewIDs } from './v3/page-contracts';
 
 export const appRoutes: RouteObject[] = [
+  {
+    path: '/docs',
+    lazy: async()=>({Component:(await import('./docs/DocsRoutes')).DocsRoute}),
+    children: [
+      {index:true,lazy:async()=>({Component:(await import('./docs/DocsRoutes')).DocsHomeRoute})},
+      {path:'clients/:clientID',lazy:async()=>({Component:(await import('./docs/DocsRoutes')).DocsClientRoute})},
+      {path:'content/:contentKind',lazy:async()=>({Component:(await import('./docs/DocsRoutes')).DocsContentRoute})},
+      {path:'guides/:contentKind/:clientID',lazy:async()=>({Component:(await import('./docs/DocsRoutes')).DocsGuideRoute})},
+      {path:'pages/*',lazy:async()=>({Component:(await import('./docs/DocsRoutes')).DocsGenericPageRoute})},
+      {path:'*',element:<Navigate to="/docs" replace/>}
+    ]
+  },
   {path: '/login', lazy: async()=>({Component:(await import('./views/auth/AuthRoutes')).LoginRoute})},
   {path: '/register', lazy: async()=>({Component:(await import('./views/auth/AuthRoutes')).RegisterRoute})},
   {path: '/device-auth', lazy: async()=>({Component:(await import('./views/PublicRoutes')).DeviceAuthRoute})},

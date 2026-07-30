@@ -157,6 +157,9 @@ func validateManifest(manifest Manifest, requireSignature bool) error {
 	if err := validateUniqueStrings(manifest.Capabilities, dottedIDPattern, "ENVIRONMENT_CAPABILITIES_INVALID"); err != nil {
 		return err
 	}
+	if err := validateContentTypes(manifest.ContentTypes); err != nil {
+		return err
+	}
 	if len(manifest.Distribution.Plugins) == 0 {
 		return domain.Invalid("ENVIRONMENT_PLUGINS_REQUIRED", "Environment Manifest 至少需要一个受控 Plugin")
 	}
@@ -199,11 +202,32 @@ func manifestPayloadBytes(manifest Manifest) ([]byte, error) {
 		Distribution       Distribution         `json:"distribution"`
 		WorkspaceTemplate  WorkspaceTemplateRef `json:"workspace_template"`
 		Capabilities       []string             `json:"capabilities"`
+		ContentTypes       []string             `json:"content_types"`
 		Policies           Policies             `json:"policies"`
 		IssuedAt           time.Time            `json:"issued_at"`
 		ExpiresAt          time.Time            `json:"expires_at"`
-	}{manifest.SchemaVersion, manifest.ProjectID, manifest.ProfileID, manifest.ProfileVersion, manifest.EnvironmentVersion, manifest.Harness, manifest.Distribution, manifest.WorkspaceTemplate, manifest.Capabilities, manifest.Policies, manifest.IssuedAt.UTC(), manifest.ExpiresAt.UTC()}
+	}{manifest.SchemaVersion, manifest.ProjectID, manifest.ProfileID, manifest.ProfileVersion, manifest.EnvironmentVersion, manifest.Harness, manifest.Distribution, manifest.WorkspaceTemplate, manifest.Capabilities, manifest.ContentTypes, manifest.Policies, manifest.IssuedAt.UTC(), manifest.ExpiresAt.UTC()}
 	return json.Marshal(payload)
+}
+
+func validateContentTypes(values []string) error {
+	if len(values) == 0 {
+		return domain.Invalid("ENVIRONMENT_CONTENT_TYPES_INVALID", "Environment Manifest 必须声明租户可用内容类型")
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if !domain.ValidTenantContentType(value) {
+			return domain.Invalid("ENVIRONMENT_CONTENT_TYPES_INVALID", "Environment Manifest 包含不受支持的内容类型")
+		}
+		if _, exists := seen[value]; exists {
+			return domain.Conflict("ENVIRONMENT_CONTENT_TYPES_INVALID", "Environment Manifest 包含重复内容类型")
+		}
+		seen[value] = struct{}{}
+	}
+	if _, exists := seen[domain.ContentTypeVideoScript]; !exists {
+		return domain.Invalid("ENVIRONMENT_CONTENT_TYPES_INVALID", "Environment Manifest 缺少默认 video_script 内容类型")
+	}
+	return nil
 }
 
 func manifestSignedBytes(digest string) ([]byte, error) {

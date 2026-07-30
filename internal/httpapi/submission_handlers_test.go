@@ -14,6 +14,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/httpapi"
+	"github.com/limecloud/contentcloud/internal/localworkspace"
 	"github.com/limecloud/contentcloud/internal/store/memory"
 	"github.com/limecloud/contentcloud/internal/testsupport"
 )
@@ -134,6 +135,9 @@ func TestV3ContentBatchBFFCompletesClientApprovalChain(t *testing.T) {
 	}
 	contentBatch := map[string]any{
 		"schema_version":          "contentcloud.content-batch/3.0",
+		"content_kind":            domain.ContentTypeVideoScript,
+		"content_schema_ref":      localworkspace.ContentItemSchema,
+		"delivery_profiles":       []string{"json", "markdown", "xlsx"},
 		"id":                      "content-batch:bff:v1",
 		"intent_id":               "intent:bff",
 		"brief_ref":               "brief:bff:v1",

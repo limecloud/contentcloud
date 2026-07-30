@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 import { api, patch } from '../api';
-import type { PlatformOverview, Session, Tenant } from '../types';
+import type { ContentType, PlatformOverview, PlatformTenant, Session, Tenant } from '../types';
 
 interface AdminContextValue {
   session:Session;
@@ -11,6 +11,7 @@ interface AdminContextValue {
   clearError:()=>void;
   refresh:(silent?:boolean)=>Promise<void>;
   setTenantStatus:(tenantID:string,status:'active'|'suspended')=>Promise<Tenant>;
+  setTenantContentCapability:(tenantID:string,contentType:Exclude<ContentType,'video_script'>,enabled:boolean)=>Promise<PlatformTenant>;
 }
 
 const AdminContext=createContext<AdminContextValue|undefined>(undefined);
@@ -32,7 +33,12 @@ export function AdminProvider({session,children}:PropsWithChildren<{session:Sess
     try{const tenant=await patch<Tenant>(`/api/v1/admin/tenants/${tenantID}`,{status});await refresh(true);return tenant}
     catch(value){setError(value instanceof Error?value.message:'租户状态更新失败');throw value}
   },[refresh]);
-  const value=useMemo<AdminContextValue>(()=>({session,data,loading,refreshing,error,clearError:()=>setError(''),refresh,setTenantStatus}),[session,data,loading,refreshing,error,refresh,setTenantStatus]);
+  const setTenantContentCapability=useCallback(async(tenantID:string,contentType:Exclude<ContentType,'video_script'>,enabled:boolean)=>{
+    setError('');
+    try{const tenant=await api<PlatformTenant>(`/api/v1/admin/tenants/${tenantID}/content-capabilities/${contentType}`,{method:'PUT',body:JSON.stringify({enabled})});await refresh(true);return tenant}
+    catch(value){setError(value instanceof Error?value.message:'内容能力更新失败');throw value}
+  },[refresh]);
+  const value=useMemo<AdminContextValue>(()=>({session,data,loading,refreshing,error,clearError:()=>setError(''),refresh,setTenantStatus,setTenantContentCapability}),[session,data,loading,refreshing,error,refresh,setTenantStatus,setTenantContentCapability]);
   return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>;
 }
 

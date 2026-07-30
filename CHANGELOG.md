@@ -2,6 +2,26 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.10.0] - 2026-07-30
+
+### Added
+
+- 增加按租户开通的内容能力管理；视频剧本保持默认能力，平台管理员可在 Web 管理端显式启用微信公众号文章，并由签名 Environment Manifest 同步到本地 Workspace。
+- 增加 ArticleBrief、ArticleItem 和 WeChatDeliveryPackage 契约，以及文章规划、长文写作、视觉规划和微信交付四个 Skills；CLI/MCP 支持批次冻结、确定性 lint、受控 revision diff 和本地交付包导出。
+- 增加同源公开文档中心，Web `/docs`、JSON API 与 `Accept: text/markdown` 共享内嵌目录；覆盖 Agent 客户端、内容类型、工作流和故障排查，并明确内部架构文档不对外暴露。
+- 增加 PostgreSQL `00003_tenant_content_capabilities.sql`，以增量表保存租户内容能力，不改写现有项目、Submission、Revision 或 ApprovedSnapshot 数据。
+
+### Changed
+
+- ContentBatch 从视频专用结构扩展为显式 `content_kind`、Schema 引用和交付 Profile 路由；服务端发布、内审和客户批准均复验租户能力、ArticleBrief、Knowledge ApprovedSnapshot 与商业主张血缘。
+- Web 客户审批页可按 Schema 展示视频剧本或结构化公众号文章，并将评论稳定绑定到文章 block、assertion 和 Revision digest。
+- CLI、Web、npm 安装器、视频 Plugin、MCP、Environment Profile 和 bootstrap 固定版本统一升级到 `0.10.0`；微信文章 Skill Pack 首版为 `0.1.0`，只提供受治理的本地人工交付，不登录或代替用户发布到微信。
+
+### Fixed
+
+- 发布和批准阶段会再次拒绝未开通内容类型、混合内容批次、缺少已批准 ArticleBrief/Knowledge 基线及 Claim 类型不匹配，避免本地状态或旧 Manifest 绕过服务端治理。
+- 文档 API 对 Markdown 协商、未知页面与内部页面执行明确的内容类型、缓存和不可见边界，避免 SPA fallback 将不存在的 Skill 引用伪装为成功响应。
+
 ## [0.9.0] - 2026-07-29
 
 ### Added

@@ -152,6 +152,22 @@ func LoadEnvironment(root string, verifier *environment.Verifier, now time.Time)
 	return EnvironmentState{Manifest: manifest, Lock: lock, Health: "ready"}, nil
 }
 
+func RequireContentType(root, contentType string, verifier *environment.Verifier, now time.Time) (EnvironmentState, error) {
+	if !domain.ValidTenantContentType(contentType) {
+		return EnvironmentState{}, domain.Invalid("CONTENT_TYPE_INVALID", "请求的内容类型不受支持")
+	}
+	state, err := LoadEnvironment(root, verifier, now)
+	if err != nil {
+		return EnvironmentState{}, err
+	}
+	for _, enabled := range state.Manifest.ContentTypes {
+		if enabled == contentType {
+			return state, nil
+		}
+	}
+	return EnvironmentState{}, domain.Policy("CONTENT_TYPE_NOT_ENABLED", "当前租户未开通内容类型 "+contentType, "由平台管理员在租户后台开通后刷新 Workspace Environment Manifest")
+}
+
 // CompareAndSwapEnvironmentLock commits one verified environment transition without overwriting concurrent state.
 func CompareAndSwapEnvironmentLock(root string, manifest environment.Manifest, expected, next environment.EnvironmentLock) error {
 	resolved, err := FindRoot(root)

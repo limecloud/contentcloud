@@ -12,8 +12,191 @@ import (
 
 func (r *Root) localCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "local", Short: "Run client-first source, knowledge, and LocalRun workflows"}
-	cmd.AddCommand(r.localSourceCommand(), r.localRunCommand(), r.localHandoffCommand(), r.localKnowledgeCommand(), r.localAudienceCommand(), r.localOfferCommand(), r.localBriefCommand(), r.localContentCommand(), r.localStoryboardCommand(), r.localSeedanceCommand())
+	cmd.AddCommand(r.localSourceCommand(), r.localRunCommand(), r.localHandoffCommand(), r.localKnowledgeCommand(), r.localAudienceCommand(), r.localOfferCommand(), r.localBriefCommand(), r.localContentCommand(), r.localArticleCommand(), r.localWeChatCommand(), r.localStoryboardCommand(), r.localSeedanceCommand())
 	return cmd
+}
+
+func (r *Root) localArticleCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "article", Short: "Create and govern WeChat ArticleBrief, ContentBatch, and ArticleItem objects"}
+
+	brief := &cobra.Command{Use: "brief", Short: "Validate an ArticleBrief against eligible knowledge"}
+	var briefDirectory string
+	briefLint := &cobra.Command{Use: "lint <article-brief.json>", Args: cobra.ExactArgs(1), Short: "Validate one ArticleBrief", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := r.requireLocalContentType(briefDirectory, domain.ContentTypeWeChatArticle); err != nil {
+			return err
+		}
+		report, value, err := localworkspace.LintArticleBrief(briefDirectory, args[0])
+		if err != nil {
+			return err
+		}
+		if !report.Valid {
+			lintErr := domain.Invalid("ARTICLE_BRIEF_LINT_FAILED", "ArticleBrief 确定性校验失败")
+			lintErr.Details = report
+			return lintErr
+		}
+		return r.writeOK("local.article.brief.lint", map[string]any{"brief": value, "report": report})
+	}}
+	briefLint.Flags().StringVar(&briefDirectory, "directory", "", "workspace path; defaults to current directory")
+	brief.AddCommand(briefLint)
+
+	batch := &cobra.Command{Use: "batch", Short: "Create, lint, and finalize WeChat article batches"}
+	var createDirectory, briefID, batchID string
+	var requestedCount int
+	create := &cobra.Command{Use: "create", Args: cobra.NoArgs, Short: "Freeze an approved ArticleBrief and Knowledge snapshot", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := r.requireLocalContentType(createDirectory, domain.ContentTypeWeChatArticle); err != nil {
+			return err
+		}
+		value, err := localworkspace.CreateArticleBatch(localworkspace.CreateArticleBatchOptions{Root: createDirectory, BriefID: briefID, RequestedCount: requestedCount, BatchID: batchID, Now: r.currentTime()})
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.article.batch.create", value)
+	}}
+	create.Flags().StringVar(&createDirectory, "directory", "", "workspace path; defaults to current directory")
+	create.Flags().StringVar(&briefID, "brief", "", "approved ArticleBrief object ID; defaults to newest eligible ArticleBrief")
+	create.Flags().IntVar(&requestedCount, "count", 1, "number of ArticleItem candidates")
+	create.Flags().StringVar(&batchID, "id", "", "optional stable ContentBatch ID")
+
+	var batchLintDirectory, batchLintFile string
+	var batchLintFiles []string
+	batchLint := &cobra.Command{Use: "lint", Args: cobra.NoArgs, Short: "Validate every ArticleItem in a batch", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := r.requireLocalContentType(batchLintDirectory, domain.ContentTypeWeChatArticle); err != nil {
+			return err
+		}
+		report, err := localworkspace.LintArticleBatch(batchLintDirectory, batchLintFile, batchLintFiles)
+		if err != nil {
+			return err
+		}
+		if !report.Valid {
+			lintErr := domain.Invalid("ARTICLE_BATCH_LINT_FAILED", "公众号文章批次校验失败")
+			lintErr.Details = report
+			return lintErr
+		}
+		return r.writeOK("local.article.batch.lint", report)
+	}}
+	batchLint.Flags().StringVar(&batchLintDirectory, "directory", "", "workspace path; defaults to current directory")
+	batchLint.Flags().StringVar(&batchLintFile, "batch", "", "workspace-relative ContentBatch manifest")
+	batchLint.Flags().StringSliceVar(&batchLintFiles, "file", nil, "ArticleItem JSON file; repeat for every candidate")
+
+	var finalizeDirectory, finalizeBatch string
+	var finalizeFiles []string
+	finalize := &cobra.Command{Use: "finalize", Args: cobra.NoArgs, Short: "Finalize a validated article batch", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := r.requireLocalContentType(finalizeDirectory, domain.ContentTypeWeChatArticle); err != nil {
+			return err
+		}
+		value, report, err := localworkspace.FinalizeArticleBatch(finalizeDirectory, finalizeBatch, finalizeFiles, r.currentTime())
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.article.batch.finalize", map[string]any{"batch": value, "report": report})
+	}}
+	finalize.Flags().StringVar(&finalizeDirectory, "directory", "", "workspace path; defaults to current directory")
+	finalize.Flags().StringVar(&finalizeBatch, "batch", "", "workspace-relative ContentBatch manifest")
+	finalize.Flags().StringSliceVar(&finalizeFiles, "file", nil, "ArticleItem JSON file; repeat for every candidate")
+	batch.AddCommand(create, batchLint, finalize)
+
+	item := &cobra.Command{Use: "item", Short: "Validate and compare ArticleItem revisions"}
+	var itemDirectory, itemBatch string
+	itemLint := &cobra.Command{Use: "lint <article-item.json>", Args: cobra.ExactArgs(1), Short: "Validate one ArticleItem", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := r.requireLocalContentType(itemDirectory, domain.ContentTypeWeChatArticle); err != nil {
+			return err
+		}
+		report, _, err := localworkspace.LintArticleItem(itemDirectory, args[0], itemBatch)
+		if err != nil {
+			return err
+		}
+		if !report.Valid {
+			lintErr := domain.Invalid("ARTICLE_ITEM_LINT_FAILED", "ArticleItem 确定性校验失败")
+			lintErr.Details = report
+			return lintErr
+		}
+		return r.writeOK("local.article.item.lint", report)
+	}}
+	itemLint.Flags().StringVar(&itemDirectory, "directory", "", "workspace path; defaults to current directory")
+	itemLint.Flags().StringVar(&itemBatch, "batch", "", "workspace-relative ContentBatch manifest")
+
+	var diffDirectory, baselineFile, candidateFile string
+	var allowedPaths []string
+	diff := &cobra.Command{Use: "diff", Args: cobra.NoArgs, Short: "Detect undeclared ArticleItem revision drift", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := r.requireLocalContentType(diffDirectory, domain.ContentTypeWeChatArticle); err != nil {
+			return err
+		}
+		value, err := localworkspace.DiffArticleItems(diffDirectory, baselineFile, candidateFile, allowedPaths)
+		if err != nil {
+			return err
+		}
+		if !value.Valid {
+			diffErr := domain.Invalid("ARTICLE_ITEM_REVISION_DRIFT", "ArticleItem 修订包含未声明字段变化")
+			diffErr.Details = value
+			return diffErr
+		}
+		return r.writeOK("local.article.item.diff", value)
+	}}
+	diff.Flags().StringVar(&diffDirectory, "directory", "", "workspace path; defaults to current directory")
+	diff.Flags().StringVar(&baselineFile, "baseline", "", "workspace-relative immutable baseline ArticleItem")
+	diff.Flags().StringVar(&candidateFile, "candidate", "", "workspace-relative revised ArticleItem")
+	diff.Flags().StringSliceVar(&allowedPaths, "allow", nil, "allowed JSON Pointer prefix; repeat as needed")
+	item.AddCommand(itemLint, diff)
+	cmd.AddCommand(brief, batch, item)
+	return cmd
+}
+
+func (r *Root) localWeChatCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "wechat", Short: "Build and validate local WeChat Official Account delivery packages"}
+	packageCommand := &cobra.Command{Use: "package", Short: "Export or validate a WeChat delivery package"}
+	var exportDirectory, outputDirectory string
+	export := &cobra.Command{Use: "export <approved-article-item-id>", Args: cobra.ExactArgs(1), Short: "Export a local operator-ready WeChat package", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := r.requireLocalContentType(exportDirectory, domain.ContentTypeWeChatArticle); err != nil {
+			return err
+		}
+		value, err := localworkspace.ExportWeChatPackage(exportDirectory, args[0], outputDirectory, r.currentTime())
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.wechat.package.export", value)
+	}}
+	export.Flags().StringVar(&exportDirectory, "directory", "", "workspace path; defaults to current directory")
+	export.Flags().StringVar(&outputDirectory, "out", "", "workspace-relative output directory")
+	var lintDirectory string
+	lint := &cobra.Command{Use: "lint <package.json>", Args: cobra.ExactArgs(1), Short: "Verify package files and digests", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := r.requireLocalContentType(lintDirectory, domain.ContentTypeWeChatArticle); err != nil {
+			return err
+		}
+		report, err := localworkspace.LintWeChatPackage(lintDirectory, args[0])
+		if err != nil {
+			return err
+		}
+		if !report.Valid {
+			lintErr := domain.Invalid("WECHAT_PACKAGE_LINT_FAILED", "公众号交付包校验失败")
+			lintErr.Details = report
+			return lintErr
+		}
+		return r.writeOK("local.wechat.package.lint", report)
+	}}
+	lint.Flags().StringVar(&lintDirectory, "directory", "", "workspace path; defaults to current directory")
+	packageCommand.AddCommand(export, lint)
+	cmd.AddCommand(packageCommand)
+	return cmd
+}
+
+func (r *Root) requireLocalContentType(directory, contentType string) error {
+	verifier, err := r.environmentManifestVerifier()
+	if err != nil {
+		return err
+	}
+	_, err = localworkspace.RequireContentType(directory, contentType, verifier, r.currentTime())
+	return err
+}
+
+func (r *Root) requireMCPContentType(directory, contentType string) (string, error) {
+	root, err := r.resolveMCPWorkspace(directory)
+	if err != nil {
+		return "", err
+	}
+	if err := r.requireLocalContentType(root, contentType); err != nil {
+		return "", err
+	}
+	return root, nil
 }
 
 func (r *Root) localBriefCommand() *cobra.Command {

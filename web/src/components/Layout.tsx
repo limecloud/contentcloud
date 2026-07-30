@@ -1,4 +1,4 @@
-import { BookOpenCheck, ChevronDown, Clapperboard, ClipboardList, LayoutDashboard, LogOut, Menu, MessageSquareMore, PackageCheck, PlugZap, Radar, Settings, Shield, SlidersHorizontal, Target, TrendingUp, Users, Workflow, X } from 'lucide-react';
+import { BookOpenCheck, ChevronDown, CircleHelp, Clapperboard, ClipboardList, LayoutDashboard, LogOut, Menu, MessageSquareMore, PackageCheck, PlugZap, Radar, Settings, Shield, SlidersHorizontal, Target, TrendingUp, Users, Workflow, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type { Project, Session, Tenant } from '../types';
 import type { ProjectView } from '../v3/page-contracts';
@@ -32,6 +32,7 @@ export function Layout({session,tenants,projects,project,view,onView,onTenant,on
       <div className="tenant-switcher"><div className="tenant-avatar">{session.tenant.name.slice(0,1)}</div><label><span className="visually-hidden">切换租户</span><select value={session.tenant.id} onChange={event=>onTenant(event.target.value)}>{tenants.map(tenant=><option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select><small>{session.role}</small></label><ChevronDown size={16}/></div>
       <nav>
         {globalItems.filter(item=>!item.roles||item.roles.includes(session.role)).map(item=><NavItem key={item.id} {...item} active={view===item.id} onClick={()=>navigate(item.id)}/>)}
+        <a className="nav-item nav-link" data-view="docs" href="/docs" onClick={()=>setMobileOpen(false)}><CircleHelp size={18}/><span>使用文档</span></a>
         {session.is_platform_admin&&<button className="nav-item" onClick={onAdmin}><Shield size={18}/><span>系统后台</span></button>}
         <div className="nav-label"><span>当前项目</span>{project&&<Status value={project.status}/>}</div>
         {project ? projectItems.map((item,index)=><div className="nav-entry" key={item.id}>{(index===0||projectItems[index-1].group!==item.group)&&<div className="nav-group-label">{item.group==='start'?'项目':item.group==='work'?'业务流程':'自动化'}</div>}<NavItem {...item} active={view===item.id} onClick={()=>navigate(item.id)}/></div>) : canManage ? <button className="nav-create" onClick={onCreateProject}>创建项目</button> : null}

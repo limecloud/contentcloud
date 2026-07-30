@@ -62,6 +62,7 @@ type WorkspaceConversationContext struct {
 	Root                  string                    `json:"root"`
 	ResolutionSource      string                    `json:"resolution_source"`
 	EnvironmentHealth     string                    `json:"environment_health"`
+	ContentTypes          []string                  `json:"content_types"`
 	BootstrapHandoff      *BootstrapHandoff         `json:"bootstrap_handoff,omitempty"`
 	ActiveRuns            []WorkspaceRunSummary     `json:"active_runs"`
 	ReadyHandoffs         []WorkspaceHandoffSummary `json:"ready_handoffs"`
@@ -163,6 +164,7 @@ func ConversationContext(directory, cwd string, now time.Time) (WorkspaceConvers
 		Root:                  resolution.Root,
 		ResolutionSource:      resolution.Source,
 		EnvironmentHealth:     health,
+		ContentTypes:          []string{},
 		BootstrapHandoff:      bootstrapHandoff,
 		ActiveRuns:            runs,
 		ReadyHandoffs:         handoffs,

@@ -1,0 +1,7 @@
+interface:
+  display_name: "ContentCloud 文章配图"
+  short_description: "规划并校验具备素材与权利依据的公众号封面和正文配图"
+  default_prompt: "Use $contentcloud-article-visuals to plan governed cover and inline image slots for the selected ArticleItem."
+
+policy:
+  allow_implicit_invocation: true

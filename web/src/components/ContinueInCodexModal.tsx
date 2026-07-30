@@ -1,4 +1,4 @@
-import { ArrowLeft, Check, ChevronRight, Clipboard, Clock3, ExternalLink, MonitorUp, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, BookOpen, Check, ChevronRight, Clipboard, Clock3, ExternalLink, MonitorUp, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { capabilityStatus, type AgentClient, type AgentHandoff } from '../agentHandoff';
 import './ContinueInCodexModal.css';
@@ -39,11 +39,11 @@ export function ContinueInAgentModal({clients,handoff,kind,loading,error,onSelec
     <div className="agent-client-list" aria-busy={loading}>
       {(clients||[]).map(client=>{
         const available=capabilityStatus(client,'interactive_handoff')==='available';
-        return <button key={client.id} type="button" className="agent-client-option" disabled={!available||loading} onClick={()=>void onSelect(client)}>
+        return <div className="agent-client-row" key={client.id}><button type="button" className="agent-client-option" disabled={!available||loading} onClick={()=>void onSelect(client)}>
           <span className={`agent-client-mark ${available?'is-available':''}`}>{available?<MonitorUp size={18}/>:<Clock3 size={18}/>}</span>
           <span><strong>{client.display_name}</strong><small>{available?'可用':'即将支持'}</small></span>
           {available&&<ChevronRight size={18}/>}
-        </button>;
+        </button><a className="icon-button agent-client-doc" href={`/docs/clients/${client.id}`} target="_blank" rel="noreferrer" title={`查看 ${client.display_name} 使用文档`} aria-label={`查看 ${client.display_name} 使用文档`}><BookOpen size={16}/></a></div>;
       })}
       {loading&&<p className="agent-client-loading">正在读取客户端目录…</p>}
     </div>

@@ -29,6 +29,15 @@ var ContentBatchV3Schema []byte
 //go:embed content-item-3.0.schema.json
 var ContentItemV3Schema []byte
 
+//go:embed article-brief-1.0.schema.json
+var ArticleBriefV1Schema []byte
+
+//go:embed article-1.0.schema.json
+var ArticleV1Schema []byte
+
+//go:embed wechat-delivery-1.0.schema.json
+var WeChatDeliveryV1Schema []byte
+
 //go:embed brief-3.0.schema.json
 var BriefV3Schema []byte
 

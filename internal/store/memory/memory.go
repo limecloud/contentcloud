@@ -18,6 +18,7 @@ type Store struct {
 	userByEmail          map[string]string
 	sessions             map[string]domain.Session
 	tenants              map[string]domain.Tenant
+	tenantContentCaps    map[string]domain.TenantContentCapability
 	memberships          map[string]domain.Membership
 	membershipInvites    map[string]domain.MembershipInvite
 	projects             map[string]domain.Project
@@ -60,7 +61,7 @@ type Store struct {
 func New() *Store {
 	return &Store{
 		users: map[string]domain.User{}, userByEmail: map[string]string{}, sessions: map[string]domain.Session{},
-		tenants: map[string]domain.Tenant{}, memberships: map[string]domain.Membership{}, membershipInvites: map[string]domain.MembershipInvite{}, projects: map[string]domain.Project{}, projectTemplates: map[string]domain.ProjectTemplate{},
+		tenants: map[string]domain.Tenant{}, tenantContentCaps: map[string]domain.TenantContentCapability{}, memberships: map[string]domain.Membership{}, membershipInvites: map[string]domain.MembershipInvite{}, projects: map[string]domain.Project{}, projectTemplates: map[string]domain.ProjectTemplate{},
 		connects: map[string]domain.ConnectSession{}, bootstrapAttempts: map[string]domain.BootstrapAttempt{}, bootstrapEvents: map[string]map[int64]domain.BootstrapProgressEvent{}, bootstrapDiagnostics: map[string]domain.BootstrapDiagnostic{}, devices: map[string]domain.Device{}, workspaceBindings: map[string]domain.WorkspaceBinding{}, userDeviceFlows: map[string]domain.UserDeviceFlow{}, cliTokens: map[string]domain.CLIToken{},
 		sources: map[string]domain.Source{}, revisions: map[string]domain.SourceRevision{}, evidence: map[string]domain.EvidenceSpan{}, assets: map[string]domain.Asset{}, rightsRecords: map[string]domain.RightsRecord{}, knowledge: map[string]domain.KnowledgeItem{}, knowledgeConflicts: map[string]domain.KnowledgeConflict{}, decisionRequests: map[string]domain.DecisionRequest{},
 		snapshots: map[string]domain.ContextSnapshot{}, runs: map[string]domain.TaskRun{}, executionBundles: map[string]environment.CreativeExecutionBundle{}, runAttempts: map[string]domain.RunAttempt{},
@@ -208,7 +209,7 @@ func (s *Store) PlatformTenants(_ context.Context) ([]domain.PlatformTenant, err
 	now := time.Now()
 	out := make([]domain.PlatformTenant, 0, len(s.tenants))
 	for _, tenant := range s.tenants {
-		value := domain.PlatformTenant{Tenant: tenant}
+		value := domain.PlatformTenant{Tenant: tenant, ContentTypes: domain.EnabledTenantContentTypes(s.tenantContentCapabilitiesLocked(tenant.ID))}
 		for _, membership := range s.memberships {
 			if membership.TenantID == tenant.ID && membership.Status == "active" && membership.RevokedAt == nil {
 				value.MemberCount++
@@ -237,6 +238,36 @@ func (s *Store) PlatformTenants(_ context.Context) ([]domain.PlatformTenant, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
 	return out, nil
+}
+
+func (s *Store) TenantContentCapabilities(_ context.Context, tenantID string) ([]domain.TenantContentCapability, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.tenants[tenantID]; !ok {
+		return nil, domain.NotFound("租户")
+	}
+	return s.tenantContentCapabilitiesLocked(tenantID), nil
+}
+
+func (s *Store) SetTenantContentCapability(_ context.Context, value domain.TenantContentCapability) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.tenants[value.TenantID]; !ok {
+		return domain.NotFound("租户")
+	}
+	s.tenantContentCaps[value.TenantID+":"+value.ContentType] = value
+	return nil
+}
+
+func (s *Store) tenantContentCapabilitiesLocked(tenantID string) []domain.TenantContentCapability {
+	values := []domain.TenantContentCapability{}
+	for _, value := range s.tenantContentCaps {
+		if value.TenantID == tenantID {
+			values = append(values, value)
+		}
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i].ContentType < values[j].ContentType })
+	return values
 }
 
 func (s *Store) PlatformUsers(_ context.Context) ([]domain.PlatformUser, error) {

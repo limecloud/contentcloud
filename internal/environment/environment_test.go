@@ -41,8 +41,11 @@ func TestBuildManifestUsesOnlyExactPublishedCompatibleRegistryEntries(t *testing
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 	profile, rawRegistry := fixtureProfileAndRegistry()
 	signedRegistry, registry, registryVerifier := signAndVerifyRegistry(t, rawRegistry)
-	manifest, err := environment.BuildManifest("project-1", profile, registry, now, now.Add(24*time.Hour))
+	manifest, err := environment.BuildManifest("project-1", []string{domain.ContentTypeVideoScript}, profile, registry, now, now.Add(24*time.Hour))
 	must(t, err)
+	if len(manifest.ContentTypes) != 1 || manifest.ContentTypes[0] != domain.ContentTypeVideoScript {
+		t.Fatalf("manifest content types = %#v", manifest.ContentTypes)
+	}
 	if len(manifest.Distribution.Plugins) != 2 || manifest.Distribution.Plugins[0].ID != "contentcloud-video-production" || manifest.Distribution.Plugins[1].ID != "contentcloud-visual-storytelling" {
 		t.Fatalf("resolved plugins = %#v", manifest.Distribution.Plugins)
 	}
@@ -79,6 +82,17 @@ func TestBuildManifestUsesOnlyExactPublishedCompatibleRegistryEntries(t *testing
 	assertCode(t, buildManifestError(profile, verifiedRevoked, now), "REGISTRY_ENTRY_REVOKED")
 }
 
+func TestCreativeEnvironmentManifestRejectsInvalidContentTypes(t *testing.T) {
+	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	profile, rawRegistry := fixtureProfileAndRegistry()
+	_, registry, _ := signAndVerifyRegistry(t, rawRegistry)
+	for _, contentTypes := range [][]string{nil, {domain.ContentTypeWeChatArticle}, {domain.ContentTypeVideoScript, domain.ContentTypeVideoScript}, {domain.ContentTypeVideoScript, "unknown"}} {
+		if _, err := environment.BuildManifest("project-1", contentTypes, profile, registry, now, now.Add(24*time.Hour)); err == nil {
+			t.Fatalf("invalid content types were accepted: %#v", contentTypes)
+		}
+	}
+}
+
 func TestRevokedEntryBlocksNewUseButRemainsHistoricallyAuditable(t *testing.T) {
 	_, registry := fixtureProfileAndRegistry()
 	entry := registry.Entries[0]
@@ -111,7 +125,7 @@ func TestLocalResolverIntersectsManifestRegistryAndLock(t *testing.T) {
 	must(t, err)
 	profile, rawRegistry := fixtureProfileAndRegistry()
 	_, registry, _ := signAndVerifyRegistry(t, rawRegistry)
-	unsigned, err := environment.BuildManifest("project-1", profile, registry, now, now.Add(24*time.Hour))
+	unsigned, err := environment.BuildManifest("project-1", []string{domain.ContentTypeVideoScript}, profile, registry, now, now.Add(24*time.Hour))
 	must(t, err)
 	manifest, err := issuer.Sign(unsigned)
 	must(t, err)
@@ -178,7 +192,7 @@ func signedManifest(t *testing.T, issuer *environment.Issuer, now time.Time) env
 	t.Helper()
 	profile, registry := fixtureProfileAndRegistry()
 	_, verifiedRegistry, _ := signAndVerifyRegistry(t, registry)
-	manifest, err := environment.BuildManifest("project-1", profile, verifiedRegistry, now, now.Add(24*time.Hour))
+	manifest, err := environment.BuildManifest("project-1", []string{domain.ContentTypeVideoScript}, profile, verifiedRegistry, now, now.Add(24*time.Hour))
 	must(t, err)
 	manifest, err = issuer.Sign(manifest)
 	must(t, err)
@@ -194,7 +208,7 @@ func lockForManifest(manifest environment.Manifest) environment.EnvironmentLock 
 }
 
 func buildManifestError(profile environment.Profile, registry environment.VerifiedRegistry, now time.Time) error {
-	_, err := environment.BuildManifest("project-1", profile, registry, now, now.Add(24*time.Hour))
+	_, err := environment.BuildManifest("project-1", []string{domain.ContentTypeVideoScript}, profile, registry, now, now.Add(24*time.Hour))
 	return err
 }
 

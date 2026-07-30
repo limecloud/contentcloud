@@ -126,7 +126,7 @@ func TestContentItemRevisionDiffRejectsUndeclaredDrift(t *testing.T) {
 }
 
 func TestContentItemLintRequiresExplicitArraysAndBlockedReasons(t *testing.T) {
-	batch := ContentBatch{ID: "batch", Status: "candidate", ProjectID: "project-1", BriefRef: "brief", ContextSnapshotID: "context", DirectionIDs: []string{"direction"}, VariantDimension: "hook"}
+	batch := ContentBatch{ID: "batch", ContentKind: domain.ContentTypeVideoScript, ContentSchemaRef: ContentItemSchema, Status: "candidate", ProjectID: "project-1", BriefRef: "brief", ContextSnapshotID: "context", DirectionIDs: []string{"direction"}, VariantDimension: "hook"}
 	direction := CreativeDirection{ID: "direction", Title: "方向", Angle: "角度", HookType: "场景", VisualMotif: "画面", Narrative: []string{"开始"}, Tone: "克制", TargetEmotion: "期待", RiskRefs: []string{}, Status: "selected"}
 	blocked := validBlockedContentItem(batch, direction)
 	report := lintContentItem(blocked, batch, KnowledgeQueryResult{}, map[string]LocalKnowledgeItem{})

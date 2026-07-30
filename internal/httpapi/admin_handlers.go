@@ -24,3 +24,15 @@ func (s *Server) updatePlatformTenant(w http.ResponseWriter, r *http.Request) {
 	value, err := s.service.UpdatePlatformTenantStatus(r.Context(), actor, chi.URLParam(r, "tenantID"), input.Status, middleware.GetReqID(r.Context()))
 	s.dispatchResult(w, r, "platform.tenant.update", value, err)
 }
+
+func (s *Server) updatePlatformTenantContentCapability(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.UpdatePlatformTenantContentCapability(r.Context(), actor, chi.URLParam(r, "tenantID"), chi.URLParam(r, "contentType"), input.Enabled, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "platform.tenant.content_capability.update", value, err)
+}

@@ -41,6 +41,8 @@ jobs:
       - run: test -z "$(gofmt -l ./cmd ./internal ./contracts ./migrations ./plugins)"
       - run: go vet ./...
       - run: go test -race ./...
+      - run: pnpm governance:v3
+      - run: pnpm governance:content
       - run: pnpm evaluate:plugin
       - run: pnpm test:plugin-signing
       - run: pnpm check:plugin

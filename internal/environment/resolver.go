@@ -12,7 +12,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
-func BuildManifest(projectID string, profile Profile, verifiedRegistry VerifiedRegistry, issuedAt, expiresAt time.Time) (Manifest, error) {
+func BuildManifest(projectID string, contentTypes []string, profile Profile, verifiedRegistry VerifiedRegistry, issuedAt, expiresAt time.Time) (Manifest, error) {
 	registry := verifiedRegistry.raw()
 	_, harnessErr := agentadapter.RequireCapability(profile.Harness, agentadapter.CapabilityCreativeEnvironment)
 	if strings.TrimSpace(projectID) == "" || !dottedIDPattern.MatchString(profile.ID) || !versionPattern.MatchString(profile.Version) || !versionPattern.MatchString(profile.EnvironmentVersion) || harnessErr != nil || !pluginIDPattern.MatchString(profile.Marketplace) {
@@ -22,6 +22,10 @@ func BuildManifest(projectID string, profile Profile, verifiedRegistry VerifiedR
 		return Manifest{}, domain.Invalid("ENVIRONMENT_PROFILE_TIME_INVALID", "Environment Manifest 有效期无效")
 	}
 	if err := validateUniqueStrings(profile.Capabilities, dottedIDPattern, "ENVIRONMENT_PROFILE_CAPABILITIES_INVALID"); err != nil {
+		return Manifest{}, err
+	}
+	contentTypes = sortedCopy(contentTypes)
+	if err := validateContentTypes(contentTypes); err != nil {
 		return Manifest{}, err
 	}
 	plugins := make([]PluginRef, 0, len(profile.Plugins))
@@ -70,7 +74,7 @@ func BuildManifest(projectID string, profile Profile, verifiedRegistry VerifiedR
 		SchemaVersion: ManifestSchemaVersion, ProjectID: projectID, ProfileID: profile.ID, ProfileVersion: profile.Version,
 		EnvironmentVersion: profile.EnvironmentVersion, Harness: profile.Harness,
 		Distribution: Distribution{Marketplace: profile.Marketplace, Plugins: plugins}, WorkspaceTemplate: profile.WorkspaceTemplate,
-		Capabilities: sortedCopy(profile.Capabilities), Policies: profile.Policies, IssuedAt: issuedAt.UTC(), ExpiresAt: expiresAt.UTC(),
+		Capabilities: sortedCopy(profile.Capabilities), ContentTypes: contentTypes, Policies: profile.Policies, IssuedAt: issuedAt.UTC(), ExpiresAt: expiresAt.UTC(),
 	}
 	if err := validateManifest(manifest, false); err != nil {
 		return Manifest{}, err

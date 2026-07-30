@@ -191,7 +191,11 @@ func (s *Service) CompleteBootstrapAuthorization(ctx context.Context, in Complet
 	}
 	var issuedManifest *environment.Manifest
 	if s.environmentControl != nil {
-		manifest, issueErr := s.environmentControl.Issue(attempt.ProjectID, now)
+		contentTypes, capabilityErr := s.TenantContentTypes(ctx, attempt.TenantID)
+		if capabilityErr != nil {
+			return ConnectDeviceResult{}, capabilityErr
+		}
+		manifest, issueErr := s.environmentControl.Issue(attempt.ProjectID, contentTypes, now)
 		if issueErr != nil {
 			return ConnectDeviceResult{}, issueErr
 		}

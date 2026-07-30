@@ -55,3 +55,36 @@ func (s *Service) UpdatePlatformTenantStatus(ctx context.Context, actor Actor, t
 	s.audit(ctx, actor, "", "platform.tenant_status_changed", "tenant", tenant.ID, requestID, map[string]any{"status": status, "tenant_name": tenant.Name})
 	return tenant, nil
 }
+
+func (s *Service) UpdatePlatformTenantContentCapability(ctx context.Context, actor Actor, tenantID, contentType string, enabled bool, requestID string) (domain.PlatformTenant, error) {
+	if !actor.PlatformAdmin {
+		return domain.PlatformTenant{}, domain.Policy("PLATFORM_ADMIN_REQUIRED", "只有平台管理员可以修改租户内容能力", "联系系统管理员配置平台权限")
+	}
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
+	if !domain.ValidOptionalTenantContentType(contentType) {
+		return domain.PlatformTenant{}, domain.Invalid("TENANT_CONTENT_TYPE_INVALID", "内容类型不受支持或属于不可关闭的默认能力")
+	}
+	value := domain.TenantContentCapability{TenantID: tenantID, ContentType: contentType, Enabled: enabled, UpdatedBy: actor.UserID, UpdatedAt: s.now().UTC()}
+	if err := s.store.SetTenantContentCapability(ctx, value); err != nil {
+		return domain.PlatformTenant{}, err
+	}
+	s.audit(ctx, actor, "", "platform.tenant_content_capability_changed", "tenant", tenantID, requestID, map[string]any{"content_type": contentType, "enabled": enabled})
+	tenants, err := s.store.PlatformTenants(ctx)
+	if err != nil {
+		return domain.PlatformTenant{}, err
+	}
+	for _, tenant := range tenants {
+		if tenant.ID == tenantID {
+			return tenant, nil
+		}
+	}
+	return domain.PlatformTenant{}, domain.NotFound("租户")
+}
+
+func (s *Service) TenantContentTypes(ctx context.Context, tenantID string) ([]string, error) {
+	values, err := s.store.TenantContentCapabilities(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return domain.EnabledTenantContentTypes(values), nil
+}

@@ -4,7 +4,7 @@
   "title": "Creative Environment Manifest 1.0",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "project_id", "profile_id", "profile_version", "environment_version", "harness", "distribution", "workspace_template", "capabilities", "policies", "issued_at", "expires_at", "digest", "signature"],
+  "required": ["schema_version", "project_id", "profile_id", "profile_version", "environment_version", "harness", "distribution", "workspace_template", "capabilities", "content_types", "policies", "issued_at", "expires_at", "digest", "signature"],
   "properties": {
     "schema_version": {"const": "1.0"},
     "project_id": {"type": "string", "minLength": 1},
@@ -23,6 +23,13 @@
     },
     "workspace_template": {"$ref": "#/$defs/workspace_template"},
     "capabilities": {"$ref": "#/$defs/capabilities"},
+    "content_types": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "contains": {"const": "video_script"},
+      "items": {"enum": ["video_script", "wechat_article"]}
+    },
     "policies": {"$ref": "#/$defs/policies"},
     "issued_at": {"type": "string", "format": "date-time"},
     "expires_at": {"type": "string", "format": "date-time"},
