@@ -1,8 +1,8 @@
 # ContentCloud V5 实施台账
 
-状态：`方案已形成，纵向切片实施中，待业务评审`。
+状态：`方案已形成，Automation 本地集成闭环已完成，待真实设备与业务验收`。
 
-更新时间：2026-07-29。
+更新时间：2026-07-31。
 
 本文件是 V5 唯一进度台账。V5 继承 V3/V4，不能以新路线图为由跳过现有 Schema、审批、publish/pull、租户、权利和 Browser 安全边界。执行分工以 [05-execution-boundaries.md](./05-execution-boundaries.md) 为准。
 
@@ -109,6 +109,23 @@
 | W5-06-06 | V3/V4 回归与真实宿主验收 | publish/pull、Browser、审批和 Delivery 无回归 | 待开始 |
 | W5-06-07 | 执行平面越权测试 | Codex 不能伪造批准，服务端不能扫描本机，外部平台动作必须人工确认 | 实施中 |
 
+### W5-07 Automation Runtime
+
+执行平面：服务端签发冻结租约；本机 Daemon 常驻轮询；租约内 Codex/Claude 全权限、无交互执行；结果由服务端 Schema 和业务规则复验。
+
+| ID | 工作 | 验收 | 状态 |
+| --- | --- | --- | --- |
+| W5-07-01 | 移除 Automation Adapter 的只读、禁工具、禁网络限制 | Codex danger full access；Claude bypassPermissions；Provider 环境可继承 | 已完成 |
+| W5-07-02 | 增加 Agent 进程组和取消回收 | 超时/取消后无子进程残留，Windows 构建通过 | 已完成 |
+| W5-07-03 | 实现 daemon start/stop/status/restart | 幂等启动、PID/版本/路径/日志可查询 | 已完成 |
+| W5-07-04 | Bootstrap 注册成功自动启动 | apply/resume 均启动一次；Plan 明确 would_enable_daemon | 已完成 |
+| W5-07-05 | CLI 更新后重载已安装 daemon | npm 校验下载后由新二进制 restart --if-installed | 已完成 |
+| W5-07-06 | Daemon 运行版本上报 | 每次 poll 刷新服务端 Device.daemon_version | 已完成 |
+| W5-07-07 | 完成结果持久重报和实时进度 fallback | Daemon 崩溃/断网恢复后不丢已完成结果；long-poll/SSE 可重连 | 已完成 |
+| W5-07-08 | 多 Workspace 并发、日志轮转和服务端更新策略 | 配额、日志上限、update_available 与兼容窗口可测 | 已完成 |
+| W5-07-09 | Attempt 不可变进度事件 | 心跳、失败、取消、成功均可按 cursor 增量读取 | 已完成 |
+| W5-07-10 | 全流程验收 | 本地集成已覆盖升级、断网、重启、多 Workspace、版本门禁和 SSE；真实设备继续验收 | 本地完成，真实设备待验收 |
+
 ## 3. 推荐实施顺序
 
 ```text
@@ -176,3 +193,5 @@ M5-0 至少确认以下问题：
 | 2026-07-29 | 将执行边界落实到 `local`、`publish/pull`、服务端批准和外部平台人工操作的命令级门禁 |
 | 2026-07-29 | 增加 audience/storyboard/Seedance 本地纵向切片、服务端摘要复算、V5 submission migration 和可复制交付包 |
 | 2026-07-29 | 固定上游调研 commit；确认仓库未声明 LICENSE，保留作者授权 Evidence 门禁且不复制上游 Skill 原文 |
+| 2026-07-31 | 采用实战型 Automation 模式：租约内 Agent 全权限无审批，Bootstrap 自动启动 Daemon，补齐生命周期、进程回收和版本重启闭环 |
+| 2026-07-31 | 完成 journal/outbox、重启恢复、多绑定并发、日志轮转、版本门禁、long-poll、SSE 和停止态 health 的自动化集成验证 |

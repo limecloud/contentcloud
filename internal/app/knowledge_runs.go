@@ -158,6 +158,7 @@ func (s *Service) reportKnowledgeExtraction(ctx context.Context, actor Actor, de
 	if err := s.store.SaveRun(ctx, run); err != nil {
 		return domain.KnowledgeExtractionResult{}, err
 	}
+	_, _ = s.store.AppendRunProgress(ctx, domain.RunProgressEvent{TenantID: run.TenantID, ProjectID: run.ProjectID, RunID: run.ID, AttemptID: attempt.ID, DeviceID: attempt.DeviceID, Sequence: run.HeartbeatSequence + 1, Phase: "succeeded", Step: run.HeartbeatSequence + 1, Label: run.ProgressLabel, OccurredAt: run.UpdatedAt})
 	result, err := s.knowledgeExtractionResult(ctx, actor.TenantID, run, pkg.Warnings)
 	if err == nil {
 		s.audit(ctx, actor, run.ProjectID, "knowledge_extraction_run.reported", "task_run", run.ID, requestID, map[string]any{"candidate_count": len(result.Items), "conflict_count": len(result.Conflicts)})

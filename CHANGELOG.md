@@ -2,6 +2,22 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.11.0] - 2026-07-31
+
+### Added
+
+- 增加 V5 Automation Runtime：本地 Daemon 生命周期、LaunchAgent 管理、多 Workspace 绑定、并发租约执行、受管日志轮转和版本更新策略。
+- 增加 Automation Attempt 持久重报与实时进度链路；支持断网/重启恢复、不可变 `run_progress_events`、CLI 增量事件读取和 Web SSE 断线续传。
+
+### Changed
+
+- Automation Agent 按已确认 Task Contract 使用隔离 Attempt 工作目录执行；Codex/Claude 的运行参数、进程组回收和 Provider 环境继承统一收敛到无人值守运行模型。
+- Bootstrap、Workspace、Handoff、CLI、Web、npm 安装器、Plugin、MCP、Environment Profile 和 Server/Worker 版本统一升级到 `0.11.0`，服务端增加 Daemon 最低版本与最新版本门禁。
+
+### Fixed
+
+- 修复 Daemon 重启、网络失败和服务端永久拒绝时的结果重放与 dead-letter 边界，避免重复执行或丢失已完成 Attempt 结果。
+
 ## [0.10.0] - 2026-07-30
 
 ### Added

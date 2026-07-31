@@ -136,7 +136,7 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 				return err
 			}
 			if !accept {
-				err := domain.Policy("BOOTSTRAP_CONFIRMATION_REQUIRED", "bootstrap 将安装固定 Codex Plugin、绑定设备并写入目标 Workspace", "先检查 bootstrap plan，再传入 --accept")
+				err := domain.Policy("BOOTSTRAP_CONFIRMATION_REQUIRED", "bootstrap 将安装固定 Codex Plugin、绑定设备、写入目标 Workspace 并启动本机 Automation Daemon", "先检查 bootstrap plan，再传入 --accept")
 				err.ExitCode = 2
 				return err
 			}
@@ -193,7 +193,12 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 			if err != nil {
 				return withBootstrapDetails(err, map[string]any{"recovery": "refresh the trusted Environment configuration, then run bootstrap resume"})
 			}
+			status, err = localworkspace.LoadStatus(status.Root)
+			if err != nil {
+				return err
+			}
 			cfg.WorkspaceRoot = status.Root
+			cfg.UpsertDaemonBinding(localconfig.DaemonBinding{ServerURL: r.resolveServer(cfg), DeviceID: cfg.DeviceID, Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: status.Binding.WorkspaceID, ProjectID: status.Binding.ProjectID, Root: status.Root}}})
 			if err := localconfig.Save(cfg); err != nil {
 				return withBootstrapDetails(err, map[string]any{"recovery": "retry with bootstrap resume to persist the workspace root"})
 			}
@@ -227,6 +232,16 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 			}
 			if progress != nil {
 				progress.append(command.Context(), "registering", "passed", "workspace.registration", "", "")
+			}
+			daemonService, err := r.localDaemonService()
+			if err != nil {
+				return withBootstrapDetails(err, map[string]any{"recovery": "run contentcloud daemon start after resolving the local service error"})
+			}
+			daemonState, err := daemonService.Start()
+			if err != nil {
+				return withBootstrapDetails(err, map[string]any{"recovery": "run contentcloud daemon start after resolving the local service error"})
+			}
+			if progress != nil {
 				progress.append(command.Context(), "opening_desktop", "started", "", "", "")
 			}
 			launch := codexplugin.LaunchResult{WorkspacePath: status.Root, RecoveryPrompt: codexplugin.RecoveryPrompt(adapter.Spec)}
@@ -251,7 +266,8 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 				"bootstrap_handoff":      handoff,
 				"bootstrap_handoff_path": handoffPath,
 				"new_chat":               launch,
-				"daemon_enabled":         false,
+				"daemon_enabled":         true,
+				"daemon":                 daemonState,
 				"uploaded_files":         0,
 				"credential_store":       credentialProvider(),
 				"authorization_mode":     "browser_device",
@@ -354,7 +370,12 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			status, err = localworkspace.LoadStatus(status.Root)
+			if err != nil {
+				return err
+			}
 			cfg.WorkspaceRoot = status.Root
+			cfg.UpsertDaemonBinding(localconfig.DaemonBinding{ServerURL: status.Binding.ServerURL, DeviceID: status.Binding.DeviceID, Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: status.Binding.WorkspaceID, ProjectID: status.Binding.ProjectID, Root: status.Root}}})
 			if err := localconfig.Save(cfg); err != nil {
 				return err
 			}
@@ -373,11 +394,19 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			daemonService, err := r.localDaemonService()
+			if err != nil {
+				return err
+			}
+			daemonState, err := daemonService.Start()
+			if err != nil {
+				return err
+			}
 			launch := codexplugin.LaunchResult{WorkspacePath: status.Root, RecoveryPrompt: codexplugin.RecoveryPrompt(adapter.Spec)}
 			if openCodex {
 				launch = adapter.LaunchNewChat(command.Context(), status.Root)
 			}
-			return r.writeOK("bootstrap.resume", map[string]any{"plugin": pluginResult, "workspace": status, "environment": environmentState, "doctor": report, "cloud_binding": registered, "bootstrap_handoff": handoff, "bootstrap_handoff_path": handoffPath, "new_chat": launch})
+			return r.writeOK("bootstrap.resume", map[string]any{"plugin": pluginResult, "workspace": status, "environment": environmentState, "doctor": report, "cloud_binding": registered, "bootstrap_handoff": handoff, "bootstrap_handoff_path": handoffPath, "new_chat": launch, "daemon_enabled": true, "daemon": daemonState})
 		},
 	}
 	command.Flags().BoolVar(&accept, "accept", false, "confirm plugin repair and workspace registration")
@@ -421,7 +450,7 @@ func (r *Root) buildBootstrapPlan(ctx context.Context, directory string) (bootst
 		WouldAuthorizeDevice: true,
 		WouldRegister:        true,
 		WouldUploadFiles:     false,
-		WouldEnableDaemon:    false,
+		WouldEnableDaemon:    true,
 		WouldOpenNewChat:     true,
 	}
 	if pluginPlan.State == "blocked" {

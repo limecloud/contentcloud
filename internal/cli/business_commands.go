@@ -867,6 +867,19 @@ func (r *Root) runCommand() *cobra.Command {
 	}}
 	cancel.Flags().BoolVar(&yes, "yes", false, "confirm this high-risk write")
 	cancel.Flags().BoolVar(&dryRun, "dry-run", false, "validate without changing server state")
+	var after int64
+	events := &cobra.Command{Use: "events <run-id>", Args: cobra.ExactArgs(1), Short: "Show immutable run progress events after a cursor", RunE: func(cmd *cobra.Command, args []string) error {
+		_, client, _, err := r.userClient()
+		if err != nil {
+			return err
+		}
+		var result []domain.RunProgressEvent
+		if err := client.Dispatch(cmd.Context(), "run.events", map[string]any{"id": args[0], "after": after}, &result); err != nil {
+			return err
+		}
+		return r.writeOK("run.events", result)
+	}}
+	events.Flags().Int64Var(&after, "after", 0, "return events with a cursor greater than this value")
 	log := &cobra.Command{Use: "log <run-id>", Args: cobra.ExactArgs(1), Short: "Show persisted run progress without exposing local Agent output", RunE: func(cmd *cobra.Command, args []string) error {
 		_, client, _, err := r.userClient()
 		if err != nil {
@@ -876,9 +889,13 @@ func (r *Root) runCommand() *cobra.Command {
 		if err := client.Dispatch(cmd.Context(), "run.show", map[string]any{"id": args[0]}, &run); err != nil {
 			return err
 		}
-		return r.writeOK("run.log", map[string]any{"run_id": run.ID, "state": run.State, "progress_label": run.ProgressLabel, "attempt_count": run.AttemptCount, "error_code": run.ErrorCode, "updated_at": run.UpdatedAt})
+		var events []domain.RunProgressEvent
+		if err := client.Dispatch(cmd.Context(), "run.events", map[string]any{"id": args[0], "after": 0}, &events); err != nil {
+			return err
+		}
+		return r.writeOK("run.log", map[string]any{"run_id": run.ID, "state": run.State, "progress_label": run.ProgressLabel, "attempt_count": run.AttemptCount, "error_code": run.ErrorCode, "updated_at": run.UpdatedAt, "events": events})
 	}}
-	cmd.AddCommand(cancel, log)
+	cmd.AddCommand(cancel, events, log)
 	return cmd
 }
 

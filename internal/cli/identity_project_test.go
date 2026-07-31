@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -19,6 +20,23 @@ func TestIdentityProjectCommandSchemas(t *testing.T) {
 		if schemas[name] == nil {
 			t.Fatalf("command schema %q is missing", name)
 		}
+	}
+}
+
+func TestAutomationCommandSchemasMatchExecutableFlags(t *testing.T) {
+	schemas := commandSchemas()
+	daemonRun, ok := schemas["daemon.run"].(map[string]any)
+	if !ok {
+		t.Fatalf("daemon.run schema = %#v", schemas["daemon.run"])
+	}
+	arguments, _ := daemonRun["arguments"].([]string)
+	if !slices.Contains(arguments, "--log-file") {
+		t.Fatalf("daemon.run schema arguments = %#v", arguments)
+	}
+	root := (&Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}).command()
+	command, _, err := root.Find([]string{"run", "events"})
+	if err != nil || command == nil || command.Flags().Lookup("after") == nil {
+		t.Fatalf("run events command is not executable: command=%#v error=%v", command, err)
 	}
 }
 

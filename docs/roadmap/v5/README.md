@@ -1,8 +1,8 @@
 # ContentCloud V5 抖音电商视频生产闭环方案
 
-状态：`方案已形成，纵向切片实施中，待业务评审`。
+状态：`方案已形成，Automation 本地集成闭环已实现，进入真实设备与业务验收`。
 
-更新时间：2026-07-29。
+更新时间：2026-07-31。
 
 V5 解决一个当前尚未闭环的问题：ContentCloud 已能生成厂商无关的营销剧本，但还不能稳定地把“抖音电商人群策略、剧本、可审核分镜图、Seedance 可复制提示词、实际发布成片和投放结果”串成可追溯流程。
 
@@ -73,6 +73,7 @@ V5 所称“最佳实践”不是承诺单一模板必然带来 GMV，而是满�
 | D5-10 | 人群定制创意属于探索或“人群与表达匹配测试” | 同时改变人群和创意不是严格单变量 A/B，不能伪装成因果结论 |
 | D5-11 | 候选与媒体生产在 Codex 本机执行，正式审批、存证和归因在服务端执行 | 保持 V3 本地创作、云端治理和显式 publish/pull 边界 |
 | D5-12 | Seedance/抖音的登录、上传、生成和发布由用户在外部平台执行 | 服务端不持有平台账号、素材上传权限或生成平台代理权 |
+| D5-13 | 租约内 Automation Agent 采用全权限、无交互执行，控制面在执行前后收口 | 真实文件、媒体、Shell 和网络任务不能在只读/禁工具模式下完成 |
 
 ## 4. 业务边界
 
@@ -96,6 +97,7 @@ V5 不做以下事情：
 | [03-storyboard-and-seedance-workflow.md](./03-storyboard-and-seedance-workflow.md) | 分镜生产、上游 Skill 引用边界、Seedance 最终复制格式 |
 | [04-results-and-acceptance.md](./04-results-and-acceptance.md) | 发布绑定、指标归因、学习闭环、验收矩阵与 Golden Journey |
 | [05-execution-boundaries.md](./05-execution-boundaries.md) | Codex、本地媒体、服务端治理与外部平台的唯一执行方和时序 |
+| [06-automation-runtime-and-daemon.md](./06-automation-runtime-and-daemon.md) | Automation Codex 全权限模型、Daemon 生命周期、已安装升级和 Alook 借鉴边界 |
 | [PLAN.md](./PLAN.md) | V5 唯一实施台账、工作包和评审门 |
 
 ## 6. 完成定义

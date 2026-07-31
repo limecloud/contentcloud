@@ -33,17 +33,18 @@ type Lease struct {
 }
 
 type Options struct {
-	BaseDir       string
-	ForbiddenRoot string
-	AttemptID     string
-	RunID         string
-	ProjectID     string
-	Contract      domain.TaskContract
-	Bundle        *environment.CreativeExecutionBundle
-	OutputSchema  []byte
-	Skill         []byte
-	Now           time.Time
-	ExpiresAt     time.Time
+	BaseDir        string
+	ForbiddenRoot  string
+	ForbiddenRoots []string
+	AttemptID      string
+	RunID          string
+	ProjectID      string
+	Contract       domain.TaskContract
+	Bundle         *environment.CreativeExecutionBundle
+	OutputSchema   []byte
+	Skill          []byte
+	Now            time.Time
+	ExpiresAt      time.Time
 }
 
 type Workspace struct {
@@ -70,7 +71,11 @@ func Begin(options Options) (*Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := rejectOverlap(base, options.ForbiddenRoot); err != nil {
+	forbiddenRoots := append([]string{}, options.ForbiddenRoots...)
+	if strings.TrimSpace(options.ForbiddenRoot) != "" {
+		forbiddenRoots = append(forbiddenRoots, options.ForbiddenRoot)
+	}
+	if err := rejectOverlaps(base, forbiddenRoots); err != nil {
 		return nil, err
 	}
 	if err := ensurePrivateDirectory(base); err != nil {
@@ -226,6 +231,29 @@ func rejectOverlap(base, forbidden string) error {
 	}
 	if within(base, interactive) || within(interactive, base) {
 		return domain.Policy("AUTOMATION_WORKSPACE_OVERLAP", "Automation workspace 不能与交互式 ContentCloud Workspace 重叠", "使用独立的用户缓存目录执行后台 Attempt")
+	}
+	return nil
+}
+
+func rejectOverlaps(base string, forbiddenRoots []string) error {
+	seen := make(map[string]struct{}, len(forbiddenRoots))
+	for _, forbidden := range forbiddenRoots {
+		forbidden = strings.TrimSpace(forbidden)
+		if forbidden == "" {
+			continue
+		}
+		absolute, err := filepath.Abs(forbidden)
+		if err != nil {
+			return err
+		}
+		absolute = filepath.Clean(absolute)
+		if _, exists := seen[absolute]; exists {
+			continue
+		}
+		seen[absolute] = struct{}{}
+		if err := rejectOverlap(base, absolute); err != nil {
+			return err
+		}
 	}
 	return nil
 }

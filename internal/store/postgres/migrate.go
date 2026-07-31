@@ -12,6 +12,7 @@ import (
 const v3BaselineMigration = "00001_v3_baseline.sql"
 const v5SubmissionTypesMigration = "00002_v5_submission_types.sql"
 const tenantContentCapabilitiesMigration = "00003_tenant_content_capabilities.sql"
+const runProgressEventsMigration = "00004_run_progress_events.sql"
 
 func (s *Store) Migrate(ctx context.Context) error {
 	conn, err := s.pool.Acquire(ctx)
@@ -82,7 +83,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 func validateV3MigrationSet(available, applied []string) error {
-	expected := []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration}
+	expected := []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration, runProgressEventsMigration}
 	if len(available) != len(expected) {
 		return fmt.Errorf("migration 集合必须为 %v，当前为 %v", expected, available)
 	}

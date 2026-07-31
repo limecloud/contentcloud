@@ -45,7 +45,7 @@ func TestBootstrapDocumentIsPublicAndAgentReady(t *testing.T) {
 		t.Fatalf("Cache-Control = %q", got)
 	}
 	document := string(body)
-	for _, required := range []string{"session-id", "browser device authorization", "@limecloud/contentcloud@0.10.0", "bootstrap preflight", "bootstrap plan", "bootstrap apply", "bootstrap resume", "plan_id", "--plan-id <plan_id-from-plan-json>", "new Codex chat", "must not upload existing files"} {
+	for _, required := range []string{"session-id", "browser device authorization", "@limecloud/contentcloud@0.11.0", "bootstrap preflight", "bootstrap plan", "bootstrap apply", "bootstrap resume", "plan_id", "--plan-id <plan_id-from-plan-json>", "new Codex chat", "must not upload existing files"} {
 		if !strings.Contains(document, required) {
 			t.Fatalf("bootstrap document is missing %q", required)
 		}

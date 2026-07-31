@@ -27,6 +27,7 @@ type Service struct {
 	environmentControl  *environment.ControlPlane
 	automationPolicy    map[string]environment.CapabilityRequirement
 	automationPackIDs   map[string][]string
+	daemonVersions      daemonVersionPolicy
 }
 
 type Actor struct {
@@ -636,13 +637,20 @@ type Lease struct {
 }
 
 func (s *Service) Poll(ctx context.Context, actor Actor, device domain.Device, caps []domain.Capability) (Lease, error) {
-	return s.PollWithEnvironment(ctx, actor, device, caps, nil)
+	return s.PollWithRuntime(ctx, actor, device, caps, nil, "")
 }
 
 func (s *Service) PollWithEnvironment(ctx context.Context, actor Actor, device domain.Device, caps []domain.Capability, claims []AutomationEnvironmentClaim) (Lease, error) {
+	return s.PollWithRuntime(ctx, actor, device, caps, claims, "")
+}
+
+func (s *Service) PollWithRuntime(ctx context.Context, actor Actor, device domain.Device, caps []domain.Capability, claims []AutomationEnvironmentClaim, daemonVersion string) (Lease, error) {
 	now := s.now().UTC()
 	device.LastSeenAt = now
 	device.Capabilities = caps
+	if daemonVersion = strings.TrimSpace(daemonVersion); daemonVersion != "" {
+		device.Version = daemonVersion
+	}
 	_ = s.store.SaveDevice(ctx, device)
 	if err := s.store.ExpireRunAttempts(ctx, actor.TenantID, now); err != nil {
 		return Lease{}, err
@@ -690,6 +698,9 @@ func (s *Service) HeartbeatRun(ctx context.Context, actor Actor, device domain.D
 	if heartbeat.Sequence <= run.HeartbeatSequence {
 		return run, domain.Conflict("HEARTBEAT_SEQUENCE_INVALID", "心跳序号必须单调递增")
 	}
+	if strings.TrimSpace(heartbeat.Phase) == "" || strings.TrimSpace(heartbeat.Label) == "" || heartbeat.Step < 0 {
+		return run, domain.Invalid("HEARTBEAT_PROGRESS_INVALID", "心跳必须包含 phase、非负 step 和可展示 label")
+	}
 	run.HeartbeatSequence = heartbeat.Sequence
 	run.State = "running"
 	run.ProgressLabel = heartbeat.Label
@@ -707,6 +718,9 @@ func (s *Service) HeartbeatRun(ctx context.Context, actor Actor, device domain.D
 	}
 	if err := s.store.SaveRun(ctx, run); err != nil {
 		return run, err
+	}
+	if _, progressErr := s.store.AppendRunProgress(ctx, domain.RunProgressEvent{TenantID: actor.TenantID, ProjectID: run.ProjectID, RunID: run.ID, AttemptID: attempt.ID, DeviceID: device.ID, Sequence: heartbeat.Sequence, Phase: strings.TrimSpace(heartbeat.Phase), Step: heartbeat.Step, Label: strings.TrimSpace(heartbeat.Label), OccurredAt: now}); progressErr != nil {
+		s.log.Warn("append run progress", "run_id", run.ID, "attempt_id", attempt.ID, "error", progressErr)
 	}
 	return run, nil
 }

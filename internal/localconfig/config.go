@@ -14,11 +14,24 @@ import (
 )
 
 type Config struct {
-	ServerURL     string `json:"server_url"`
-	DeviceID      string `json:"device_id,omitempty"`
-	WorkspaceID   string `json:"workspace_id,omitempty"`
-	ProjectID     string `json:"project_id,omitempty"`
-	WorkspaceRoot string `json:"workspace_root,omitempty"`
+	ServerURL      string          `json:"server_url"`
+	DeviceID       string          `json:"device_id,omitempty"`
+	WorkspaceID    string          `json:"workspace_id,omitempty"`
+	ProjectID      string          `json:"project_id,omitempty"`
+	WorkspaceRoot  string          `json:"workspace_root,omitempty"`
+	DaemonBindings []DaemonBinding `json:"daemon_bindings,omitempty"`
+}
+
+type DaemonBinding struct {
+	ServerURL  string            `json:"server_url"`
+	DeviceID   string            `json:"device_id"`
+	Workspaces []DaemonWorkspace `json:"workspaces,omitempty"`
+}
+
+type DaemonWorkspace struct {
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"`
+	Root        string `json:"root"`
 }
 
 func Path() (string, error) {
@@ -66,6 +79,87 @@ func Save(c Config) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// RuntimeBindings returns the daemon registrations while preserving compatibility
+// with the original single-workspace config shape.
+func (c Config) RuntimeBindings() []DaemonBinding {
+	bindings := append([]DaemonBinding(nil), c.DaemonBindings...)
+	legacy := DaemonBinding{
+		ServerURL: strings.TrimSpace(c.ServerURL),
+		DeviceID:  strings.TrimSpace(c.DeviceID),
+		Workspaces: []DaemonWorkspace{{
+			WorkspaceID: strings.TrimSpace(c.WorkspaceID),
+			ProjectID:   strings.TrimSpace(c.ProjectID),
+			Root:        strings.TrimSpace(c.WorkspaceRoot),
+		}},
+	}
+	if legacy.DeviceID != "" {
+		bindings = upsertDaemonBinding(bindings, legacy)
+	}
+	return normalizeDaemonBindings(bindings)
+}
+
+func (c *Config) UpsertDaemonBinding(binding DaemonBinding) {
+	if c == nil {
+		return
+	}
+	c.DaemonBindings = normalizeDaemonBindings(upsertDaemonBinding(c.DaemonBindings, binding))
+}
+
+func upsertDaemonBinding(bindings []DaemonBinding, incoming DaemonBinding) []DaemonBinding {
+	incoming.ServerURL = strings.TrimRight(strings.TrimSpace(incoming.ServerURL), "/")
+	incoming.DeviceID = strings.TrimSpace(incoming.DeviceID)
+	if incoming.DeviceID == "" {
+		return bindings
+	}
+	for index := range bindings {
+		if strings.TrimSpace(bindings[index].DeviceID) != incoming.DeviceID || strings.TrimRight(strings.TrimSpace(bindings[index].ServerURL), "/") != incoming.ServerURL {
+			continue
+		}
+		for _, workspace := range incoming.Workspaces {
+			bindings[index].Workspaces = upsertDaemonWorkspace(bindings[index].Workspaces, workspace)
+		}
+		return bindings
+	}
+	copyBinding := incoming
+	copyBinding.Workspaces = append([]DaemonWorkspace(nil), incoming.Workspaces...)
+	return append(bindings, copyBinding)
+}
+
+func upsertDaemonWorkspace(workspaces []DaemonWorkspace, incoming DaemonWorkspace) []DaemonWorkspace {
+	incoming.WorkspaceID = strings.TrimSpace(incoming.WorkspaceID)
+	incoming.ProjectID = strings.TrimSpace(incoming.ProjectID)
+	incoming.Root = strings.TrimSpace(incoming.Root)
+	if incoming.WorkspaceID == "" && incoming.ProjectID == "" && incoming.Root == "" {
+		return workspaces
+	}
+	for index := range workspaces {
+		if (incoming.WorkspaceID != "" && strings.TrimSpace(workspaces[index].WorkspaceID) == incoming.WorkspaceID) ||
+			(incoming.WorkspaceID == "" && incoming.ProjectID != "" && strings.TrimSpace(workspaces[index].ProjectID) == incoming.ProjectID) {
+			workspaces[index] = incoming
+			return workspaces
+		}
+	}
+	return append(workspaces, incoming)
+}
+
+func normalizeDaemonBindings(bindings []DaemonBinding) []DaemonBinding {
+	result := make([]DaemonBinding, 0, len(bindings))
+	for _, binding := range bindings {
+		binding.ServerURL = strings.TrimRight(strings.TrimSpace(binding.ServerURL), "/")
+		binding.DeviceID = strings.TrimSpace(binding.DeviceID)
+		if binding.DeviceID == "" {
+			continue
+		}
+		workspaces := make([]DaemonWorkspace, 0, len(binding.Workspaces))
+		for _, workspace := range binding.Workspaces {
+			workspaces = upsertDaemonWorkspace(workspaces, workspace)
+		}
+		binding.Workspaces = workspaces
+		result = upsertDaemonBinding(result, binding)
+	}
+	return result
 }
 
 func SaveDeviceToken(deviceID, token string) error {
