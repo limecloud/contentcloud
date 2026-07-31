@@ -1,7 +1,7 @@
 {
   "name": "@limecloud/contentcloud-workspace",
   "private": true,
-  "version": "0.12.0",
+  "version": "0.13.0",
   "packageManager": "pnpm@10.8.1",
   "scripts": {
     "dev:web": "pnpm --dir web dev",

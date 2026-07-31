@@ -1,10 +1,10 @@
-# ContentCloud 使用文档
+# Content Work OS 使用文档
 
-ContentCloud 是本地优先的内容生产与云端治理系统。你可以在受支持的 Agent 客户端中完成资料整理、可信知识、策略、Brief 和内容创作，再把明确选择的版本提交到 Web 进行审核、批准和交付。
+Content Work OS 是本地优先的内容生产与云端治理系统。你可以在受支持的 Agent 客户端中完成资料整理、可信知识、策略、Brief 和内容创作，再把明确选择的版本提交到 Web 进行审核、批准和交付。
 
 本文档同时服务两种阅读方式：
 
-- 用户在 ContentCloud 的 `/docs` 文档中心按客户端或内容形态查找指南。
+- 用户在 Content Work OS 的 `/docs` 文档中心按客户端或内容形态查找指南。
 - Agent 和开发者直接读取本目录中的同源 Markdown。
 
 文档只描述已经验证的能力。标记为“有限支持”或“即将支持”的页面不会提供尚未实现的安装、初始化、交接或发布命令。
@@ -27,7 +27,7 @@ ContentCloud 是本地优先的内容生产与云端治理系统。你可以在�
 | Hermes | 即将支持 | 在 Web 文档中心查看动态状态页 |
 | OpenClaw | 即将支持 | 在 Web 文档中心查看动态状态页 |
 
-客户端状态来自 ContentCloud Agent Client Registry。Web 文档中心会按 Registry 的最新能力状态生成客户端目录，避免文档和产品状态各自维护一份事实。
+客户端状态来自 Agent Client Registry。Web 文档中心会按 Registry 的最新能力状态生成客户端目录，避免文档和产品状态各自维护一份事实。
 
 ## 按内容形态查看
 

@@ -3,6 +3,7 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { api, post } from './api';
 import type { Dashboard, Session, Tenant } from './types';
 import { Banner, Button, Loading } from './components/ui';
+import { BrandMark } from './components/Brand';
 import { WorkspaceContext, type WorkspaceContextValue } from './workspace/context';
 import { loginPath } from './views/auth/returnPath';
 
@@ -30,7 +31,7 @@ export function App() {
   const logout=useCallback(async()=>{await post('/api/bff/session/logout');setSession(undefined);setDashboard(undefined)},[]);
   const value=useMemo<WorkspaceContextValue|undefined>(()=>session&&dashboard?{session,tenants,dashboard,error,clearError:()=>setError(''),refresh:load,switchTenant,logout}:undefined,[session,tenants,dashboard,error,load,switchTenant,logout]);
 
-  if(loading)return <div className="splash"><div className="brand-mark">CC</div><Loading/></div>;
+  if(loading)return <div className="splash"><BrandMark/><Loading/></div>;
   if(error&&!session)return <div className="fatal"><Banner kind="error">{error}</Banner><Button onClick={load}>重试</Button></div>;
   if(authRequired||!session)return <Navigate to={loginPath(location.pathname+location.search)} replace/>;
   if(!value)return <div className="fatal"><Banner kind="error">{error||'工作台暂不可用'}</Banner><Button onClick={load}>重试</Button></div>;

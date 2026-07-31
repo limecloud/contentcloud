@@ -2,6 +2,23 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.13.0] - 2026-08-01
+
+### Added
+
+- 增加共享 `BrandMark` 与 `BrandLockup` 组件，为官网、工作台、后台、登录注册、文档和公开页面提供统一的产品标识。
+- 增加新的 Content Work OS favicon 与品牌使用规范，明确产品标识、页面角色、颜色和可访问性边界。
+
+### Changed
+
+- 一级产品品牌统一为 `Content Work OS`，并重构官网、工作台、后台、登录注册、文档和公开审批页的导航、文案与视觉层级。
+- 更新公开内容目录和 v6 官网路线文档，使产品命名、页面职责与当前实现保持一致。
+- CLI、Web、npm 安装器、Plugin、MCP、Environment Profile、Bootstrap 和 Server/Worker 版本统一升级到 `0.13.0`。
+
+### Fixed
+
+- 修复多 Workspace Automation Daemon 并发读取运行时绑定时共享底层配置切片的数据竞争，保证绑定归一化为只读快照。
+
 ## [0.12.0] - 2026-07-31
 
 ### Added

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { BrandMark } from '../components/Brand';
 import { consolePath } from '../consoleRoutes';
 import { docsStatusLabel, docsWebPath, loadDocsCatalog, type DocsCatalog } from '../docs/docs';
 import './marketing.css';
@@ -40,8 +41,8 @@ export function MarketingHome() {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    document.title = 'ContentCloud - Content Work OS';
-    const description = 'ContentCloud 是受治理的 Content Work OS，让本地 Agent、团队审核与多渠道交付在同一条可追溯生产链中协作。';
+    document.title = 'Content Work OS';
+    const description = 'Content Work OS 让本地 Agent、团队审核与多渠道交付在同一条可追溯生产链中协作。';
     let meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     if (!meta) {
       meta = document.createElement('meta');
@@ -69,9 +70,9 @@ export function MarketingHome() {
   return <div className="marketing-page">
     <header className={`marketing-header ${scrolled || menuOpen ? 'is-scrolled' : ''}`}>
       <div className="marketing-header-inner">
-        <a className="marketing-brand" href="#overview" aria-label="ContentCloud 首页" onClick={() => setMenuOpen(false)}>
-          <span className="marketing-brand-mark" aria-hidden="true"><span>C</span><span>C</span></span>
-          <span><strong>ContentCloud</strong><small>Content Work OS</small></span>
+        <a className="marketing-brand" href="#overview" aria-label="Content Work OS 首页" onClick={() => setMenuOpen(false)}>
+          <BrandMark className="marketing-brand-mark"/>
+          <span><strong>Content Work OS</strong><small>Content operations</small></span>
         </a>
         <nav className="marketing-nav" aria-label="官网主导航">
           <a href="#product">产品</a>
@@ -124,7 +125,7 @@ export function MarketingHome() {
           </header>
           <div className="marketing-workspace-preview" aria-label="Content Work OS 工作台预览">
             <div className="marketing-preview-topbar">
-              <span className="marketing-preview-brand"><i>CC</i> 金陵古法线香</span>
+              <span className="marketing-preview-brand"><BrandMark/> 金陵古法线香</span>
               <span className="marketing-preview-health"><i/> Workspace 已连接</span>
               <span className="marketing-preview-runtime">Codex · manifest verified</span>
             </div>
@@ -248,12 +249,12 @@ export function MarketingHome() {
 
     <footer className="marketing-footer">
       <div className="marketing-shell marketing-footer-grid">
-        <div><a className="marketing-brand is-footer" href="#overview"><span className="marketing-brand-mark"><span>C</span><span>C</span></span><span><strong>ContentCloud</strong><small>Content Work OS</small></span></a><p>本地 Agent 创作，云端治理，批准后交付。</p></div>
+        <div><a className="marketing-brand is-footer" href="#overview"><BrandMark className="marketing-brand-mark"/><span><strong>Content Work OS</strong><small>Content operations</small></span></a><p>本地 Agent 创作，云端治理，批准后交付。</p></div>
         <nav aria-label="产品链接"><strong>产品</strong><a href="#product">工作系统</a><a href="#content-packs">内容形态</a><a href="#governance">治理</a></nav>
         <nav aria-label="资源链接"><strong>资源</strong><Link to="/docs">使用文档</Link><Link to="/docs/clients/codex">Codex 接入</Link><Link to="/docs/content/wechat-article">公众号文章</Link></nav>
         <nav aria-label="账户链接"><strong>账户</strong><Link to="/login">登录</Link><Link to="/register">注册</Link><Link to={consolePath.dashboard}>工作台</Link></nav>
       </div>
-      <div className="marketing-shell marketing-footer-bottom"><span>© {new Date().getFullYear()} ContentCloud</span><span>LOCAL-FIRST · GOVERNED · TRACEABLE</span></div>
+      <div className="marketing-shell marketing-footer-bottom"><span>© {new Date().getFullYear()} Content Work OS</span><span>LOCAL-FIRST · GOVERNED · TRACEABLE</span></div>
     </footer>
   </div>;
 }

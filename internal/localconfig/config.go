@@ -84,7 +84,7 @@ func Save(c Config) error {
 // RuntimeBindings returns the daemon registrations while preserving compatibility
 // with the original single-workspace config shape.
 func (c Config) RuntimeBindings() []DaemonBinding {
-	bindings := append([]DaemonBinding(nil), c.DaemonBindings...)
+	bindings := cloneDaemonBindings(c.DaemonBindings)
 	legacy := DaemonBinding{
 		ServerURL: strings.TrimSpace(c.ServerURL),
 		DeviceID:  strings.TrimSpace(c.DeviceID),
@@ -98,6 +98,15 @@ func (c Config) RuntimeBindings() []DaemonBinding {
 		bindings = upsertDaemonBinding(bindings, legacy)
 	}
 	return normalizeDaemonBindings(bindings)
+}
+
+func cloneDaemonBindings(bindings []DaemonBinding) []DaemonBinding {
+	cloned := make([]DaemonBinding, len(bindings))
+	for index, binding := range bindings {
+		cloned[index] = binding
+		cloned[index].Workspaces = append([]DaemonWorkspace(nil), binding.Workspaces...)
+	}
+	return cloned
 }
 
 func (c *Config) UpsertDaemonBinding(binding DaemonBinding) {
