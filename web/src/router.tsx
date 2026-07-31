@@ -2,6 +2,7 @@ import { Navigate, type RouteObject } from 'react-router-dom';
 import { projectRoute, projectViewIDs } from './v3/page-contracts';
 
 export const appRoutes: RouteObject[] = [
+  {path: '/', lazy: async()=>({Component:(await import('./marketing/MarketingHome')).MarketingHome})},
   {
     path: '/docs',
     lazy: async()=>({Component:(await import('./docs/DocsRoutes')).DocsRoute}),
@@ -34,29 +35,32 @@ export const appRoutes: RouteObject[] = [
       }
     ]
   },
-  {
-    path: '/',
-    lazy: async()=>({Component:(await import('./App')).App}),
-    children: [
-      {
-        lazy: async()=>({Component:(await import('./workspace/WorkspaceShell')).ConsoleShell}),
-        children: [
-          {index: true, lazy: async()=>({Component:(await import('./workspace/pages')).ConsoleDashboardPage})},
-          {path: 'team', lazy: async()=>({Component:(await import('./workspace/pages')).ConsoleTeamPage})},
-          {
-            path: 'projects/:projectID',
-            children: [
-              {index: true, element: <Navigate to="setup" replace />},
-              ...projectRoutes(),
-              {path: '*', element: <Navigate to="setup" replace />}
-            ]
-          },
-          {path: '*', element: <Navigate to="/" replace />}
-        ]
-      }
-    ]
-  }
+  protectedConsoleRoute('/workspace', [
+    {index: true, lazy: async()=>({Component:(await import('./workspace/pages')).ConsoleDashboardPage})},
+    {path: '*', element: <Navigate to="/workspace" replace />}
+  ]),
+  protectedConsoleRoute('/team', [
+    {index: true, lazy: async()=>({Component:(await import('./workspace/pages')).ConsoleTeamPage})},
+    {path: '*', element: <Navigate to="/team" replace />}
+  ]),
+  protectedConsoleRoute('/projects/:projectID', [
+    {index: true, element: <Navigate to="setup" replace />},
+    ...projectRoutes(),
+    {path: '*', element: <Navigate to="setup" replace />}
+  ]),
+  {path: '*', element: <Navigate to="/" replace />}
 ];
+
+function protectedConsoleRoute(path:string, children:RouteObject[]):RouteObject {
+  return {
+    path,
+    lazy:async()=>({Component:(await import('./App')).App}),
+    children:[{
+      lazy:async()=>({Component:(await import('./workspace/WorkspaceShell')).ConsoleShell}),
+      children
+    }]
+  };
+}
 
 function projectRoutes():RouteObject[] {
   return projectViewIDs.map(view=>({

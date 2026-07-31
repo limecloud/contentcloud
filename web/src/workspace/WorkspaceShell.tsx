@@ -13,7 +13,7 @@ export function ConsoleShell() {
   const location=useLocation();const navigate=useNavigate();const [createOpen,setCreateOpen]=useState(false);
   const match=location.pathname.match(/^\/projects\/([^/]+)\/([^/]+)$/);
   const project=useMemo(()=>dashboard.projects.find(item=>item.id===match?.[1]),[dashboard.projects,match?.[1]]);
-  const routeView=(match?.[2]&&isProjectView(match[2])?match[2]:location.pathname.endsWith('/team')?'team':'dashboard') as View;
+  const routeView=(match?.[2]&&isProjectView(match[2])?match[2]:location.pathname==='/team'?'team':'dashboard') as View;
   const selectProject=(value:Project)=>navigate(consolePath.project(value.id));
   const selectView=(view:View)=>navigate(view==='dashboard'?consolePath.dashboard:view==='team'?consolePath.team:project?consolePath.project(project.id,view):consolePath.dashboard);
   const signOut=async()=>{await logout();navigate('/login',{replace:true})};

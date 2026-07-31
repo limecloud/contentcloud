@@ -5,12 +5,12 @@ describe('safeReturnPath',()=>{
   const digest='sha256:'+'d'.repeat(64);
 
   it('keeps only allowlisted console pages',()=>{
-    expect(safeReturnPath('/')).toBe('/');
+    expect(safeReturnPath('/')).toBe('/workspace');
     expect(safeReturnPath('/team')).toBe('/team');
     expect(safeReturnPath('/admin/dashboard')).toBe('/admin/dashboard');
-    expect(safeReturnPath('/login')).toBe('/');
-    expect(safeReturnPath('/unknown')).toBe('/');
-    expect(safeReturnPath('/team?mode=admin')).toBe('/');
+    expect(safeReturnPath('/login')).toBe('/workspace');
+    expect(safeReturnPath('/unknown')).toBe('/workspace');
+    expect(safeReturnPath('/team?mode=admin')).toBe('/workspace');
   });
 
   it('canonicalizes Page Contract project targets and preserves exact focus',()=>{
@@ -35,11 +35,12 @@ describe('safeReturnPath',()=>{
       `/projects/project-1/review?focus_kind=submission_revision&focus_id=revision-1&expected_digest=sha256:abc`,
       `/projects/project-1/review?focus_kind=submission_revision&focus_id=revision-1&expected_digest=${digest}#fragment`
     ];
-    for(const value of rejected)expect(safeReturnPath(value),value).toBe('/');
+    for(const value of rejected)expect(safeReturnPath(value),value).toBe('/workspace');
   });
 
   it('constructs a login URL from the canonical return target',()=>{
     expect(loginPath('/team')).toBe('/login?next=%2Fteam');
-    expect(loginPath('https://evil.example')).toBe('/login?next=%2F');
+    expect(loginPath('https://evil.example')).toBe('/login?next=%2Fworkspace');
+    expect(loginPath('/')).toBe('/login?next=%2Fworkspace');
   });
 });

@@ -135,7 +135,7 @@ func TestCodexGuideContainsNoRuntimeSecretsOrAbsolutePaths(t *testing.T) {
 	if regexp.MustCompile(`(?i)(?:Bearer\s+\S+|\b(?:ct|cck|sk)[_-][A-Za-z0-9]{8,})`).MatchString(body) {
 		t.Fatal("guide contains a value shaped like a runtime secret")
 	}
-	marketplaceCommand := "codex plugin marketplace add limecloud/contentcloud --ref v0.11.0 --json"
+	marketplaceCommand := "codex plugin marketplace add limecloud/contentcloud --ref v0.12.0 --json"
 	if strings.Count(body, marketplaceCommand) != 1 {
 		t.Fatalf("fixed Marketplace command count = %d", strings.Count(body, marketplaceCommand))
 	}

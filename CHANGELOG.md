@@ -2,6 +2,18 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.12.0] - 2026-07-31
+
+### Added
+
+- 增加 ContentCloud Content Work OS 官网首页，展示本地 Agent 创作、团队审核和多渠道交付的受治理生产链。
+- 增加官网视觉资源、产品入口和 v6 产品、运行时及迁移路线文档。
+
+### Changed
+
+- 公共首页与登录后的工作台路由分离：`/` 用于官网，`/workspace` 用于生产工作台；项目深链、团队页、文档页和后台返回路径统一使用新的工作台入口。
+- CLI、Web、npm 安装器、Plugin、MCP、Environment Profile、Bootstrap 和 Server/Worker 版本统一升级到 `0.12.0`。
+
 ## [0.11.0] - 2026-07-31
 
 ### Added

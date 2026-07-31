@@ -187,7 +187,7 @@ func assertProjectCodexHandoff(t *testing.T, handoff codexHandoffResponse, proje
 	if handoff.SchemaVersion != "contentcloud.codex-handoff/1.0" || handoff.Kind != "project" || handoff.ProjectID != projectID || handoff.Target.Kind != "project" || handoff.Target.ID != projectID {
 		t.Fatalf("unexpected project handoff: %#v", handoff)
 	}
-	if handoff.PluginID != "contentcloud-video-production@contentcloud" || handoff.PluginVersion != "0.11.0" || !handoff.RequiresNewChat || !handoff.RequiresWorkspaceSelection || handoff.FallbackURL != "/codex" || len(handoff.Steps) != 3 {
+	if handoff.PluginID != "contentcloud-video-production@contentcloud" || handoff.PluginVersion != "0.12.0" || !handoff.RequiresNewChat || !handoff.RequiresWorkspaceSelection || handoff.FallbackURL != "/codex" || len(handoff.Steps) != 3 {
 		t.Fatalf("project handoff gates are incomplete: %#v", handoff)
 	}
 	parsed, err := url.Parse(handoff.LaunchURL)
