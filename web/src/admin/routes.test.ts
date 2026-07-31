@@ -16,21 +16,23 @@ describe('admin routes',()=>{
     expect(tenants?.map(item=>item.route.path)).toEqual(['/admin',undefined,'tenants']);
     const unknown=matchRoutes(appRoutes,'/admin/unknown');
     expect(unknown?.map(item=>item.route.path)).toEqual(['/admin',undefined,'*']);
-    expect(matchRoutes(appRoutes,'/administer')?.map(item=>item.route.path)).toEqual(['/',undefined,'*']);
+    expect(matchRoutes(appRoutes,'/administer')?.map(item=>item.route.path)).toEqual(['*']);
   });
 
   it('keeps the tenant console and public surfaces outside the admin route tree',()=>{
-    expect(matchRoutes(appRoutes,'/projects/project-1/creative')?.map(item=>item.route.path)).toEqual(['/',undefined,'projects/:projectID','creative']);
+    expect(matchRoutes(appRoutes,'/')?.map(item=>item.route.path)).toEqual(['/']);
+    expect(matchRoutes(appRoutes,'/workspace')?.map(item=>item.route.path)).toEqual(['/workspace',undefined,undefined]);
+    expect(matchRoutes(appRoutes,'/projects/project-1/creative')?.map(item=>item.route.path)).toEqual(['/projects/:projectID',undefined,'creative']);
     expect(matchRoutes(appRoutes,'/login')?.map(item=>item.route.path)).toEqual(['/login']);
     expect(matchRoutes(appRoutes,'/review/token-1')?.map(item=>item.route.path)).toEqual(['/review/:token']);
     expect(matchRoutes(appRoutes,'/docs/clients/codex')?.map(item=>item.route.path)).toEqual(['/docs','clients/:clientID']);
   });
 
-  it('uses V3 root-level console URLs without legacy route aliases',()=>{
-    expect(consolePath.dashboard).toBe('/');
+  it('uses a dedicated workspace URL while preserving existing project deep links',()=>{
+    expect(consolePath.dashboard).toBe('/workspace');
     expect(consolePath.team).toBe('/team');
     expect(consolePath.project('project-1')).toBe('/projects/project-1/setup');
     expect(consolePath.project('project-1','creative')).toBe('/projects/project-1/creative');
-    expect(matchRoutes(appRoutes,'/workspace/projects/project-1/scripts')?.map(item=>item.route.path)).toEqual(['/',undefined,'*']);
+    expect(matchRoutes(appRoutes,'/workspace/projects/project-1/scripts')?.map(item=>item.route.path)).toEqual(['/workspace',undefined,'*']);
   });
 });

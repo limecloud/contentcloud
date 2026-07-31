@@ -3,6 +3,7 @@ import { Building2, Gauge, LayoutDashboard, LogOut, Menu, RefreshCw, ShieldCheck
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { post } from '../api';
 import { Banner, IconButton, Loading } from '../components/ui';
+import { consolePath } from '../consoleRoutes';
 import { adminPath } from './routes';
 import { useAdmin } from './context';
 
@@ -18,7 +19,7 @@ export function AdminShell() {
   const [mobileOpen,setMobileOpen]=useState(false);
   const logout=async()=>{await post('/api/bff/session/logout');navigate('/login',{replace:true})};
   return <div className="admin-shell">
-    <header className="admin-mobile-header"><IconButton label="打开后台导航" onClick={()=>setMobileOpen(true)}><Menu size={20}/></IconButton><div className="brand-mark">CC</div><strong>系统后台</strong><Link className="icon-button" aria-label="返回工作台" title="返回工作台" to="/"><LayoutDashboard size={18}/></Link></header>
+    <header className="admin-mobile-header"><IconButton label="打开后台导航" onClick={()=>setMobileOpen(true)}><Menu size={20}/></IconButton><div className="brand-mark">CC</div><strong>系统后台</strong><Link className="icon-button" aria-label="返回工作台" title="返回工作台" to={consolePath.dashboard}><LayoutDashboard size={18}/></Link></header>
     <aside className={`admin-sidebar ${mobileOpen?'admin-sidebar-open':''}`}>
       <div className="admin-brand"><div className="brand-mark">CC</div><div><strong>ContentCloud</strong><span>系统后台</span></div><IconButton label="关闭后台导航" onClick={()=>setMobileOpen(false)}><X size={18}/></IconButton></div>
       <div className="admin-environment"><span></span><div><strong>平台运行中</strong><small>{data?.counts.active_tenants||0} 个活跃租户</small></div></div>
@@ -31,7 +32,7 @@ export function AdminShell() {
     </aside>
     {mobileOpen&&<button className="sidebar-scrim" aria-label="关闭后台导航" onClick={()=>setMobileOpen(false)}/>}
     <main className="admin-main">
-      <header className="admin-topbar"><div><strong>{routeTitles[location.pathname]||'系统后台'}</strong><span>{data?`更新于 ${formatDateTime(data.generated_at)}`:'正在读取平台数据'}</span></div><div className="admin-topbar-actions"><IconButton label="刷新数据" disabled={refreshing} onClick={()=>refresh(true)}><RefreshCw className={refreshing?'is-spinning':''} size={17}/></IconButton><Link className="button button-secondary" to="/"><LayoutDashboard size={15}/>工作台</Link></div></header>
+      <header className="admin-topbar"><div><strong>{routeTitles[location.pathname]||'系统后台'}</strong><span>{data?`更新于 ${formatDateTime(data.generated_at)}`:'正在读取平台数据'}</span></div><div className="admin-topbar-actions"><IconButton label="刷新数据" disabled={refreshing} onClick={()=>refresh(true)}><RefreshCw className={refreshing?'is-spinning':''} size={17}/></IconButton><Link className="button button-secondary" to={consolePath.dashboard}><LayoutDashboard size={15}/>工作台</Link></div></header>
       <div className="admin-page"><AdminFeedback error={error} onClose={clearError}/>{loading?<div className="admin-loading"><Loading/></div>:!data?<div className="fatal"><Banner kind="error">系统后台暂不可用</Banner><button className="button button-primary" onClick={()=>refresh()}>重试</button></div>:<Outlet/>}</div>
     </main>
   </div>;

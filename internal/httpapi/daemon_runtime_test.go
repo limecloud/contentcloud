@@ -48,7 +48,7 @@ func TestDaemonPollHonorsShortLongPollDeadline(t *testing.T) {
 
 	started := time.Now()
 	poll := dispatchDevice[app.DaemonPollResponse](t, server.URL, connected.DeviceToken, "daemon.poll", map[string]any{
-		"capabilities": []domain.Capability{}, "environments": []app.AutomationEnvironmentClaim{}, "daemon_version": "0.11.0", "wait_ms": 60,
+		"capabilities": []domain.Capability{}, "environments": []app.AutomationEnvironmentClaim{}, "daemon_version": "0.12.0", "wait_ms": 60,
 	})
 	elapsed := time.Since(started)
 	if poll.Leased || poll.PollAfterMS != 5000 {

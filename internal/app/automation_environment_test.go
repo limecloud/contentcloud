@@ -72,14 +72,14 @@ func TestAutomationPollRequiresVerifiedEnvironmentPackAndCapabilityBeforeLease(t
 	assertDomainCode(t, err, "ENVIRONMENT_PREPARATION_REQUIRED")
 	assertRunUnleased(t, ctx, service, store, actor, run.ID)
 
-	lease, err := service.PollWithRuntime(ctx, deviceActor, device, []domain.Capability{capability}, []app.AutomationEnvironmentClaim{{Manifest: manifest, Lock: lock}}, "0.11.0")
+	lease, err := service.PollWithRuntime(ctx, deviceActor, device, []domain.Capability{capability}, []app.AutomationEnvironmentClaim{{Manifest: manifest, Lock: lock}}, "0.12.0")
 	must(t, err)
 	if lease.Run.ID != run.ID || lease.ExecutionBundle == nil || lease.ExecutionBundle.BundleID != bundle.BundleID || lease.Attempt.CapabilityDigest != requirement.Digest {
 		t.Fatalf("verified environment did not receive the exact bundle-bound lease: %#v", lease)
 	}
 	devices, err := service.Devices(ctx, actor, project.ID)
 	must(t, err)
-	if len(devices) != 1 || devices[0].Version != "0.11.0" {
+	if len(devices) != 1 || devices[0].Version != "0.12.0" {
 		t.Fatalf("daemon poll did not refresh the running CLI version: %#v", devices)
 	}
 	verifier, err := environment.NewVerifier([]environment.TrustedKey{{KeyID: "environment-automation-test", Status: "active", PublicKey: publicKey}})

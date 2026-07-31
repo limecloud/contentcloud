@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { Banner, IconButton, Loading } from '../components/ui';
+import { consolePath } from '../consoleRoutes';
 import { docsStatusLabel, docsWebPath, loadDocsCatalog, loadDocsPage, resolveMarkdownHref, type DocsCatalog, type DocsPage, type DocsStatus } from './docs';
 import './docs.css';
 
@@ -23,7 +24,7 @@ export function DocsShell(){
     return()=>{document.title=previousTitle;if(created)robots?.remove();else if(robots)robots.content=previous};
   },[]);
   return <DocsContext.Provider value={catalog}><div className="docs-shell">
-    <header className="docs-topbar"><Link className="docs-brand" to="/"><span className="brand-mark">CC</span><span><strong>ContentCloud</strong><small>使用文档</small></span></Link><nav><Link to="/docs"><House size={16}/>文档首页</Link><Link to="/"><MonitorUp size={16}/>工作台</Link><IconButton className="docs-menu-button" label="打开文档导航" onClick={()=>setMobileOpen(true)}><Menu size={19}/></IconButton></nav></header>
+    <header className="docs-topbar"><Link className="docs-brand" to="/"><span className="brand-mark">CC</span><span><strong>ContentCloud</strong><small>使用文档</small></span></Link><nav><Link to="/docs"><House size={16}/>文档首页</Link><Link to={consolePath.dashboard}><MonitorUp size={16}/>工作台</Link><IconButton className="docs-menu-button" label="打开文档导航" onClick={()=>setMobileOpen(true)}><Menu size={19}/></IconButton></nav></header>
     <div className="docs-layout">
       <aside className={`docs-sidebar ${mobileOpen?'is-open':''}`}><div className="docs-sidebar-mobile"><strong>文档导航</strong><IconButton label="关闭文档导航" onClick={()=>setMobileOpen(false)}><X size={18}/></IconButton></div>{catalog?<DocsNavigation catalog={catalog} onNavigate={()=>setMobileOpen(false)}/>:<div className="docs-sidebar-loading"><Loading/></div>}</aside>
       {mobileOpen&&<button className="docs-scrim" aria-label="关闭文档导航" onClick={()=>setMobileOpen(false)}/>}

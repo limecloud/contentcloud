@@ -5,6 +5,7 @@ import type { Session } from '../types';
 import { Banner, Button, Loading } from '../components/ui';
 import { AdminProvider } from './context';
 import { loginPath } from '../views/auth/returnPath';
+import { consolePath } from '../consoleRoutes';
 
 export function AdminRoute() {
   const navigate=useNavigate();const location=useLocation();
@@ -28,6 +29,6 @@ export function AdminRoute() {
   if(loading)return <div className="splash"><div className="brand-mark">CC</div><Loading/></div>;
   if(error)return <div className="fatal"><Banner kind="error">{error}</Banner><Button onClick={loadSession}>重试</Button></div>;
   if(authRequired||!session)return <Navigate to={loginPath(location.pathname+location.search)} replace/>;
-  if(!session.is_platform_admin)return <div className="fatal"><Banner kind="error">当前账号没有平台管理员权限</Banner><Button onClick={()=>navigate('/')}>返回工作台</Button></div>;
+  if(!session.is_platform_admin)return <div className="fatal"><Banner kind="error">当前账号没有平台管理员权限</Banner><Button onClick={()=>navigate(consolePath.dashboard)}>返回工作台</Button></div>;
   return <AdminProvider session={session}><Outlet/></AdminProvider>;
 }
