@@ -63,6 +63,11 @@ func main() {
 		os.Exit(1)
 	}
 	serviceOptions := []app.Option{app.WithPlatformAdminEmails(adminEmails...)}
+	serviceOptions = append(serviceOptions, app.WithDaemonVersionPolicy(
+		os.Getenv("CONTENTCLOUD_DAEMON_MIN_VERSION"),
+		os.Getenv("CONTENTCLOUD_DAEMON_LATEST_VERSION"),
+		os.Getenv("CONTENTCLOUD_DAEMON_UPDATE_URL"),
+	))
 	if environmentRuntime.Enabled {
 		serviceOptions = append(serviceOptions, app.WithEnvironmentControlPlane(environmentRuntime.ControlPlane))
 		if len(environmentRuntime.AutomationRequirements) > 0 {

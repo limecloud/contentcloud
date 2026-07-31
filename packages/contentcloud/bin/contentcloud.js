@@ -30,7 +30,8 @@ const explicitBinary = process.env.CONTENTCLOUD_BINARY_PATH;
 try {
   const args = process.argv.slice(2);
   if (args[0] === 'update') {
-    await install(true);
+    const executable = await install(true);
+    await runAndWait(executable, ['--json', 'daemon', 'restart', '--if-installed']);
     process.stdout.write(`ContentCloud ${version} installed at ${binaryPath}\n`);
     process.exit(0);
   }
@@ -43,6 +44,24 @@ try {
   });
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));
+}
+
+function runAndWait(executable, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, {stdio: 'inherit', env: process.env});
+    child.on('error', reject);
+    child.on('exit', (code, signal) => {
+      if (signal) {
+        reject(new Error(`ContentCloud daemon restart terminated by ${signal}`));
+        return;
+      }
+      if (code !== 0) {
+        reject(new Error(`ContentCloud daemon restart failed with exit code ${code ?? 1}`));
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 async function install(force) {

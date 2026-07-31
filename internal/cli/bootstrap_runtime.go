@@ -111,6 +111,7 @@ func (r *Root) authorizeBootstrapDevice(ctx context.Context, sessionID, name str
 				return cfg, result, progress, domain.E("credential", "secure_store", "WORKSPACE_CREDENTIAL_STORE_FAILED", err.Error(), 3)
 			}
 			cfg.ServerURL, cfg.DeviceID, cfg.WorkspaceID, cfg.ProjectID = server, result.Device.ID, result.WorkspaceID, result.ProjectID
+			cfg.UpsertDaemonBinding(localconfig.DaemonBinding{ServerURL: server, DeviceID: result.Device.ID, Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: result.WorkspaceID, ProjectID: result.ProjectID}}})
 			if err := localconfig.Save(cfg); err != nil {
 				return cfg, result, progress, err
 			}

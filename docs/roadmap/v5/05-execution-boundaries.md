@@ -98,7 +98,7 @@ Codex                              服务端                         用户/外�
 
 ## 4. Codex 本机执行细则
 
-Codex Skill 是本地编排器。它只能在已绑定、已验证的 Workspace 中：
+Codex Skill 是本地编排器。交互式 Codex 与租约内 Automation Codex 的权限模式不同，详见 [06-automation-runtime-and-daemon.md](./06-automation-runtime-and-daemon.md)。交互式 Codex 在已绑定、已验证的 Workspace 工作；Automation Codex 在由该绑定和正式 TaskContract 派生的独立 Attempt 目录工作，不能写入任一交互 Workspace：
 
 1. 读取 LocalRunContext 和 pull 到本机的已批准对象。
 2. 创建 candidate 文件、调用 lint、生成分镜任务和维护本地 manifest。
@@ -113,6 +113,8 @@ Codex 不得：
 - 绕过 publish 直接写服务端 Artifact、Decision、DeliveryPackage 或结果。
 - 因为本机找到了文件就推断有权上传到外部平台。
 - 将本机绝对路径、对话内容或环境秘密打包进交付。
+
+Automation Codex 在用户已确认 Plan、服务端已签发租约后使用 `dangerFullAccess + approvalPolicy=never`。它可以自主调用完成 TaskContract 所需的 Shell、网络和本机工具，但仍不能扩大项目范围、修改冻结资源、读取 ContentCloud 控制面凭据或伪造服务端决定。
 
 ## 5. 服务端执行细则
 

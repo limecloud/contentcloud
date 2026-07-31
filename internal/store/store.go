@@ -130,6 +130,8 @@ type Store interface {
 	RunAttempts(context.Context, string, string) ([]domain.RunAttempt, error)
 	SaveRunAttempt(context.Context, domain.RunAttempt) error
 	ExpireRunAttempts(context.Context, string, time.Time) error
+	AppendRunProgress(context.Context, domain.RunProgressEvent) (domain.RunProgressEvent, error)
+	RunProgress(context.Context, string, string, int64) ([]domain.RunProgressEvent, error)
 
 	CreateApproval(context.Context, domain.ApprovalDecision) error
 	Approvals(context.Context, string, string) ([]domain.ApprovalDecision, error)

@@ -38,6 +38,13 @@ func TestRunAttemptLeaseHeartbeatExpiryAndStaleReport(t *testing.T) {
 	if heartbeatAttempt.State != "running" || heartbeatAttempt.HeartbeatAt == nil || heartbeatAttempt.StartedAt == nil {
 		t.Fatalf("heartbeat did not advance attempt: %#v", heartbeatAttempt)
 	}
+	progress, err := service.RunProgress(ctx, actor, run.ID, 0)
+	if err != nil || len(progress) != 1 || progress[0].Phase != "executing" || progress[0].Cursor == 0 {
+		t.Fatalf("heartbeat progress not persisted: events=%#v err=%v", progress, err)
+	}
+	if incremental, err := service.RunProgress(ctx, actor, run.ID, progress[0].Cursor); err != nil || len(incremental) != 0 {
+		t.Fatalf("progress cursor was not respected: events=%#v err=%v", incremental, err)
+	}
 
 	must(t, store.ExpireRunAttempts(ctx, actor.TenantID, heartbeatAttempt.LeaseExpiresAt.Add(time.Second)))
 	second, err := service.Poll(ctx, deviceActor, device, caps)

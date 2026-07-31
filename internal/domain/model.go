@@ -322,6 +322,20 @@ type RunHeartbeat struct {
 	Label    string `json:"label"`
 }
 
+type RunProgressEvent struct {
+	Cursor     int64     `json:"cursor"`
+	TenantID   string    `json:"-"`
+	ProjectID  string    `json:"project_id"`
+	RunID      string    `json:"run_id"`
+	AttemptID  string    `json:"attempt_id"`
+	DeviceID   string    `json:"device_id"`
+	Sequence   int       `json:"sequence"`
+	Phase      string    `json:"phase"`
+	Step       int       `json:"step"`
+	Label      string    `json:"label"`
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
 type ApprovalDecision struct {
 	ID             string    `json:"id"`
 	TenantID       string    `json:"tenant_id"`

@@ -435,6 +435,16 @@ func (s *Server) handleUserDispatch(w http.ResponseWriter, r *http.Request, req 
 		}
 		v, err := s.service.RunAttempts(r.Context(), actor, in.ID)
 		s.dispatchResult(w, r, req.Command, v, err)
+	case "run.events":
+		var in struct {
+			ID    string `json:"id"`
+			After int64  `json:"after"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.RunProgress(r.Context(), actor, in.ID, in.After)
+		s.dispatchResult(w, r, req.Command, v, err)
 	case "run.cancel":
 		var in struct {
 			ID string `json:"id"`

@@ -2,12 +2,15 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -124,6 +127,21 @@ func TestDaemonFixtureUsesAttemptScopedWorkspaceWithoutPersistingRunCredential(t
 	}
 }
 
+func TestDaemonMaxConcurrentTasksUsesBoundedOperationalDefault(t *testing.T) {
+	t.Setenv("CONTENTCLOUD_DAEMON_MAX_CONCURRENT_TASKS", "")
+	if got := daemonMaxConcurrentTasks(); got != 2 {
+		t.Fatalf("default concurrency=%d", got)
+	}
+	t.Setenv("CONTENTCLOUD_DAEMON_MAX_CONCURRENT_TASKS", "20")
+	if got := daemonMaxConcurrentTasks(); got != 8 {
+		t.Fatalf("concurrency cap=%d", got)
+	}
+	t.Setenv("CONTENTCLOUD_DAEMON_MAX_CONCURRENT_TASKS", "4")
+	if got := daemonMaxConcurrentTasks(); got != 4 {
+		t.Fatalf("configured concurrency=%d", got)
+	}
+}
+
 func TestDaemonFinishesAttemptWhenWorkspaceIsolationFails(t *testing.T) {
 	now := time.Date(2026, 7, 27, 17, 0, 0, 0, time.UTC)
 	automationRoot := filepath.Join(t.TempDir(), "automation")
@@ -206,5 +224,137 @@ func writeCLIEnvelope(t *testing.T, writer http.ResponseWriter, command string, 
 	writer.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(writer).Encode(map[string]any{"ok": true, "command": command, "request_id": "request-test", "meta": map[string]any{}, "data": data}); err != nil {
 		t.Errorf("encode response: %v", err)
+	}
+}
+
+func TestConfiguredWorkspaceRootsIncludesEveryWorkspaceInBinding(t *testing.T) {
+	t.Setenv("CONTENTCLOUD_WORKSPACE_ROOT", "")
+	config := localconfig.Config{DaemonBindings: []localconfig.DaemonBinding{{
+		ServerURL: "https://content.example.com", DeviceID: "device-1",
+		Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: "workspace-1", Root: "/work/one"}, {WorkspaceID: "workspace-2", Root: "/work/two"}, {WorkspaceID: "workspace-3", Root: "/work/one"}},
+	}}}
+	roots := configuredWorkspaceRoots(config)
+	if len(roots) != 2 || roots[0] != "/work/one" || roots[1] != "/work/two" {
+		t.Fatalf("interactive roots = %#v", roots)
+	}
+}
+
+func TestDaemonRunsMultipleBindingsConcurrentlyThroughJournalAndReport(t *testing.T) {
+	now := time.Date(2026, 7, 31, 15, 0, 0, 0, time.UTC)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	pollBarrier := make(chan struct{})
+	reportsDone := make(chan struct{})
+	var pollCount, reportCount atomic.Int32
+	var barrierOnce, reportsOnce sync.Once
+
+	newRuntimeServer := func(lease app.Lease) *httptest.Server {
+		var leased atomic.Bool
+		return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			var payload struct {
+				Command string          `json:"command"`
+				Params  json.RawMessage `json:"params"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Errorf("decode request: %v", err)
+				http.Error(writer, "invalid request", http.StatusBadRequest)
+				return
+			}
+			switch payload.Command {
+			case "daemon.poll":
+				if !leased.CompareAndSwap(false, true) {
+					writeCLIEnvelope(t, writer, payload.Command, app.DaemonPollResponse{Leased: false, Runtime: app.DaemonRuntimePolicy{CurrentVersion: Version}, PollAfterMS: 1000})
+					return
+				}
+				if pollCount.Add(1) == 2 {
+					barrierOnce.Do(func() { close(pollBarrier) })
+				}
+				select {
+				case <-pollBarrier:
+					writeCLIEnvelope(t, writer, payload.Command, app.DaemonPollResponse{Leased: true, Lease: &lease, Runtime: app.DaemonRuntimePolicy{CurrentVersion: Version}, PollAfterMS: 1000})
+				case <-time.After(2 * time.Second):
+					http.Error(writer, "bindings did not poll concurrently", http.StatusGatewayTimeout)
+				}
+			case "run.report":
+				var report struct {
+					RunID     string          `json:"run_id"`
+					AttemptID string          `json:"attempt_id"`
+					Package   json.RawMessage `json:"package"`
+				}
+				if err := json.Unmarshal(payload.Params, &report); err != nil || report.RunID != lease.Run.ID || report.AttemptID != lease.Attempt.ID || len(report.Package) == 0 {
+					t.Errorf("invalid report for %s: %#v err=%v", lease.Run.ID, report, err)
+					http.Error(writer, "invalid report", http.StatusBadRequest)
+					return
+				}
+				writeCLIEnvelope(t, writer, payload.Command, map[string]any{"reported": true})
+				if reportCount.Add(1) == 2 {
+					go func() {
+						timer := time.NewTimer(50 * time.Millisecond)
+						defer timer.Stop()
+						<-timer.C
+						reportsOnce.Do(func() { close(reportsDone) })
+					}()
+				}
+			default:
+				http.Error(writer, "unexpected command", http.StatusBadRequest)
+			}
+		}))
+	}
+
+	leaseOne := daemonFixtureLease("one", "project-1", now)
+	leaseTwo := daemonFixtureLease("two", "project-2", now)
+	serverOne := newRuntimeServer(leaseOne)
+	defer serverOne.Close()
+	serverTwo := newRuntimeServer(leaseTwo)
+	defer serverTwo.Close()
+	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	t.Setenv("CONTENTCLOUD_DAEMON_STATE_DIR", t.TempDir())
+	t.Setenv("CONTENTCLOUD_DEVICE_TOKEN", "dt_shared_test")
+	t.Setenv("CONTENTCLOUD_AUTOMATION_ROOT", filepath.Join(t.TempDir(), "automation"))
+	if err := localconfig.Save(localconfig.Config{DaemonBindings: []localconfig.DaemonBinding{
+		{ServerURL: serverOne.URL, DeviceID: "device-1", Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: "workspace-1", ProjectID: "project-1"}}},
+		{ServerURL: serverTwo.URL, DeviceID: "device-2", Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: "workspace-2", ProjectID: "project-2"}}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	logPath := filepath.Join(t.TempDir(), "daemon.log")
+	runtime := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, now: func() time.Time { return now }}
+	command := runtime.command()
+	command.SetArgs([]string{"--json", "daemon", "run", "--fixture", "--log-file", logPath})
+	errCh := make(chan error, 1)
+	go func() { errCh <- command.ExecuteContext(ctx) }()
+	select {
+	case <-reportsDone:
+		cancel()
+	case <-time.After(4 * time.Second):
+		cancel()
+		t.Fatal("multiple daemon bindings did not complete concurrently")
+	}
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("daemon did not stop after context cancellation")
+	}
+	if pollCount.Load() != 2 || reportCount.Load() != 2 {
+		t.Fatalf("unexpected multi-binding flow: polls=%d reports=%d", pollCount.Load(), reportCount.Load())
+	}
+	pending, err := daemonJournalPendingCount()
+	if err != nil || pending != 0 {
+		t.Fatalf("multi-binding reports remain pending: count=%d err=%v", pending, err)
+	}
+}
+
+func daemonFixtureLease(suffix, projectID string, now time.Time) app.Lease {
+	runID := "run-" + suffix
+	capability := domain.Capability{ID: domain.KnowledgeExtractCapability, Version: "1.0.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, Digest: "sha256:" + strings.Repeat("a", 64), LocalOnly: true}
+	return app.Lease{
+		Run:            domain.TaskRun{ID: runID, ProjectID: projectID, TaskType: "knowledge_extract", OutputSchema: domain.KnowledgeCandidatesSchema, OutputCount: 1},
+		Attempt:        domain.RunAttempt{ID: "attempt-" + suffix, ProjectID: projectID, RunID: runID, State: "leased"},
+		Contract:       domain.TaskContract{ContractVersion: "1.0", ContractID: "snapshot-" + suffix, RunID: runID, TaskType: "knowledge_extract", Project: domain.Project{ID: projectID}, InputSnapshotID: "snapshot-" + suffix, OutputSchema: domain.KnowledgeCandidatesSchema, Capability: capability, ManifestHash: "sha256:" + strings.Repeat("c", 64)},
+		LeaseExpiresAt: now.Add(5 * time.Minute), RunToken: "rt_" + suffix,
 	}
 }

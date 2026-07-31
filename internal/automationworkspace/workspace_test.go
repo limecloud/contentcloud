@@ -119,6 +119,20 @@ func TestAttemptWorkspaceRejectsInteractiveOverlapAndRecoversOnlyExpiredOwnedLea
 	}
 }
 
+func TestAttemptWorkspaceRejectsOverlapWithAnyInteractiveRoot(t *testing.T) {
+	now := time.Date(2026, 7, 27, 15, 45, 0, 0, time.UTC)
+	first := t.TempDir()
+	second := t.TempDir()
+	options := Options{
+		BaseDir: filepath.Join(second, ".contentcloud", "automation"), ForbiddenRoots: []string{first, second},
+		AttemptID: "attempt-multi-root", RunID: "run-1", ProjectID: "project-1", Contract: testContract(),
+		OutputSchema: []byte(`{"type":"object"}`), Skill: []byte("# Test Skill\n"), Now: now, ExpiresAt: now.Add(time.Minute),
+	}
+	if _, err := Begin(options); errorCode(err) != "AUTOMATION_WORKSPACE_OVERLAP" {
+		t.Fatalf("second workspace overlap error = %#v", err)
+	}
+}
+
 func TestAttemptWorkspaceRenewsExclusiveLeaseFromServerExpiry(t *testing.T) {
 	now := time.Date(2026, 7, 27, 16, 0, 0, 0, time.UTC)
 	options := Options{

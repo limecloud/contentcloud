@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -115,6 +116,8 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/projects/{projectID}/runs", s.runs)
 		r.Get("/runs/{id}", s.run)
 		r.Get("/runs/{id}/attempts", s.runAttempts)
+		r.Get("/runs/{id}/progress", s.runProgress)
+		r.Get("/runs/{id}/progress/stream", s.runProgressStream)
 		r.Post("/runs/{id}/cancel", s.cancelRun)
 		r.Post("/comments/{id}/resolve", s.resolveReviewComment)
 		r.Get("/submission-revisions/{id}/review-grants", s.reviewGrants)
@@ -368,6 +371,66 @@ func (s *Server) runAttempts(w http.ResponseWriter, r *http.Request) {
 	}
 	s.ok(w, r, "run.attempts", v)
 }
+func (s *Server) runProgress(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+	v, err := s.service.RunProgress(r.Context(), actor, chi.URLParam(r, "id"), after)
+	if err != nil {
+		s.fail(w, r, "run.progress", err)
+		return
+	}
+	s.ok(w, r, "run.progress", v)
+}
+
+func (s *Server) runProgressStream(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	runID := chi.URLParam(r, "id")
+	after, _ := strconv.ParseInt(r.Header.Get("Last-Event-ID"), 10, 64)
+	if queryAfter, err := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64); err == nil && queryAfter > after {
+		after = queryAfter
+	}
+	if _, err := s.service.Run(r.Context(), actor, runID); err != nil {
+		s.fail(w, r, "run.progress.stream", err)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.fail(w, r, "run.progress.stream", domain.E("internal", "stream", "STREAM_UNSUPPORTED", "服务端不支持进度流", 1))
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	_, _ = io.WriteString(w, "retry: 1000\n\n")
+	flusher.Flush()
+	deadline := time.NewTimer(30 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		events, err := s.service.RunProgress(r.Context(), actor, runID, after)
+		if err != nil {
+			return
+		}
+		for _, event := range events {
+			body, _ := json.Marshal(event)
+			_, _ = fmt.Fprintf(w, "id: %d\nevent: progress\ndata: %s\n\n", event.Cursor, body)
+			after = event.Cursor
+		}
+		if len(events) > 0 {
+			flusher.Flush()
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-deadline.C:
+			_, _ = io.WriteString(w, "event: reconnect\ndata: {}\n\n")
+			flusher.Flush()
+			return
+		case <-ticker.C:
+		}
+	}
+}
 func (s *Server) audit(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	v, err := s.service.Audit(r.Context(), actor, chi.URLParam(r, "projectID"), 50)
@@ -583,24 +646,42 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in struct {
-			Capabilities []domain.Capability              `json:"capabilities"`
-			Environments []app.AutomationEnvironmentClaim `json:"environments"`
+			Capabilities  []domain.Capability              `json:"capabilities"`
+			Environments  []app.AutomationEnvironmentClaim `json:"environments"`
+			DaemonVersion string                           `json:"daemon_version"`
+			WaitMS        int                              `json:"wait_ms"`
 		}
 		if err := strictDecodeParams(req.Params, &in); err != nil {
 			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "轮询参数错误"))
 			return
 		}
-		lease, err := s.service.PollWithEnvironment(r.Context(), actor, device, in.Capabilities, in.Environments)
-		if err != nil {
-			var de *domain.Error
-			if errors.As(err, &de) && de.Code == "RESOURCE_NOT_FOUND" {
-				w.WriteHeader(http.StatusNoContent)
+		deadline := time.Now().Add(time.Duration(minInt(maxInt(in.WaitMS, 0), 25000)) * time.Millisecond)
+		for {
+			poll, err := s.service.PollDaemon(r.Context(), actor, device, in.Capabilities, in.Environments, in.DaemonVersion)
+			if err != nil {
+				s.fail(w, r, req.Command, err)
 				return
 			}
-			s.fail(w, r, req.Command, err)
-			return
+			if poll.Leased || poll.Runtime.UpdateRequired || time.Now().After(deadline) || in.WaitMS == 0 {
+				s.ok(w, r, req.Command, poll)
+				return
+			}
+			wait := 500 * time.Millisecond
+			if remaining := time.Until(deadline); remaining < wait {
+				wait = remaining
+			}
+			if wait <= 0 {
+				continue
+			}
+			timer := time.NewTimer(wait)
+			select {
+			case <-r.Context().Done():
+				timer.Stop()
+				s.fail(w, r, req.Command, r.Context().Err())
+				return
+			case <-timer.C:
+			}
 		}
-		s.ok(w, r, req.Command, lease)
 	case "run.report":
 		actor, device, err := s.deviceFromRequest(r)
 		if err != nil {
@@ -742,6 +823,20 @@ func (s *Server) write(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func (s *Server) static(w http.ResponseWriter, r *http.Request) {

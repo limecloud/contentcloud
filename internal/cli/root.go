@@ -7,13 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -33,7 +35,7 @@ import (
 	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
-const Version = "0.10.0"
+const Version = "0.11.0"
 
 type Root struct {
 	json                   bool
@@ -48,6 +50,7 @@ type Root struct {
 	bootstrapAuthorizeHook func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, *bootstrapProgressReporter, error)
 	manifestVerifierHook   func() (*environment.Verifier, error)
 	registryVerifierHook   func() (*environment.RegistryVerifier, error)
+	daemonFactory          func() (userDaemonService, error)
 }
 type success struct {
 	OK        bool           `json:"ok"`
@@ -66,6 +69,9 @@ type failure struct {
 func Execute() int {
 	root := &Root{stdout: os.Stdout, stderr: os.Stderr}
 	cmd := root.command()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	cmd.SetContext(ctx)
 	if err := cmd.Execute(); err != nil {
 		return root.writeError(cmd.CommandPath(), err)
 	}
@@ -153,7 +159,7 @@ func (r *Root) down() *cobra.Command {
 
 func (r *Root) updateCommand() *cobra.Command {
 	return &cobra.Command{Use: "update", Short: "Show the verified installer command for updating this binary", RunE: func(cmd *cobra.Command, args []string) error {
-		return r.writeOK("update", map[string]any{"current_version": Version, "installer": "npx --yes @limecloud/contentcloud@latest update", "automatic_update": false, "reason": "release manifest and checksum endpoint are required before in-process replacement is enabled"})
+		return r.writeOK("update", map[string]any{"current_version": Version, "installer": "npx --yes @limecloud/contentcloud@latest update", "automatic_update": false, "installer_owned": true, "daemon_restart_after_update": true, "reason": "the verified npm installer owns checksum validation, binary replacement, and restart of an installed daemon"})
 	}}
 }
 
@@ -167,7 +173,14 @@ func (r *Root) status() *cobra.Command {
 		if _, err := localconfig.DeviceToken(cfg.DeviceID); err == nil {
 			credential = "available"
 		}
-		return r.writeOK("status", map[string]any{"server_url": cfg.ServerURL, "device_id": cfg.DeviceID, "project_id": cfg.ProjectID, "device_credential": credential, "version": Version})
+		var daemon any = map[string]any{"supported": runtime.GOOS == "darwin", "installed": false, "running": false}
+		if service, serviceErr := r.localDaemonService(); serviceErr == nil {
+			if state, statusErr := service.Status(); statusErr == nil {
+				daemon = state
+			}
+		}
+		pending, dead, _ := daemonJournalCounts()
+		return r.writeOK("status", map[string]any{"server_url": cfg.ServerURL, "device_id": cfg.DeviceID, "project_id": cfg.ProjectID, "device_credential": credential, "version": Version, "daemon": daemon, "daemon_bindings": cfg.RuntimeBindings(), "pending_attempt_reports": pending, "dead_letters": dead})
 	}}
 }
 
@@ -263,18 +276,129 @@ func (r *Root) skillsCommand() *cobra.Command {
 
 func (r *Root) daemonCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "daemon", Short: "Run the local outbound-only creative runtime"}
+	start := &cobra.Command{Use: "start", Short: "Install and start the user-level Automation daemon", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := daemonStartPrerequisites(); err != nil {
+			return err
+		}
+		service, err := r.localDaemonService()
+		if err != nil {
+			return err
+		}
+		state, err := service.Start()
+		if err != nil {
+			return err
+		}
+		return r.writeOK("daemon.start", state)
+	}}
+	stop := &cobra.Command{Use: "stop", Short: "Stop the user-level Automation daemon without removing it", RunE: func(cmd *cobra.Command, args []string) error {
+		service, err := r.localDaemonService()
+		if err != nil {
+			return err
+		}
+		state, err := service.Stop()
+		if err != nil {
+			return err
+		}
+		return r.writeOK("daemon.stop", state)
+	}}
+	status := &cobra.Command{Use: "status", Short: "Show daemon installation, process, logs, and version", RunE: func(cmd *cobra.Command, args []string) error {
+		service, err := r.localDaemonService()
+		if err != nil {
+			return err
+		}
+		state, err := service.Status()
+		if err != nil {
+			return err
+		}
+		return r.writeOK("daemon.status", state)
+	}}
+	var ifInstalled bool
+	restart := &cobra.Command{Use: "restart", Short: "Reload the daemon with the current ContentCloud binary", RunE: func(cmd *cobra.Command, args []string) error {
+		service, err := r.localDaemonService()
+		if err != nil {
+			return err
+		}
+		current, err := service.Status()
+		if err != nil {
+			return err
+		}
+		if ifInstalled && !current.Installed {
+			return r.writeOK("daemon.restart", map[string]any{"restarted": false, "skipped": true, "reason": "not_installed", "daemon": current})
+		}
+		if err := daemonStartPrerequisites(); err != nil {
+			return err
+		}
+		state, err := service.Restart()
+		if err != nil {
+			return err
+		}
+		return r.writeOK("daemon.restart", state)
+	}}
+	restart.Flags().BoolVar(&ifInstalled, "if-installed", false, "skip successfully when the daemon is not installed")
 	var once, fixture bool
 	var adapterKind string
+	var logFile string
 	run := &cobra.Command{Use: "run", Short: "Poll for leased work and execute a local capability", RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(logFile) != "" {
+			managedLog, logErr := newRotatingLogWriter(logFile)
+			if logErr != nil {
+				return logErr
+			}
+			defer managedLog.Close()
+			r.stdout, r.stderr = managedLog, managedLog
+		}
 		cfg, err := localconfig.Load()
 		if err != nil {
 			return err
 		}
-		token, err := localconfig.DeviceToken(cfg.DeviceID)
-		if err != nil {
-			return &domain.Error{Type: "credential", Subtype: "device", Code: "DEVICE_CREDENTIAL_MISSING", Message: err.Error(), ExitCode: 3}
+		bindings := cfg.RuntimeBindings()
+		if len(bindings) == 0 && cfg.DeviceID != "" {
+			bindings = []localconfig.DaemonBinding{{ServerURL: r.resolveServer(cfg), DeviceID: cfg.DeviceID, Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: cfg.WorkspaceID, ProjectID: cfg.ProjectID, Root: cfg.WorkspaceRoot}}}}
 		}
-		client := apiclient.New(r.resolveServer(cfg), token)
+		if len(bindings) == 0 {
+			return domain.Conflict("DEVICE_BINDING_MISSING", "启动 Automation Daemon 前必须先完成设备注册")
+		}
+		journal, err := newDaemonJournal()
+		if err != nil {
+			return err
+		}
+		type bindingRuntime struct {
+			config           localconfig.Config
+			binding          localconfig.DaemonBinding
+			client           *apiclient.Client
+			interactiveRoots []string
+		}
+		runtimes := make([]bindingRuntime, 0, len(bindings))
+		for _, binding := range bindings {
+			bindingConfig := cfg
+			bindingConfig.ServerURL, bindingConfig.DeviceID = binding.ServerURL, binding.DeviceID
+			bindingConfig.DaemonBindings = []localconfig.DaemonBinding{binding}
+			bindingConfig.WorkspaceID, bindingConfig.ProjectID, bindingConfig.WorkspaceRoot = "", "", ""
+			for _, workspace := range binding.Workspaces {
+				if bindingConfig.WorkspaceID == "" {
+					bindingConfig.WorkspaceID, bindingConfig.ProjectID = workspace.WorkspaceID, workspace.ProjectID
+				}
+				if bindingConfig.WorkspaceRoot == "" && strings.TrimSpace(workspace.Root) != "" {
+					bindingConfig.WorkspaceRoot = workspace.Root
+				}
+			}
+			token, tokenErr := localconfig.DeviceToken(binding.DeviceID)
+			if tokenErr != nil {
+				return &domain.Error{Type: "credential", Subtype: "device", Code: "DEVICE_CREDENTIAL_MISSING", Message: tokenErr.Error(), ExitCode: 3}
+			}
+			runtimes = append(runtimes, bindingRuntime{
+				config: bindingConfig, binding: binding, client: apiclient.New(r.resolveServer(bindingConfig), token),
+				interactiveRoots: configuredWorkspaceRoots(bindingConfig),
+			})
+		}
+		for _, runtime := range runtimes {
+			if flushErr := journal.flushMatching(cmd.Context(), runtime.client, r.resolveServer(runtime.config), runtime.binding.DeviceID); flushErr != nil {
+				if once {
+					return flushErr
+				}
+				fmt.Fprintln(r.stderr, flushErr)
+			}
+		}
 		var adapter agentadapter.Adapter
 		if !fixture {
 			adapter, err = agentadapter.Select(adapterKind)
@@ -285,37 +409,85 @@ func (r *Root) daemonCommand() *cobra.Command {
 				return domain.Policy("AGENT_ADAPTER_UNAVAILABLE", "指定的本地 Agent 不可用", "检查安装与登录状态")
 			}
 		}
-		execute := func() (returnErr error) {
+		provider := "fixture"
+		if adapter != nil {
+			provider = adapter.Kind()
+		}
+		maxConcurrent := daemonMaxConcurrentTasks()
+		tracker, err := newDaemonRuntimeTracker(bindings, provider, maxConcurrent, r.currentTime())
+		if err != nil {
+			return err
+		}
+		execute := func(runtime bindingRuntime) (returnErr error) {
+			cfg, client := runtime.config, runtime.client
 			capabilities := builtinCapabilities()
 			claims, err := daemonEnvironmentClaims(cfg)
 			if err != nil {
 				return err
 			}
-			var lease app.Lease
-			err = client.Dispatch(cmd.Context(), "daemon.poll", map[string]any{"capabilities": capabilities, "environments": claims}, &lease)
+			var poll struct {
+				Leased      bool                    `json:"leased"`
+				Lease       *app.Lease              `json:"lease,omitempty"`
+				Runtime     app.DaemonRuntimePolicy `json:"runtime"`
+				PollAfterMS int                     `json:"poll_after_ms"`
+				// Legacy direct Lease fields remain accepted during rolling upgrades.
+				Run             domain.TaskRun                       `json:"run"`
+				Attempt         domain.RunAttempt                    `json:"attempt"`
+				Contract        domain.TaskContract                  `json:"contract"`
+				ExecutionBundle *environment.CreativeExecutionBundle `json:"execution_bundle,omitempty"`
+				LeaseExpiresAt  time.Time                            `json:"lease_expires_at"`
+				RunToken        string                               `json:"run_token"`
+			}
+			waitMS := 0
+			if !once {
+				waitMS = 20000
+			}
+			err = client.Dispatch(cmd.Context(), "daemon.poll", map[string]any{"capabilities": capabilities, "environments": claims, "daemon_version": Version, "wait_ms": waitMS}, &poll)
 			if err != nil {
+				tracker.recordPoll(app.DaemonRuntimePolicy{CurrentVersion: Version}, false, err)
 				var de *domain.Error
 				if errors.As(err, &de) && de.Code == "NO_TASK" {
-					return r.writeOK("daemon.poll", map[string]any{"leased": false})
+					if once {
+						return r.writeOK("daemon.poll", map[string]any{"leased": false})
+					}
+					return nil
 				}
 				return err
 			}
+			tracker.recordPoll(poll.Runtime, poll.Leased || poll.Lease != nil || poll.Run.ID != "", nil)
+			if !poll.Leased && poll.Lease == nil && poll.Run.ID == "" {
+				if once {
+					return r.writeOK("daemon.poll", map[string]any{"leased": false, "runtime": poll.Runtime, "poll_after_ms": poll.PollAfterMS})
+				}
+				return nil
+			}
+			var lease app.Lease
+			if poll.Lease != nil {
+				lease = *poll.Lease
+			} else {
+				lease = app.Lease{Run: poll.Run, Attempt: poll.Attempt, Contract: poll.Contract, ExecutionBundle: poll.ExecutionBundle, LeaseExpiresAt: poll.LeaseExpiresAt, RunToken: poll.RunToken}
+			}
+			if err := journal.begin(lease, r.resolveServer(cfg), cfg.DeviceID); err != nil {
+				return err
+			}
+			tracker.taskStarted()
+			defer func() { tracker.taskFinished(returnErr) }()
 			schema, skillName, resourceErr := taskRuntimeResources(lease.Run)
 			if resourceErr != nil {
-				return finishAttemptError(client, lease, "runtime_resources", "本地任务资源选择失败", resourceErr)
+				return finishAttemptError(journal, client, lease, "runtime_resources", "本地任务资源选择失败", resourceErr)
 			}
 			skillBody, resourceErr := builtinskills.Read(skillName, "SKILL.md")
 			if resourceErr != nil {
-				return finishAttemptError(client, lease, "skill_load", "本地 Skill 加载失败", resourceErr)
+				return finishAttemptError(journal, client, lease, "skill_load", "本地 Skill 加载失败", resourceErr)
 			}
 			executionWorkspace, workspaceErr := automationworkspace.Begin(automationworkspace.Options{
-				BaseDir: strings.TrimSpace(os.Getenv("CONTENTCLOUD_AUTOMATION_ROOT")), ForbiddenRoot: configuredWorkspaceRoot(cfg),
+				BaseDir: strings.TrimSpace(os.Getenv("CONTENTCLOUD_AUTOMATION_ROOT")), ForbiddenRoots: runtime.interactiveRoots,
 				AttemptID: lease.Attempt.ID, RunID: lease.Run.ID, ProjectID: lease.Run.ProjectID,
 				Contract: lease.Contract, Bundle: lease.ExecutionBundle, OutputSchema: schema, Skill: skillBody,
 				Now: r.currentTime(), ExpiresAt: lease.LeaseExpiresAt,
 			})
 			if workspaceErr != nil {
-				return finishAttemptError(client, lease, "workspace_isolation", "Automation 隔离工作区创建失败", workspaceErr)
+				return finishAttemptError(journal, client, lease, "workspace_isolation", "Automation 隔离工作区创建失败", workspaceErr)
 			}
 			defer func() {
 				if cleanupErr := executionWorkspace.Cleanup(); cleanupErr != nil {
@@ -329,7 +501,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 					output, _ = json.Marshal(GenerateFixtureKnowledge(lease.Contract, lease.Run.OutputCount))
 				default:
 					runErr := domain.Invalid("TASK_TYPE_UNSUPPORTED", "fixture 不支持该任务类型")
-					return finishAttemptError(client, lease, "runtime_resources", "本地开发 Fixture 不支持该任务类型", runErr)
+					return finishAttemptError(journal, client, lease, "runtime_resources", "本地开发 Fixture 不支持该任务类型", runErr)
 				}
 			} else {
 				var heartbeatResult struct {
@@ -337,18 +509,18 @@ func (r *Root) daemonCommand() *cobra.Command {
 					Run             domain.TaskRun `json:"run"`
 				}
 				if err := client.Dispatch(cmd.Context(), "run.heartbeat", map[string]any{"run_id": lease.Run.ID, "attempt_id": lease.Attempt.ID, "run_token": lease.RunToken, "heartbeat": domain.RunHeartbeat{Sequence: 1, Phase: "contract_ready", Step: 1, Label: "上下文校验完成"}}, &heartbeatResult); err != nil {
-					return finishAttemptError(client, lease, "heartbeat_failed", "首次心跳未完成", err)
+					return finishAttemptError(journal, client, lease, "heartbeat_failed", "首次心跳未完成", err)
 				}
 				if heartbeatResult.Run.LeaseExpiresAt == nil {
 					leaseErr := domain.Conflict("AUTOMATION_WORKSPACE_LEASE_EXPIRY_MISSING", "服务端心跳未返回续租时间")
-					return finishAttemptError(client, lease, "workspace_isolation", "本地 Automation lease 无法续租", leaseErr)
+					return finishAttemptError(journal, client, lease, "workspace_isolation", "本地 Automation lease 无法续租", leaseErr)
 				}
 				if err := executionWorkspace.Renew(*heartbeatResult.Run.LeaseExpiresAt); err != nil {
-					return finishAttemptError(client, lease, "workspace_isolation", "本地 Automation lease 续租失败", err)
+					return finishAttemptError(journal, client, lease, "workspace_isolation", "本地 Automation lease 续租失败", err)
 				}
 				if heartbeatResult.CancelRequested {
 					cancelErr := domain.Conflict("RUN_CANCEL_REQUESTED", "任务已被用户取消")
-					if err := finishAttempt(client, lease, "canceled", "user_canceled", "服务端取消请求已由本地客户端确认", nil); err != nil {
+					if err := finishAttempt(journal, client, lease, "canceled", "user_canceled", "服务端取消请求已由本地客户端确认", nil); err != nil {
 						return errors.Join(cancelErr, err)
 					}
 					return cancelErr
@@ -402,7 +574,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 				case heartbeatErr := <-heartbeatErrors:
 					var de *domain.Error
 					if errors.As(heartbeatErr, &de) && de.Code == "RUN_CANCEL_REQUESTED" {
-						if finishErr := finishAttempt(client, lease, "canceled", "user_canceled", "服务端取消请求已由本地客户端确认", nil); finishErr != nil {
+						if finishErr := finishAttempt(journal, client, lease, "canceled", "user_canceled", "服务端取消请求已由本地客户端确认", nil); finishErr != nil {
 							return errors.Join(heartbeatErr, finishErr)
 						}
 						return heartbeatErr
@@ -413,86 +585,166 @@ func (r *Root) daemonCommand() *cobra.Command {
 						failureClass = "workspace_isolation"
 						summary = "本地 Automation lease 续租失败"
 					}
-					return finishAttemptError(client, lease, failureClass, summary, heartbeatErr)
+					return finishAttemptError(journal, client, lease, failureClass, summary, heartbeatErr)
 				default:
 				}
 				if err != nil {
 					failureClass, summary, exitCode := classifyAttemptFailure(err)
-					return finishAttemptErrorWithExitCode(client, lease, failureClass, summary, exitCode, err)
+					return finishAttemptErrorWithExitCode(journal, client, lease, failureClass, summary, exitCode, err)
 				}
 			}
-			var report any
-			if err := client.Dispatch(cmd.Context(), "run.report", map[string]any{"run_id": lease.Run.ID, "attempt_id": lease.Attempt.ID, "run_token": lease.RunToken, "package": output}, &report); err != nil {
+			if err := journal.queueReport(lease, output); err != nil {
 				return err
 			}
+			if err := journal.deliverAttempt(cmd.Context(), client, lease.Attempt.ID); err != nil {
+				return err
+			}
+			report := map[string]any{"delivered": true}
 			return r.writeOK("daemon.run", map[string]any{"leased": true, "run_id": lease.Run.ID, "attempt_id": lease.Attempt.ID, "task_type": lease.Run.TaskType, "isolated_workspace": true, "result": report})
 		}
 		if once {
-			return execute()
+			return execute(runtimes[0])
 		}
+		results := make(chan error, maxConcurrent)
+		active, nextRuntime := 0, 0
 		for {
-			if err := execute(); err != nil {
-				fmt.Fprintln(r.stderr, err)
+			for active < maxConcurrent {
+				runtime := runtimes[nextRuntime]
+				nextRuntime = (nextRuntime + 1) % len(runtimes)
+				active++
+				go func() { results <- execute(runtime) }()
 			}
 			select {
 			case <-cmd.Context().Done():
+				for active > 0 {
+					<-results
+					active--
+				}
 				return nil
-			case <-time.After(10 * time.Second):
+			case runErr := <-results:
+				active--
+				if runErr != nil {
+					fmt.Fprintln(r.stderr, runErr)
+				}
 			}
 		}
 	}}
 	run.Flags().BoolVar(&once, "once", false, "poll at most once")
 	run.Flags().BoolVar(&fixture, "fixture", false, "use deterministic local fixture adapter for development")
 	run.Flags().StringVar(&adapterKind, "adapter", "auto", "local Agent adapter: auto, codex, or claude-code; other registered clients are planned")
-	cmd.AddCommand(run)
+	run.Flags().StringVar(&logFile, "log-file", "", "managed daemon log path")
+	cmd.AddCommand(start, stop, status, restart, run)
 	return cmd
 }
 
+func daemonStartPrerequisites() error {
+	cfg, err := localconfig.Load()
+	if err != nil {
+		return err
+	}
+	if len(cfg.RuntimeBindings()) == 0 && cfg.DeviceID == "" {
+		return domain.Conflict("DEVICE_BINDING_MISSING", "启动 Automation Daemon 前必须先完成设备注册")
+	}
+	for _, binding := range cfg.RuntimeBindings() {
+		if _, err := localconfig.DeviceToken(binding.DeviceID); err != nil {
+			return &domain.Error{Type: "credential", Subtype: "device", Code: "DEVICE_CREDENTIAL_MISSING", Message: err.Error(), ExitCode: 3}
+		}
+	}
+	adapter, err := agentadapter.Select("auto")
+	if err != nil {
+		return err
+	}
+	if err := adapter.Detect(); err != nil {
+		return domain.Policy("AGENT_ADAPTER_UNAVAILABLE", "未检测到可用于 Automation 的 Codex 或 Claude Code", "安装并登录本机 Agent 后重试")
+	}
+	return nil
+}
+
 func daemonEnvironmentClaims(config localconfig.Config) ([]app.AutomationEnvironmentClaim, error) {
-	root := configuredWorkspaceRoot(config)
-	if root == "" {
+	roots := []string{}
+	if root := strings.TrimSpace(os.Getenv("CONTENTCLOUD_WORKSPACE_ROOT")); root != "" {
+		roots = append(roots, root)
+	} else {
+		for _, binding := range config.RuntimeBindings() {
+			for _, workspace := range binding.Workspaces {
+				if root := strings.TrimSpace(workspace.Root); root != "" {
+					roots = append(roots, root)
+				}
+			}
+		}
+		if len(roots) == 0 && strings.TrimSpace(config.WorkspaceRoot) != "" {
+			roots = append(roots, strings.TrimSpace(config.WorkspaceRoot))
+		}
+	}
+	if len(roots) == 0 {
 		return []app.AutomationEnvironmentClaim{}, nil
 	}
-	state, err := localworkspace.ReadEnvironmentClaim(root)
-	if err != nil {
-		wrapped := domain.Conflict("AUTOMATION_ENVIRONMENT_CLAIM_UNAVAILABLE", "无法读取完整的本地 Environment Manifest/Lock")
-		wrapped.Hint = "完成 Environment doctor 后重试 daemon poll"
-		wrapped.Details = map[string]any{"workspace_root": root, "cause": err.Error()}
-		return nil, wrapped
+	claims := make([]app.AutomationEnvironmentClaim, 0, len(roots))
+	projects := map[string]bool{}
+	for _, root := range roots {
+		state, err := localworkspace.ReadEnvironmentClaim(root)
+		if err != nil {
+			wrapped := domain.Conflict("AUTOMATION_ENVIRONMENT_CLAIM_UNAVAILABLE", "无法读取完整的本地 Environment Manifest/Lock")
+			wrapped.Hint = "完成 Environment doctor 后重试 daemon poll"
+			wrapped.Details = map[string]any{"workspace_root": root, "cause": err.Error()}
+			return nil, wrapped
+		}
+		if projects[state.Manifest.ProjectID] {
+			continue
+		}
+		projects[state.Manifest.ProjectID] = true
+		claims = append(claims, app.AutomationEnvironmentClaim{Manifest: state.Manifest, Lock: state.Lock})
 	}
-	return []app.AutomationEnvironmentClaim{{Manifest: state.Manifest, Lock: state.Lock}}, nil
+	return claims, nil
 }
 
-func configuredWorkspaceRoot(config localconfig.Config) string {
+func configuredWorkspaceRoots(config localconfig.Config) []string {
 	if root := strings.TrimSpace(os.Getenv("CONTENTCLOUD_WORKSPACE_ROOT")); root != "" {
-		return root
+		return []string{root}
 	}
-	return strings.TrimSpace(config.WorkspaceRoot)
+	roots := []string{}
+	seen := map[string]bool{}
+	for _, binding := range config.RuntimeBindings() {
+		for _, workspace := range binding.Workspaces {
+			root := strings.TrimSpace(workspace.Root)
+			if root != "" && !seen[root] {
+				seen[root] = true
+				roots = append(roots, root)
+			}
+		}
+	}
+	if root := strings.TrimSpace(config.WorkspaceRoot); root != "" && !seen[root] {
+		roots = append(roots, root)
+	}
+	return roots
 }
 
-func finishAttempt(client *apiclient.Client, lease app.Lease, outcome, failureClass, summary string, exitCode *int) error {
+func daemonMaxConcurrentTasks() int {
+	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv("CONTENTCLOUD_DAEMON_MAX_CONCURRENT_TASKS")))
+	if err != nil || value < 1 {
+		return 2
+	}
+	if value > 8 {
+		return 8
+	}
+	return value
+}
+
+func finishAttempt(journal *daemonJournal, client *apiclient.Client, lease app.Lease, outcome, failureClass, summary string, exitCode *int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	params := map[string]any{
-		"run_id":             lease.Run.ID,
-		"attempt_id":         lease.Attempt.ID,
-		"run_token":          lease.RunToken,
-		"outcome":            outcome,
-		"failure_class":      failureClass,
-		"transcript_summary": summary,
+	if err := journal.queueFinish(lease, outcome, failureClass, summary, exitCode); err != nil {
+		return err
 	}
-	if exitCode != nil {
-		params["exit_code"] = *exitCode
-	}
-	return client.Dispatch(ctx, "run.finish", params, nil)
+	return journal.deliverAttempt(ctx, client, lease.Attempt.ID)
 }
 
-func finishAttemptError(client *apiclient.Client, lease app.Lease, failureClass, summary string, runErr error) error {
-	return finishAttemptErrorWithExitCode(client, lease, failureClass, summary, nil, runErr)
+func finishAttemptError(journal *daemonJournal, client *apiclient.Client, lease app.Lease, failureClass, summary string, runErr error) error {
+	return finishAttemptErrorWithExitCode(journal, client, lease, failureClass, summary, nil, runErr)
 }
 
-func finishAttemptErrorWithExitCode(client *apiclient.Client, lease app.Lease, failureClass, summary string, exitCode *int, runErr error) error {
-	if finishErr := finishAttempt(client, lease, "failed", failureClass, summary, exitCode); finishErr != nil {
+func finishAttemptErrorWithExitCode(journal *daemonJournal, client *apiclient.Client, lease app.Lease, failureClass, summary string, exitCode *int, runErr error) error {
+	if finishErr := finishAttempt(journal, client, lease, "failed", failureClass, summary, exitCode); finishErr != nil {
 		return errors.Join(runErr, finishErr)
 	}
 	return runErr
@@ -662,66 +914,6 @@ func skillDestination(target, name string) (string, error) {
 	}
 }
 
-func installUserDaemon() error {
-	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("user daemon registration is not implemented for %s", runtime.GOOS)
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	configDir := filepath.Join(home, "Library", "Application Support", "ContentCloud")
-	if err := os.MkdirAll(configDir, 0o700); err != nil {
-		return err
-	}
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", "com.goodvision.contentcloud.plist")
-	if err := os.MkdirAll(filepath.Dir(plistPath), 0o700); err != nil {
-		return err
-	}
-	plist := `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>com.goodvision.contentcloud</string>
-<key>ProgramArguments</key><array><string>` + html.EscapeString(executable) + `</string><string>daemon</string><string>run</string></array>
-<key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ProcessType</key><string>Background</string>
-<key>StandardOutPath</key><string>` + html.EscapeString(filepath.Join(configDir, "daemon.log")) + `</string>
-<key>StandardErrorPath</key><string>` + html.EscapeString(filepath.Join(configDir, "daemon-error.log")) + `</string>
-</dict></plist>`
-	temporary := plistPath + ".tmp"
-	if err := os.WriteFile(temporary, []byte(plist), 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(temporary, plistPath); err != nil {
-		return err
-	}
-	domainName := fmt.Sprintf("gui/%d", os.Getuid())
-	_ = exec.Command("launchctl", "bootout", domainName+"/com.goodvision.contentcloud").Run()
-	if output, err := exec.Command("launchctl", "bootstrap", domainName, plistPath).CombinedOutput(); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	return nil
-}
-
-func uninstallUserDaemon() error {
-	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("user daemon registration is not implemented for %s", runtime.GOOS)
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	domainName := fmt.Sprintf("gui/%d", os.Getuid())
-	_ = exec.Command("launchctl", "bootout", domainName+"/com.goodvision.contentcloud").Run()
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", "com.goodvision.contentcloud.plist")
-	if err := os.Remove(plistPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
 func commandSchemas() map[string]any {
 	read := func(args []string, output string) map[string]any { return schemaEntry("read", "none", args, output) }
 	userRead := func(args []string, output string) map[string]any { return schemaEntry("read", "user", args, output) }
@@ -735,7 +927,7 @@ func commandSchemas() map[string]any {
 		return schemaEntry("high-risk-write", "user", append(args, "--yes", "--dry-run"), output)
 	}
 	return map[string]any{
-		"doctor": read([]string{"--offline"}, "diagnostic checks"), "status": read(nil, "local runtime status"), "update": read(nil, "verified installer guidance"),
+		"doctor": read([]string{"--offline"}, "diagnostic checks"), "status": read(nil, "local runtime and daemon status"), "update": read(nil, "verified installer guidance"),
 		"bootstrap.preflight": read([]string{"directory", "--offline"}, "stable prerequisite check IDs and managed next actions"), "bootstrap.plan": schemaEntry("read", "browser-device", []string{"directory", "--session"}, "read-only pinned Codex Plugin and Workspace plan"), "bootstrap.apply": write("browser-device", []string{"directory", "--session", "--plan-id", "--accept", "--open-codex"}, "authorized plugin, registered Workspace, and new-chat handoff"), "bootstrap.resume": write("workspace", []string{"directory", "--accept", "--open-codex"}, "revalidated and registered existing bootstrap Workspace"), "bootstrap.diagnostics": schemaEntry("read", "workspace-for-upload", []string{"directory", "--attempt", "--upload", "--accept-upload"}, "redacted diagnostic preview or confirmed upload"),
 		"workspace.status": read([]string{"directory"}, "local workspace binding, template, and synchronization state"), "workspace.doctor": read([]string{"directory", "--offline"}, "workspace, Skill, MCP, and cloud checks"), "workspace.fixture.apply": write("none", []string{"fixture.json", "--directory", "--project-id", "--workspace-id", "--device-id", "--server-url", "--target"}, "complete deterministic V3 acceptance workspace"), "workspace.execution-plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "verified offline LocalExecutionPlan and exact Pack preparation"), "workspace.prepare.plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "signed Pack permissions, data flow, cost, and new-chat impact"), "workspace.prepare.apply": write("none", []string{"--directory", "--run", "--intent", "--capability", "--input", "--preparation-id", "--accept"}, "installed task Packs, verified environment lock, doctor, and new-chat handoff"), "workspace.conversation-context": read([]string{"directory", "--offline"}, "offline cross-conversation workspace context"), "workspace.approved.list": read([]string{"--directory", "--type"}, "verified local ApprovedSnapshot summaries"), "workspace.approved.show": read([]string{"snapshot-id", "--directory"}, "verified local ApprovedSnapshot"),
 		"local.source.register": write("none", []string{"file", "--directory", "--id", "--title", "--kind", "--storage"}, "immutable local source record"), "local.source.list": read([]string{"--directory"}, "local source registry"), "local.source.show": read([]string{"source-id", "--directory"}, "local source record"), "local.source.ingest": write("none", []string{"source-id", "--directory"}, "local evidence bundle"), "local.source.verify": read([]string{"--directory"}, "source integrity report"),
@@ -773,12 +965,12 @@ func commandSchemas() map[string]any {
 		"asset.list": userRead([]string{"--project"}, "governed asset list"), "asset.create": write("user", []string{"--project", "--name", "--type", "--source-revision", "--usage", "--dry-run"}, "governed asset"), "rights.list": userRead([]string{"asset-id"}, "asset rights records"), "rights.create": write("user", []string{"asset-id", "--holder", "--type", "--territory", "--channel", "--proof-source-revision", "--valid-from", "--valid-until", "--restriction", "--dry-run"}, "rights record"), "rights.review": write("user", []string{"rights-id", "decision", "--dry-run"}, "reviewed rights record"),
 		"knowledge.list": userRead([]string{"--project"}, "knowledge list"), "knowledge.show": userRead([]string{"knowledge-id"}, "knowledge with evidence"), "knowledge.extract": write("user", []string{"--project", "--source-revision", "--count", "--idempotency-key", "--dry-run"}, "queued local knowledge extraction run"), "knowledge.review": write("user", []string{"id", "decision", "--dry-run"}, "reviewed knowledge"),
 		"knowledge.conflicts": userRead([]string{"--project"}, "knowledge conflict list"), "knowledge.decisions": userRead([]string{"--project"}, "decision request list"), "knowledge.decision.resolve": write("user", []string{"decision-request-id", "--select", "--notes", "--dry-run"}, "resolved decision request"),
-		"run.list": userRead([]string{"--project"}, "run list"), "run.show": userRead([]string{"run-id"}, "task run"), "run.attempts": userRead([]string{"run-id"}, "immutable execution attempt list"), "run.log": userRead([]string{"run-id"}, "sanitized persisted progress"), "run.cancel": high([]string{"run-id"}, "canceled task run"),
+		"run.list": userRead([]string{"--project"}, "run list"), "run.show": userRead([]string{"run-id"}, "task run"), "run.attempts": userRead([]string{"run-id"}, "immutable execution attempt list"), "run.events": userRead([]string{"run-id", "--after"}, "immutable incremental progress events"), "run.log": userRead([]string{"run-id"}, "sanitized persisted progress"), "run.cancel": high([]string{"run-id"}, "canceled task run"),
 		"artifact.export": write("user", []string{"approved-snapshot-id", "--content-item", "--format"}, "snapshot-derived artifact"), "delivery.create": write("user", []string{"approved-snapshot-id", "--content-item"}, "three-format delivery package"), "delivery.list": userRead([]string{"--project"}, "delivery package list"), "delivery.show": userRead([]string{"delivery-package-id"}, "delivery package"), "artifact.download": userRead([]string{"artifact-id", "--out"}, "hosted artifact path"),
 		"review.create": write("user", []string{"submission-revision-id", "--email", "--dry-run"}, "one-time customer review link"), "review.list": userRead([]string{"submission-revision-id"}, "customer review grants"), "review.revoke": high([]string{"grant-id", "--dry-run"}, "revoked customer review grant"), "review.status": userRead([]string{"submission-revision-id"}, "customer review state"),
 		"result.list": userRead([]string{"--project"}, "observation list"), "result.import": write("user", []string{"json-or-csv-or-xlsx-file", "--project", "--dry-run"}, "atomic performance import batch"), "result.batches": userRead([]string{"--project"}, "immutable import batch list"), "result.batch-show": userRead([]string{"batch-id"}, "import batch and observations"), "result.rate": write("user", []string{"subject-type", "subject-id", "--project", "--observation", "--rating", "--reason", "--next-action", "--dry-run"}, "manual rating decision"), "result.ratings": userRead([]string{"--project"}, "manual rating decision list"),
 		"lineage.show": userRead([]string{"--project", "--type", "--id", "--direction"}, "bidirectional project lineage graph"), "lineage.impact": userRead([]string{"--project", "--type", "--id"}, "affected objects with reasons and actions"), "audit.list": userRead([]string{"--project", "--limit"}, "immutable audit event list"),
-		"daemon.run": write("device", []string{"--once", "--fixture", "--adapter"}, "leased run result"), "skills.list": read(nil, "embedded skills"), "skills.read": read([]string{"name", "--path"}, "skill content"), "skills.status": read(nil, "skill version state"), "skills.install": write("none", []string{"name", "--target"}, "local install path"), "schema": read([]string{"command"}, "CLI contract"), "request.get": userRead([]string{"projects|tenants|runs"}, "allowlisted resource"),
+		"daemon.start": write("device", nil, "installed and running user daemon"), "daemon.stop": write("none", nil, "stopped installed daemon"), "daemon.status": read(nil, "daemon process, logs, version, and last runtime health"), "daemon.restart": write("device", []string{"--if-installed"}, "daemon reloaded with current binary"), "daemon.run": write("device", []string{"--once", "--fixture", "--adapter", "--log-file"}, "leased run result"), "skills.list": read(nil, "embedded skills"), "skills.read": read([]string{"name", "--path"}, "skill content"), "skills.status": read(nil, "skill version state"), "skills.install": write("none", []string{"name", "--target"}, "local install path"), "schema": read([]string{"command"}, "CLI contract"), "request.get": userRead([]string{"projects|tenants|runs"}, "allowlisted resource"),
 	}
 }
 

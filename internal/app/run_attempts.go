@@ -28,6 +28,20 @@ func (s *Service) RunAttempts(ctx context.Context, actor Actor, runID string) ([
 	return s.store.RunAttempts(ctx, actor.TenantID, runID)
 }
 
+func (s *Service) RunProgress(ctx context.Context, actor Actor, runID string, after int64) ([]domain.RunProgressEvent, error) {
+	run, err := s.store.Run(ctx, actor.TenantID, runID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.store.Project(ctx, actor.TenantID, run.ProjectID); err != nil {
+		return nil, err
+	}
+	if after < 0 {
+		after = 0
+	}
+	return s.store.RunProgress(ctx, actor.TenantID, runID, after)
+}
+
 func (s *Service) activeRunAttempt(ctx context.Context, actor Actor, device domain.Device, run domain.TaskRun, attemptID, runToken string, now time.Time) (domain.RunAttempt, error) {
 	if attemptID == "" {
 		attemptID = run.ActiveAttemptID
@@ -89,6 +103,7 @@ func (s *Service) FinishRunAttempt(ctx context.Context, actor Actor, device doma
 		if err := s.store.SaveRun(ctx, run); err != nil {
 			return run, err
 		}
+		_, _ = s.store.AppendRunProgress(ctx, domain.RunProgressEvent{TenantID: run.TenantID, ProjectID: run.ProjectID, RunID: run.ID, AttemptID: attempt.ID, DeviceID: attempt.DeviceID, Sequence: run.HeartbeatSequence + 1, Phase: "canceled", Step: run.HeartbeatSequence + 1, Label: run.ProgressLabel, OccurredAt: now})
 		s.audit(ctx, actor, run.ProjectID, "run.attempt_canceled", "run_attempt", attempt.ID, requestID, map[string]any{"run_id": run.ID})
 		return run, nil
 	default:
@@ -98,6 +113,7 @@ func (s *Service) FinishRunAttempt(ctx context.Context, actor Actor, device doma
 
 func (s *Service) failRunAttempt(ctx context.Context, run domain.TaskRun, attempt domain.RunAttempt, failureClass string, exitCode *int, usage map[string]any, summary string) (domain.TaskRun, error) {
 	now := s.now().UTC()
+	progressSequence := run.HeartbeatSequence + 1
 	attempt.State = "failed"
 	attempt.FailureClass = strings.TrimSpace(failureClass)
 	attempt.ExitCode = exitCode
@@ -125,6 +141,7 @@ func (s *Service) failRunAttempt(ctx context.Context, run domain.TaskRun, attemp
 	if err := s.store.SaveRun(ctx, run); err != nil {
 		return run, err
 	}
+	_, _ = s.store.AppendRunProgress(ctx, domain.RunProgressEvent{TenantID: run.TenantID, ProjectID: run.ProjectID, RunID: run.ID, AttemptID: attempt.ID, DeviceID: attempt.DeviceID, Sequence: progressSequence, Phase: "failed", Step: progressSequence, Label: run.ProgressLabel, OccurredAt: now})
 	return run, nil
 }
 

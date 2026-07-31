@@ -101,13 +101,46 @@ func TestDecodeClaudeStructuredOutput(t *testing.T) {
 }
 
 func TestAgentEnvironmentDoesNotInheritUnrelatedSecret(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "provider-key")
 	t.Setenv("CONTENTCLOUD_TEST_SECRET", "do-not-inherit")
 	t.Setenv("CONTENTCLOUD_DEVICE_TOKEN", "dt_do-not-inherit")
 	t.Setenv("CONTENTCLOUD_WORKSPACE_TOKEN", "wt_do-not-inherit")
 	t.Setenv("CONTENTCLOUD_RUN_TOKEN", "rt_do-not-inherit")
+	providerInherited := false
 	for _, value := range agentEnvironment("codex") {
 		if strings.Contains(value, "do-not-inherit") {
-			t.Fatalf("ContentCloud or unrelated secret inherited: %s", value)
+			t.Fatalf("ContentCloud control-plane secret inherited: %s", value)
+		}
+		if value == "OPENAI_API_KEY=provider-key" {
+			providerInherited = true
+		}
+	}
+	if !providerInherited {
+		t.Fatal("provider environment was not inherited by the automation agent")
+	}
+}
+
+func TestAutomationArgumentsUsePreauthorizedFullAccess(t *testing.T) {
+	codex := strings.Join(codexRunArguments("/tmp/attempt", "/tmp/attempt/result.json"), " ")
+	if !strings.Contains(codex, "--dangerously-bypass-approvals-and-sandbox") || strings.Contains(codex, "read-only") {
+		t.Fatalf("Codex automation arguments are not full access: %s", codex)
+	}
+	claude := strings.Join(claudeRunArguments([]byte(`{"type":"object"}`), "prompt"), " ")
+	if !strings.Contains(claude, "--permission-mode bypassPermissions") || strings.Contains(claude, "--tools ") || strings.Contains(claude, "--safe-mode") {
+		t.Fatalf("Claude automation arguments disable autonomous execution: %s", claude)
+	}
+}
+
+func TestAutomationPromptAllowsToolsWithoutInteractiveApproval(t *testing.T) {
+	prompt := agentPrompt(domain.TaskContract{RunID: "run-1"}, []byte("# Test Skill"))
+	for _, required := range []string{"不要请求交互确认", "本机工具", "Shell", "网络能力", "Automation Attempt 工作目录"} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("automation prompt missing %q: %s", required, prompt)
+		}
+	}
+	for _, forbidden := range []string{"不得调用网络", "不得执行 Shell"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("automation prompt still contains obsolete restriction %q", forbidden)
 		}
 	}
 }

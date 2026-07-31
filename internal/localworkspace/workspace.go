@@ -306,6 +306,10 @@ func LoadStatus(root string) (Status, error) {
 		return Status{}, fmt.Errorf("read sync state: %w", err)
 	}
 	modified, missing := verifyManagedFiles(resolved, lock.Files)
+	automationEnabled := false
+	if environmentState, environmentErr := ReadEnvironmentClaim(resolved); environmentErr == nil {
+		automationEnabled = environmentState.Manifest.Policies.AutomationEnabled
+	}
 	return Status{
 		Root:                 resolved,
 		Initialized:          true,
@@ -317,7 +321,7 @@ func LoadStatus(root string) (Status, error) {
 		PendingDecisionCount: countFiles(filepath.Join(resolved, ".contentcloud", "inbox", "decision-deltas")),
 		ModifiedManagedFiles: modified,
 		MissingManagedFiles:  missing,
-		AutomationEnabled:    false,
+		AutomationEnabled:    automationEnabled,
 	}, nil
 }
 
@@ -329,6 +333,10 @@ func Doctor(root string) (DoctorReport, error) {
 	skillsOK, skillsMessage := installedSkillsCheck(status.Root, status.Template)
 	mcpOK, mcpMessage := installedMCPCheck(status.Root, status.Template)
 	routingInspection, _ := InspectCapabilityRouting(status.Root)
+	automationMessage := "签名 Environment Manifest 未启用后台 Automation"
+	if status.AutomationEnabled {
+		automationMessage = "签名 Environment Manifest 已启用后台 Automation"
+	}
 	checks := map[string]Check{
 		"workspace_binding":  {OK: status.Binding.SchemaVersion == WorkspaceSchemaVersion && status.Binding.LayoutVersion == LayoutVersion && status.Binding.ProjectID != "" && status.Binding.WorkspaceID != "", Required: true, Message: "V3 项目与工作区绑定可读"},
 		"workspace_writable": bindingWriteProbe(status.Root),
@@ -337,7 +345,7 @@ func Doctor(root string) (DoctorReport, error) {
 		"skills":             {OK: skillsOK, Required: true, Message: skillsMessage},
 		"mcp":                {OK: mcpOK, Required: true, Message: mcpMessage},
 		"capability_routing": {OK: routingInspection.Status == "current", Required: true, Message: "ContentCloud 路由受管块状态：" + routingInspection.Status},
-		"automation":         {OK: true, Required: false, Message: "后台 Automation Daemon 未启用（普通本地创作不需要）"},
+		"automation":         {OK: true, Required: false, Message: automationMessage},
 	}
 	ok := true
 	for _, check := range checks {

@@ -7,7 +7,7 @@ describe('ContentCloud Agent bootstrap',()=>{
   it('builds a stable prompt with a public session ID and no secret',()=>{
     const prompt=buildBootstrapPrompt({serverURL:'https://content.example.com/',sessionID:waitingSession.id,projectName:'金陵古都香 / 古法线香'});
     expect(prompt).toBe(
-      'Fetch https://content.example.com/api/bootstrap and follow it to initialize this ContentCloud project in Codex.\n\nserver-url: https://content.example.com\nsession-id: 11111111-1111-4111-8111-111111111111\ncontentcloud-cli: npx --yes @limecloud/contentcloud@0.10.0\nproject: "金陵古都香 / 古法线香"'
+      'Fetch https://content.example.com/api/bootstrap and follow it to initialize this ContentCloud project in Codex.\n\nserver-url: https://content.example.com\nsession-id: 11111111-1111-4111-8111-111111111111\ncontentcloud-cli: npx --yes @limecloud/contentcloud@0.11.0\nproject: "金陵古都香 / 古法线香"'
     );
     expect(prompt).not.toMatch(/connect[-_]key|cck_|token|secret/i);
   });
@@ -20,7 +20,7 @@ describe('ContentCloud Agent bootstrap',()=>{
 
   it('provides fixed preflight, plan, resume, and diagnostic commands',()=>{
     const commands=buildBootstrapCommands({serverURL:'https://content.example.com/',sessionID:waitingSession.id,attemptID:'22222222-2222-4222-8222-222222222222'});
-    expect(commands.preflight).toBe("npx --yes @limecloud/contentcloud@0.10.0 bootstrap preflight . --server-url 'https://content.example.com' --json");
+    expect(commands.preflight).toBe("npx --yes @limecloud/contentcloud@0.11.0 bootstrap preflight . --server-url 'https://content.example.com' --json");
     expect(commands.plan).toContain("--session '11111111-1111-4111-8111-111111111111'");
     expect(commands.resume).toContain('bootstrap resume . --accept --json');
     expect(commands.diagnostics).toContain("--attempt '22222222-2222-4222-8222-222222222222'");

@@ -43,6 +43,8 @@ type Store struct {
 	runs                 map[string]domain.TaskRun
 	executionBundles     map[string]environment.CreativeExecutionBundle
 	runAttempts          map[string]domain.RunAttempt
+	runProgress          map[string][]domain.RunProgressEvent
+	runProgressCursor    int64
 	approvals            map[string]domain.ApprovalDecision
 	reviewCycles         map[string]domain.ReviewCycle
 	reviewComments       map[string]domain.ReviewComment
@@ -64,7 +66,7 @@ func New() *Store {
 		tenants: map[string]domain.Tenant{}, tenantContentCaps: map[string]domain.TenantContentCapability{}, memberships: map[string]domain.Membership{}, membershipInvites: map[string]domain.MembershipInvite{}, projects: map[string]domain.Project{}, projectTemplates: map[string]domain.ProjectTemplate{},
 		connects: map[string]domain.ConnectSession{}, bootstrapAttempts: map[string]domain.BootstrapAttempt{}, bootstrapEvents: map[string]map[int64]domain.BootstrapProgressEvent{}, bootstrapDiagnostics: map[string]domain.BootstrapDiagnostic{}, devices: map[string]domain.Device{}, workspaceBindings: map[string]domain.WorkspaceBinding{}, userDeviceFlows: map[string]domain.UserDeviceFlow{}, cliTokens: map[string]domain.CLIToken{},
 		sources: map[string]domain.Source{}, revisions: map[string]domain.SourceRevision{}, evidence: map[string]domain.EvidenceSpan{}, assets: map[string]domain.Asset{}, rightsRecords: map[string]domain.RightsRecord{}, knowledge: map[string]domain.KnowledgeItem{}, knowledgeConflicts: map[string]domain.KnowledgeConflict{}, decisionRequests: map[string]domain.DecisionRequest{},
-		snapshots: map[string]domain.ContextSnapshot{}, runs: map[string]domain.TaskRun{}, executionBundles: map[string]environment.CreativeExecutionBundle{}, runAttempts: map[string]domain.RunAttempt{},
+		snapshots: map[string]domain.ContextSnapshot{}, runs: map[string]domain.TaskRun{}, executionBundles: map[string]environment.CreativeExecutionBundle{}, runAttempts: map[string]domain.RunAttempt{}, runProgress: map[string][]domain.RunProgressEvent{},
 		approvals: map[string]domain.ApprovalDecision{}, reviewCycles: map[string]domain.ReviewCycle{}, reviewComments: map[string]domain.ReviewComment{}, reviewGrants: map[string]domain.ReviewGrant{}, submissions: map[string]domain.Submission{}, submissionRevisions: map[string]domain.SubmissionRevision{}, approvedSnapshots: map[string]domain.ApprovedSnapshot{}, artifacts: map[string]domain.Artifact{}, deliveryPackages: map[string]domain.DeliveryPackage{}, performanceBatches: map[string]domain.PerformanceImportBatch{}, observations: map[string]domain.PerformanceObservation{}, ratingDecisions: map[string]domain.RatingDecision{}, audits: []domain.AuditEvent{},
 	}
 }
