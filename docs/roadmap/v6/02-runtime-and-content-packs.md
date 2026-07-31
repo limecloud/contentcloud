@@ -81,7 +81,7 @@ Content Pack 不能把领域事实藏在 prompt 中。Prompt 只能编排已声�
 {
   "tenant_id": "tenant_x",
   "workspace_id": "workspace_x",
-  "runtime": {"client": "codex", "version": "0.12.0", "status": "ready"},
+  "runtime": {"client": "codex", "version": "0.13.0", "status": "ready"},
   "content_packs": [
     {"id": "video_script", "state": "enabled", "digest": "sha256:..."},
     {"id": "wechat_article", "state": "disabled", "reason_code": "tenant_not_enabled"}

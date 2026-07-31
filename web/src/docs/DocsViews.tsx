@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { Banner, IconButton, Loading } from '../components/ui';
+import { BrandLockup } from '../components/Brand';
 import { consolePath } from '../consoleRoutes';
 import { docsStatusLabel, docsWebPath, loadDocsCatalog, loadDocsPage, resolveMarkdownHref, type DocsCatalog, type DocsPage, type DocsStatus } from './docs';
 import './docs.css';
@@ -17,14 +18,14 @@ export function DocsShell(){
   const load=()=>{setError('');loadDocsCatalog().then(setCatalog).catch(value=>setError(value instanceof Error?value.message:'文档目录加载失败'))};
   useEffect(()=>{load()},[]);
   useEffect(()=>{
-    const previousTitle=document.title;document.title='ContentCloud 使用文档';
+    const previousTitle=document.title;document.title='Content Work OS 使用文档';
     let robots=document.head.querySelector<HTMLMetaElement>('meta[name="robots"]');
     const created=!robots;if(!robots){robots=document.createElement('meta');robots.name='robots';document.head.appendChild(robots)}
     const previous=robots.content;robots.content='noindex, nofollow';
     return()=>{document.title=previousTitle;if(created)robots?.remove();else if(robots)robots.content=previous};
   },[]);
   return <DocsContext.Provider value={catalog}><div className="docs-shell">
-    <header className="docs-topbar"><Link className="docs-brand" to="/"><span className="brand-mark">CC</span><span><strong>ContentCloud</strong><small>使用文档</small></span></Link><nav><Link to="/docs"><House size={16}/>文档首页</Link><Link to={consolePath.dashboard}><MonitorUp size={16}/>工作台</Link><IconButton className="docs-menu-button" label="打开文档导航" onClick={()=>setMobileOpen(true)}><Menu size={19}/></IconButton></nav></header>
+    <header className="docs-topbar"><Link className="docs-brand" to="/"><BrandLockup subtitle="使用文档"/></Link><nav><Link to="/docs"><House size={16}/>文档首页</Link><Link to={consolePath.dashboard}><MonitorUp size={16}/>工作台</Link><IconButton className="docs-menu-button" label="打开文档导航" onClick={()=>setMobileOpen(true)}><Menu size={19}/></IconButton></nav></header>
     <div className="docs-layout">
       <aside className={`docs-sidebar ${mobileOpen?'is-open':''}`}><div className="docs-sidebar-mobile"><strong>文档导航</strong><IconButton label="关闭文档导航" onClick={()=>setMobileOpen(false)}><X size={18}/></IconButton></div>{catalog?<DocsNavigation catalog={catalog} onNavigate={()=>setMobileOpen(false)}/>:<div className="docs-sidebar-loading"><Loading/></div>}</aside>
       {mobileOpen&&<button className="docs-scrim" aria-label="关闭文档导航" onClick={()=>setMobileOpen(false)}/>}
@@ -48,7 +49,7 @@ function StatusDot({status}:{status:DocsStatus}){return <i className={`docs-stat
 
 export function DocsHome(){
   const catalog=useDocsCatalog();
-  useEffect(()=>{document.title='ContentCloud 使用文档'},[]);
+  useEffect(()=>{document.title='Content Work OS 使用文档'},[]);
   return <div className="docs-home">
     <header className="docs-home-heading"><span className="eyebrow">Documentation</span><h1>{catalog.home.title}</h1><p>{catalog.home.description}</p><div><Link className="button button-primary" to={docsWebPath('getting-started')!}>开始使用<ChevronRight size={16}/></Link><Link className="button button-secondary" to={docsWebPath('concepts/governed-workflow')!}>了解工作流</Link></div></header>
     <section className="docs-index-section"><header><div><span className="section-kicker">Agent Clients</span><h2>按客户端查看</h2></div><p>能力状态直接来自 Agent Client Registry。</p></header><div className="docs-client-index">{catalog.clients.map(client=><Link key={client.id} to={docsWebPath(client.page_slug)!}><span className="docs-index-icon"><MonitorUp size={18}/></span><span><strong>{client.display_name}</strong><small>{client.summary}</small></span><b className={`docs-status is-${client.status}`}>{docsStatusLabel(client.status)}</b><ChevronRight size={17}/></Link>)}</div></section>
@@ -61,7 +62,7 @@ export function DocsPageView({slug}:{slug:string}){
   const catalog=useDocsCatalog();
   const [page,setPage]=useState<DocsPage>();const [error,setError]=useState('');const [reload,setReload]=useState(0);
   useEffect(()=>{let active=true;setPage(undefined);setError('');loadDocsPage(slug).then(value=>{if(active)setPage(value)}).catch(value=>{if(active)setError(value instanceof Error?value.message:'文档页面加载失败')});return()=>{active=false}},[slug,reload]);
-  useEffect(()=>{if(page)document.title=`${page.title} · ContentCloud 文档`},[page]);
+  useEffect(()=>{if(page)document.title=`${page.title} · Content Work OS 文档`},[page]);
   const components=useMemo(()=>({
     a:({href='',children}:{href?:string;children?:React.ReactNode})=>{
       const resolved=resolveMarkdownHref(href,slug);

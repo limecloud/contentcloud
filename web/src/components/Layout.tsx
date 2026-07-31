@@ -2,6 +2,7 @@ import { BookOpenCheck, ChevronDown, CircleHelp, Clapperboard, ClipboardList, La
 import { useState, type ReactNode } from 'react';
 import type { Project, Session, Tenant } from '../types';
 import type { ProjectView } from '../v3/page-contracts';
+import { BrandLockup, BrandMark } from './Brand';
 import { IconButton, Status } from './ui';
 
 export type View = 'dashboard'|'team'|ProjectView;
@@ -26,9 +27,9 @@ export function Layout({session,tenants,projects,project,view,onView,onTenant,on
   const canManage=session.role==='tenant_admin'||session.role==='project_manager';
   const navigate=(id:View)=>{onView(id);setMobileOpen(false)};
   return <div className="app-shell">
-    <header className="mobile-header"><div className="brand-mark">CC</div><strong>ContentCloud</strong><IconButton label="打开导航" onClick={()=>setMobileOpen(true)}><Menu size={20}/></IconButton></header>
+    <header className="mobile-header"><BrandMark/><strong>Content Work OS</strong><IconButton label="打开导航" onClick={()=>setMobileOpen(true)}><Menu size={20}/></IconButton></header>
     <aside className={`sidebar ${mobileOpen?'sidebar-open':''}`}>
-      <div className="brand"><div className="brand-mark">CC</div><div><strong>ContentCloud</strong><span>内容运营控制面</span></div><IconButton label="关闭导航" className="mobile-close" onClick={()=>setMobileOpen(false)}><X size={18}/></IconButton></div>
+      <div className="brand"><BrandLockup subtitle="内容运营控制面"/><IconButton label="关闭导航" className="mobile-close" onClick={()=>setMobileOpen(false)}><X size={18}/></IconButton></div>
       <div className="tenant-switcher"><div className="tenant-avatar">{session.tenant.name.slice(0,1)}</div><label><span className="visually-hidden">切换租户</span><select value={session.tenant.id} onChange={event=>onTenant(event.target.value)}>{tenants.map(tenant=><option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select><small>{session.role}</small></label><ChevronDown size={16}/></div>
       <nav>
         {globalItems.filter(item=>!item.roles||item.roles.includes(session.role)).map(item=><NavItem key={item.id} {...item} active={view===item.id} onClick={()=>navigate(item.id)}/>)}
