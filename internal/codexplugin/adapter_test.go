@@ -366,7 +366,7 @@ func TestNewChatDeepLinkContainsWorkspaceAndPluginMention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed["path"] == "" || parsed["prompt"] != prompt || !strings.Contains(parsed["prompt"], "plugin://contentcloud-video-production@contentcloud") || !strings.Contains(parsed["prompt"], "workspace_context") || strings.Contains(parsed["prompt"], "contentcloud_workspace_conversation_context") {
+	if parsed["path"] == "" || parsed["prompt"] != prompt || !strings.Contains(parsed["prompt"], "plugin://contentcloud-video-production@contentcloud") || !strings.Contains(parsed["prompt"], "workspace_context") || !strings.Contains(parsed["prompt"], "请先调用工作区上下文工具") || strings.Contains(parsed["prompt"], "contentcloud_workspace_conversation_context") {
 		t.Fatalf("unexpected deep link: %s", link)
 	}
 }

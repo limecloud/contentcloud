@@ -36,6 +36,37 @@ func (r *Root) workspaceCommand() *cobra.Command {
 		return r.writeOK("workspace.conversation-context", context)
 	}}
 	conversationContext.Flags().Bool("offline", true, "read only persisted local state without cloud access")
+	projectBrief := &cobra.Command{Use: "project-brief", Short: "建立并保存项目简报"}
+	var briefDirectory, briefClient, briefBrand, briefProduct, briefObjective, briefAudience, briefNotes string
+	var briefChannels, briefMaterialRefs []string
+	saveBrief := &cobra.Command{Use: "save", Args: cobra.NoArgs, Short: "确认并保存项目简报到本地工作区", RunE: func(cmd *cobra.Command, args []string) error {
+		brief, err := localworkspace.SaveProjectBrief(localworkspace.SaveProjectBriefOptions{
+			Root: briefDirectory, Client: briefClient, Brand: briefBrand, ProductOrService: briefProduct,
+			Objective: briefObjective, Channels: briefChannels, Audience: briefAudience,
+			MaterialRefs: briefMaterialRefs, Notes: briefNotes, Confirm: true, Now: r.currentTime(),
+		})
+		if err != nil {
+			return err
+		}
+		context, err := r.workspaceConversationContext(briefDirectory)
+		if err != nil {
+			return err
+		}
+		return r.writeOK("workspace.project-brief.save", map[string]any{"brief": brief, "onboarding": context.Onboarding, "business_files_modified": true, "offline": true})
+	}}
+	saveBrief.Flags().StringVar(&briefDirectory, "directory", "", "ContentCloud 工作区路径")
+	saveBrief.Flags().StringVar(&briefClient, "client", "", "客户或组织名称")
+	saveBrief.Flags().StringVar(&briefBrand, "brand", "", "品牌名称")
+	saveBrief.Flags().StringVar(&briefProduct, "product-or-service", "", "产品或服务")
+	saveBrief.Flags().StringVar(&briefObjective, "objective", "", "本次内容目标")
+	saveBrief.Flags().StringSliceVar(&briefChannels, "channel", nil, "目标渠道，可重复传入")
+	saveBrief.Flags().StringVar(&briefAudience, "audience", "", "目标受众")
+	saveBrief.Flags().StringSliceVar(&briefMaterialRefs, "material-ref", nil, "已有素材位置，可重复传入")
+	saveBrief.Flags().StringVar(&briefNotes, "notes", "", "补充说明")
+	for _, flag := range []string{"client", "brand", "product-or-service", "objective", "channel", "audience"} {
+		_ = saveBrief.MarkFlagRequired(flag)
+	}
+	projectBrief.AddCommand(saveBrief)
 	cmd.AddCommand(
 		&cobra.Command{Use: "status [directory]", Args: cobra.MaximumNArgs(1), Short: "Show binding, template, local changes, and pull state", RunE: func(cmd *cobra.Command, args []string) error {
 			status, err := localworkspace.LoadStatus(optionalDirectory(args))
@@ -49,6 +80,7 @@ func (r *Root) workspaceCommand() *cobra.Command {
 		r.workspaceEnvironmentPrepareCommand(),
 		r.workspaceFixtureCommand(),
 		conversationContext,
+		projectBrief,
 		r.workspaceApprovedCommand(),
 	)
 	return cmd
@@ -374,6 +406,29 @@ func mcpTools() []map[string]any {
 		"destructiveHint": false,
 		"idempotentHint":  true,
 		"openWorldHint":   false,
+	}
+	workspaceWriteAnnotations := map[string]any{
+		"readOnlyHint":    false,
+		"destructiveHint": false,
+		"idempotentHint":  true,
+		"openWorldHint":   false,
+	}
+	projectBrief := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":          map[string]any{"type": "string", "description": "工作区路径；默认使用当前 MCP 工作目录"},
+			"client":             map[string]any{"type": "string", "description": "客户或组织名称"},
+			"brand":              map[string]any{"type": "string", "description": "品牌名称"},
+			"product_or_service": map[string]any{"type": "string", "description": "产品或服务"},
+			"objective":          map[string]any{"type": "string", "description": "本次内容目标"},
+			"channels":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "description": "目标内容渠道"},
+			"audience":           map[string]any{"type": "string", "description": "目标受众"},
+			"material_refs":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "已有素材的本地位置，可选"},
+			"notes":              map[string]any{"type": "string", "description": "补充说明，可选"},
+			"confirm":            map[string]any{"type": "boolean", "const": true, "description": "确认已经核对以上项目简报"},
+		},
+		"required":             []string{"client", "brand", "product_or_service", "objective", "channels", "audience", "confirm"},
+		"additionalProperties": false,
 	}
 	cloudReadAnnotations := map[string]any{
 		"readOnlyHint":    true,
@@ -720,6 +775,7 @@ func mcpTools() []map[string]any {
 			}},
 		},
 		{"name": "workspace_context", "description": "Read persisted cross-conversation ContentCloud workspace state without cloud access or write claims", "inputSchema": directory, "annotations": readOnlyAnnotations},
+		{"name": "workspace_project_brief", "description": "确认并保存项目简报，建立素材、知识和内容生产共用的本地业务上下文", "inputSchema": projectBrief, "annotations": workspaceWriteAnnotations},
 		{"name": "environment_execution_plan", "description": "Resolve a signed, offline LocalExecutionPlan and report exact missing task Packs without installing anything", "inputSchema": localExecutionPlan, "annotations": readOnlyAnnotations},
 		{"name": "environment_prepare_plan", "description": "Disclose exact missing Pack permissions, data flow, cost, and session impact without installing anything", "inputSchema": localExecutionPlan, "annotations": readOnlyAnnotations},
 		{"name": "environment_prepare_apply", "description": "Install only the exact user-confirmed Pack plan, atomically update the environment lock, re-run doctor, and return a new-chat handoff", "inputSchema": environmentPreparationApply, "annotations": environmentWriteAnnotations},
@@ -777,6 +833,15 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		Name      string `json:"name"`
 		Arguments struct {
 			Directory            string               `json:"directory"`
+			Client               string               `json:"client"`
+			Brand                string               `json:"brand"`
+			ProductOrService     string               `json:"product_or_service"`
+			Objective            string               `json:"objective"`
+			Channels             []string             `json:"channels"`
+			Audience             string               `json:"audience"`
+			MaterialRefs         []string             `json:"material_refs"`
+			Notes                string               `json:"notes"`
+			Confirm              bool                 `json:"confirm"`
 			File                 string               `json:"file"`
 			ID                   string               `json:"id"`
 			Title                string               `json:"title"`
@@ -866,6 +931,27 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		return openProjectViewEnvelope(link), nil
 	case "workspace_context":
 		value, err = r.workspaceConversationContext(params.Arguments.Directory)
+	case "workspace_project_brief":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		brief, saveErr := localworkspace.SaveProjectBrief(localworkspace.SaveProjectBriefOptions{
+			Root: root, Client: params.Arguments.Client, Brand: params.Arguments.Brand,
+			ProductOrService: params.Arguments.ProductOrService, Objective: params.Arguments.Objective,
+			Channels: params.Arguments.Channels, Audience: params.Arguments.Audience,
+			MaterialRefs: params.Arguments.MaterialRefs, Notes: params.Arguments.Notes,
+			Confirm: params.Arguments.Confirm, Now: r.currentTime(),
+		})
+		err = saveErr
+		if err == nil {
+			context, contextErr := r.workspaceConversationContext(root)
+			if contextErr != nil {
+				err = contextErr
+			} else {
+				value = map[string]any{"brief": brief, "onboarding": context.Onboarding, "business_files_modified": true, "offline": true}
+			}
+		}
 	case "environment_execution_plan":
 		value, err = r.resolveLocalExecutionPlan(params.Arguments.Directory, params.Arguments.RunID, params.Arguments.Intent, params.Arguments.RequiredCapabilities, params.Arguments.InputRefs)
 	case "environment_prepare_plan":

@@ -45,7 +45,7 @@ func SHA256() string {
 }
 
 func MCPInstructions() string {
-	return "ContentCloud 创作路由（version " + Version + "，sha256 " + SHA256() + "）：\n- " + strings.Join(rules, "\n- ")
+	return "ContentCloud 创作路由（version " + Version + "，sha256 " + SHA256() + "）：\n- " + strings.Join(rules, "\n- ") + "\n- 首次进入且 onboarding.state 为 needs_project_brief 时，只收集并确认项目简报；确认后重新读取 workspace_context，只展示 onboarding.next_step。"
 }
 
 func ManagedBlock() string {

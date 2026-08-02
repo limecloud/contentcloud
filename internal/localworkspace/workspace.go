@@ -207,7 +207,7 @@ func Initialize(options InitOptions) (Status, error) {
 			return Status{}, err
 		}
 	}
-	files, _, err := template(plan.Targets)
+	files, _, err := templateWithCLIVersion(plan.Targets, options.CLIVersion)
 	if err != nil {
 		return Status{}, err
 	}
@@ -305,7 +305,7 @@ func LoadStatus(root string) (Status, error) {
 	if err := readJSON(filepath.Join(resolved, ".contentcloud", "sync-state.json"), &syncState); err != nil {
 		return Status{}, fmt.Errorf("read sync state: %w", err)
 	}
-	modified, missing := verifyManagedFiles(resolved, lock.Files)
+	modified, missing := verifyManagedFiles(resolved, lock.Files, lock.CLIVersion)
 	automationEnabled := false
 	if environmentState, environmentErr := ReadEnvironmentClaim(resolved); environmentErr == nil {
 		automationEnabled = environmentState.Manifest.Policies.AutomationEnabled
@@ -498,7 +498,14 @@ func replaceFile(path string, body []byte, mode fs.FileMode) error {
 	return os.Rename(temporaryPath, path)
 }
 
+const defaultMCPCLIVersion = "0.15.0"
+
 func template(targets []string) ([]templateFile, []string, error) {
+	return templateWithCLIVersion(targets, defaultMCPCLIVersion)
+}
+
+func templateWithCLIVersion(targets []string, cliVersion string) ([]templateFile, []string, error) {
+	cliVersion = normalizeMCPCLIVersion(cliVersion)
 	dirs := []string{
 		".contentcloud/inbox/assignments", ".contentcloud/inbox/review-feedback", ".contentcloud/inbox/decisions", ".contentcloud/cache/approved", ".contentcloud/cache/schemas", ".contentcloud/locks/runs", ".contentcloud/mcp", ".contentcloud/tmp",
 		"00-inbox/ideas", "00-inbox/unregistered-sources",
@@ -516,6 +523,7 @@ func template(targets []string) ([]templateFile, []string, error) {
 		{path: "00-inbox/.gitignore", mode: "managed_replace", body: []byte("unregistered-sources/*\n!unregistered-sources/.gitkeep\n")},
 		{path: "00-inbox/unregistered-sources/.gitkeep", mode: "managed_replace", body: []byte{}},
 		{path: "10-context/client.yaml", mode: "seed_once", body: []byte(contextClientYAML)},
+		{path: "10-context/project-brief.yaml", mode: "seed_once", body: []byte(contextProjectBriefYAML)},
 		{path: "10-context/project.yaml", mode: "seed_once", body: []byte(contextProjectYAML)},
 		{path: "10-context/methodology.yaml", mode: "seed_once", body: []byte(contextMethodologyYAML)},
 		{path: "10-context/service-plan.yaml", mode: "seed_once", body: []byte(contextServicePlanYAML)},
@@ -540,12 +548,12 @@ func template(targets []string) ([]templateFile, []string, error) {
 		{path: "40-work/queues/decisions.md", mode: "seed_once", body: []byte("# 待决策项\n\n")},
 		{path: "40-work/queues/gaps.md", mode: "seed_once", body: []byte("# 知识缺口\n\n")},
 		{path: "workflows/knowledge-to-content.md", mode: "managed_replace", body: []byte(workflowReadme)},
-		{path: ".contentcloud/mcp/contentcloud-local.json", mode: "managed_replace", body: []byte(mcpDescriptor)},
+		{path: ".contentcloud/mcp/contentcloud-local.json", mode: "managed_replace", body: []byte(mcpDescriptor(cliVersion))},
 	}
 	for _, target := range targets {
 		switch target {
 		case "codex":
-			files = append(files, templateFile{path: ".codex/config.toml", mode: "managed_merge", body: []byte(codexMCPConfig)})
+			files = append(files, templateFile{path: ".codex/config.toml", mode: "managed_merge", body: []byte(codexMCPConfig(cliVersion))})
 		}
 	}
 	sort.Strings(dirs)
@@ -674,7 +682,7 @@ func strictUnmarshal(body []byte, value any) error {
 	return nil
 }
 
-func verifyManagedFiles(root string, files []ManagedFile) ([]string, []string) {
+func verifyManagedFiles(root string, files []ManagedFile, cliVersion string) ([]string, []string) {
 	modified := []string{}
 	missing := []string{}
 	for _, file := range files {
@@ -697,7 +705,7 @@ func verifyManagedFiles(root string, files []ManagedFile) ([]string, []string) {
 			continue
 		}
 		if file.Mode == "managed_merge" {
-			files, _, err := template([]string{"codex"})
+			files, _, err := templateWithCLIVersion([]string{"codex"}, cliVersion)
 			if err == nil {
 				for _, expected := range files {
 					if expected.path == file.Path && !bytes.Contains(body, expected.body) {
@@ -884,6 +892,18 @@ product_refs: []
 owners: []
 `
 
+const contextProjectBriefYAML = `schema_version: contentcloud.project-brief/1.0
+status: draft
+client: ""
+brand: ""
+product_or_service: ""
+objective: ""
+channels: []
+audience: ""
+material_refs: []
+notes: ""
+`
+
 const contextProjectYAML = `schema_version: contentcloud.project-context/3.0
 stage: initiation
 gate: in_progress
@@ -912,17 +932,35 @@ const knowledgeIndexMarkdown = `# 可信知识索引
 本文件是可重建投影。唯一可编辑知识事实源位于 30-knowledge/pages/。
 `
 
-const mcpDescriptor = `{
+func mcpDescriptor(cliVersion string) string {
+	return fmt.Sprintf(`{
   "name": "contentcloud-local",
   "version": "3.0",
   "transport": "stdio",
-  "command": "contentcloud",
-  "args": ["mcp", "serve"],
+  "command": "npx",
+  "args": ["--yes", "@limecloud/contentcloud@%s", "mcp", "serve"],
   "network_boundary": "all cloud communication is delegated to the contentcloud CLI"
 }
-`
+`, cliVersion)
+}
 
-const codexMCPConfig = `[mcp_servers.contentcloud-local]
-command = "contentcloud"
-args = ["mcp", "serve"]
-`
+func codexMCPConfig(cliVersion string) string {
+	return fmt.Sprintf(`[mcp_servers.contentcloud-local]
+command = "npx"
+args = ["--yes", "@limecloud/contentcloud@%s", "mcp", "serve"]
+`, cliVersion)
+}
+
+func normalizeMCPCLIVersion(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return defaultMCPCLIVersion
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '.' || char == '-' || char == '_' {
+			continue
+		}
+		return defaultMCPCLIVersion
+	}
+	return value
+}

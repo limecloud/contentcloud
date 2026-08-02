@@ -43,7 +43,7 @@ func TestWorkspaceCommandsAndMCPUseLocalState(t *testing.T) {
 			t.Fatalf("unexpected output for %v: %v %s", args, err, stdout.String())
 		}
 	}
-	for _, name := range []string{"workspace.status", "workspace.doctor", "workspace.conversation-context", "workspace.approved.list", "workspace.approved.show", "mcp.status", "mcp.serve"} {
+	for _, name := range []string{"workspace.status", "workspace.doctor", "workspace.conversation-context", "workspace.project-brief.save", "workspace.approved.list", "workspace.approved.show", "mcp.status", "mcp.serve"} {
 		if commandSchemas()[name] == nil {
 			t.Fatalf("command schema %q is missing", name)
 		}
@@ -53,6 +53,32 @@ func TestWorkspaceCommandsAndMCPUseLocalState(t *testing.T) {
 		if !ok || schema["auth"] != "workspace" {
 			t.Fatalf("command schema %q must require workspace auth: %#v", name, schema)
 		}
+	}
+}
+
+func TestWorkspaceProjectBriefCommandAdvancesBusinessFlow(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-1", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	command := (&Root{stdout: &stdout, stderr: &stderr}).command()
+	command.SetArgs([]string{
+		"--json", "workspace", "project-brief", "save", "--directory", root,
+		"--client", "客户 A", "--brand", "品牌 A", "--product-or-service", "产品 A",
+		"--objective", "验证内容方向", "--channel", "抖音", "--audience", "新客户",
+	})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("project brief command failed: %v; stderr=%s", err, stderr.String())
+	}
+	var envelope struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Onboarding localworkspace.WorkspaceOnboarding `json:"onboarding"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data.Onboarding.State != localworkspace.OnboardingNeedsSourceIntake {
+		t.Fatalf("unexpected project brief command response: err=%v output=%s", err, stdout.String())
 	}
 }
 
@@ -120,7 +146,7 @@ func TestMCPListsAndCallsWorkspaceTools(t *testing.T) {
 		name, _ := tool["name"].(string)
 		names[name] = true
 	}
-	for _, name := range []string{"contentcloud_open_project_view", "workspace_context", "environment_execution_plan", "environment_prepare_plan", "environment_prepare_apply", "workspace_status", "workspace_doctor", "source_register", "source_list", "source_ingest", "source_verify", "local_run_init", "local_run_show", "local_run_claim", "local_run_renew", "local_run_release", "handoff_create_ready", "handoff_list_ready", "handoff_accept", "handoff_complete", "handoff_supersede", "knowledge_import", "knowledge_lint", "knowledge_query", "knowledge_diagnose", "knowledge_pack", "brief_lint", "content_batch_init", "content_item_lint", "content_batch_lint", "content_batch_finalize", "content_item_diff", "delivery_export", "article_brief_lint", "article_batch_create", "article_item_lint", "article_batch_lint", "article_batch_finalize", "article_item_diff", "wechat_package_export", "wechat_package_lint", "publish_preflight", "publish_apply", "submission_status", "review_feedback_list", "review_feedback_pull", "review_feedback_inbox", "approved_snapshot_list", "approved_snapshot_pull", "approved_snapshot_inbox", "approved_snapshot_show"} {
+	for _, name := range []string{"contentcloud_open_project_view", "workspace_context", "workspace_project_brief", "environment_execution_plan", "environment_prepare_plan", "environment_prepare_apply", "workspace_status", "workspace_doctor", "source_register", "source_list", "source_ingest", "source_verify", "local_run_init", "local_run_show", "local_run_claim", "local_run_renew", "local_run_release", "handoff_create_ready", "handoff_list_ready", "handoff_accept", "handoff_complete", "handoff_supersede", "knowledge_import", "knowledge_lint", "knowledge_query", "knowledge_diagnose", "knowledge_pack", "brief_lint", "content_batch_init", "content_item_lint", "content_batch_lint", "content_batch_finalize", "content_item_diff", "delivery_export", "article_brief_lint", "article_batch_create", "article_item_lint", "article_batch_lint", "article_batch_finalize", "article_item_diff", "wechat_package_export", "wechat_package_lint", "publish_preflight", "publish_apply", "submission_status", "review_feedback_list", "review_feedback_pull", "review_feedback_inbox", "approved_snapshot_list", "approved_snapshot_pull", "approved_snapshot_inbox", "approved_snapshot_show"} {
 		if !names[name] {
 			t.Fatalf("MCP tool %q is missing: %#v", name, tools)
 		}
@@ -174,6 +200,18 @@ func TestMCPListsAndCallsWorkspaceTools(t *testing.T) {
 	}
 	if !reflect.DeepEqual(toolValue, resourceValue) {
 		t.Fatalf("tool/resource schema drift:\ntool=%s\nresource=%s", toolJSON, contents[0]["text"])
+	}
+	briefResult := callMCPToolForTest(t, r, "workspace_project_brief", map[string]any{
+		"client": "客户 A", "brand": "品牌 A", "product_or_service": "产品 A", "objective": "验证内容方向",
+		"channels": []string{"抖音"}, "audience": "新客户", "confirm": true,
+	})
+	briefValue, ok := briefResult["structuredContent"].(map[string]any)
+	if !ok || briefResult["isError"] != false || briefValue["business_files_modified"] != true {
+		t.Fatalf("project brief tool failed: %#v", briefResult)
+	}
+	onboarding, ok := briefValue["onboarding"].(localworkspace.WorkspaceOnboarding)
+	if !ok || onboarding.State != localworkspace.OnboardingNeedsSourceIntake || onboarding.NextStep.ID != "source_intake" {
+		t.Fatalf("project brief tool did not advance onboarding: %#v", briefValue)
 	}
 	pack := filepath.Join(root, "30-knowledge", "packs", "mcp-knowledge.json")
 	if err := os.WriteFile(pack, []byte(`[{"id":"fact-1","kind":"fact","status":"verified"}]`), 0o600); err != nil {
@@ -577,8 +615,8 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 	if _, err := localworkspace.StoreEnvironment(root, manifest, installed, manifestVerifier, now); err != nil {
 		t.Fatal(err)
 	}
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.14.0"}}]}`
-	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.14.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.15.0"}}]}`
+	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.15.0","installed":true,"enabled":true}],"available":[]}`
 	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: currentMarketplace}, {stdout: missingPack},
@@ -618,9 +656,9 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 }
 
 func successfulTaskPackResponses() []bootstrapRunnerResponse {
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.14.0"}}]}`
-	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.14.0","installed":true,"enabled":true}],"available":[]}`
-	currentPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.14.0","installed":true,"enabled":true},{"pluginId":"contentcloud-visual-storytelling@contentcloud","name":"contentcloud-visual-storytelling","marketplaceName":"contentcloud","version":"1.2.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.15.0"}}]}`
+	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.15.0","installed":true,"enabled":true}],"available":[]}`
+	currentPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.15.0","installed":true,"enabled":true},{"pluginId":"contentcloud-visual-storytelling@contentcloud","name":"contentcloud-visual-storytelling","marketplaceName":"contentcloud","version":"1.2.0","installed":true,"enabled":true}],"available":[]}`
 	return []bootstrapRunnerResponse{
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: currentMarketplace}, {stdout: missingPack},

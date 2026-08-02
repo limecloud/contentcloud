@@ -12,9 +12,9 @@ const routeTitles:Record<string,string>={
   [adminPath('dashboard')]:'运行基础设施',
   [adminPath('tenants')]:'租户管理',
   [adminPath('users')]:'用户目录',
-  [adminPath('environments')]:'Environment',
-  [adminPath('sops')]:'SOP Registry',
-  [adminPath('gates')]:'Gate 配置',
+  [adminPath('environments')]:'执行环境',
+  [adminPath('sops')]:'流程规范',
+  [adminPath('gates')]:'检查与审批',
   [adminPath('capabilities')]:'本地能力',
   [adminPath('audit')]:'权限与审计',
   [adminPath('usage')]:'用量与成本'
@@ -33,9 +33,9 @@ export function AdminShell() {
       <nav>
         <AdminNav to={adminPath('dashboard')} icon={Gauge} label="概览" onClick={()=>setMobileOpen(false)}/>
         <div className="admin-nav-label">运行配置</div>
-        <AdminNav to={adminPath('environments')} icon={Workflow} label="Environment" onClick={()=>setMobileOpen(false)}/>
-        <AdminNav to={adminPath('sops')} icon={GitBranch} label="SOP Registry" onClick={()=>setMobileOpen(false)}/>
-        <AdminNav to={adminPath('gates')} icon={SlidersHorizontal} label="Gate 配置" onClick={()=>setMobileOpen(false)}/>
+        <AdminNav to={adminPath('environments')} icon={Workflow} label="执行环境" onClick={()=>setMobileOpen(false)}/>
+        <AdminNav to={adminPath('sops')} icon={GitBranch} label="流程规范" onClick={()=>setMobileOpen(false)}/>
+        <AdminNav to={adminPath('gates')} icon={SlidersHorizontal} label="检查与审批" onClick={()=>setMobileOpen(false)}/>
         <AdminNav to={adminPath('capabilities')} icon={Settings2} label="本地能力" onClick={()=>setMobileOpen(false)}/>
         <div className="admin-nav-label">治理</div>
         <AdminNav to={adminPath('audit')} icon={ShieldCheck} label="权限与审计" onClick={()=>setMobileOpen(false)}/>
