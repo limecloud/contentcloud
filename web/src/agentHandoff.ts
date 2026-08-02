@@ -118,7 +118,7 @@ function validateAgentClient(value: unknown): AgentClient {
 function validateClientHandoff(clientID: AgentClientID, integration: Record<string, unknown>, launch: Record<string, unknown>, prompt: string, fallbackURL: string, expectation: AgentHandoffExpectation): void {
   switch (clientID) {
     case 'codex':
-      if (integration.kind !== 'plugin' || integration.id !== 'contentcloud-video-production@contentcloud' || integration.version !== '0.14.0' || launch.mode !== 'deep_link' || fallbackURL !== '/codex' || !parseCodexLaunchURL(launch.url, prompt) || !promptBindsTarget(prompt, integration.id, expectation)) {
+      if (integration.kind !== 'plugin' || integration.id !== 'contentcloud-video-production@contentcloud' || integration.version !== '0.15.0' || launch.mode !== 'deep_link' || fallbackURL !== '/codex' || !parseCodexLaunchURL(launch.url, prompt) || !promptBindsTarget(prompt, integration.id, expectation)) {
         throw new Error('Codex 恢复适配器契约无效');
       }
       return;

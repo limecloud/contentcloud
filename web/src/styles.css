@@ -133,3 +133,4 @@
 .sidebar nav{min-height:0;overflow:auto;padding-right:2px}.nav-item-primary{color:var(--sidebar-strong);background:var(--sidebar-panel);border:1px solid var(--sidebar-line)}.nav-item-primary:hover,.nav-item-primary.active{background:var(--sidebar-hover);border-color:var(--sidebar-hover)}.nav-item-primary>svg{color:var(--brand)}.nav-label{flex:0 0 auto}.topbar .new-project{display:inline-flex;align-items:center;gap:6px}
 .admin-nav-label{margin:15px 10px 4px;color:var(--sidebar-muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}
 .main{min-width:0}
+.admin-page:has(.admin-workos-page){max-width:1680px}

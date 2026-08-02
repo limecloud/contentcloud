@@ -71,6 +71,7 @@ type WorkspaceConversationContext struct {
 	ReviewInboxCount      int                       `json:"review_inbox_count"`
 	LastCloudPullAt       *time.Time                `json:"last_cloud_pull_at,omitempty"`
 	SuggestedIntents      []string                  `json:"suggested_intents"`
+	Onboarding            WorkspaceOnboarding       `json:"onboarding"`
 	Offline               bool                      `json:"offline"`
 	GeneratedAt           time.Time                 `json:"generated_at"`
 }
@@ -152,9 +153,20 @@ func ConversationContext(directory, cwd string, now time.Time) (WorkspaceConvers
 	if !doctor.OK {
 		health = "repair_required"
 	}
+	onboarding, err := DeriveWorkspaceOnboarding(resolution.Root, status, runs, handoffs, approved)
+	if err != nil {
+		return WorkspaceConversationContext{}, err
+	}
 	intents := suggestedWorkspaceIntents(status, runs, approved)
-	if bootstrapHandoff != nil {
+	if onboarding.State == OnboardingNeedsProjectBrief {
+		intents = []string{"project_brief"}
+	} else if bootstrapHandoff != nil {
 		intents = append([]string{"bootstrap_continue"}, intents...)
+	}
+	if bootstrapHandoff != nil && onboarding.State == OnboardingNeedsProjectBrief {
+		copy := *bootstrapHandoff
+		copy.NextAction = "先调用 workspace_context；当前唯一业务下一步是确认项目简报，完成后只按 onboarding.next_step 继续。"
+		bootstrapHandoff = &copy
 	}
 	return WorkspaceConversationContext{
 		SchemaVersion:         "1.0",
@@ -173,6 +185,7 @@ func ConversationContext(directory, cwd string, now time.Time) (WorkspaceConvers
 		ReviewInboxCount:      status.PendingFeedbackCount,
 		LastCloudPullAt:       status.Sync.LastPulledAt,
 		SuggestedIntents:      intents,
+		Onboarding:            onboarding,
 		Offline:               true,
 		GeneratedAt:           generatedAt,
 	}, nil
@@ -216,7 +229,7 @@ func StoreBootstrapHandoff(root, pluginID, pluginVersion, marketplaceRef string,
 		MarketplaceRef:    marketplaceRef,
 		EnvironmentDigest: digest(templateJSON),
 		NextCapabilityID:  "contentcloud-workspace",
-		NextAction:        "Read the offline workspace conversation context, then present available source intake, active Run, and ready Handoff choices.",
+		NextAction:        "先调用工作区上下文工具（workspace_context）；如果还没有项目简报，先确认项目简报，完成后只按 onboarding.next_step 继续。",
 		CreatedAt:         createdAt,
 	}
 	path := filepath.Join(status.Root, ".contentcloud", "bootstrap-handoff.json")

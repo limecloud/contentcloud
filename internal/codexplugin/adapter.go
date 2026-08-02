@@ -388,7 +388,7 @@ func (a *Adapter) LaunchNewChat(ctx context.Context, workspace string) LaunchRes
 }
 
 func RecoveryPrompt(spec Spec) string {
-	return fmt.Sprintf("[@ContentCloud Video Production](plugin://%s) Call workspace_context for this workspace, then show the available next tasks and ready handoffs.", spec.PluginID)
+	return fmt.Sprintf("[@内容生产工作台](plugin://%s) 请先调用工作区上下文工具（workspace_context）。如果 onboarding.state 是 needs_project_brief，只收集并确认项目简报；确认后重新读取上下文，只展示 onboarding.next_step。不要罗列内部工具，也不要执行未经用户确认的写入、领取任务或云端同步。", spec.PluginID)
 }
 
 func NewChatDeepLink(spec Spec, workspace, prompt string) (string, error) {

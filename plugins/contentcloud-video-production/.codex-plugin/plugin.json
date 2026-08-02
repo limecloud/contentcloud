@@ -1,7 +1,7 @@
 {
   "name": "contentcloud-video-production",
-  "version": "0.14.0",
-  "description": "Governed ContentCloud workflows for evidence, marketing scripts, Douyin audiences, storyboards, Seedance delivery, review, and results.",
+  "version": "0.15.0",
+  "description": "面向内容团队的本地优先创作、知识管理、审核和交付工作流。",
   "author": {
     "name": "GoodVision",
     "url": "https://github.com/limecloud/contentcloud"
@@ -17,25 +17,25 @@
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "ContentCloud Video Production",
-    "shortDescription": "Run governed content workflows across Codex conversations.",
-    "longDescription": "Turn local source material into cited Markdown knowledge, governed ContentBatches, review checkpoints, deliveries, and results while ContentCloud keeps versions, approvals, and cross-conversation handoffs auditable.",
+    "displayName": "内容生产工作台",
+    "shortDescription": "在本地工作区完成受治理的内容生产。",
+    "longDescription": "将本地素材整理为可追溯的知识、内容批次、审核节点、交付物和结果，并保留版本、审批与跨对话交接记录。",
     "developerName": "GoodVision",
     "category": "Productivity",
     "capabilities": [
-      "V3 workspace routing",
-      "Markdown knowledge",
-      "Governed content batches",
-      "Douyin audience strategy",
-      "Local storyboard production",
-      "Seedance prompt export",
-      "Cross-conversation handoff",
-      "Review and delivery"
+      "工作区路由",
+      "Markdown 知识库",
+      "受治理内容批次",
+      "抖音受众策略",
+      "本地分镜制作",
+      "视频提示词导出",
+      "跨对话交接",
+      "审核与交付"
     ],
     "defaultPrompt": [
-      "Inspect this workspace and show the eligible next actions.",
-      "Turn the selected evidence into governed knowledge pages.",
-      "Continue the selected ContentCloud handoff in this conversation."
+      "检查当前工作区并展示可执行的下一步。",
+      "将选定证据整理为受治理的知识页面。",
+      "在当前对话中继续已选的内容工作交接。"
     ],
     "brandColor": "#16705A"
   },

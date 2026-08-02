@@ -46,3 +46,15 @@
 .sop-stage-row.is-selected{background:var(--source-soft);box-shadow:inset 2px 0 var(--source)}
 .sop-stage-row>span:nth-child(3){min-width:0;display:flex;flex-direction:column;gap:4px}
 @media(max-width:760px){.sop-stage-row{grid-template-columns:25px 30px minmax(0,1fr) auto 28px;gap:7px}.sop-stage-row .sop-gate{grid-column:auto}}
+
+/* Configuration editors use the available width instead of placing fields in a narrow side track. */
+.admin-workos-page{max-width:1680px}
+.admin-config-table article{grid-template-columns:30px minmax(0,1fr) 80px minmax(170px,.55fr)}
+.admin-config-table article>.text-action{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;justify-content:flex-end}
+.admin-sop-stage-editor>.admin-stage-editor-row,.admin-gate-editor>.admin-gate-editor-row{display:block;min-width:0;padding:16px 0}
+.admin-stage-editor-row>.admin-stage-editor-top{display:flex;align-items:center;min-width:0}
+.admin-stage-editor-row>.form-grid,.admin-gate-editor-row>.form-grid{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));align-items:start;gap:12px 14px}
+.admin-stage-editor-row>.form-grid .field,.admin-gate-editor-row>.form-grid .field{min-width:0}
+.admin-gate-editor-row>.admin-editor-heading{display:flex;align-items:center;justify-content:space-between;min-width:0}
+@media(max-width:1100px){.admin-stage-editor-row>.form-grid,.admin-gate-editor-row>.form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.admin-config-table article{grid-template-columns:30px minmax(0,1fr) auto}.admin-config-table article>.text-action{white-space:normal;line-height:1.35;text-align:right}.admin-stage-editor-row>.form-grid,.admin-gate-editor-row>.form-grid{grid-template-columns:1fr;gap:10px}.admin-gate-editor-row>.admin-editor-heading{align-items:flex-start}}

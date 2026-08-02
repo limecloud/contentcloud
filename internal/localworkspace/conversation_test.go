@@ -121,7 +121,7 @@ func TestConversationContextCarriesBootstrapHandoffUntilWorkStarts(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if context.BootstrapHandoff == nil || context.BootstrapHandoff.PluginID != handoff.PluginID || len(context.SuggestedIntents) == 0 || context.SuggestedIntents[0] != "bootstrap_continue" {
+	if context.BootstrapHandoff == nil || context.BootstrapHandoff.PluginID != handoff.PluginID || len(context.SuggestedIntents) == 0 || context.SuggestedIntents[0] != "project_brief" || context.Onboarding.State != OnboardingNeedsProjectBrief {
 		t.Fatalf("bootstrap handoff missing from initial context: %#v", context)
 	}
 	if _, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-after-bootstrap", Intent: "intent:content", Now: now.Add(3 * time.Minute)}); err != nil {
@@ -133,5 +133,41 @@ func TestConversationContextCarriesBootstrapHandoffUntilWorkStarts(t *testing.T)
 	}
 	if context.BootstrapHandoff != nil {
 		t.Fatalf("bootstrap handoff must not shadow active work: %#v", context.BootstrapHandoff)
+	}
+}
+
+func TestConversationContextExposesOneBusinessNextStep(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspace")
+	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	if _, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", Target: "codex-plugin", CLIVersion: "0.15.0", Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	context, err := ConversationContext(root, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if context.Onboarding.State != OnboardingNeedsProjectBrief || context.Onboarding.NextStep.ID != "project_brief" || len(context.Onboarding.RequiredInputs) != 7 {
+		t.Fatalf("unexpected initial onboarding: %#v", context.Onboarding)
+	}
+	if _, err := SaveProjectBrief(SaveProjectBriefOptions{Root: root, Client: "客户 A", Brand: "品牌 A", ProductOrService: "产品 A", Objective: "验证内容方向", Channels: []string{"抖音"}, Audience: "新客户"}); err == nil {
+		t.Fatal("project brief write must require explicit confirmation")
+	}
+	if _, err := SaveProjectBrief(SaveProjectBriefOptions{Root: root, Client: "客户 A", Brand: "品牌 A", ProductOrService: "产品 A", Objective: "验证内容方向", Channels: []string{"抖音"}, Audience: "新客户", Confirm: true, Now: now.Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	context, err = ConversationContext(root, "", now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if context.Onboarding.State != OnboardingNeedsSourceIntake || context.Onboarding.NextStep.ID != "source_intake" {
+		t.Fatalf("unexpected post-brief onboarding: %#v", context.Onboarding)
+	}
+	if _, err := SaveProjectBrief(SaveProjectBriefOptions{Root: root, Client: "客户 A", Brand: "品牌 A", ProductOrService: "产品 A", Objective: "验证内容方向", Channels: []string{"抖音", "视频号"}, Audience: "新客户", Confirm: true, Now: now.Add(3 * time.Minute)}); err != nil {
+		t.Fatalf("updating an existing project brief failed: %v", err)
+	}
+	for _, path := range []string{"10-context/project-brief.yaml", "10-context/client.yaml", "10-context/project.yaml", "10-context/service-plan.yaml"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); err != nil {
+			t.Fatalf("expected persisted business context %s: %v", path, err)
+		}
 	}
 }
