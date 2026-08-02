@@ -368,67 +368,6 @@ CREATE TABLE creative_execution_bundles (
   UNIQUE (tenant_id,bundle_id)
 );
 
-CREATE TABLE knowledge_items (
-  id uuid PRIMARY KEY,
-  tenant_id uuid NOT NULL REFERENCES tenants(id),
-  project_id uuid NOT NULL REFERENCES brand_projects(id),
-  kind text NOT NULL,
-  title text NOT NULL,
-  statement text NOT NULL,
-  subject text NOT NULL DEFAULT '',
-  predicate text NOT NULL DEFAULT '',
-  typed_value jsonb NOT NULL DEFAULT '{"type":"text"}'::jsonb,
-  scope jsonb NOT NULL DEFAULT '{}'::jsonb,
-  status text NOT NULL CHECK (status IN ('candidate','needs_review','approved','rejected','conflicted','review_required','expired')),
-  risk_level text NOT NULL,
-  allowed_channels jsonb NOT NULL DEFAULT '[]'::jsonb,
-  evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
-  forbidden_extensions jsonb NOT NULL DEFAULT '[]'::jsonb,
-  depends_on_fact_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
-  valid_from timestamptz,
-  valid_until timestamptz,
-  expires_at timestamptz,
-  approved_by uuid REFERENCES users(id),
-  approved_at timestamptz,
-  origin_run_id uuid REFERENCES task_runs(id),
-  decision_required boolean NOT NULL DEFAULT true,
-  row_version integer NOT NULL DEFAULT 1,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE knowledge_conflicts (
-  id uuid PRIMARY KEY,
-  tenant_id uuid NOT NULL REFERENCES tenants(id),
-  project_id uuid NOT NULL REFERENCES brand_projects(id),
-  subject text NOT NULL,
-  predicate text NOT NULL,
-  knowledge_item_ids jsonb NOT NULL CHECK (jsonb_typeof(knowledge_item_ids) = 'array'),
-  reason text NOT NULL,
-  status text NOT NULL CHECK (status IN ('open','resolved','dismissed')),
-  resolved_by uuid REFERENCES users(id),
-  resolved_at timestamptz,
-  resolution text NOT NULL DEFAULT '',
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE decision_requests (
-  id uuid PRIMARY KEY,
-  tenant_id uuid NOT NULL REFERENCES tenants(id),
-  project_id uuid NOT NULL REFERENCES brand_projects(id),
-  conflict_id uuid NOT NULL REFERENCES knowledge_conflicts(id),
-  question text NOT NULL,
-  knowledge_item_ids jsonb NOT NULL CHECK (jsonb_typeof(knowledge_item_ids) = 'array'),
-  status text NOT NULL CHECK (status IN ('open','resolved','canceled')),
-  requested_by uuid NOT NULL REFERENCES users(id),
-  resolved_by uuid REFERENCES users(id),
-  resolved_at timestamptz,
-  selected_knowledge_id uuid REFERENCES knowledge_items(id),
-  notes text NOT NULL DEFAULT '',
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
 CREATE TABLE approval_decisions (
   id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL REFERENCES tenants(id),
@@ -695,9 +634,6 @@ CREATE INDEX task_runs_claim_idx ON task_runs(priority DESC,created_at) WHERE st
 CREATE UNIQUE INDEX run_attempt_active_unique ON run_attempts(run_id) WHERE state IN ('leased','running');
 CREATE INDEX run_attempt_tenant_run_idx ON run_attempts(tenant_id,run_id,created_at DESC);
 CREATE INDEX creative_execution_bundles_project_idx ON creative_execution_bundles(tenant_id,project_id,created_at DESC);
-CREATE INDEX knowledge_project_idx ON knowledge_items(tenant_id,project_id,status,created_at);
-CREATE INDEX knowledge_semantic_key_idx ON knowledge_items(tenant_id,project_id,subject,predicate);
-CREATE INDEX knowledge_origin_run_idx ON knowledge_items(tenant_id,origin_run_id) WHERE origin_run_id IS NOT NULL;
 CREATE INDEX review_cycles_subject_idx ON review_cycles(tenant_id,subject_id,cycle_number DESC);
 CREATE INDEX review_comments_cycle_idx ON review_comments(tenant_id,review_cycle_id,created_at);
 CREATE INDEX submission_revisions_project_idx ON submission_revisions(tenant_id,project_id,created_at DESC);
@@ -717,7 +653,7 @@ BEGIN
     'brand_projects','membership_invites','project_templates','connect_sessions','devices','project_device_grants','cli_tokens',
     'bootstrap_attempts','bootstrap_progress_events','bootstrap_diagnostics','workspace_bindings','sources','source_revisions',
     'evidence_spans','assets','rights_records','context_snapshots','task_runs','run_attempts','creative_execution_bundles',
-    'knowledge_items','knowledge_conflicts','decision_requests','approval_decisions','review_cycles','review_comments',
+    'approval_decisions','review_cycles','review_comments',
     'review_grants','submissions','submission_revisions','source_disclosures','approved_snapshots','artifacts','delivery_packages',
     'delivery_package_snapshots','delivery_package_artifacts','performance_import_batches','performance_observations',
     'rating_decisions','audit_events'

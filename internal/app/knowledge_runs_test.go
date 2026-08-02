@@ -50,12 +50,12 @@ func TestKnowledgeExtractionRunsLocallyAndImportsGroundedCandidates(t *testing.T
 	reported, err := service.ReportTask(ctx, deviceActor, device, run.ID, lease.Attempt.ID, lease.RunToken, body, "")
 	must(t, err)
 	result, ok := reported.(domain.KnowledgeExtractionResult)
-	if !ok || len(result.Items) != 1 || result.Items[0].OriginRunID != run.ID || result.Items[0].Status != "needs_review" {
+	if !ok || len(result.Objects) != 1 || result.Objects[0].Payload["origin_run_id"] != run.ID || result.Objects[0].Status != "needs_review" {
 		t.Fatalf("unexpected extraction result %#v", reported)
 	}
 	replayed, err := service.ReportTask(ctx, deviceActor, device, run.ID, lease.Attempt.ID, lease.RunToken, body, "")
 	must(t, err)
-	if len(replayed.(domain.KnowledgeExtractionResult).Items) != 1 {
+	if len(replayed.(domain.KnowledgeExtractionResult).Objects) != 1 {
 		t.Fatal("idempotent report duplicated knowledge candidates")
 	}
 }
@@ -80,7 +80,7 @@ func TestKnowledgeExtractionRejectsEvidenceOutsideFrozenContract(t *testing.T) {
 	if _, err := service.ReportTask(ctx, deviceActor, device, run.ID, lease.Attempt.ID, lease.RunToken, body, ""); err == nil {
 		t.Fatal("fabricated locator must reject the complete extraction report")
 	}
-	items, err := service.Knowledge(ctx, actor, project.ID)
+	items, err := service.KnowledgeObjects(ctx, actor, project.ID)
 	must(t, err)
 	if len(items) != 0 {
 		t.Fatalf("rejected package must not partially import candidates: %#v", items)

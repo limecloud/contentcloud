@@ -760,10 +760,8 @@ func parseOptionalRFC3339(value, flag string) (*time.Time, error) {
 }
 
 func (r *Root) knowledgeCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "knowledge", Short: "Inspect and review governed knowledge"}
-	cmd.AddCommand(r.projectListCommand("list", "knowledge.list", "List project knowledge", "project_id"))
-	cmd.AddCommand(r.projectListCommand("conflicts", "knowledge.conflicts", "List explicit knowledge conflicts", "project_id"))
-	cmd.AddCommand(r.projectListCommand("decisions", "knowledge.decisions", "List brand fact decision requests", "project_id"))
+	cmd := &cobra.Command{Use: "knowledge", Short: "Inspect and decide governed knowledge objects"}
+	cmd.AddCommand(r.projectListCommand("list", "knowledge.list", "List project knowledge objects", "project_id"))
 	var sourceRevisionIDs []string
 	var outputCount int
 	var idempotencyKey string
@@ -803,44 +801,31 @@ func (r *Root) knowledgeCommand() *cobra.Command {
 	extract.Flags().BoolVar(&extractDryRun, "dry-run", false, "validate without queueing a server task")
 	_ = extract.MarkFlagRequired("source-revision")
 	var dryRun bool
-	review := &cobra.Command{Use: "review <id> <approve|reject|conflict|return>", Args: cobra.ExactArgs(2), Short: "Record one human knowledge decision", RunE: func(cmd *cobra.Command, args []string) error {
+	var reason string
+	review := &cobra.Command{Use: "review <id> <approve|reject>", Args: cobra.ExactArgs(2), Short: "Record one human knowledge object decision", RunE: func(cmd *cobra.Command, args []string) error {
 		if dryRun {
-			return r.writeOK("knowledge.review", map[string]any{"dry_run": true, "id": args[0], "decision": args[1]})
+			return r.writeOK("knowledge.review", map[string]any{"dry_run": true, "id": args[0], "decision": args[1], "reason": reason})
 		}
 		_, client, _, err := r.userClient()
 		if err != nil {
 			return err
 		}
-		var result domain.KnowledgeItem
-		if err := client.Dispatch(cmd.Context(), "knowledge.review", map[string]any{"id": args[0], "decision": args[1]}, &result); err != nil {
+		var current domain.KnowledgeObject
+		if err := client.Dispatch(cmd.Context(), "knowledge.show", map[string]any{"id": args[0]}, &current); err != nil {
+			return err
+		}
+		var result struct {
+			Object   domain.KnowledgeObject   `json:"object"`
+			Decision domain.KnowledgeDecision `json:"decision"`
+		}
+		if err := client.Dispatch(cmd.Context(), "knowledge.review", map[string]any{"id": args[0], "expected_version": current.Version, "expected_digest": current.Digest, "decision": args[1], "reason": reason}, &result); err != nil {
 			return err
 		}
 		return r.writeOK("knowledge.review", result)
 	}}
 	review.Flags().BoolVar(&dryRun, "dry-run", false, "validate without changing server state")
-	var selectedKnowledgeID, notes string
-	var resolveDryRun bool
-	resolve := &cobra.Command{Use: "resolve <decision-request-id>", Args: cobra.ExactArgs(1), Short: "Resolve a conflict by selecting one preserved knowledge value", RunE: func(command *cobra.Command, args []string) error {
-		params := map[string]any{"id": args[0], "selected_knowledge_id": selectedKnowledgeID, "notes": notes}
-		if resolveDryRun {
-			params["dry_run"] = true
-			return r.writeOK("knowledge.decision.resolve", params)
-		}
-		_, client, _, err := r.userClient()
-		if err != nil {
-			return err
-		}
-		var result domain.DecisionRequest
-		if err := client.Dispatch(command.Context(), "knowledge.decision.resolve", params, &result); err != nil {
-			return err
-		}
-		return r.writeOK("knowledge.decision.resolve", result)
-	}}
-	resolve.Flags().StringVar(&selectedKnowledgeID, "select", "", "knowledge item ID selected by the human decision")
-	resolve.Flags().StringVar(&notes, "notes", "", "decision rationale")
-	resolve.Flags().BoolVar(&resolveDryRun, "dry-run", false, "validate without changing server state")
-	_ = resolve.MarkFlagRequired("select")
-	cmd.AddCommand(r.idReadCommand("show <knowledge-id>", "knowledge.show", "Show one knowledge item with evidence", "id"), extract, review, resolve)
+	review.Flags().StringVar(&reason, "reason", "CLI knowledge decision", "decision rationale")
+	cmd.AddCommand(r.idReadCommand("show <knowledge-id>", "knowledge.show", "Show one knowledge object", "id"), extract, review)
 	return cmd
 }
 

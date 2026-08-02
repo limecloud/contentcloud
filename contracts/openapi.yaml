@@ -179,6 +179,7 @@ paths:
   /bff/projects/{project_id}/sources:
     parameters: [{$ref: '#/components/parameters/ProjectID'}]
     get: *jsonRead
+    post: *jsonWrite
   /bff/projects/{project_id}/sources/upload:
     parameters: [{$ref: '#/components/parameters/ProjectID'}]
     post:
@@ -196,6 +197,7 @@ paths:
                 file: {type: string, format: binary}
                 name: {type: string}
                 source_type: {type: string}
+                file_type: {type: string, description: Optional MIME override when the client cannot provide the file MIME.}
       responses:
         '200': {$ref: '#/components/responses/Success'}
         '400': {$ref: '#/components/responses/Error'}
@@ -217,6 +219,7 @@ paths:
               required: [file]
               properties:
                 file: {type: string, format: binary}
+                file_type: {type: string, description: Optional MIME override when the client cannot provide the file MIME.}
       responses:
         '200': {$ref: '#/components/responses/Success'}
         '400': {$ref: '#/components/responses/Error'}
@@ -243,24 +246,82 @@ paths:
   /bff/rights/{id}/review:
     parameters: [{$ref: '#/components/parameters/ID'}]
     post: *jsonWrite
-  /bff/projects/{project_id}/knowledge:
+  /bff/projects/{project_id}/knowledge-objects:
     parameters: [{$ref: '#/components/parameters/ProjectID'}]
     get: *jsonRead
+    post:
+      tags: [Web BFF]
+      operationId: createKnowledgeObject
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/CreateKnowledgeObjectInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/knowledge-objects/{id}/transitions:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, minLength: 1}}]
+    post:
+      tags: [Web BFF]
+      operationId: transitionKnowledgeObject
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/ReviewKnowledgeObjectInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/knowledge-objects/{id}/decisions:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, minLength: 1}}]
+    get: *jsonRead
+  /bff/projects/{project_id}/knowledge-packs:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+    post:
+      tags: [Web BFF]
+      operationId: createKnowledgePack
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/CreateKnowledgePackInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/knowledge-packs/{id}/publish:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, minLength: 1}}]
     post: *jsonWrite
+  /bff/knowledge-snapshots/{id}:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get: *jsonRead
+  /bff/knowledge/query:
+    post:
+      tags: [Web BFF]
+      operationId: queryKnowledgeSnapshot
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/KnowledgeQueryInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /bff/projects/{project_id}/knowledge-extraction-runs:
     parameters: [{$ref: '#/components/parameters/ProjectID'}]
-    post: *jsonWrite
-  /bff/knowledge/{id}/review:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    post: *jsonWrite
-  /bff/projects/{project_id}/knowledge-conflicts:
-    parameters: [{$ref: '#/components/parameters/ProjectID'}]
-    get: *jsonRead
-  /bff/projects/{project_id}/decision-requests:
-    parameters: [{$ref: '#/components/parameters/ProjectID'}]
-    get: *jsonRead
-  /bff/decision-requests/{id}/resolve:
-    parameters: [{$ref: '#/components/parameters/ID'}]
     post: *jsonWrite
   /bff/projects/{project_id}/runs:
     parameters: [{$ref: '#/components/parameters/ProjectID'}]
@@ -500,6 +561,182 @@ paths:
   /bff/projects/{project_id}/audit:
     parameters: [{$ref: '#/components/parameters/ProjectID'}]
     get: *jsonRead
+  /bff/admin/work-os:
+    get: *adminJSONRead
+  /bff/admin/environments/{id}:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    patch: *adminJSONWrite
+  /bff/admin/environments:
+    post: *adminJSONWrite
+  /bff/admin/sops:
+    post: *adminJSONWrite
+  /bff/admin/sops/{sop_id}/versions:
+    parameters: [{name: sop_id, in: path, required: true, schema: {type: string, minLength: 1}}]
+    post: *adminJSONWrite
+  /bff/admin/sops/{sop_id}/versions/{version}:
+    parameters:
+      - {name: sop_id, in: path, required: true, schema: {type: string, minLength: 1}}
+      - {name: version, in: path, required: true, schema: {type: integer, minimum: 1}}
+    patch: *adminJSONWrite
+  /bff/admin/sops/{sop_id}/versions/{version}/lint:
+    parameters:
+      - {name: sop_id, in: path, required: true, schema: {type: string, minLength: 1}}
+      - {name: version, in: path, required: true, schema: {type: integer, minimum: 1}}
+    get: *adminJSONRead
+  /bff/admin/sops/{sop_id}/versions/{version}/impact:
+    parameters:
+      - {name: sop_id, in: path, required: true, schema: {type: string, minLength: 1}}
+      - {name: version, in: path, required: true, schema: {type: integer, minimum: 1}}
+    get: *adminJSONRead
+  /bff/admin/sops/{sop_id}/versions/{from_version}/diff/{to_version}:
+    parameters:
+      - {name: sop_id, in: path, required: true, schema: {type: string, minLength: 1}}
+      - {name: from_version, in: path, required: true, schema: {type: integer, minimum: 1}}
+      - {name: to_version, in: path, required: true, schema: {type: integer, minimum: 1}}
+    get: *adminJSONRead
+  /bff/admin/sops/{sop_id}/versions/{version}/publish:
+    parameters:
+      - {name: sop_id, in: path, required: true, schema: {type: string, minLength: 1}}
+      - {name: version, in: path, required: true, schema: {type: integer, minimum: 1}}
+    post: *adminJSONWrite
+  /bff/admin/sops/{sop_id}/versions/{version}/retire:
+    parameters:
+      - {name: sop_id, in: path, required: true, schema: {type: string, minLength: 1}}
+      - {name: version, in: path, required: true, schema: {type: integer, minimum: 1}}
+    post: *adminJSONWrite
+  /bff/admin/sops/{sop_id}/rollback:
+    parameters: [{name: sop_id, in: path, required: true, schema: {type: string, minLength: 1}}]
+    post: *adminJSONWrite
+  /bff/projects/{project_id}/sop:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get: *jsonRead
+  /bff/tasks:
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/input-items:
+    get:
+      tags: [Web BFF]
+      operationId: listInputItems
+      security: [{cookieAuth: []}]
+      parameters:
+        - {name: project_id, in: query, required: false, schema: {type: string, format: uuid}}
+        - {name: status, in: query, required: false, schema: {type: string, enum: [untriaged, needs_info, routed, task_created, task_merged, project_material, archived]}}
+        - {name: assignee_user_id, in: query, required: false, schema: {type: string, format: uuid}}
+        - {name: mine, in: query, required: false, schema: {type: boolean, default: false}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Web BFF]
+      operationId: createInputItem
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/CreateInputItemInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/input-items/{id}:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get: *jsonRead
+  /bff/input-items/{id}/triage:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      operationId: triageInputItem
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/TriageInputItemInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/tasks/{task_id}:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get: *jsonRead
+  /bff/tasks/{task_id}/actions:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post: *jsonWrite
+  /bff/tasks/{task_id}/stages/{stage_id}/report:
+    parameters:
+      - {name: task_id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: stage_id, in: path, required: true, schema: {type: string}}
+    post: *jsonWrite
+  /bff/tasks/{task_id}/conversation-imports:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get: *jsonRead
+    post:
+      tags: [Web BFF]
+      operationId: createConversationImport
+      security: [{cookieAuth: []}]
+      parameters:
+        - {name: Idempotency-Key, in: header, required: false, schema: {type: string, maxLength: 128}}
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/CreateConversationImportInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/tasks/{task_id}/runs:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get: *jsonRead
+  /bff/tasks/{task_id}/gates:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get: *jsonRead
+  /bff/tasks/{task_id}/gates/{gate_id}/decide:
+    parameters:
+      - {name: task_id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: gate_id, in: path, required: true, schema: {type: string}}
+    post: *jsonWrite
+  /bff/tasks/{task_id}/revisions:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/tasks/{task_id}/deliveries:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get: *jsonRead
+    post: *jsonWrite
+  /bff/conversation-imports/{id}:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get: *jsonRead
+  /bff/conversation-imports/{id}/bundle:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      operationId: submitConversationBundle
+      security: [{cookieAuth: []}, {bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/ConversationBundle'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/conversation-imports/{id}/cancel:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post: *jsonWrite
+  /bff/projects/{project_id}/knowledge-packs/{pack_id}/snapshots:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectID'}
+      - {name: pack_id, in: path, required: true, schema: {type: string}}
+    get: *jsonRead
   /review/{token}/projection:
     parameters: [{$ref: '#/components/parameters/ReviewToken'}]
     get:
@@ -526,6 +763,291 @@ components:
     ID: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
     ReviewToken: {name: token, in: path, required: true, schema: {type: string, pattern: '^crg_[A-Za-z0-9_-]+$'}}
   schemas:
+    CreateConversationImportInput:
+      type: object
+      additionalProperties: false
+      required: [client_id, purpose, requested_scope, attach_as]
+      properties:
+        client_id: {type: string, enum: [codex, claude-code, workspace-adapter]}
+        node_id: {type: string, maxLength: 255}
+        purpose: {type: string, enum: [task_handoff, failure_diagnosis, evidence_candidate, retrospective]}
+        requested_scope: {type: string, enum: [summary, selected_turns, full_transcript]}
+        attach_as: {type: string, enum: [task_input, evidence_candidate]}
+        retention_days: {type: integer, minimum: 1, maximum: 90, default: 30}
+        stage_run_id: {type: string}
+        idempotency_key: {type: string, maxLength: 128}
+    ConversationBundle:
+      type: object
+      additionalProperties: false
+      required: [schema_version, bundle_id, import_id, client, source, purpose, scope, target, content, redaction, consent, content_digest, exported_at]
+      properties:
+        schema_version: {const: contentcloud.conversation_bundle/1.0}
+        bundle_id: {type: string, minLength: 1, maxLength: 255}
+        import_id: {type: string, minLength: 1}
+        client:
+          type: object
+          additionalProperties: false
+          required: [id, client_version, adapter_version]
+          properties:
+            id: {type: string, enum: [codex, claude-code, workspace-adapter]}
+            client_version: {type: string, minLength: 1, maxLength: 128}
+            adapter_version: {type: string, minLength: 1, maxLength: 64}
+            node_id: {type: string, maxLength: 255}
+        source:
+          type: object
+          additionalProperties: false
+          required: [format, session_ref]
+          properties:
+            format: {type: string, minLength: 1, maxLength: 255}
+            session_ref: {type: string, pattern: '^hmac:[^/\\\\:]+$'}
+        purpose: {type: string, enum: [task_handoff, failure_diagnosis, evidence_candidate, retrospective]}
+        scope:
+          type: object
+          additionalProperties: false
+          required: [mode]
+          properties:
+            mode: {type: string, enum: [summary, selected_turns, full_transcript]}
+            selected_count: {type: integer, minimum: 0, maximum: 2000}
+        target:
+          type: object
+          additionalProperties: false
+          required: [task_id]
+          properties:
+            task_id: {type: string}
+            stage_run_id: {type: string}
+        content:
+          type: array
+          minItems: 1
+          maxItems: 2000
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, text]
+            properties:
+              kind: {type: string, enum: [summary, turn, decision, evidence_candidate]}
+              text: {type: string, minLength: 1, maxLength: 100000}
+        redaction:
+          type: object
+          additionalProperties: false
+          required: [applied, policy_digest, removed_types]
+          properties:
+            applied: {const: true}
+            policy_digest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+            removed_types: {type: array, items: {type: string}, uniqueItems: true}
+        consent:
+          type: object
+          additionalProperties: false
+          required: [full_transcript, confirmed_at]
+          properties:
+            full_transcript: {type: boolean}
+            confirmed_at: {type: string, format: date-time}
+        content_digest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+        exported_at: {type: string, format: date-time}
+    ConversationImport:
+      type: object
+      additionalProperties: false
+      required: [import_id, tenant_id, project_id, task_id, client_id, adapter_version, adapter_id, purpose, requested_scope, attach_as, retention_days, status, expires_at, created_by, created_at, updated_at]
+      properties:
+        import_id: {type: string}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        task_id: {type: string}
+        stage_run_id: {type: string}
+        node_id: {type: string}
+        client_id: {type: string}
+        adapter_version: {type: string}
+        adapter_id: {type: string}
+        purpose: {type: string}
+        requested_scope: {type: string}
+        attach_as: {type: string}
+        retention_days: {type: integer, minimum: 1, maximum: 90}
+        status: {type: string, enum: [awaiting_client_confirmation, uploaded, cancelled, expired, rejected]}
+        idempotency_key: {type: string}
+        bundle: {$ref: '#/components/schemas/ConversationBundle'}
+        expires_at: {type: string, format: date-time}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        cancelled_at: {type: string, format: date-time}
+        uploaded_at: {type: string, format: date-time}
+    CreateInputItemInput:
+      type: object
+      additionalProperties: false
+      required: [source_type, title]
+      properties:
+        project_id: {type: string, format: uuid}
+        source_type: {type: string, enum: [brief, workspace_file, comment, external_request, trigger, conversation_bundle, other]}
+        title: {type: string, minLength: 1, maxLength: 300}
+        summary: {type: string, maxLength: 10000}
+        body: {type: string, maxLength: 500000}
+        source_ref: {type: string, maxLength: 500}
+        source_digest: {type: string, maxLength: 200}
+        disclosure: {type: string, enum: [project, tenant, restricted], default: project}
+        metadata: {type: object, additionalProperties: true}
+        idempotency_key: {type: string, maxLength: 128}
+    TriageInputItemInput:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action: {type: string, enum: [create_task, merge_task, archive_project, mark_missing, route_owner, archive]}
+        expected_version: {type: integer, minimum: 1}
+        project_id: {type: string, format: uuid}
+        task_id: {type: string}
+        assignee_user_id: {type: string, format: uuid}
+        missing_fields: {type: array, minItems: 1, items: {type: string}}
+        title: {type: string, maxLength: 300}
+        intent: {type: string, maxLength: 10000}
+        content_type: {type: string, enum: [video_script, wechat_article]}
+        priority: {type: string}
+        risk_profile: {type: string}
+        requested_output: {type: object, additionalProperties: true}
+    InputItem:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, source_type, title, summary, disclosure, status, missing_fields, metadata, row_version, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        source_type: {type: string}
+        title: {type: string}
+        summary: {type: string}
+        body: {type: string}
+        source_ref: {type: string}
+        source_digest: {type: string}
+        disclosure: {type: string, enum: [project, tenant, restricted]}
+        status: {type: string, enum: [untriaged, needs_info, routed, task_created, task_merged, project_material, archived]}
+        target_task_id: {type: string}
+        assignee_user_id: {type: string}
+        missing_fields: {type: array, items: {type: string}}
+        metadata: {type: object, additionalProperties: true}
+        idempotency_key: {type: string}
+        row_version: {type: integer, minimum: 1}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    KnowledgeObject:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, object_type, layer, version, status, title, statement, payload, dimensions, allowed_channels, evidence_refs, relation_refs, rights_refs, conflict_refs, digest, created_by, created_at, updated_at]
+      properties:
+        id: {type: string, minLength: 1}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        object_type: {type: string, enum: [FactAssertion, Claim, Audience, Scenario, Insight, BrandRule, ConstraintRecord, Process, Campaign, Learning, Asset, RightsRecord, ConflictRecord, KnowledgeGap, DomainObject]}
+        layer: {type: string, enum: [identity, product, market, expression, operations, content_engine, compliance]}
+        version: {type: integer, minimum: 1}
+        status: {type: string, enum: [candidate, needs_review, pending, verified, approved, valid, active, blocked, conflicted, prohibited, expired, rejected, superseded, revoked, open, source_missing, collecting, resolved, waived, accepted_risk]}
+        title: {type: string}
+        statement: {type: string}
+        payload: {type: object, additionalProperties: true}
+        dimensions: {type: array, uniqueItems: true, items: {type: string}}
+        allowed_channels: {type: array, uniqueItems: true, items: {type: string}}
+        evidence_refs: {type: array, uniqueItems: true, items: {type: string}}
+        relation_refs: {type: array, uniqueItems: true, items: {type: string}}
+        rights_refs: {type: array, uniqueItems: true, items: {type: string}}
+        conflict_refs: {type: array, uniqueItems: true, items: {type: string}}
+        decision_ref: {type: string}
+        next_action: {type: string}
+        impact: {type: string}
+        valid_from: {type: string, format: date-time}
+        valid_until: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        digest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    CreateKnowledgeObjectInput:
+      type: object
+      additionalProperties: false
+      required: [object_type, layer]
+      properties:
+        id: {type: string, minLength: 1}
+        object_type: {$ref: '#/components/schemas/KnowledgeObject/properties/object_type'}
+        layer: {$ref: '#/components/schemas/KnowledgeObject/properties/layer'}
+        status: {$ref: '#/components/schemas/KnowledgeObject/properties/status'}
+        title: {type: string}
+        statement: {type: string}
+        payload: {type: object, additionalProperties: true}
+        dimensions: {type: array, uniqueItems: true, items: {type: string}}
+        allowed_channels: {type: array, uniqueItems: true, items: {type: string}}
+        evidence_refs: {type: array, uniqueItems: true, items: {type: string}}
+        relation_refs: {type: array, uniqueItems: true, items: {type: string}}
+        rights_refs: {type: array, uniqueItems: true, items: {type: string}}
+        conflict_refs: {type: array, uniqueItems: true, items: {type: string}}
+        decision_ref: {type: string}
+        next_action: {type: string}
+        impact: {type: string}
+        valid_from: {type: string, format: date-time}
+        valid_until: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+    ReviewKnowledgeObjectInput:
+      type: object
+      additionalProperties: false
+      required: [expected_version, expected_digest, decision, reason]
+      properties:
+        expected_version: {type: integer, minimum: 1}
+        expected_digest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+        decision: {type: string, enum: [approve, reject]}
+        reason: {type: string, minLength: 1}
+    KnowledgeDecision:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, object_id, previous_version, result_version, subject_digest, decision, reason, actor_id, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        object_id: {type: string, minLength: 1}
+        previous_version: {type: integer, minimum: 1}
+        result_version: {type: integer, minimum: 2}
+        subject_digest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+        decision: {type: string, enum: [approve, reject]}
+        reason: {type: string}
+        actor_id: {type: string}
+        created_at: {type: string, format: date-time}
+    KnowledgePackObjectRef:
+      type: object
+      additionalProperties: false
+      required: [object_id, version]
+      properties:
+        object_id: {type: string, minLength: 1}
+        version: {type: integer, minimum: 0, description: Zero resolves to the latest version when publishing.}
+    KnowledgeQueryPolicy:
+      type: object
+      additionalProperties: false
+      properties:
+        eligible_statuses: {type: array, uniqueItems: true, items: {type: string, enum: [verified, approved, valid, active]}}
+        allowed_object_types: {type: array, uniqueItems: true, items: {type: string}}
+        require_evidence: {type: boolean, description: Enforced true by the service.}
+        block_on_conflict: {type: boolean, description: Enforced true by the service.}
+        block_on_rights_failure: {type: boolean, description: Enforced true by the service.}
+    CreateKnowledgePackInput:
+      type: object
+      additionalProperties: false
+      required: [name, purpose, object_refs]
+      properties:
+        id: {type: string, minLength: 1}
+        name: {type: string, minLength: 1}
+        purpose: {type: string, minLength: 1}
+        object_refs: {type: array, minItems: 1, uniqueItems: true, items: {$ref: '#/components/schemas/KnowledgePackObjectRef'}}
+        query_policy: {$ref: '#/components/schemas/KnowledgeQueryPolicy'}
+    KnowledgeQueryInput:
+      type: object
+      additionalProperties: false
+      anyOf:
+        - required: [snapshot_id]
+        - required: [pack_id]
+      properties:
+        project_id: {type: string, format: uuid}
+        snapshot_id: {type: string, format: uuid}
+        pack_id: {type: string, minLength: 1}
+        channel: {type: string}
+        layers: {type: array, uniqueItems: true, items: {$ref: '#/components/schemas/KnowledgeObject/properties/layer'}}
+        object_types: {type: array, uniqueItems: true, items: {$ref: '#/components/schemas/KnowledgeObject/properties/object_type'}}
+        object_ids: {type: array, uniqueItems: true, items: {type: string, minLength: 1}}
+        at: {type: string, format: date-time}
     DispatchRequest:
       type: object
       additionalProperties: false

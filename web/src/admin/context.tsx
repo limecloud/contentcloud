@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 import { api, patch } from '../api';
-import type { ContentType, PlatformOverview, PlatformTenant, Session, Tenant } from '../types';
+import type { AdminWorkOSView, ContentType, PlatformOverview, PlatformTenant, Session, Tenant } from '../types';
 
 interface AdminContextValue {
   session:Session;
@@ -23,10 +23,13 @@ export function AdminProvider({session,children}:PropsWithChildren<{session:Sess
   const [error,setError]=useState('');
   const refresh=useCallback(async(silent=false)=>{
     silent?setRefreshing(true):setLoading(true);setError('');
-    try{setData(await api<PlatformOverview>('/api/v1/admin/dashboard'))}
+    try{
+      const workOS=await api<AdminWorkOSView>('/api/bff/admin/work-os');
+      setData({counts:{tenants:1,active_tenants:workOS.environments.filter(item=>item.status==='active').length,users:0,projects:0,online_devices:0,active_runs:workOS.usage.running_count},tenants:[],users:[],generated_at:workOS.generated_at})
+    }
     catch(value){setError(value instanceof Error?value.message:'后台数据加载失败')}
     finally{setLoading(false);setRefreshing(false)}
-  },[]);
+  },[session]);
   useEffect(()=>{refresh()},[refresh]);
   const setTenantStatus=useCallback(async(tenantID:string,status:'active'|'suspended')=>{
     setError('');

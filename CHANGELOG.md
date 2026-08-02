@@ -2,6 +2,24 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.14.0] - 2026-08-02
+
+### Added
+
+- 增加 Content Work OS 基础设施：Task/TaskRun、Environment、可版本化 SOP、Stage/Gate、输入收集、知识对象/知识包/不可变快照、会话导入和任务治理契约。
+- 增加 Task-first 工作区、知识库、SOP/运行配置后台和对应 BFF API、PostgreSQL 迁移、Memory Store 与领域/服务/HTTP 回归测试。
+- 增加短视频脚本与文章任务共用的 Revision、Gate、Delivery 和结果追溯基础链路，并补充 Content Work OS 路线、架构、安全、工作流与验收文档。
+
+### Changed
+
+- 工作区、项目页、后台导航和 API 路由收敛到 Task-first 主路径；旧知识冲突旁路和重复主导航移除，历史事实保持只读。
+- 新增显式输入、知识、SOP、任务和阶段动作，所有租户边界、幂等键、版本绑定、RLS 和不可变约束由服务端校验。
+- CLI、Web、npm 安装器、Plugin、MCP、Environment Profile、Bootstrap 和 Server/Worker 版本统一升级到 `0.14.0`。
+
+### Fixed
+
+- 修复领域输入项文件未按 Go 标准格式化的问题，并补齐新版工作区和任务治理接口的类型、路由及测试覆盖。
+
 ## [0.13.0] - 2026-08-01
 
 ### Added

@@ -13,6 +13,13 @@ const v3BaselineMigration = "00001_v3_baseline.sql"
 const v5SubmissionTypesMigration = "00002_v5_submission_types.sql"
 const tenantContentCapabilitiesMigration = "00003_tenant_content_capabilities.sql"
 const runProgressEventsMigration = "00004_run_progress_events.sql"
+const knowledgeInfrastructureMigration = "00005_knowledge_infrastructure.sql"
+const orchestrationInfrastructureMigration = "00006_orchestration_infrastructure.sql"
+const taskGovernanceMigration = "00007_task_governance.sql"
+const builtinSOPMetadataMigration = "00008_builtin_sop_metadata.sql"
+const conversationImportsMigration = "00009_conversation_imports.sql"
+const inputItemsMigration = "00010_input_items.sql"
+const workTaskIdempotencyMigration = "00011_work_task_idempotency.sql"
 
 func (s *Store) Migrate(ctx context.Context) error {
 	conn, err := s.pool.Acquire(ctx)
@@ -83,7 +90,27 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 func validateV3MigrationSet(available, applied []string) error {
-	expected := []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration, runProgressEventsMigration}
+	expected := []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration, runProgressEventsMigration, knowledgeInfrastructureMigration, orchestrationInfrastructureMigration}
+	// Keep the pure validator compatible with callers that validate the
+	// pre-governance six-file set; Migrate itself passes the current embedded
+	// set and therefore requires every current infrastructure migration.
+	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration}
+	for length := len(suffix); length >= 1; length-- {
+		if len(available) == len(expected)+length {
+			candidate := append([]string{}, suffix[:length]...)
+			matches := true
+			for index := range candidate {
+				if available[len(expected)+index] != candidate[index] {
+					matches = false
+					break
+				}
+			}
+			if matches {
+				expected = append(expected, candidate...)
+			}
+			break
+		}
+	}
 	if len(available) != len(expected) {
 		return fmt.Errorf("migration 集合必须为 %v，当前为 %v", expected, available)
 	}

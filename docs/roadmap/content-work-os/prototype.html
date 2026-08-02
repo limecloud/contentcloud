@@ -1,0 +1,823 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Content Work OS · 当前方案 原型</title>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <style>
+    :root {
+      --page: #f5f7f5;
+      --panel: #ffffff;
+      --subtle: #fbfcfb;
+      --raised: #edf1ed;
+      --ink: #132019;
+      --muted: #6a756e;
+      --line: #dfe5e0;
+      --line-soft: #edf1ee;
+      --pine: #18271f;
+      --pine-hover: #0f1b15;
+      --pine-panel: #21352a;
+      --pine-hover-surface: #2b4638;
+      --pine-line: #3a5948;
+      --pine-text: #c6d6cc;
+      --pine-muted: #91a399;
+      --signal: #14b8a6;
+      --signal-soft: #e9f5ef;
+      --teal: #007f78;
+      --blue: #3b6f8f;
+      --blue-soft: #edf4f8;
+      --production: #b45b3c;
+      --production-soft: #fff3ed;
+      --review: #c24f5f;
+      --review-soft: #fff1f2;
+      --success: #0b7f53;
+      --success-soft: #ecfdf5;
+      --warning: #a9651a;
+      --warning-soft: #fff7ed;
+      --radius-sm: 6px;
+      --radius: 8px;
+      --shadow: 0 1px 2px rgba(24,39,31,.06);
+      --shadow-pop: 0 16px 40px rgba(24,39,31,.16);
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--page); }
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      color: var(--ink);
+      background: var(--page);
+      font-family: "Avenir Next", "Segoe UI Variable", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0;
+      font-synthesis: none;
+    }
+    button, input, select, textarea { font: inherit; letter-spacing: 0; }
+    button { cursor: pointer; }
+    button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+      outline: 2px solid var(--teal);
+      outline-offset: 2px;
+    }
+    .icon { width: 17px; height: 17px; stroke-width: 1.8; flex: 0 0 auto; }
+    .app-shell { min-height: 100vh; display: grid; grid-template-columns: 246px minmax(0, 1fr); }
+
+    .sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      width: 246px;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      padding: 18px 14px 14px;
+      color: var(--pine-text);
+      background: var(--pine);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 20px; }
+    .brand-mark { width: 30px; height: 30px; display: grid; place-items: center; color: #7ee0c3; }
+    .brand-copy { min-width: 0; display: flex; flex-direction: column; line-height: 1.1; }
+    .brand-copy strong { color: #f3f8f5; font-size: 14px; font-weight: 720; white-space: nowrap; }
+    .brand-copy small { margin-top: 5px; color: var(--pine-muted); font-size: 10px; }
+    .workspace-switch {
+      display: flex; align-items: center; gap: 9px; min-width: 0;
+      padding: 10px; margin-bottom: 18px; border: 1px solid var(--pine-line); border-radius: var(--radius);
+      background: var(--pine-panel);
+    }
+    .workspace-avatar { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border-radius: var(--radius); color: var(--ink); background: #edf1ed; font-weight: 760; }
+    .workspace-switch label { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 4px; }
+    .workspace-switch select { width: 100%; min-width: 0; border: 0; color: #f3f8f5; background: transparent; font-size: 12px; font-weight: 650; }
+    .workspace-switch select option { color: var(--ink); background: var(--panel); }
+    .workspace-switch small { color: var(--pine-muted); font-size: 10px; }
+    .nav-group { margin-top: 18px; }
+    .nav-label { padding: 0 10px 7px; color: var(--pine-muted); font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }
+    .nav-list { display: flex; flex-direction: column; gap: 2px; }
+    .nav-item {
+      width: 100%; min-height: 38px; display: flex; align-items: center; gap: 10px;
+      padding: 0 11px; border: 0; border-radius: var(--radius); color: var(--pine-text); background: transparent;
+      text-align: left; font-size: 13px;
+    }
+    .nav-item:hover, .nav-item.is-active { color: #fff; background: var(--pine-hover-surface); }
+    .nav-item.is-active { box-shadow: inset 3px 0 var(--signal); }
+    .nav-item.is-active .icon { color: var(--signal); }
+    .nav-item .nav-count { margin-left: auto; color: var(--pine-muted); font-size: 11px; }
+    .project-nav { padding-top: 3px; border-top: 1px solid var(--pine-line); }
+    .project-title { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 10px 8px; color: var(--pine-muted); font-size: 11px; }
+    .project-title strong { overflow: hidden; color: #f3f8f5; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .project-title .icon { color: var(--signal); }
+    .sidebar-footer { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 14px 8px 0; margin-top: auto; border-top: 1px solid var(--pine-line); }
+    .user-avatar { width: 30px; height: 30px; display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--radius); color: var(--ink); background: #e5ebe6; font-size: 11px; font-weight: 760; }
+    .user-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 3px; }
+    .user-copy strong { overflow: hidden; color: #f3f8f5; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .user-copy small { overflow: hidden; color: var(--pine-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .sidebar-action { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: var(--radius-sm); color: var(--pine-muted); background: transparent; }
+    .sidebar-action:hover { color: #fff; background: var(--pine-hover-surface); }
+
+    .main { min-width: 0; grid-column: 2; }
+    .topbar {
+      position: sticky; top: 0; z-index: 10; height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 18px;
+      padding: 0 32px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.94); backdrop-filter: blur(14px);
+    }
+    .breadcrumb { min-width: 0; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+    .breadcrumb strong { overflow: hidden; color: var(--ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+    .breadcrumb .icon { width: 14px; height: 14px; color: var(--muted); }
+    .topbar-actions { display: flex; align-items: center; gap: 8px; }
+    .button {
+      min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      padding: 0 13px; border: 1px solid transparent; border-radius: var(--radius); font-size: 13px; font-weight: 680;
+      transition: background-color .16s ease, border-color .16s ease, color .16s ease, transform .16s ease;
+    }
+    .button:active { transform: translateY(1px); }
+    .button-primary { color: #fff; background: var(--pine); }
+    .button-primary:hover { background: var(--pine-hover); }
+    .button-secondary { color: var(--ink); border-color: var(--line); background: var(--panel); }
+    .button-secondary:hover { border-color: #b8c5bc; background: var(--subtle); }
+    .button-ghost { color: var(--muted); border-color: transparent; background: transparent; }
+    .button-ghost:hover { color: var(--ink); background: var(--raised); }
+    .button-teal { color: var(--teal); border-color: #b8e2d6; background: var(--signal-soft); }
+    .button-teal:hover { border-color: #86cdbd; background: #dff1e9; }
+    .mobile-menu { display: none; width: 34px; height: 34px; place-items: center; border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); background: var(--panel); }
+
+    .content { width: min(1440px, 100%); margin: 0 auto; padding: 34px 36px 70px; }
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+    .eyebrow { display: block; color: var(--teal); font-size: 11px; font-weight: 720; text-transform: uppercase; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 8px; font-size: 26px; line-height: 1.24; letter-spacing: 0; }
+    .page-header p { max-width: 760px; margin-bottom: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
+    .header-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+    .count-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 24px; padding: 0 8px; margin-left: 6px; border-radius: 999px; color: var(--muted); background: var(--raised); font-size: 12px; font-weight: 700; vertical-align: middle; }
+    .project-tabs { display: flex; align-items: center; gap: 3px; margin-bottom: 22px; border-bottom: 1px solid var(--line); }
+    .tab { position: relative; min-height: 39px; padding: 0 14px; border: 0; color: var(--muted); background: transparent; font-size: 13px; font-weight: 680; }
+    .tab:hover { color: var(--ink); }
+    .tab.is-active { color: var(--ink); }
+    .tab.is-active::after { content: ""; position: absolute; right: 12px; bottom: -1px; left: 12px; height: 2px; background: var(--signal); }
+
+    .notice { display: flex; align-items: flex-start; gap: 9px; padding: 11px 13px; margin-bottom: 18px; border: 1px solid #cce5da; border-left: 3px solid var(--teal); border-radius: var(--radius); color: #356056; background: var(--signal-soft); font-size: 12px; line-height: 1.55; }
+    .notice .icon { margin-top: 1px; color: var(--teal); }
+    .notice strong { color: var(--ink); }
+
+    .sop-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, .75fr); gap: 18px; align-items: start; }
+    .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+    .section-head h2 { margin-bottom: 0; font-size: 16px; line-height: 1.3; }
+    .section-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .section-meta { color: var(--muted); font-size: 11px; }
+    .template-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .template-card {
+      position: relative; min-height: 136px; display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 12px; align-items: start;
+      padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); background: var(--panel); box-shadow: var(--shadow); text-align: left;
+      transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+    }
+    .template-card:hover { border-color: #b9c9be; background: var(--subtle); box-shadow: 0 4px 12px rgba(24,39,31,.08); }
+    .template-card.is-selected { border-color: var(--teal); box-shadow: 0 0 0 2px rgba(0,127,120,.1), var(--shadow); }
+    .template-card.is-selected::after { content: "当前预览"; position: absolute; top: 12px; right: 12px; padding: 3px 7px; border-radius: 999px; color: var(--teal); background: var(--signal-soft); font-size: 10px; font-weight: 720; }
+    .template-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: var(--radius); color: var(--muted); background: var(--raised); }
+    .template-card.is-selected .template-icon { color: var(--teal); background: var(--signal-soft); }
+    .template-copy { min-width: 0; padding-right: 4px; }
+    .template-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; padding-right: 66px; }
+    .template-title strong { font-size: 14px; }
+    .template-title span { color: var(--muted); font-size: 11px; }
+    .template-copy p { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .template-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+    .tag { display: inline-flex; align-items: center; min-height: 20px; padding: 2px 7px; border-radius: 999px; color: var(--muted); background: var(--raised); font-size: 10px; }
+    .tag.is-blue { color: var(--blue); background: var(--blue-soft); }
+    .tag.is-production { color: var(--production); background: var(--production-soft); }
+    .tag.is-review { color: var(--review); background: var(--review-soft); }
+    .tag.is-success { color: var(--success); background: var(--success-soft); }
+    .template-card.is-blank { border-style: dashed; background: var(--subtle); }
+    .template-card.is-blank .template-icon { color: var(--teal); background: transparent; border: 1px dashed #a7d5c7; }
+
+    .builder { position: sticky; top: 84px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
+    .builder-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 16px 17px; border-bottom: 1px solid var(--line-soft); }
+    .builder-head h2 { margin: 4px 0 0; font-size: 15px; }
+    .builder-head p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .builder-body { padding: 15px 17px 17px; }
+    .builder-label { display: block; margin-bottom: 8px; color: var(--muted); font-size: 10px; font-weight: 720; letter-spacing: .02em; text-transform: uppercase; }
+    .stage-list { display: flex; flex-direction: column; gap: 7px; }
+    .stage-row { display: grid; grid-template-columns: 25px minmax(0, 1fr) auto; gap: 9px; align-items: center; min-height: 49px; padding: 8px 9px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--subtle); }
+    .stage-number { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; color: var(--teal); background: var(--signal-soft); font-size: 10px; font-weight: 760; }
+    .stage-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .stage-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .stage-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .stage-state { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 10px; white-space: nowrap; }
+    .stage-state .icon { width: 13px; height: 13px; }
+    .stage-state.is-gate { color: var(--warning); }
+    .stage-state.is-check { color: var(--success); }
+    .builder-divider { height: 1px; margin: 16px 0; background: var(--line-soft); }
+    .form-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 9px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field + .field { margin-top: 11px; }
+    .field span { color: var(--muted); font-size: 11px; font-weight: 650; }
+    .field select, .field input, .field textarea { width: 100%; min-height: 34px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0 9px; color: var(--ink); background: var(--panel); font-size: 12px; }
+    .field textarea { min-height: 62px; padding-top: 8px; resize: vertical; }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; padding: 8px 0; }
+    .toggle-copy { display: flex; flex-direction: column; gap: 3px; }
+    .toggle-copy strong { font-size: 11px; }
+    .toggle-copy small { color: var(--muted); font-size: 10px; line-height: 1.4; }
+    .toggle { position: relative; width: 36px; height: 20px; flex: 0 0 auto; border: 0; border-radius: 999px; background: #c7d1ca; }
+    .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .16s ease; }
+    .toggle.is-on { background: var(--teal); }
+    .toggle.is-on::after { transform: translateX(16px); }
+    .toggle:disabled { cursor: not-allowed; opacity: .5; }
+    .builder-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 16px; }
+    .builder-actions .button { min-height: 32px; padding: 0 10px; font-size: 11px; }
+
+    .task-view { display: none; }
+    .task-view.is-visible { display: block; }
+    .task-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .task-filters { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+    .filter { min-height: 29px; padding: 0 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--panel); font-size: 11px; }
+    .filter:hover, .filter.is-active { border-color: #b8e2d6; color: var(--teal); background: var(--signal-soft); }
+    .task-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 17px; }
+    .stat-card { min-height: 86px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
+    .stat-card span { display: block; color: var(--muted); font-size: 11px; }
+    .stat-card strong { display: block; margin-top: 9px; font-size: 22px; }
+    .stat-card small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
+    .task-table { overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
+    .task-table-head, .task-row { display: grid; grid-template-columns: minmax(230px, 1.4fr) minmax(120px, .75fr) minmax(110px, .6fr) minmax(90px, .55fr) 84px; gap: 14px; align-items: center; padding: 0 16px; }
+    .task-table-head { min-height: 38px; color: var(--muted); background: var(--subtle); font-size: 10px; font-weight: 720; text-transform: uppercase; }
+    .task-row { min-height: 70px; border-top: 1px solid var(--line-soft); text-align: left; color: var(--ink); background: var(--panel); }
+    button.task-row { width: 100%; border-right: 0; border-bottom: 0; border-left: 0; }
+    button.task-row:hover { background: var(--subtle); }
+    .task-name, .task-meta { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .task-name strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .task-name small, .task-meta small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .task-stage { display: inline-flex; align-items: center; gap: 5px; color: var(--production); font-size: 11px; }
+    .task-stage .icon { width: 14px; height: 14px; }
+    .status { display: inline-flex; width: fit-content; align-items: center; min-height: 22px; padding: 2px 8px; border-radius: 999px; font-size: 10px; white-space: nowrap; }
+    .status.is-warning { color: var(--warning); background: var(--warning-soft); }
+    .status.is-success { color: var(--success); background: var(--success-soft); }
+    .status.is-review { color: var(--review); background: var(--review-soft); }
+    .status.is-blue { color: var(--blue); background: var(--blue-soft); }
+    .status.is-muted { color: var(--muted); background: var(--raised); }
+    .task-open { color: var(--muted); }
+    .task-open .icon { width: 15px; height: 15px; }
+
+    .drawer-backdrop { position: fixed; inset: 0; z-index: 50; display: none; background: rgba(19,32,25,.32); }
+    .drawer-backdrop.is-open { display: block; }
+    .drawer { position: absolute; top: 0; right: 0; bottom: 0; width: min(520px, 100%); overflow: auto; padding: 24px; background: var(--panel); box-shadow: var(--shadow-pop); }
+    .drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 17px; border-bottom: 1px solid var(--line); }
+    .drawer-head h2 { margin: 5px 0 0; font-size: 20px; line-height: 1.3; }
+    .close { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: var(--radius-sm); color: var(--muted); background: transparent; }
+    .close:hover { color: var(--ink); background: var(--raised); }
+    .drawer-section { padding: 17px 0; border-bottom: 1px solid var(--line-soft); }
+    .drawer-section h3 { margin-bottom: 10px; font-size: 13px; }
+    .drawer-section p { margin-bottom: 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
+    .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .detail-item { display: flex; flex-direction: column; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--subtle); }
+    .detail-item span { color: var(--muted); font-size: 10px; }
+    .detail-item strong { font-size: 12px; }
+    .drawer-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 18px; }
+    .toast { position: fixed; right: 22px; bottom: 22px; z-index: 80; display: none; align-items: center; gap: 8px; padding: 11px 14px; border: 1px solid #b8e2d6; border-radius: var(--radius); color: var(--teal); background: var(--signal-soft); box-shadow: var(--shadow-pop); font-size: 12px; }
+    .toast.is-visible { display: flex; }
+    .generic-view { display: none; }
+    .generic-view.is-visible { display: block; }
+    .generic-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+    .generic-heading h2 { margin: 4px 0 0; font-size: 16px; }
+    .generic-heading p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .generic-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .generic-grid.is-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .generic-grid.is-four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .generic-card { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
+    .generic-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 15px 16px; border-bottom: 1px solid var(--line-soft); }
+    .generic-card > header h3 { margin: 3px 0 0; font-size: 14px; }
+    .generic-card > header p { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .card-icon { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--radius); color: var(--teal); background: var(--signal-soft); }
+    .card-icon.is-blue { color: var(--blue); background: var(--blue-soft); }
+    .card-icon.is-production { color: var(--production); background: var(--production-soft); }
+    .card-icon.is-review { color: var(--review); background: var(--review-soft); }
+    .generic-card-body { padding: 15px 16px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 17px; }
+    .metric-card { min-height: 88px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
+    .metric-card span { display: block; color: var(--muted); font-size: 11px; }
+    .metric-card strong { display: block; margin-top: 8px; font-size: 22px; }
+    .metric-card small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
+    .list { display: flex; flex-direction: column; }
+    .list-row { display: flex; align-items: center; gap: 11px; min-height: 58px; padding: 10px 0; border-top: 1px solid var(--line-soft); }
+    .list-row:first-child { padding-top: 0; border-top: 0; }
+    .list-row:last-child { padding-bottom: 0; }
+    .list-row > .row-icon { width: 30px; height: 30px; display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--radius-sm); color: var(--muted); background: var(--raised); }
+    .list-row > .row-icon.is-warning { color: var(--warning); background: var(--warning-soft); }
+    .list-row > .row-icon.is-success { color: var(--success); background: var(--success-soft); }
+    .list-row > .row-icon.is-blue { color: var(--blue); background: var(--blue-soft); }
+    .row-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 3px; }
+    .row-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .row-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .row-end { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
+    .row-end small { color: var(--muted); font-size: 10px; }
+    .generic-card .button { min-height: 31px; padding: 0 10px; font-size: 11px; }
+    .generic-tabs { display: flex; align-items: center; gap: 4px; overflow-x: auto; margin-bottom: 15px; border-bottom: 1px solid var(--line); }
+    .generic-tab { position: relative; min-height: 35px; padding: 0 10px; border: 0; color: var(--muted); background: transparent; font-size: 11px; font-weight: 680; white-space: nowrap; }
+    .generic-tab.is-active { color: var(--ink); }
+    .generic-tab.is-active::after { content: ""; position: absolute; right: 7px; bottom: -1px; left: 7px; height: 2px; background: var(--signal); }
+    .empty-state { min-height: 145px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+    .empty-state .card-icon { margin-bottom: 10px; }
+    .empty-state strong { font-size: 13px; }
+    .empty-state p { max-width: 330px; margin: 6px 0 13px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .chat-shell { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: 540px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
+    .chat-threads { border-right: 1px solid var(--line); background: var(--subtle); }
+    .chat-threads header { padding: 15px; border-bottom: 1px solid var(--line); }
+    .chat-threads h3 { margin: 0; font-size: 14px; }
+    .thread { width: 100%; display: flex; align-items: flex-start; gap: 9px; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--line-soft); color: var(--ink); background: transparent; text-align: left; }
+    .thread:hover, .thread.is-active { background: var(--raised); }
+    .thread-avatar { width: 30px; height: 30px; display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--radius-sm); color: var(--teal); background: var(--signal-soft); font-size: 10px; font-weight: 720; }
+    .thread-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 3px; }
+    .thread-copy strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .thread-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-main { min-width: 0; display: flex; flex-direction: column; }
+    .chat-main > header { display: flex; align-items: center; gap: 9px; padding: 14px 17px; border-bottom: 1px solid var(--line); }
+    .chat-main > header strong { font-size: 13px; }
+    .chat-main > header small { margin-left: auto; color: var(--muted); font-size: 10px; }
+    .context-feed { display: flex; flex: 1; flex-direction: column; padding: 0 17px; overflow: auto; }
+    .context-record { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; padding: 15px 0; border-bottom: 1px solid var(--line-soft); }
+    .context-record:last-child { border-bottom: 0; }
+    .context-record-copy { min-width: 0; }
+    .context-record-copy .resource-meta { color: var(--muted); font-size: 9px; }
+    .context-record-copy > strong { display: block; margin-top: 6px; font-size: 12px; }
+    .context-record-copy p { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .local-run-strip { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 15px; border-top: 1px solid var(--line); background: var(--subtle); }
+    .local-run-strip > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .local-run-strip strong { font-size: 11px; }
+    .local-run-strip small { color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .context-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 15px; border-top: 1px solid var(--line); }
+    .context-actions > span { color: var(--muted); font-size: 10px; }
+    .context-actions > div { display: flex; align-items: center; gap: 7px; }
+    .resource-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-top: 1px solid var(--line-soft); }
+    .resource-card:first-child { padding-top: 0; border-top: 0; }
+    .resource-copy { min-width: 0; flex: 1; }
+    .resource-copy strong { display: block; font-size: 12px; }
+    .resource-copy p { margin: 4px 0 7px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .resource-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+    .knowledge-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, .8fr); gap: 12px; align-items: start; }
+    .knowledge-side { display: flex; min-width: 0; flex-direction: column; gap: 12px; }
+    .knowledge-list { display: flex; flex-direction: column; }
+    .knowledge-row { width: 100%; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 11px; align-items: start; padding: 14px 16px; border: 0; border-bottom: 1px solid var(--line-soft); color: var(--ink); background: var(--panel); text-align: left; }
+    .knowledge-row:last-child { border-bottom: 0; }
+    .knowledge-row:hover { background: var(--subtle); }
+    .knowledge-copy { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+    .knowledge-copy > strong { font-size: 12px; }
+    .knowledge-copy > small { color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .knowledge-provenance { display: flex; align-items: center; gap: 4px; color: var(--teal); font-size: 9px; }
+    .knowledge-provenance .icon { width: 12px; height: 12px; }
+    .knowledge-end { display: flex; min-width: 88px; align-items: flex-end; flex-direction: column; gap: 5px; color: var(--muted); }
+    .knowledge-end > small { font-size: 9px; }
+    .knowledge-end > .icon { width: 14px; height: 14px; }
+    .knowledge-toolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+    .knowledge-toolbar h2 { margin: 4px 0 0; font-size: 18px; }
+    .knowledge-toolbar p { max-width: 680px; margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .knowledge-filters { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+    .knowledge-filters select, .knowledge-filters input { min-height: 34px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0 9px; color: var(--ink); background: var(--panel); font-size: 11px; }
+    .knowledge-filters select { min-width: 128px; }
+    .knowledge-filters input { width: 210px; min-width: 160px; }
+    .knowledge-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; padding: 18px 19px; margin-bottom: 12px; border: 1px solid #cce5da; border-radius: var(--radius); background: var(--signal-soft); }
+    .knowledge-hero h2 { max-width: 720px; margin: 5px 0 0; font-size: 20px; line-height: 1.35; }
+    .knowledge-hero p { max-width: 760px; margin: 7px 0 0; color: #45675b; font-size: 12px; line-height: 1.6; }
+    .knowledge-hero-actions { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
+    .knowledge-layer-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-bottom: 12px; }
+    .knowledge-layer { min-width: 0; display: grid; grid-template-columns: 31px minmax(0, 1fr); gap: 8px; align-items: start; padding: 11px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); background: var(--panel); box-shadow: var(--shadow); text-align: left; }
+    .knowledge-layer:hover { border-color: #b8d4c6; background: var(--subtle); }
+    .knowledge-layer .layer-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--radius-sm); color: var(--teal); background: var(--signal-soft); }
+    .knowledge-layer strong { display: block; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .knowledge-layer small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; line-height: 1.35; }
+    .knowledge-layer .layer-metric { grid-column: 2; display: flex; align-items: baseline; gap: 5px; margin-top: 2px; }
+    .knowledge-layer .layer-metric b { color: var(--teal); font-size: 13px; }
+    .knowledge-layer .layer-metric small { margin: 0; }
+    .knowledge-layer .progress { grid-column: 1 / -1; width: 100%; margin-top: 2px; }
+    .health-score { display: flex; align-items: baseline; gap: 4px; padding: 4px 0 12px; }
+    .health-score strong { font-size: 34px; line-height: 1; }
+    .health-score span { color: var(--muted); font-size: 12px; }
+    .health-score small { margin-left: auto; color: var(--muted); font-size: 10px; }
+    .pipeline-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .pipeline-step { position: relative; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 9px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--subtle); }
+    .pipeline-step::after { content: ""; position: absolute; top: 18px; right: -9px; width: 9px; height: 1px; background: var(--line); }
+    .pipeline-step:last-child::after { display: none; }
+    .pipeline-step > span { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); background: var(--raised); font-size: 10px; font-weight: 760; }
+    .pipeline-step.is-done > span { color: var(--success); background: var(--success-soft); }
+    .pipeline-step.is-active { border-color: #b8e2d6; background: var(--signal-soft); }
+    .pipeline-step.is-active > span { color: var(--teal); background: #cfeee3; }
+    .pipeline-step strong { font-size: 10px; }
+    .pipeline-step small { color: var(--muted); font-size: 9px; }
+    .knowledge-pack-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .knowledge-pack { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
+    .knowledge-pack > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 9px; padding: 14px 15px; border-bottom: 1px solid var(--line-soft); }
+    .knowledge-pack h3 { margin: 4px 0 0; font-size: 13px; }
+    .knowledge-pack-body { padding: 14px 15px; }
+    .pack-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding-bottom: 13px; border-bottom: 1px solid var(--line-soft); }
+    .pack-meta span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .pack-meta b { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+    .pack-meta small, .pack-snapshot span, .pack-snapshot small { color: var(--muted); font-size: 9px; }
+    .pack-snapshot { display: flex; flex-direction: column; gap: 4px; padding-top: 13px; }
+    .pack-snapshot strong { font-size: 15px; }
+    .knowledge-pack .builder-actions { justify-content: flex-start; margin-top: 13px; }
+    .knowledge-query { display: flex; flex-direction: column; gap: 14px; }
+    .knowledge-query > div:first-child h2 { margin: 4px 0 0; font-size: 18px; }
+    .knowledge-query > div:first-child p { max-width: 760px; margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .query-form { display: flex; flex-direction: column; gap: 13px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
+    .query-form .field textarea { min-height: 98px; }
+    .query-options { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 9px; align-items: end; }
+    .query-options .field + .field { margin-top: 0; }
+    .query-result { display: flex; flex-direction: column; gap: 12px; padding: 15px; border: 1px solid #bfe4d6; border-radius: var(--radius); background: var(--subtle); }
+    .query-result-summary { display: flex; flex-direction: column; gap: 5px; }
+    .query-result-summary strong { font-size: 13px; }
+    .query-result-summary small { color: var(--muted); font-size: 10px; }
+    .query-object-list { display: flex; flex-direction: column; gap: 7px; }
+    .query-object { width: 100%; display: flex; align-items: flex-start; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); background: var(--panel); text-align: left; }
+    .query-object:hover { border-color: #b8d4c6; background: var(--subtle); }
+    .query-object > .icon { color: var(--success); }
+    .query-object.is-blocked > .icon { color: var(--warning); }
+    .query-object span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .query-object strong { font-size: 11px; }
+    .query-object small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+    .triage-list { display: flex; flex-direction: column; }
+    .triage-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 16px 0; border-top: 1px solid var(--line-soft); }
+    .triage-row:first-child { padding-top: 0; border-top: 0; }
+    .triage-row:last-child { padding-bottom: 0; }
+    .triage-copy { min-width: 0; }
+    .triage-copy strong { display: block; margin-top: 7px; font-size: 13px; line-height: 1.35; }
+    .triage-copy p { margin: 5px 0 7px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .triage-copy small { color: var(--teal); font-size: 10px; }
+    .triage-actions { display: flex; align-items: center; gap: 6px; padding-top: 4px; }
+    .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line-soft); }
+    .switch-row:first-child { padding-top: 0; border-top: 0; }
+    .switch-row strong { display: block; font-size: 12px; }
+    .switch-row small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
+    .admin-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
+    .admin-menu { display: flex; flex-direction: column; gap: 2px; padding: 7px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
+    .admin-menu button { min-height: 35px; display: flex; align-items: center; gap: 8px; padding: 0 9px; border: 0; border-radius: var(--radius-sm); color: var(--muted); background: transparent; text-align: left; font-size: 11px; font-weight: 650; }
+    .admin-menu button:hover, .admin-menu button.is-active { color: var(--ink); background: var(--raised); }
+    .admin-menu button.is-active { box-shadow: inset 2px 0 var(--teal); }
+    .admin-panel { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
+    .admin-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 16px 17px; border-bottom: 1px solid var(--line); }
+    .admin-panel > header h3 { margin: 3px 0 0; font-size: 15px; }
+    .admin-panel > header p { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .admin-body { padding: 16px 17px; }
+    .mini-table { width: 100%; border-collapse: collapse; }
+    .mini-table th, .mini-table td { padding: 10px 8px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: middle; font-size: 11px; }
+    .mini-table th { color: var(--muted); background: var(--subtle); font-size: 10px; font-weight: 700; }
+    .mini-table tr:last-child td { border-bottom: 0; }
+    .mini-table td strong, .mini-table td small { display: block; }
+    .mini-table td small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+    .progress { height: 7px; overflow: hidden; border-radius: 999px; background: var(--raised); }
+    .progress span { display: block; height: 100%; border-radius: inherit; background: var(--teal); }
+    .chart { display: flex; align-items: end; gap: 9px; height: 145px; padding: 15px 10px 0; border-bottom: 1px solid var(--line); }
+    .bar { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 5px; min-width: 20px; height: 100%; justify-content: flex-end; }
+    .bar span { width: 100%; max-width: 32px; min-height: 4px; border-radius: 5px 5px 0 0; background: var(--teal); }
+    .bar small { color: var(--muted); font-size: 9px; }
+    .segmented { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: var(--radius); background: var(--raised); }
+    .segmented button { min-height: 27px; padding: 0 9px; border: 0; border-radius: var(--radius-sm); color: var(--muted); background: transparent; font-size: 10px; }
+    .segmented button.is-active { color: var(--ink); background: var(--panel); box-shadow: var(--shadow); }
+    .check-list { display: flex; flex-direction: column; gap: 9px; }
+    .check-item { display: flex; align-items: flex-start; gap: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--subtle); }
+    .check-item .icon { color: var(--success); }
+    .check-item.is-warning .icon { color: var(--warning); }
+    .check-item strong { display: block; font-size: 11px; }
+    .check-item small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .create-backdrop { position: fixed; inset: 0; z-index: 55; display: none; place-items: center; padding: 20px; background: rgba(19,32,25,.34); }
+    .create-backdrop.is-open { display: grid; }
+    .create-modal { width: min(600px, 100%); max-height: min(720px, 94vh); overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow-pop); }
+    .create-modal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; padding: 19px 20px; border-bottom: 1px solid var(--line); }
+    .create-modal > header h2 { margin: 4px 0 0; font-size: 19px; }
+    .create-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 20px; }
+    .create-body .field + .field { margin-top: 0; }
+    .create-body .field.is-wide { grid-column: 1 / -1; }
+    .create-body .context-help { grid-column: 1 / -1; margin: 0; }
+    .create-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px 20px; border-top: 1px solid var(--line-soft); }
+    .import-backdrop { position: fixed; inset: 0; z-index: 60; display: none; place-items: center; padding: 20px; background: rgba(19,32,25,.34); }
+    .import-backdrop.is-open { display: grid; }
+    .import-modal { width: min(720px, 100%); max-height: min(780px, 94vh); overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow-pop); }
+    .import-modal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; padding: 19px 20px; border-bottom: 1px solid var(--line); }
+    .import-modal > header h2 { margin: 4px 0 0; font-size: 19px; }
+    .import-modal > header p { max-width: 520px; margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .import-body { display: flex; flex-direction: column; gap: 16px; padding: 20px; }
+    .import-section { display: flex; flex-direction: column; gap: 9px; }
+    .adapter-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+    .adapter-card { position: relative; min-width: 0; display: flex; align-items: flex-start; gap: 9px; padding: 11px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); background: var(--subtle); text-align: left; }
+    .adapter-card:hover { border-color: #b7c9bf; background: var(--panel); }
+    .adapter-card.is-selected { border-color: var(--teal); background: var(--signal-soft); box-shadow: inset 0 0 0 1px var(--teal); }
+    .adapter-icon { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--radius-sm); color: var(--teal); background: var(--panel); }
+    .adapter-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 5px; }
+    .adapter-copy strong { font-size: 11px; }
+    .adapter-copy small { min-height: 31px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+    .adapter-meta { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 9px; }
+    .adapter-meta .status { font-size: 9px; }
+    .capability-list { display: flex; flex-wrap: wrap; gap: 4px; }
+    .capability-list .tag { padding: 2px 5px; font-size: 9px; }
+    .adapter-check { position: absolute; top: 9px; right: 9px; color: var(--teal); }
+    .import-source-note { display: flex; align-items: flex-start; gap: 7px; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--muted); background: var(--subtle); font-size: 10px; line-height: 1.45; }
+    .import-source-note .icon { color: var(--success); }
+    .import-source-note strong { color: var(--ink); }
+    .import-checks { display: flex; flex-direction: column; gap: 8px; }
+    .import-checks .check-item { align-items: flex-start; }
+    .import-checks .check-item.is-disabled { opacity: .52; }
+    .import-checks input { margin-top: 2px; accent-color: var(--teal); }
+    .import-preview { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid #bfe4d6; border-radius: var(--radius); background: var(--signal-soft); }
+    .import-preview strong { font-size: 12px; }
+    .import-preview p, .import-preview small { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .import-preview .eyebrow { color: var(--teal); }
+    .import-modal .button:disabled { cursor: not-allowed; opacity: .46; }
+    .operation-modal { width: min(760px, 100%); }
+    .operation-modal > header p { max-width: 600px; margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .operation-body { display: flex; flex-direction: column; gap: 16px; padding: 20px; }
+    .operation-body .form-row { margin: 0; }
+    .operation-section { display: flex; flex-direction: column; gap: 10px; padding-top: 15px; border-top: 1px solid var(--line-soft); }
+    .operation-section:first-child { padding-top: 0; border-top: 0; }
+    .operation-section > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .operation-section h3 { margin: 0; font-size: 13px; }
+    .operation-section p { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .operation-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); background: var(--subtle); }
+    .operation-row { display: grid; grid-template-columns: minmax(130px, .7fr) minmax(0, 1.3fr) auto; gap: 12px; align-items: center; padding: 11px 12px; border-top: 1px solid var(--line-soft); }
+    .operation-row:first-child { border-top: 0; }
+    .operation-row strong { font-size: 11px; }
+    .operation-row span, .operation-row small { color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .operation-row small { text-align: right; }
+    .operation-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .operation-checks .check-item { margin: 0; }
+    .operation-checks input { margin-top: 2px; accent-color: var(--teal); }
+    .impact-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .impact-summary > div { padding: 11px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--subtle); }
+    .impact-summary strong, .impact-summary small { display: block; }
+    .impact-summary strong { font-size: 17px; }
+    .impact-summary small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+    .audit-row { cursor: pointer; }
+    .audit-row:hover { background: var(--subtle); }
+    .audit-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .audit-filters input { min-height: 33px; min-width: 220px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); background: var(--panel); font-size: 11px; }
+
+    @media (max-width: 1080px) {
+      .sidebar { width: 220px; }
+      .app-shell { grid-template-columns: 220px minmax(0, 1fr); }
+      .sop-layout { grid-template-columns: minmax(0, 1fr); }
+      .builder { position: static; }
+      .task-table-head, .task-row { grid-template-columns: minmax(220px, 1.4fr) minmax(115px, .75fr) minmax(100px, .65fr) 80px; }
+      .task-table-head > :last-child, .task-row > :last-child { display: none; }
+      .generic-grid.is-four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .admin-layout { grid-template-columns: 180px minmax(0, 1fr); }
+      .knowledge-layer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .knowledge-pack-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 760px) {
+      .app-shell { display: block; }
+      .sidebar { display: none; }
+      body.nav-open { overflow: hidden; }
+      body.nav-open::before { content: ""; position: fixed; inset: 0; z-index: 18; background: rgba(19,32,25,.42); }
+      body.nav-open .sidebar { width: min(300px, 86vw); display: flex; box-shadow: var(--shadow-pop); }
+      .main { min-height: 100vh; }
+      .topbar { height: 57px; padding: 0 15px; }
+      .mobile-menu { display: grid; }
+      .breadcrumb { flex: 1; }
+      .topbar-actions .button-secondary { display: none; }
+      .content { padding: 24px 15px 52px; }
+      .page-header { flex-direction: column; gap: 13px; margin-bottom: 17px; }
+      .header-actions { width: 100%; justify-content: flex-start; }
+      h1 { font-size: 22px; }
+      .project-tabs { overflow-x: auto; margin-right: -15px; margin-left: -15px; padding: 0 15px; }
+      .template-grid { grid-template-columns: minmax(0, 1fr); }
+      .task-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .task-toolbar { align-items: flex-start; flex-direction: column; }
+      .task-table { overflow-x: auto; }
+      .task-table-head, .task-row { min-width: 650px; grid-template-columns: 240px 120px 110px 95px 30px; }
+      .task-table-head > :last-child, .task-row > :last-child { display: block; }
+      .drawer { padding: 20px 16px; }
+      .generic-grid, .generic-grid.is-two, .generic-grid.is-four { grid-template-columns: minmax(0, 1fr); }
+      .admin-layout { grid-template-columns: minmax(0, 1fr); }
+      .admin-menu { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .knowledge-layout { grid-template-columns: minmax(0, 1fr); }
+      .chat-shell { grid-template-columns: minmax(0, 1fr); }
+      .chat-threads { display: none; }
+      .local-run-strip { align-items: flex-start; flex-direction: column; }
+      .context-actions { align-items: flex-start; flex-direction: column; }
+      .context-actions > div { width: 100%; flex-wrap: wrap; }
+      .row-end { flex-wrap: wrap; justify-content: flex-end; }
+      .triage-row { grid-template-columns: 30px minmax(0, 1fr); }
+      .triage-actions { grid-column: 2; padding-top: 0; }
+      .knowledge-toolbar, .knowledge-hero { align-items: flex-start; flex-direction: column; }
+      .knowledge-filters { width: 100%; justify-content: flex-start; }
+      .knowledge-filters input { flex: 1; width: auto; }
+      .knowledge-hero-actions { width: 100%; flex-wrap: wrap; }
+      .knowledge-pack-grid { grid-template-columns: minmax(0, 1fr); }
+      .query-options { grid-template-columns: minmax(0, 1fr); }
+      .query-options .button { width: 100%; }
+      .pipeline-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .pipeline-step:nth-child(2)::after { display: none; }
+      .create-body { grid-template-columns: minmax(0, 1fr); }
+      .create-body .field.is-wide { grid-column: auto; }
+      .create-body .context-help { grid-column: auto; }
+      .adapter-list { grid-template-columns: minmax(0, 1fr); }
+      .adapter-copy small { min-height: 0; }
+      .knowledge-row { grid-template-columns: 30px minmax(0, 1fr); }
+      .knowledge-end { grid-column: 2; min-width: 0; align-items: flex-start; flex-direction: row; flex-wrap: wrap; }
+      .operation-row { grid-template-columns: minmax(110px, .7fr) minmax(0, 1.3fr); }
+      .operation-row small { grid-column: 2; text-align: left; }
+      .operation-checks, .impact-summary { grid-template-columns: minmax(0, 1fr); }
+      .audit-filters { width: 100%; }
+      .audit-filters input { width: 100%; min-width: 0; }
+    }
+    @media (max-width: 420px) {
+      .topbar-actions .button-primary { padding: 0 10px; }
+      .topbar-actions .button-primary span { display: none; }
+      .sop-layout { gap: 14px; }
+      .form-row { grid-template-columns: minmax(0, 1fr); }
+      .builder-actions { flex-wrap: wrap; }
+      .builder-actions .button { flex: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="工作区导航">
+      <div class="brand">
+        <div class="brand-mark"><i data-lucide="layers-3" class="icon"></i></div>
+        <div class="brand-copy"><strong>Content Work OS</strong><small>内容运营控制面</small></div>
+      </div>
+      <div class="workspace-switch">
+        <div class="workspace-avatar">澄</div>
+        <label><select aria-label="切换工作区"><option>南京澄观内容科技</option><option>试验环境</option></select><small>稳定环境 · 已连接</small></label>
+        <i data-lucide="chevrons-up-down" class="icon"></i>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-label">工作区</div>
+        <div class="nav-list">
+          <button class="nav-item" data-nav="workspace"><i data-lucide="layout-dashboard" class="icon"></i><span>工作台</span></button>
+          <button class="nav-item" data-nav="new-task"><i data-lucide="plus-square" class="icon"></i><span>新建任务</span></button>
+          <button class="nav-item" data-nav="inbox"><i data-lucide="inbox" class="icon"></i><span>输入收集</span><span class="nav-count">3</span></button>
+          <button class="nav-item" data-nav="knowledge"><i data-lucide="library-big" class="icon"></i><span>知识库</span><span class="nav-count">3</span></button>
+          <button class="nav-item" data-nav="my-tasks"><i data-lucide="list-checks" class="icon"></i><span>我的任务</span><span class="nav-count">5</span></button>
+          <button class="nav-item" data-nav="all-tasks"><i data-lucide="list" class="icon"></i><span>所有任务</span></button>
+          <button class="nav-item" data-nav="chat"><i data-lucide="message-square-more" class="icon"></i><span>任务上下文</span></button>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-label">本地执行</div>
+        <div class="nav-list">
+          <button class="nav-item" data-nav="automation"><i data-lucide="workflow" class="icon"></i><span>本地规则</span></button>
+          <button class="nav-item" data-nav="agents"><i data-lucide="terminal-square" class="icon"></i><span>CLI 执行器</span></button>
+          <button class="nav-item" data-nav="swarm"><i data-lucide="laptop-minimal-check" class="icon"></i><span>工作区节点</span></button>
+          <button class="nav-item" data-nav="usage"><i data-lucide="chart-no-axes-combined" class="icon"></i><span>用量</span></button>
+        </div>
+      </div>
+
+      <div class="nav-group project-nav">
+        <div class="nav-label">当前项目</div>
+        <div class="project-title"><i data-lucide="folder-kanban" class="icon"></i><strong>新品内容生产</strong></div>
+        <div class="nav-list">
+          <button class="nav-item" data-nav="project-tasks"><i data-lucide="list-checks" class="icon"></i><span>任务</span><span class="nav-count">8</span></button>
+          <button class="nav-item is-active" data-nav="project-sop"><i data-lucide="git-branch" class="icon"></i><span>SOP 设计</span><span class="nav-count">1</span></button>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-label">管理</div>
+        <div class="nav-list">
+          <button class="nav-item" data-nav="admin"><i data-lucide="settings-2" class="icon"></i><span>管理后台</span></button>
+          <button class="nav-item" data-nav="audit"><i data-lucide="scroll-text" class="icon"></i><span>审计</span></button>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="user-avatar">林</div>
+        <div class="user-copy"><strong>林舟</strong><small>流程负责人</small></div>
+        <button class="sidebar-action" title="设置" aria-label="设置"><i data-lucide="settings-2" class="icon"></i></button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="mobile-menu" title="打开导航" aria-label="打开导航"><i data-lucide="menu" class="icon"></i></button>
+        <div class="breadcrumb"><span>Project</span><i data-lucide="chevron-right" class="icon"></i><strong>新品内容生产</strong></div>
+        <div class="topbar-actions"><button class="button button-secondary" data-action="project-settings"><i data-lucide="sliders-horizontal" class="icon"></i><span>项目设置</span></button><button class="button button-primary" data-action="new-task"><i data-lucide="plus" class="icon"></i><span>新建任务</span></button></div>
+      </header>
+
+      <div class="content">
+        <section class="page-header">
+          <div>
+            <span class="eyebrow" id="page-eyebrow">SOP 设计</span>
+            <h1 id="page-title">SOP 设计 <span class="count-badge" id="sop-count">1</span></h1>
+            <p id="page-description">为当前 Project 创建和维护可复用流程。Task 与运行看板统一在 Project 的任务页面管理。</p>
+          </div>
+          <div class="header-actions"><button class="button button-primary" data-action="create-sop"><i data-lucide="plus" class="icon"></i><span>创建 SOP</span></button></div>
+        </section>
+
+        <nav class="project-tabs" aria-label="项目视图">
+          <button class="tab" data-tab="tasks">任务</button>
+          <button class="tab is-active" data-tab="sop">SOP 设计</button>
+        </nav>
+
+        <section id="sop-view">
+          <div class="notice"><i data-lucide="info" class="icon"></i><div><strong>审批不是固定步骤。</strong> 当前模板只要求内容和权利检查；是否启用内部审核或客户确认，由 SOP 的 Gate 配置决定。</div></div>
+          <div class="sop-layout">
+            <div>
+              <div class="section-head"><div><h2>选择模板</h2><p>先从内容方法论开始，再按当前 Project 的实际习惯调整。</p></div><span class="section-meta">4 个内置 · 1 个空白入口</span></div>
+              <div class="template-grid" id="template-grid"></div>
+            </div>
+            <aside class="builder" aria-label="SOP 草稿配置">
+              <div class="builder-head"><div><span class="eyebrow">SOP Draft</span><h2 id="builder-title">短视频生产</h2><p id="builder-subtitle">6 个 Stage · 视频脚本 · v1.0</p></div><i data-lucide="git-branch" class="icon" style="color:var(--teal)"></i></div>
+              <div class="builder-body">
+                <span class="builder-label">Stage 顺序</span>
+                <div class="stage-list" id="stage-list"></div>
+                <div class="builder-divider"></div>
+                <span class="builder-label">当前 Gate</span>
+                <div class="form-row">
+                  <label class="field"><span>Gate 模式</span><select id="gate-mode"><option value="none">无额外门禁</option><option value="required_check">确定性检查</option><option value="internal_review">内部审核</option><option value="client_decision">客户确认</option></select></label>
+                  <label class="field"><span>负责角色</span><select id="gate-role"><option>流程负责人</option><option>审核人</option><option>客户决定人</option></select></label>
+                </div>
+                <div class="toggle-row"><div class="toggle-copy"><strong>Gate 阻断任务</strong><small>关闭后只提醒，不阻止进入下一 Stage。</small></div><button class="toggle is-on" id="gate-toggle" role="switch" aria-checked="true" title="切换 Gate 阻断"></button></div>
+                <div class="builder-divider"></div>
+                <label class="field"><span>流程说明</span><textarea id="sop-note">从 Brief 到可交付内容，保留证据、权利和 Revision 摘要。</textarea></label>
+                <div class="builder-actions"><button class="button button-secondary" data-action="sample-run"><i data-lucide="play" class="icon"></i>运行样例</button><button class="button button-teal" data-action="save-sop"><i data-lucide="save" class="icon"></i>保存草稿</button></div>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="task-view" class="task-view">
+          <div class="notice"><i data-lucide="layers-3" class="icon"></i><div>Task 是用户工作对象，运行、Revision、Gate 和交付事实仍由底层治理链路记录。</div></div>
+          <div class="task-toolbar"><div class="task-filters"><button class="filter is-active">全部</button><button class="filter">待处理</button><button class="filter">执行中</button><button class="filter">待 Gate</button><button class="filter">已交付</button></div><button class="button button-primary" data-action="new-task"><i data-lucide="plus" class="icon"></i>新建任务</button></div>
+          <div class="task-stats"><div class="stat-card"><span>全部任务</span><strong>8</strong><small>当前 Project</small></div><div class="stat-card"><span>进行中</span><strong>3</strong><small>含 1 个本地运行</small></div><div class="stat-card"><span>待 Gate</span><strong>2</strong><small>需要明确下一动作</small></div><div class="stat-card"><span>本周已交付</span><strong>5</strong><small>均绑定 AcceptedSnapshot</small></div></div>
+          <div class="task-table"><div class="task-table-head"><span>任务</span><span>当前 Stage</span><span>状态</span><span>负责人</span><span></span></div><div id="task-list"></div></div>
+        </section>
+        <section id="generic-view" class="generic-view"></section>
+      </div>
+    </main>
+  </div>
+
+  <div class="drawer-backdrop" id="drawer-backdrop" role="presentation">
+    <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+      <div class="drawer-head"><div><span class="eyebrow" id="drawer-eyebrow">Task Detail</span><h2 id="drawer-title">生成 10 条新品短视频脚本</h2></div><button class="close" data-action="close-drawer" title="关闭" aria-label="关闭"><i data-lucide="x" class="icon"></i></button></div>
+      <div class="drawer-section"><div class="detail-grid"><div class="detail-item"><span>所属 Project</span><strong id="drawer-project">新品内容生产</strong></div><div class="detail-item"><span>SOP</span><strong id="drawer-sop">短视频生产 · v1.0</strong></div><div class="detail-item"><span>当前 Stage</span><strong id="drawer-stage">脚本创作</strong></div><div class="detail-item"><span>状态</span><strong id="drawer-status">待补资料</strong></div></div></div>
+      <div class="drawer-section"><h3>业务目标</h3><p id="drawer-objective">围绕新品主卖点生成 10 条可验证的短视频脚本，输出必须引用当前 Project 的知识和可用素材。</p></div>
+      <div class="drawer-section"><h3>下一动作</h3><div class="notice" style="margin:0"><i data-lucide="arrow-right" class="icon"></i><div><strong id="drawer-next-action">补充 2 项资料</strong><br><span id="drawer-next-detail">补齐产品参数和可用素材权利后，继续执行当前 Stage。</span></div></div></div>
+      <div class="drawer-section"><h3>知识快照</h3><div class="detail-grid"><div class="detail-item"><span>当前快照</span><strong id="drawer-snapshot">#42 · 有效</strong></div><div class="detail-item"><span>已接受知识</span><strong id="drawer-knowledge-count">3 条</strong></div><div class="detail-item"><span>Evidence</span><strong id="drawer-evidence-count">23 条</strong></div><div class="detail-item"><span>待确认候选</span><strong id="drawer-candidate-count" style="color:var(--warning)">2 条</strong></div></div><div class="builder-actions"><button class="button button-secondary" data-action="quick-nav" data-route="knowledge"><i data-lucide="library-big" class="icon"></i>打开知识库</button></div></div>
+      <div class="drawer-section"><h3>治理摘要</h3><div class="detail-grid"><div class="detail-item"><span>Evidence</span><strong id="drawer-evidence-status" style="color:var(--warning)">1 项待补</strong></div><div class="detail-item"><span>Rights</span><strong id="drawer-rights-status" style="color:var(--success)">3 项有效</strong></div><div class="detail-item"><span>Revision</span><strong id="drawer-revision-status">尚未提交</strong></div><div class="detail-item"><span>执行方式</span><strong id="drawer-executor">本地 Workspace</strong></div></div></div>
+      <div class="drawer-section"><h3>本地执行上下文</h3><div class="notice" style="margin:0"><i data-lucide="lock" class="icon"></i><div><strong>Transcript 只保留在本地。</strong><br>需要交接或诊断时，可选择性导入脱敏片段。</div></div><div class="builder-actions"><button class="button button-secondary" data-action="open-import"><i data-lucide="upload" class="icon"></i>导入本地对话</button></div></div>
+      <div class="drawer-footer"><button class="button button-secondary" data-action="close-drawer">稍后处理</button><button class="button button-primary" id="drawer-primary-action" data-action="create-supply-task"><i data-lucide="list-plus" class="icon"></i><span>创建补料任务</span></button></div>
+    </aside>
+  </div>
+  <div class="drawer-backdrop" id="knowledge-backdrop" role="presentation">
+    <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="knowledge-drawer-title">
+      <div class="drawer-head"><div><span class="eyebrow" id="knowledge-drawer-eyebrow">Knowledge Candidate</span><h2 id="knowledge-drawer-title">“轻量便携”卖点适用范围</h2></div><button class="close" data-action="close-knowledge" title="关闭" aria-label="关闭"><i data-lucide="x" class="icon"></i></button></div>
+      <div class="drawer-section"><div class="detail-grid"><div class="detail-item"><span>状态</span><strong id="knowledge-detail-status">待确认</strong></div><div class="detail-item"><span>版本 / 定位</span><strong id="knowledge-detail-version">候选 #18</strong></div><div class="detail-item"><span>所属 Project</span><strong id="knowledge-detail-project">新品内容生产</strong></div><div class="detail-item"><span>负责人</span><strong id="knowledge-detail-owner">林舟</strong></div><div class="detail-item"><span>对象类型</span><strong id="knowledge-detail-type">Claim</strong></div><div class="detail-item"><span>知识层级</span><strong id="knowledge-detail-layer">表达与主张</strong></div></div></div>
+      <div class="drawer-section"><h3>知识摘要</h3><p id="knowledge-detail-summary">来自客户补充意见，需要与新版规格和可公开口径交叉确认。</p></div>
+      <div class="drawer-section"><h3>来源与证据</h3><div class="detail-grid"><div class="detail-item"><span>来源</span><strong id="knowledge-detail-source">ConversationImport</strong></div><div class="detail-item"><span>证据覆盖</span><strong id="knowledge-detail-evidence">1 项待补</strong></div><div class="detail-item"><span>关系</span><strong id="knowledge-detail-relations">新品产品 · 2 个渠道</strong></div><div class="detail-item"><span>使用影响</span><strong id="knowledge-detail-usage">未进入快照</strong></div></div><div class="notice" style="margin:10px 0 0"><i data-lucide="shield-check" class="icon"></i><div>候选内容必须确认来源、适用范围和权利后，才能进入新的知识快照。</div></div></div>
+      <div class="drawer-section"><h3>影响范围</h3><p>接受候选会创建知识新版本；已绑定旧快照的 TaskRun 不会被静默替换，新 TaskRun 可显式选择新快照。</p></div>
+      <div class="drawer-footer" id="knowledge-drawer-actions"><button class="button button-secondary" data-action="request-knowledge-evidence">要求补证据</button><button class="button button-primary" data-action="accept-knowledge"><i data-lucide="check" class="icon"></i>接受为知识</button></div>
+    </aside>
+  </div>
+  <div class="create-backdrop" id="create-backdrop" role="presentation">
+    <section class="create-modal" role="dialog" aria-modal="true" aria-labelledby="create-title">
+      <header><div><span class="eyebrow">Create Task</span><h2 id="create-title">新建内容任务</h2></div><button class="close" data-action="close-create" title="关闭" aria-label="关闭"><i data-lucide="x" class="icon"></i></button></header>
+      <div class="create-body">
+        <label class="field is-wide"><span>任务目标</span><input id="create-task-title" value="生成 10 条新品短视频脚本" placeholder="描述一个具体内容工作"></label>
+        <label class="field"><span>Project</span><select id="create-project"><option>新品内容生产</option><option>品牌知识建设</option></select></label>
+        <label class="field"><span>Environment</span><select id="create-environment"><option>南京澄观内容科技 · 稳定</option><option>试验环境 · 可用</option></select></label>
+        <label class="field"><span>SOP Version</span><select id="create-sop"><option value="video">短视频生产 · v1.0</option><option value="knowledge">资料与知识建设 · v1.2</option><option value="article">文章协作 · v1.0</option><option value="retro">活动结果复盘 · v1.0</option></select></label>
+        <label class="field"><span>内容类型</span><select id="create-content-type"><option>视频脚本</option></select></label>
+        <label class="field"><span>负责人</span><select id="create-owner"><option>林舟</option><option>周宁</option><option>陈璐</option></select></label>
+        <label class="field"><span>执行方式</span><select id="create-executor"><option>本地 Workspace</option><option>Codex CLI</option><option>Claude Code CLI</option></select></label>
+        <label class="field"><span>截止时间</span><input type="date" value="2026-08-08"></label>
+        <label class="field"><span>风险级别</span><select id="create-risk"><option>内部低风险</option><option selected>外部营销</option><option>需要客户确认</option></select></label>
+        <label class="field is-wide"><span>输入说明</span><textarea id="create-inputs">使用当前 Project 的 Brief、知识快照和有效素材。</textarea></label>
+      </div>
+      <footer class="create-footer"><button class="button button-secondary" data-action="close-create">取消</button><button class="button button-primary" data-action="submit-task"><i data-lucide="plus" class="icon"></i>创建任务</button></footer>
+    </section>
+  </div>
+  <div class="create-backdrop" id="context-backdrop" role="presentation">
+    <section class="create-modal" role="dialog" aria-modal="true" aria-labelledby="context-record-title">
+      <header><div><span class="eyebrow">Business Context</span><h2 id="context-record-title">记录业务事项</h2></div><button class="close" data-action="close-context-record" title="关闭" aria-label="关闭"><i data-lucide="x" class="icon"></i></button></header>
+      <div class="create-body">
+        <label class="field"><span>记录类型</span><select id="context-record-type"><option>业务决定</option><option>输入补充</option><option>业务边界</option><option>客户反馈</option></select></label>
+        <label class="field"><span>关联 Task</span><select id="context-record-task"><option>生成 10 条新品短视频脚本</option><option>整理新品参数和引用证据</option><option>完成新品公众号首稿</option></select></label>
+        <label class="field is-wide"><span>事项摘要</span><textarea id="context-record-summary" placeholder="记录已经明确的决定、输入变化或下一动作"></textarea></label>
+        <div class="notice context-help"><i data-lucide="shield-check" class="icon"></i><div>这里只记录明确的业务事项，不同步本地 CLI 对话，也不会自动创建 Revision、Knowledge 或 Decision。</div></div>
+      </div>
+      <footer class="create-footer"><button class="button button-secondary" data-action="close-context-record">取消</button><button class="button button-primary" data-action="submit-context-record"><i data-lucide="notebook-pen" class="icon"></i>保存业务记录</button></footer>
+    </section>
+  </div>
+  <div class="import-backdrop" id="import-backdrop" role="presentation">
+    <section class="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
+      <header><div><span class="eyebrow">Conversation Import</span><h2 id="import-title">请求客户端导出</h2><p>选择本地客户端，由客户端解析自己的会话格式、脱敏并生成导出包。</p></div><button class="close" data-action="close-import" title="关闭" aria-label="关闭"><i data-lucide="x" class="icon"></i></button></header>
+      <div class="import-body">
+        <div class="import-section"><span class="builder-label">选择本地客户端</span><div class="adapter-list" id="adapter-list"></div><div class="import-source-note"><i data-lucide="lock" class="icon"></i><span><strong>Web 不读取本机文件或 Transcript。</strong> 客户端适配器负责选择会话、解析格式和本地脱敏，Web 只接收 ConversationBundle。</span></div></div>
+        <div class="form-row"><label class="field"><span>导入用途</span><select id="import-purpose"><option value="handoff">任务交接</option><option value="diagnosis">失败诊断</option><option value="knowledge">知识提取候选</option><option value="audit">审计说明</option></select></label><label class="field"><span>请求导出范围</span><select id="import-scope"><option value="selected">客户端选择性片段</option><option value="summary">当前 Stage 摘要</option><option value="full">完整 Transcript（额外授权）</option></select></label></div>
+        <div class="import-checks"><label class="check-item"><input type="checkbox" id="import-redact" checked><span><strong>要求客户端先脱敏</strong><small>移除本机路径、令牌、账号和未授权来源，Web 不提供关闭后的兜底解析。</small></span></label><label class="check-item"><input type="checkbox" id="import-attach-task" checked><span><strong>绑定当前 Task</strong><small>导入记录只作为 Task 输入，不改变正式 Revision、Knowledge 或 Decision。</small></span></label><label class="check-item"><input type="checkbox" id="import-full-consent"><span><strong>我明确授权完整 Transcript</strong><small>仅完整导入时需要；最终仍由客户端再次确认导出范围。</small></span></label></div>
+        <div class="import-preview"><span class="eyebrow">客户端导出请求</span><strong>Web 不解析本地对话</strong><p>打开此弹窗后选择客户端，提交会创建 ConversationImport 请求。</p><small>原始 Transcript 默认留在本地 Workspace。</small></div>
+      </div>
+      <footer class="create-footer"><button class="button button-secondary" data-action="close-import">取消</button><button class="button button-primary" data-action="submit-import"><i data-lucide="send" class="icon"></i>由客户端导出</button></footer>
+    </section>
+  </div>
+  <div class="create-backdrop" id="operation-backdrop" role="presentation">
+    <section class="create-modal operation-modal" role="dialog" aria-modal="true" aria-labelledby="operation-title">
+      <header><div><span class="eyebrow" id="operation-eyebrow">配置</span><h2 id="operation-title">操作</h2><p id="operation-description"></p></div><button class="close" data-action="close-operation" title="关闭" aria-label="关闭"><i data-lucide="x" class="icon"></i></button></header>
+      <div class="operation-body" id="operation-body"></div>
+      <footer class="create-footer" id="operation-footer"><button class="button button-secondary" data-action="close-operation">取消</button><button class="button button-primary" data-action="submit-operation"><i data-lucide="check" class="icon"></i><span id="operation-submit-label">保存</span></button></footer>
+    </section>
+  </div>
+  <div class="toast" id="toast"><i data-lucide="check-circle-2" class="icon"></i><span></span></div>
+
+  <script src="./prototype.js"></script>
+</body>
+</html>

@@ -89,16 +89,70 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/team/invites/accept", s.acceptMembershipInvite)
 		r.Post("/team/invites/{id}/revoke", s.revokeMembershipInvite)
 		r.Get("/dashboard", s.dashboard)
+		r.Get("/admin/work-os", s.adminWorkOS)
+		r.Post("/admin/environments", s.createAdminEnvironment)
+		r.Patch("/admin/environments/{id}", s.updateAdminEnvironment)
+		r.Post("/admin/sops", s.createAdminSOP)
+		r.Patch("/admin/sops/{sopID}/versions/{version}", s.updateAdminSOPVersion)
+		r.Post("/admin/sops/{sopID}/versions", s.createAdminSOPDraft)
+		r.Get("/admin/sops/{sopID}/versions/{version}/lint", s.lintAdminSOPVersion)
+		r.Get("/admin/sops/{sopID}/versions/{version}/impact", s.impactAdminSOPVersion)
+		r.Post("/admin/sops/{sopID}/versions/{version}/retire", s.retireAdminSOPVersion)
+		r.Post("/admin/sops/{sopID}/versions/{version}/publish", s.publishAdminSOPVersion)
+		r.Get("/admin/sops/{sopID}/versions/{fromVersion}/diff/{toVersion}", s.diffAdminSOPVersions)
+		r.Post("/admin/sops/{sopID}/rollback", s.rollbackAdminSOPVersion)
 		r.Get("/agent-clients", s.agentClients)
 		r.Get("/projects", s.projects)
 		r.Post("/projects", s.createProject)
 		r.Get("/projects/{projectID}", s.project)
+		r.Get("/projects/{projectID}/sop", s.projectSOP)
+		r.Patch("/projects/{projectID}/sop", s.bindProjectSOP)
+		r.Get("/projects/{projectID}/knowledge-objects", s.knowledgeObjects)
+		r.Post("/projects/{projectID}/knowledge-objects", s.createKnowledgeObject)
+		r.Post("/knowledge-objects/{id}/transitions", s.transitionKnowledgeObject)
+		r.Get("/knowledge-objects/{id}/decisions", s.knowledgeDecisions)
+		r.Get("/projects/{projectID}/knowledge-packs", s.knowledgePacks)
+		r.Post("/projects/{projectID}/knowledge-packs", s.createKnowledgePack)
+		r.Post("/knowledge-packs/{id}/publish", s.publishKnowledgePack)
+		r.Get("/projects/{projectID}/knowledge-packs/{packID}/snapshots", s.knowledgeSnapshots)
+		r.Get("/knowledge-snapshots/{id}", s.knowledgeSnapshot)
+		r.Post("/knowledge/query", s.queryKnowledge)
+		r.Get("/projects/{projectID}/sources", s.sources)
+		r.Post("/projects/{projectID}/sources", s.createSource)
+		r.Post("/projects/{projectID}/sources/upload", s.uploadSource)
+		r.Get("/sources/{id}/revisions", s.sourceRevisions)
+		r.Post("/sources/{sourceID}/revisions/upload", s.uploadSourceRevision)
+		r.Get("/source-revisions/{id}", s.sourceRevision)
+		r.Get("/sources/{id}/impact", s.sourceImpact)
+		r.Get("/source-revisions/{id}/evidence", s.evidence)
+		r.Post("/evidence/{id}/review", s.reviewEvidence)
 		r.Get("/projects/{projectID}/projection", s.projectProjection)
 		r.Get("/projects/{projectID}/codex-handoff", s.projectCodexHandoff)
 		r.Get("/projects/{projectID}/agent-handoff", s.projectAgentHandoff)
 		r.Patch("/projects/{projectID}", s.updateProject)
 		r.Post("/projects/{projectID}/archive", s.archiveProject)
 		r.Post("/projects/{projectID}/restore", s.restoreProject)
+		r.Get("/tasks", s.workTasks)
+		r.Post("/tasks", s.createWorkTask)
+		r.Get("/input-items", s.inputItems)
+		r.Post("/input-items", s.createInputItem)
+		r.Get("/input-items/{id}", s.inputItem)
+		r.Post("/input-items/{id}/triage", s.triageInputItem)
+		r.Get("/tasks/{taskID}", s.workTask)
+		r.Post("/tasks/{taskID}/actions", s.taskAction)
+		r.Post("/tasks/{taskID}/stages/{stageID}/report", s.reportStage)
+		r.Get("/tasks/{taskID}/conversation-imports", s.taskConversationImports)
+		r.Post("/tasks/{taskID}/conversation-imports", s.createConversationImport)
+		r.Get("/tasks/{taskID}/runs", s.taskRuns)
+		r.Get("/tasks/{taskID}/gates", s.taskGates)
+		r.Post("/tasks/{taskID}/gates/{gateID}/decide", s.decideGate)
+		r.Get("/tasks/{taskID}/revisions", s.taskRevisions)
+		r.Post("/tasks/{taskID}/revisions", s.createTaskRevision)
+		r.Get("/tasks/{taskID}/deliveries", s.taskDeliveries)
+		r.Post("/tasks/{taskID}/deliveries", s.createTaskDelivery)
+		r.Get("/conversation-imports/{id}", s.conversationImport)
+		r.Post("/conversation-imports/{id}/bundle", s.submitConversationBundle)
+		r.Post("/conversation-imports/{id}/cancel", s.cancelConversationImport)
 		r.Get("/project-templates", s.projectTemplates)
 		r.Post("/project-templates", s.createProjectTemplate)
 		r.Post("/projects/{projectID}/connect-sessions", s.createConnect)
@@ -556,6 +610,40 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		value, err := s.service.EnvironmentRegistry(r.Context(), actor, binding)
+		s.dispatchResult(w, r, req.Command, value, err)
+	case "conversation-import.show":
+		actor, _, err := s.workspaceFromRequest(r)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		var in struct {
+			ID string `json:"id"`
+		}
+		if err := strictDecodeParams(req.Params, &in); err != nil {
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "对话导入查询参数错误"))
+			return
+		}
+		value, err := s.service.ConversationImport(r.Context(), actor, in.ID)
+		s.dispatchResult(w, r, req.Command, value, err)
+	case "conversation-import.bundle":
+		actor, _, err := s.workspaceFromRequest(r)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		var in struct {
+			ImportID string                    `json:"import_id"`
+			Bundle   domain.ConversationBundle `json:"bundle"`
+		}
+		if err := strictDecodeParams(req.Params, &in); err != nil {
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "ConversationBundle 参数错误"))
+			return
+		}
+		if in.ImportID == "" {
+			in.ImportID = in.Bundle.ImportID
+		}
+		value, err := s.service.SubmitConversationBundle(r.Context(), actor, in.ImportID, in.Bundle, middleware.GetReqID(r.Context()))
 		s.dispatchResult(w, r, req.Command, value, err)
 	case "submission.create":
 		actor, binding, err := s.workspaceFromRequest(r)

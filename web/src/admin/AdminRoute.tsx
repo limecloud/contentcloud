@@ -30,6 +30,6 @@ export function AdminRoute() {
   if(loading)return <div className="splash"><BrandMark/><Loading/></div>;
   if(error)return <div className="fatal"><Banner kind="error">{error}</Banner><Button onClick={loadSession}>重试</Button></div>;
   if(authRequired||!session)return <Navigate to={loginPath(location.pathname+location.search)} replace/>;
-  if(!session.is_platform_admin)return <div className="fatal"><Banner kind="error">当前账号没有平台管理员权限</Banner><Button onClick={()=>navigate(consolePath.dashboard)}>返回工作台</Button></div>;
+  if(!session.is_platform_admin&&!['tenant_admin','project_manager'].includes(session.role))return <div className="fatal"><Banner kind="error">当前账号没有后台配置权限</Banner><Button onClick={()=>navigate(consolePath.dashboard)}>返回工作台</Button></div>;
   return <AdminProvider session={session}><Outlet/></AdminProvider>;
 }

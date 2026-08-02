@@ -1,6 +1,29 @@
 export interface ApiError { code: string; message: string; hint?: string }
 interface Envelope<T> { ok: boolean; data?: T; error?: ApiError }
 
+function responseContentType(response: Response): string {
+  return response.headers.get('Content-Type') || '未知类型';
+}
+
+function responsePreview(body: string): string {
+  const preview = body.replace(/\s+/g, ' ').trim();
+  if (!preview) return '响应为空';
+  return preview.length > 160 ? `${preview.slice(0, 160)}…` : preview;
+}
+
+function invalidResponseError(path: string, response: Response, body: string, reason?: unknown): Error {
+  const message = `接口 ${path} 返回了无效 JSON（HTTP ${response.status}，Content-Type: ${responseContentType(response)}）：${responsePreview(body)}`;
+  const error = Object.assign(new Error(message), {
+    api: {
+      code: 'INVALID_JSON_RESPONSE',
+      message,
+      hint: reason instanceof Error ? reason.message : undefined
+    },
+    status: response.status
+  });
+  return error;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined;
   const isForm = typeof FormData !== 'undefined' && init?.body instanceof FormData;
@@ -9,7 +32,15 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers: {...(hasBody && !isForm ? {'Content-Type': 'application/json'} : {}), ...(init?.headers || {})},
     ...init
   });
-  const body = response.status === 204 ? null : await response.json() as Envelope<T>;
+  let body: Envelope<T> | null = null;
+  if (response.status !== 204) {
+    const raw = await response.text();
+    try {
+      body = JSON.parse(raw) as Envelope<T>;
+    } catch (reason) {
+      throw invalidResponseError(path, response, raw, reason);
+    }
+  }
   if (!response.ok || !body?.ok) {
     const error = body?.error || {code: 'NETWORK_ERROR', message: `请求失败 (${response.status})`};
     throw Object.assign(new Error(error.message), {api: error, status: response.status});

@@ -195,7 +195,7 @@ function SetupView({projection,connect,clients,canInitialize,busy,onInitialize,o
   const connected=(projection?.sections.onboarding?.count||0)>0;
   const steps=[
     {label:'云端项目',detail:'项目与角色边界已建立',done:Boolean(projection)},
-    {label:'本地 Workspace',detail:connected?'至少一台设备已经绑定':'等待 Agent 完成初始化',done:connected,current:!connected},
+    {label:'本地 Workspace',detail:connected?'至少一台设备已经绑定':'点击开始接入初始化',done:connected,current:!connected},
     {label:'可信知识',detail:'形成可审核的 Knowledge Revision',done:(projection?.sections.knowledge?.count||0)>0,current:connected&&(projection?.sections.knowledge?.count||0)===0},
     {label:'内容生产',detail:'以批准快照启动 ContentBatch',done:(projection?.sections.creative?.count||0)>0}
   ];
@@ -203,7 +203,7 @@ function SetupView({projection,connect,clients,canInitialize,busy,onInitialize,o
     {connect&&isActiveConnectState(connect.state)&&<Banner kind="info"><b>{connectStateCopy(connect).title}</b>：{connectStateCopy(connect).detail}</Banner>}
     <section className="v3-steps" aria-label="初始化进度">{steps.map((step,index)=><article key={step.label} className={`${step.done?'is-done':''} ${step.current?'is-current':''}`}><span>{step.done?<CheckCircle2 size={16}/>:index+1}</span><div><strong>{step.label}</strong><small>{step.detail}</small></div></article>)}</section>
     <div className="v3-two-column v3-setup-columns">
-      <section className="v3-panel"><header><div><span className="section-kicker">Workspace Binding</span><h2>{connected?'创作环境已连接':'等待初始化'}</h2></div><Status value={connected?'connected':'waiting_for_computer'}/></header><div className="v3-panel-body v3-setup-state">{connected?<ShieldCheck size={28}/>:<Laptop2 size={28}/>}<div><strong>{connected?`${projection?.sections.onboarding.count} 台设备已绑定`:'初始化 V3 Agent Workspace'}</strong><p>{connected?'本地负责创作，服务端负责 Assignment、Submission、Decision 和正式快照。':'当前由 Codex Adapter 执行初始化；其他客户端按能力逐步接入。'}</p></div></div>{!connected&&clients&&<div className="v3-agent-reservation">{clients.map(client=>{const available=capabilityStatus(client,'workspace_bootstrap')==='available';return <a href={`/docs/clients/${client.id}`} target="_blank" rel="noreferrer" key={client.id} className={available?'is-available':''}><b>{client.display_name}</b><small>{available?'可用':'即将支持'}</small></a>})}</div>}{!connected&&<footer><a className="button button-ghost" href="/docs/clients/codex" target="_blank" rel="noreferrer"><BookOpen size={15}/>接入指南</a><Button disabled={!canInitialize||busy} onClick={()=>void onInitialize?.()}>{busy?<LoaderCircle className="is-spinning" size={16}/>:<Laptop2 size={16}/>}使用 Codex 初始化</Button></footer>}</section>
+      <section className="v3-panel"><header><div><span className="section-kicker">Workspace Binding</span><h2>{connected?'创作环境已连接':'等待接入初始化'}</h2></div><Status value={connected?'connected':'waiting_for_computer'}/></header><div className="v3-panel-body v3-setup-state">{connected?<ShieldCheck size={28}/>:<Laptop2 size={28}/>}<div><strong>{connected?`${projection?.sections.onboarding.count} 台设备已绑定`:'接入本地创作 Workspace'}</strong><p>{connected?'本地负责创作，服务端负责 Assignment、Submission、Decision 和正式快照。':'点击开始接入初始化，随后复制 Prompt 到 Codex；云端不会自动读取本地文件。'}</p></div></div>{!connected&&clients&&<div className="v3-agent-reservation">{clients.map(client=>{const available=capabilityStatus(client,'workspace_bootstrap')==='available';return <a href={`/docs/clients/${client.id}`} target="_blank" rel="noreferrer" key={client.id} className={available?'is-available':''}><b>{client.display_name}</b><small>{available?'可用':'即将支持'}</small></a>})}</div>}{!connected&&<footer><a className="button button-ghost" href="/docs/clients/codex" target="_blank" rel="noreferrer"><BookOpen size={15}/>接入指南</a><Button disabled={!canInitialize||busy} onClick={()=>void onInitialize?.()}>{busy?<LoaderCircle className="is-spinning" size={16}/>:<Laptop2 size={16}/>}开始接入初始化</Button></footer>}</section>
       <NextActions actions={projection?.next_actions||[]} onNavigate={onNavigate} onInitialize={onInitialize}/>
     </div>
   </>;
@@ -254,7 +254,8 @@ function NextActions({actions,onNavigate,onInitialize}:{actions:ProjectionAction
   const action=actions[0];
   if(!action)return <section className="v3-panel v3-next-action"><Clock3 size={22}/><div><span className="section-kicker">Next Action</span><h2>等待新的正式状态</h2><p>当前没有服务端生成的下一动作。</p></div></section>;
   const run=()=>{if(action.id==='initialize-workspace'&&onInitialize){void onInitialize();return}onNavigate(action.navigation)};
-  return <section className="v3-panel v3-next-action"><ArrowRight size={22}/><div><span className="section-kicker">Next Action</span><h2>{action.label}</h2><p>{action.reason||actionDescription(action)}</p>{action.enabled&&<Button onClick={run}>{action.label}<ArrowRight size={15}/></Button>}</div></section>;
+  const label=action.id==='initialize-workspace'?'开始接入初始化':action.label;
+  return <section className="v3-panel v3-next-action"><ArrowRight size={22}/><div><span className="section-kicker">Next Action</span><h2>{label}</h2><p>{action.id==='initialize-workspace'?'创建接入会话，复制 Prompt 到 Codex 完成本机检查和 Workspace 注册。':action.reason||actionDescription(action)}</p>{action.enabled&&<Button onClick={run}>{label}<ArrowRight size={15}/></Button>}</div></section>;
 }
 
 function Metric({label,value,detail,tone}:{label:string;value:number;detail:string;tone:'source'|'warning'|'danger'|'success'}) {return <article className={`v3-metric is-${tone}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>}

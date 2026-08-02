@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/limecloud/contentcloud/internal/domain"
@@ -132,19 +133,20 @@ func (s *Service) reportKnowledgeExtraction(ctx context.Context, actor Actor, de
 	if err != nil {
 		return domain.KnowledgeExtractionResult{}, err
 	}
-	inputs := make([]CreateKnowledgeInput, 0, len(pkg.Candidates))
-	for _, candidate := range pkg.Candidates {
+	inputs := make([]CreateKnowledgeObjectInput, 0, len(pkg.Candidates))
+	for index, candidate := range pkg.Candidates {
 		if !knowledgeCandidateEnumsValid(candidate) || !evidenceWithinKnowledgeContract(candidate.Evidence, snapshot.Sources) {
 			return s.rejectKnowledgeOutput(ctx, run, attempt, "output_grounding", "知识候选类型、风险或证据超出冻结契约", domain.E("content", "policy", "KNOWLEDGE_CANDIDATE_INVALID", "知识候选类型、风险或证据超出 Task Contract", 7))
 		}
-		input := knowledgeCandidateInput(run, candidate)
-		if err := s.validateKnowledgeInput(ctx, actor.TenantID, input); err != nil {
-			return s.rejectKnowledgeOutput(ctx, run, attempt, "output_validation", "知识候选未通过确定性业务校验", err)
+		evidenceIDs, err := s.knowledgeEvidenceIDs(ctx, actor.TenantID, run.ProjectID, candidate.Evidence)
+		if err != nil {
+			return s.rejectKnowledgeOutput(ctx, run, attempt, "output_grounding", "知识候选引用的 Evidence 无效", err)
 		}
+		input := knowledgeCandidateObjectInput(run, candidate, evidenceIDs, index)
 		inputs = append(inputs, input)
 	}
 	for _, input := range inputs {
-		if _, err := s.createKnowledge(ctx, actor, input, requestID, true); err != nil {
+		if _, err := s.CreateKnowledgeObject(ctx, actor, input, requestID); err != nil {
 			return domain.KnowledgeExtractionResult{}, err
 		}
 	}
@@ -161,7 +163,7 @@ func (s *Service) reportKnowledgeExtraction(ctx context.Context, actor Actor, de
 	_, _ = s.store.AppendRunProgress(ctx, domain.RunProgressEvent{TenantID: run.TenantID, ProjectID: run.ProjectID, RunID: run.ID, AttemptID: attempt.ID, DeviceID: attempt.DeviceID, Sequence: run.HeartbeatSequence + 1, Phase: "succeeded", Step: run.HeartbeatSequence + 1, Label: run.ProgressLabel, OccurredAt: run.UpdatedAt})
 	result, err := s.knowledgeExtractionResult(ctx, actor.TenantID, run, pkg.Warnings)
 	if err == nil {
-		s.audit(ctx, actor, run.ProjectID, "knowledge_extraction_run.reported", "task_run", run.ID, requestID, map[string]any{"candidate_count": len(result.Items), "conflict_count": len(result.Conflicts)})
+		s.audit(ctx, actor, run.ProjectID, "knowledge_extraction_run.reported", "task_run", run.ID, requestID, map[string]any{"object_count": len(result.Objects)})
 	}
 	return result, err
 }
@@ -180,14 +182,73 @@ func (s *Service) failMalformedOutput(ctx context.Context, actor Actor, device d
 	}
 }
 
-func knowledgeCandidateInput(run domain.TaskRun, candidate domain.KnowledgeCandidate) CreateKnowledgeInput {
-	return CreateKnowledgeInput{ProjectID: run.ProjectID, Kind: candidate.Kind, Title: strings.TrimSpace(candidate.Title), Statement: strings.TrimSpace(candidate.Statement), Subject: strings.TrimSpace(candidate.Subject), Predicate: strings.TrimSpace(candidate.Predicate), Value: candidate.Value, Scope: candidate.Scope, RiskLevel: candidate.RiskLevel, AllowedChannels: candidate.AllowedChannels, Evidence: candidate.Evidence, ForbiddenExtensions: candidate.ForbiddenExtensions, DependsOnFactIDs: candidate.DependsOnFactIDs, ValidFrom: candidate.ValidFrom, ValidUntil: candidate.ValidUntil, ExpiresAt: candidate.ExpiresAt, OriginRunID: run.ID}
+func knowledgeCandidateObjectInput(run domain.TaskRun, candidate domain.KnowledgeCandidate, evidenceIDs []string, index int) CreateKnowledgeObjectInput {
+	objectType, layer := knowledgeCandidateObjectType(candidate.Kind)
+	payload := map[string]any{
+		"kind":                 candidate.Kind,
+		"subject":              strings.TrimSpace(candidate.Subject),
+		"predicate":            strings.TrimSpace(candidate.Predicate),
+		"value":                candidate.Value,
+		"scope":                candidate.Scope,
+		"risk_level":           candidate.RiskLevel,
+		"forbidden_extensions": append([]string(nil), candidate.ForbiddenExtensions...),
+		"depends_on_fact_ids":  append([]string(nil), candidate.DependsOnFactIDs...),
+		"origin_run_id":        run.ID,
+	}
+	return CreateKnowledgeObjectInput{ProjectID: run.ProjectID, ID: "knowledge:" + run.ID + ":" + strconv.Itoa(index+1), ObjectType: objectType, Layer: layer, Status: "needs_review", Title: strings.TrimSpace(candidate.Title), Statement: strings.TrimSpace(candidate.Statement), Payload: payload, AllowedChannels: append([]string(nil), candidate.AllowedChannels...), EvidenceRefs: evidenceIDs, ValidFrom: candidate.ValidFrom, ValidUntil: candidate.ValidUntil, ExpiresAt: candidate.ExpiresAt}
+}
+
+func knowledgeCandidateObjectType(kind string) (string, string) {
+	switch kind {
+	case "fact":
+		return "FactAssertion", "product"
+	case "claim":
+		return "Claim", "expression"
+	case "visual_rule":
+		return "BrandRule", "identity"
+	case "methodology":
+		return "Process", "operations"
+	default:
+		return "DomainObject", "operations"
+	}
 }
 
 func knowledgeCandidateEnumsValid(candidate domain.KnowledgeCandidate) bool {
 	allowedKind := map[string]bool{"fact": true, "claim": true, "visual_rule": true, "methodology": true}
 	allowedRisk := map[string]bool{"low": true, "medium": true, "high": true}
 	return allowedKind[candidate.Kind] && allowedRisk[candidate.RiskLevel] && strings.TrimSpace(candidate.Subject) != "" && strings.TrimSpace(candidate.Predicate) != "" && len(candidate.Evidence) > 0
+}
+
+func (s *Service) knowledgeEvidenceIDs(ctx context.Context, tenantID, projectID string, refs []domain.EvidenceRef) ([]string, error) {
+	ids := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if strings.TrimSpace(ref.SourceRevisionID) == "" || strings.TrimSpace(ref.LocatorKind) == "" || strings.TrimSpace(ref.Quote) == "" {
+			return nil, domain.Invalid("EVIDENCE_REF_INVALID", "Evidence 引用缺少来源版本、定位类型或原文")
+		}
+		revision, err := s.store.SourceRevision(ctx, tenantID, ref.SourceRevisionID)
+		if err != nil {
+			return nil, err
+		}
+		if revision.ProjectID != projectID {
+			return nil, domain.Policy("EVIDENCE_PROJECT_MISMATCH", "Evidence 来源不属于当前项目", "选择当前项目内的已验收 Evidence")
+		}
+		spans, err := s.store.Evidence(ctx, tenantID, revision.ID)
+		if err != nil {
+			return nil, err
+		}
+		matched := ""
+		for _, span := range spans {
+			if span.ProjectID == projectID && span.LocatorKind == ref.LocatorKind && evidenceLocatorMatches(ref.Locator, span.Locator) && span.QuoteText == ref.Quote && span.ReviewStatus == "accepted" {
+				matched = span.ID
+				break
+			}
+		}
+		if matched == "" {
+			return nil, domain.Policy("EVIDENCE_NOT_ACCEPTED", "Evidence 原文或定位与已验收片段不一致", "重新选择来源中的已验收 Evidence")
+		}
+		ids = append(ids, matched)
+	}
+	return ids, nil
 }
 
 func evidenceWithinKnowledgeContract(refs []domain.EvidenceRef, sources []domain.ContractSource) bool {
@@ -225,32 +286,17 @@ func evidenceLocatorMatches(encoded string, locator map[string]any) bool {
 }
 
 func (s *Service) knowledgeExtractionResult(ctx context.Context, tenantID string, run domain.TaskRun, warnings []string) (domain.KnowledgeExtractionResult, error) {
-	all, err := s.store.Knowledge(ctx, tenantID, run.ProjectID)
+	all, err := s.store.KnowledgeObjects(ctx, tenantID, run.ProjectID)
 	if err != nil {
 		return domain.KnowledgeExtractionResult{}, err
 	}
-	items := []domain.KnowledgeItem{}
-	ids := map[string]bool{}
-	for _, item := range all {
-		if item.OriginRunID == run.ID {
-			items = append(items, item)
-			ids[item.ID] = true
+	objects := []domain.KnowledgeObject{}
+	for _, object := range all {
+		if origin, _ := object.Payload["origin_run_id"].(string); origin == run.ID {
+			objects = append(objects, object)
 		}
 	}
-	allConflicts, err := s.store.KnowledgeConflicts(ctx, tenantID, run.ProjectID)
-	if err != nil {
-		return domain.KnowledgeExtractionResult{}, err
-	}
-	conflicts := []domain.KnowledgeConflict{}
-	for _, conflict := range allConflicts {
-		for _, id := range conflict.KnowledgeItemIDs {
-			if ids[id] {
-				conflicts = append(conflicts, conflict)
-				break
-			}
-		}
-	}
-	return domain.KnowledgeExtractionResult{RunID: run.ID, Items: items, Conflicts: conflicts, Warnings: warnings}, nil
+	return domain.KnowledgeExtractionResult{RunID: run.ID, Objects: objects, Warnings: warnings}, nil
 }
 
 func decodeStrict(body []byte, target any) error {

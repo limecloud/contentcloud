@@ -153,3 +153,37 @@ func TestProjectTemplateOptimisticLockAndArchiveReadOnly(t *testing.T) {
 		t.Fatal("canceling a terminal connect session must fail")
 	}
 }
+
+func TestProjectTemplatesProvisionBuiltinPresetsIdempotently(t *testing.T) {
+	ctx := context.Background()
+	service := app.New(memory.New(), slog.Default())
+	session, err := service.Register(ctx, "templates@example.com", "password-123", "管理员", "模板租户")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, _, err := service.SessionActor(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := service.ProjectTemplates(ctx, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 3 {
+		t.Fatalf("expected three builtin project templates, got %#v", first)
+	}
+	for _, template := range first {
+		if template.ID == "" || template.TenantID != actor.TenantID || template.CreatedBy != actor.UserID {
+			t.Fatalf("builtin template is not tenant-scoped: %#v", template)
+		}
+	}
+
+	second, err := service.ProjectTemplates(ctx, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != len(first) {
+		t.Fatalf("builtin templates are not idempotent: first=%d second=%d", len(first), len(second))
+	}
+}

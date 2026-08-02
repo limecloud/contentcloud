@@ -190,6 +190,10 @@ func TestBFFTeamProjectAndConnectionOperations(t *testing.T) {
 		t.Fatalf("invite was not revoked %#v", invite)
 	}
 
+	builtinTemplates := callBFF[[]domain.ProjectTemplate](t, client, http.MethodGet, server.URL+"/api/bff/project-templates", nil)
+	if len(builtinTemplates) != 3 {
+		t.Fatalf("expected builtin project templates, got %#v", builtinTemplates)
+	}
 	template := callBFF[domain.ProjectTemplate](t, client, http.MethodPost, server.URL+"/api/bff/project-templates", app.CreateProjectTemplateInput{Name: "抖音验证", Channel: "douyin", StageObjective: "验证主卖点"})
 	if template.Name != "抖音验证" {
 		t.Fatalf("unexpected template %#v", template)
@@ -266,6 +270,10 @@ func TestLegacyBusinessWriteRoutesAreNotExposed(t *testing.T) {
 }
 
 func callBFF[T any](t *testing.T, client *http.Client, method, target string, input any) T {
+	return callBFFWithHeaders[T](t, client, method, target, input, nil)
+}
+
+func callBFFWithHeaders[T any](t *testing.T, client *http.Client, method, target string, input any, headers map[string]string) T {
 	t.Helper()
 	body, err := json.Marshal(input)
 	if err != nil {
@@ -276,6 +284,9 @@ func callBFF[T any](t *testing.T, client *http.Client, method, target string, in
 		t.Fatal(err)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	for key, value := range headers {
+		request.Header.Set(key, value)
+	}
 	response, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)

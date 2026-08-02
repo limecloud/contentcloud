@@ -341,20 +341,40 @@ func (s *Service) propagateSourceChange(ctx context.Context, actor Actor, source
 	impacts := s.collectSourceImpact(ctx, actor.TenantID, source.ProjectID, revisions)
 	changedKnowledge := map[string]bool{}
 	for _, impact := range impacts {
-		if impact.ObjectType != "knowledge_item" {
+		if impact.ObjectType != "knowledge_object" {
 			continue
 		}
-		item, err := s.store.KnowledgeItem(ctx, actor.TenantID, impact.ObjectID)
-		if err != nil || (item.Status != "approved" && item.Status != "expired") {
+		object, err := s.store.KnowledgeObject(ctx, actor.TenantID, impact.ObjectID, 0)
+		if err != nil || !containsString(domain.KnowledgeEligibleStatuses, object.Status) {
 			continue
 		}
-		item.Status = "review_required"
-		item.RowVersion++
-		item.UpdatedAt = s.now().UTC()
-		if err := s.store.SaveKnowledge(ctx, item); err != nil {
+		payload := map[string]any{}
+		for key, value := range object.Payload {
+			payload[key] = value
+		}
+		_, err = s.CreateKnowledgeObject(ctx, actor, CreateKnowledgeObjectInput{
+			ProjectID:       object.ProjectID,
+			ID:              object.ID,
+			ObjectType:      object.ObjectType,
+			Layer:           object.Layer,
+			Status:          "needs_review",
+			Title:           object.Title,
+			Statement:       object.Statement,
+			Payload:         payload,
+			Dimensions:      object.Dimensions,
+			AllowedChannels: object.AllowedChannels,
+			EvidenceRefs:    object.EvidenceRefs,
+			RelationRefs:    object.RelationRefs,
+			RightsRefs:      object.RightsRefs,
+			ConflictRefs:    object.ConflictRefs,
+			ValidFrom:       object.ValidFrom,
+			ValidUntil:      object.ValidUntil,
+			ExpiresAt:       object.ExpiresAt,
+		}, requestID)
+		if err != nil {
 			return impacts, err
 		}
-		changedKnowledge[item.ID] = true
+		changedKnowledge[object.ID] = true
 	}
 	if len(changedKnowledge) == 0 {
 		return impacts, nil
@@ -369,11 +389,18 @@ func (s *Service) collectSourceImpact(ctx context.Context, tenantID, projectID s
 		revisionIDs[revision.ID] = true
 	}
 	impacts := []ImpactItem{}
-	knowledge, _ := s.store.Knowledge(ctx, tenantID, projectID)
-	for _, item := range knowledge {
-		for _, evidence := range item.Evidence {
-			if revisionIDs[evidence.SourceRevisionID] {
-				impacts = append(impacts, ImpactItem{ObjectType: "knowledge_item", ObjectID: item.ID, Reason: "引用了该逻辑来源的证据", CurrentStatus: item.Status, SuggestedAction: "复核新修订中的原文和值"})
+	knowledge, _ := s.store.KnowledgeObjects(ctx, tenantID, projectID)
+	latest := map[string]domain.KnowledgeObject{}
+	for _, object := range knowledge {
+		if current, ok := latest[object.ID]; !ok || object.Version > current.Version {
+			latest[object.ID] = object
+		}
+	}
+	for _, object := range latest {
+		for _, evidenceID := range object.EvidenceRefs {
+			span, err := s.store.EvidenceSpan(ctx, tenantID, evidenceID)
+			if err == nil && revisionIDs[span.RevisionID] {
+				impacts = append(impacts, ImpactItem{ObjectType: "knowledge_object", ObjectID: object.ID, Reason: "引用了该来源修订的 Evidence", CurrentStatus: object.Status, SuggestedAction: "复核新修订中的原文和值"})
 				break
 			}
 		}

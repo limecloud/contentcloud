@@ -351,56 +351,31 @@ func (s *Server) handleUserDispatch(w http.ResponseWriter, r *http.Request, req 
 		if !decodeParams(w, r, s, req, &in) {
 			return true
 		}
-		v, err := s.service.Knowledge(r.Context(), actor, in.ProjectID)
+		v, err := s.service.KnowledgeObjects(r.Context(), actor, in.ProjectID)
 		s.dispatchResult(w, r, req.Command, v, err)
 	case "knowledge.show":
 		var in struct {
-			ID string `json:"id"`
+			ID      string `json:"id"`
+			Version int    `json:"version"`
 		}
 		if !decodeParams(w, r, s, req, &in) {
 			return true
 		}
-		v, err := s.service.KnowledgeItem(r.Context(), actor, in.ID)
+		v, err := s.service.KnowledgeObject(r.Context(), actor, in.ID, in.Version)
 		s.dispatchResult(w, r, req.Command, v, err)
 	case "knowledge.review":
 		var in struct {
-			ID       string `json:"id"`
-			Decision string `json:"decision"`
+			ID              string `json:"id"`
+			ExpectedVersion int    `json:"expected_version"`
+			ExpectedDigest  string `json:"expected_digest"`
+			Decision        string `json:"decision"`
+			Reason          string `json:"reason"`
 		}
 		if !decodeParams(w, r, s, req, &in) {
 			return true
 		}
-		v, err := s.service.ReviewKnowledge(r.Context(), actor, in.ID, in.Decision, requestID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "knowledge.conflicts":
-		var in struct {
-			ProjectID string `json:"project_id"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.KnowledgeConflicts(r.Context(), actor, in.ProjectID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "knowledge.decisions":
-		var in struct {
-			ProjectID string `json:"project_id"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.DecisionRequests(r.Context(), actor, in.ProjectID)
-		s.dispatchResult(w, r, req.Command, v, err)
-	case "knowledge.decision.resolve":
-		var in struct {
-			ID                  string `json:"id"`
-			SelectedKnowledgeID string `json:"selected_knowledge_id"`
-			Notes               string `json:"notes"`
-		}
-		if !decodeParams(w, r, s, req, &in) {
-			return true
-		}
-		v, err := s.service.ResolveDecisionRequest(r.Context(), actor, in.ID, in.SelectedKnowledgeID, in.Notes, requestID)
-		s.dispatchResult(w, r, req.Command, v, err)
+		object, decision, err := s.service.ReviewKnowledgeObject(r.Context(), actor, in.ID, app.ReviewKnowledgeObjectInput{ExpectedVersion: in.ExpectedVersion, ExpectedDigest: in.ExpectedDigest, Decision: in.Decision, Reason: in.Reason}, requestID)
+		s.dispatchResult(w, r, req.Command, map[string]any{"object": object, "decision": decision}, err)
 	case "knowledge.extract":
 		var in app.CreateKnowledgeExtractionRunInput
 		if !decodeParams(w, r, s, req, &in) {

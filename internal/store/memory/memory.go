@@ -36,9 +36,21 @@ type Store struct {
 	evidence             map[string]domain.EvidenceSpan
 	assets               map[string]domain.Asset
 	rightsRecords        map[string]domain.RightsRecord
-	knowledge            map[string]domain.KnowledgeItem
-	knowledgeConflicts   map[string]domain.KnowledgeConflict
-	decisionRequests     map[string]domain.DecisionRequest
+	knowledgeObjects     map[string]domain.KnowledgeObject
+	knowledgeDecisions   map[string]domain.KnowledgeDecision
+	knowledgePacks       map[string]domain.KnowledgePack
+	knowledgeSnapshots   map[string]domain.KnowledgeSnapshot
+	environments         map[string]domain.Environment
+	sopDefinitions       map[string]domain.SOPDefinition
+	sopVersions          map[string]domain.SOPVersion
+	projectSOPBindings   map[string]domain.ProjectSOPBinding
+	workTasks            map[string]domain.WorkTask
+	inputItems           map[string]domain.InputItem
+	conversationImports  map[string]domain.ConversationImport
+	stageRuns            map[string]domain.StageRun
+	gateEvaluations      map[string]domain.GateEvaluation
+	taskRevisions        map[string]domain.TaskRevision
+	taskDeliveries       map[string]domain.TaskDelivery
 	snapshots            map[string]domain.ContextSnapshot
 	runs                 map[string]domain.TaskRun
 	executionBundles     map[string]environment.CreativeExecutionBundle
@@ -65,7 +77,7 @@ func New() *Store {
 		users: map[string]domain.User{}, userByEmail: map[string]string{}, sessions: map[string]domain.Session{},
 		tenants: map[string]domain.Tenant{}, tenantContentCaps: map[string]domain.TenantContentCapability{}, memberships: map[string]domain.Membership{}, membershipInvites: map[string]domain.MembershipInvite{}, projects: map[string]domain.Project{}, projectTemplates: map[string]domain.ProjectTemplate{},
 		connects: map[string]domain.ConnectSession{}, bootstrapAttempts: map[string]domain.BootstrapAttempt{}, bootstrapEvents: map[string]map[int64]domain.BootstrapProgressEvent{}, bootstrapDiagnostics: map[string]domain.BootstrapDiagnostic{}, devices: map[string]domain.Device{}, workspaceBindings: map[string]domain.WorkspaceBinding{}, userDeviceFlows: map[string]domain.UserDeviceFlow{}, cliTokens: map[string]domain.CLIToken{},
-		sources: map[string]domain.Source{}, revisions: map[string]domain.SourceRevision{}, evidence: map[string]domain.EvidenceSpan{}, assets: map[string]domain.Asset{}, rightsRecords: map[string]domain.RightsRecord{}, knowledge: map[string]domain.KnowledgeItem{}, knowledgeConflicts: map[string]domain.KnowledgeConflict{}, decisionRequests: map[string]domain.DecisionRequest{},
+		sources: map[string]domain.Source{}, revisions: map[string]domain.SourceRevision{}, evidence: map[string]domain.EvidenceSpan{}, assets: map[string]domain.Asset{}, rightsRecords: map[string]domain.RightsRecord{}, knowledgeObjects: map[string]domain.KnowledgeObject{}, knowledgeDecisions: map[string]domain.KnowledgeDecision{}, knowledgePacks: map[string]domain.KnowledgePack{}, knowledgeSnapshots: map[string]domain.KnowledgeSnapshot{}, environments: map[string]domain.Environment{}, sopDefinitions: map[string]domain.SOPDefinition{}, sopVersions: map[string]domain.SOPVersion{}, projectSOPBindings: map[string]domain.ProjectSOPBinding{}, workTasks: map[string]domain.WorkTask{}, inputItems: map[string]domain.InputItem{}, conversationImports: map[string]domain.ConversationImport{}, stageRuns: map[string]domain.StageRun{}, gateEvaluations: map[string]domain.GateEvaluation{}, taskRevisions: map[string]domain.TaskRevision{}, taskDeliveries: map[string]domain.TaskDelivery{},
 		snapshots: map[string]domain.ContextSnapshot{}, runs: map[string]domain.TaskRun{}, executionBundles: map[string]environment.CreativeExecutionBundle{}, runAttempts: map[string]domain.RunAttempt{}, runProgress: map[string][]domain.RunProgressEvent{},
 		approvals: map[string]domain.ApprovalDecision{}, reviewCycles: map[string]domain.ReviewCycle{}, reviewComments: map[string]domain.ReviewComment{}, reviewGrants: map[string]domain.ReviewGrant{}, submissions: map[string]domain.Submission{}, submissionRevisions: map[string]domain.SubmissionRevision{}, approvedSnapshots: map[string]domain.ApprovedSnapshot{}, artifacts: map[string]domain.Artifact{}, deliveryPackages: map[string]domain.DeliveryPackage{}, performanceBatches: map[string]domain.PerformanceImportBatch{}, observations: map[string]domain.PerformanceObservation{}, ratingDecisions: map[string]domain.RatingDecision{}, audits: []domain.AuditEvent{},
 	}
@@ -730,43 +742,6 @@ func (s *Store) RevokeCLIToken(_ context.Context, hash string, now time.Time) er
 		}
 	}
 	return domain.NotFound("CLI 凭据")
-}
-
-func (s *Store) CreateKnowledge(_ context.Context, v domain.KnowledgeItem) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.knowledge[v.ID] = v
-	return nil
-}
-func (s *Store) Knowledge(_ context.Context, tenantID, projectID string) ([]domain.KnowledgeItem, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []domain.KnowledgeItem{}
-	for _, v := range s.knowledge {
-		if v.TenantID == tenantID && v.ProjectID == projectID {
-			out = append(out, v)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
-	return out, nil
-}
-func (s *Store) KnowledgeItem(_ context.Context, tenantID, id string) (domain.KnowledgeItem, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	v, ok := s.knowledge[id]
-	if !ok || v.TenantID != tenantID {
-		return v, domain.NotFound("知识项")
-	}
-	return v, nil
-}
-func (s *Store) SaveKnowledge(_ context.Context, v domain.KnowledgeItem) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if old, ok := s.knowledge[v.ID]; !ok || old.TenantID != v.TenantID {
-		return domain.NotFound("知识项")
-	}
-	s.knowledge[v.ID] = v
-	return nil
 }
 
 func (s *Store) CreateSnapshot(_ context.Context, v domain.ContextSnapshot) error {
