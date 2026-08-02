@@ -25,6 +25,9 @@ func TestKnowledgePackPublishAndQuery(t *testing.T) {
 	must(t, err)
 	object, err := service.CreateKnowledgeObject(ctx, actor, app.CreateKnowledgeObjectInput{ProjectID: project.ID, ID: "fact:weight", ObjectType: "FactAssertion", Layer: "product", Title: "净重", Statement: "净重 50g", EvidenceRefs: []string{weightSpans[0].ID}}, "")
 	must(t, err)
+	if object.Payload == nil {
+		t.Fatal("knowledge object payload must normalize to an object")
+	}
 	object, decision, err := service.ReviewKnowledgeObject(ctx, actor, object.ID, app.ReviewKnowledgeObjectInput{ExpectedVersion: object.Version, ExpectedDigest: object.Digest, Decision: "approve", Reason: "规格证据已复核"}, "")
 	must(t, err)
 	if object.Status != "verified" || decision.ResultVersion != object.Version {

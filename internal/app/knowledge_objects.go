@@ -102,9 +102,13 @@ func (s *Service) CreateKnowledgeObject(ctx context.Context, actor Actor, in Cre
 	if !creationStatusAllowed {
 		return domain.KnowledgeObject{}, domain.Policy("KNOWLEDGE_OBJECT_STATUS_COMMAND_REQUIRED", "创建对象不能直接写入已验证或已批准状态", "先创建候选，再使用知识决策命令")
 	}
+	payload := in.Payload
+	if payload == nil {
+		payload = map[string]any{}
+	}
 	object := domain.KnowledgeObject{
 		ID: objectID, TenantID: actor.TenantID, ProjectID: in.ProjectID, ObjectType: objectType, Layer: layer, Version: version, Status: status,
-		Title: strings.TrimSpace(in.Title), Statement: strings.TrimSpace(in.Statement), Payload: in.Payload, Dimensions: append([]string(nil), in.Dimensions...), AllowedChannels: append([]string(nil), in.AllowedChannels...), EvidenceRefs: append([]string(nil), in.EvidenceRefs...), RelationRefs: append([]string(nil), in.RelationRefs...), RightsRefs: append([]string(nil), in.RightsRefs...), ConflictRefs: append([]string(nil), in.ConflictRefs...), DecisionRef: strings.TrimSpace(in.DecisionRef), NextAction: strings.TrimSpace(in.NextAction), Impact: strings.TrimSpace(in.Impact), ValidFrom: in.ValidFrom, ValidUntil: in.ValidUntil, ExpiresAt: in.ExpiresAt, CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now,
+		Title: strings.TrimSpace(in.Title), Statement: strings.TrimSpace(in.Statement), Payload: payload, Dimensions: append([]string(nil), in.Dimensions...), AllowedChannels: append([]string(nil), in.AllowedChannels...), EvidenceRefs: append([]string(nil), in.EvidenceRefs...), RelationRefs: append([]string(nil), in.RelationRefs...), RightsRefs: append([]string(nil), in.RightsRefs...), ConflictRefs: append([]string(nil), in.ConflictRefs...), DecisionRef: strings.TrimSpace(in.DecisionRef), NextAction: strings.TrimSpace(in.NextAction), Impact: strings.TrimSpace(in.Impact), ValidFrom: in.ValidFrom, ValidUntil: in.ValidUntil, ExpiresAt: in.ExpiresAt, CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := object.Validate(); err != nil {
 		return domain.KnowledgeObject{}, err
