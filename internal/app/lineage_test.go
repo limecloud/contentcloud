@@ -29,7 +29,11 @@ func TestProjectLineageAndImpactTraceSourceToRating(t *testing.T) {
 	mustStore(t, store.CreateSnapshot(ctx, domain.ContextSnapshot{ID: snapshotID, TenantID: tenantID, ProjectID: projectID, Sources: []domain.ContractSource{{SourceID: sourceID, RevisionID: revisionID}}, CreatedAt: now.Add(2 * time.Minute)}))
 	mustStore(t, store.CreateRun(ctx, domain.TaskRun{ID: runID, TenantID: tenantID, ProjectID: projectID, InputSnapshotID: snapshotID, IdempotencyKey: "lineage-run", TaskType: "knowledge_extract", State: "succeeded", CreatedAt: now.Add(2 * time.Minute)}))
 	knowledgeID := domain.NewID()
-	mustStore(t, store.CreateKnowledge(ctx, domain.KnowledgeItem{ID: knowledgeID, TenantID: tenantID, ProjectID: projectID, Title: "原料事实", Status: "approved", OriginRunID: runID, Evidence: []domain.EvidenceRef{{SourceRevisionID: revisionID}}, CreatedAt: now.Add(2 * time.Minute)}))
+	evidenceID := domain.NewID()
+	mustStore(t, store.CreateEvidence(ctx, domain.EvidenceSpan{ID: evidenceID, TenantID: tenantID, ProjectID: projectID, RevisionID: revisionID, LocatorKind: "paragraph", Locator: map[string]any{"paragraph": 1}, QuoteText: "原料事实", QuoteHash: "sha256:" + strings.Repeat("b", 64), ReviewStatus: "accepted", CreatedAt: now.Add(2 * time.Minute)}))
+	object := domain.KnowledgeObject{ID: knowledgeID, TenantID: tenantID, ProjectID: projectID, ObjectType: "FactAssertion", Layer: "product", Version: 1, Status: "verified", Title: "原料事实", Statement: "原料事实", Payload: map[string]any{"origin_run_id": runID}, EvidenceRefs: []string{evidenceID}, CreatedAt: now.Add(2 * time.Minute), UpdatedAt: now.Add(2 * time.Minute)}
+	object.Digest, _ = object.ContentDigest()
+	mustStore(t, store.CreateKnowledgeObject(ctx, object))
 	submissionID, revisionIDV3, approvedSnapshotID := domain.NewID(), domain.NewID(), domain.NewID()
 	submission := domain.Submission{ID: submissionID, TenantID: tenantID, ProjectID: projectID, WorkspaceID: domain.NewID(), SubmissionType: "content_batch", Status: "submitted", CurrentRevisionID: revisionIDV3, CreatedAt: now.Add(6 * time.Minute), UpdatedAt: now.Add(6 * time.Minute)}
 	revision := domain.SubmissionRevision{ID: revisionIDV3, TenantID: tenantID, ProjectID: projectID, WorkspaceID: submission.WorkspaceID, SubmissionID: submissionID, RevisionNo: 1, SchemaVersion: "3.0", ContentHash: "sha256:" + strings.Repeat("a", 64), CreatedAt: now.Add(6 * time.Minute)}
@@ -53,7 +57,7 @@ func TestProjectLineageAndImpactTraceSourceToRating(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"source:" + sourceID, "source_revision:" + revisionID, "task_run:" + runID, "knowledge_item:" + knowledgeID, "approved_snapshot:" + approvedSnapshotID, "artifact:" + artifactID, "performance_observation:" + observationID, "rating_decision:" + ratingID} {
+	for _, key := range []string{"source:" + sourceID, "source_revision:" + revisionID, "task_run:" + runID, "knowledge_object:" + knowledgeID, "approved_snapshot:" + approvedSnapshotID, "artifact:" + artifactID, "performance_observation:" + observationID, "rating_decision:" + ratingID} {
 		if !hasLineageNode(graph, key) {
 			t.Fatalf("downstream graph is missing %s: %#v", key, graph.Nodes)
 		}

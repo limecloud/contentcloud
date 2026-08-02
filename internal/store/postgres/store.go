@@ -510,8 +510,8 @@ func (s *Store) SaveMembershipInvite(ctx context.Context, v domain.MembershipInv
 
 const projectSelect = `SELECT p.id,p.tenant_id,p.slug,p.brand_name,p.product_name,p.channel,p.stage_objective,p.status,p.owner_name,p.reviewer_name,p.client_approver,p.row_version,p.created_at,p.updated_at,
   (SELECT count(*) FROM project_device_grants g JOIN devices d ON d.id=g.device_id WHERE g.project_id=p.id AND g.revoked_at IS NULL AND d.revoked_at IS NULL),
-  (SELECT count(*) FROM knowledge_items k WHERE k.project_id=p.id AND k.status='approved'),
-  (SELECT count(*) FROM knowledge_items k WHERE k.project_id=p.id AND k.status IN ('candidate','needs_review','conflicted','review_required'))
+  (SELECT count(*) FROM knowledge_objects k WHERE k.project_id=p.id AND k.status IN ('verified','approved','valid','active')),
+  (SELECT count(*) FROM knowledge_objects k WHERE k.project_id=p.id AND k.status IN ('candidate','needs_review','conflicted','blocked','open'))
   FROM brand_projects p`
 
 func scanProject(row pgx.Row) (domain.Project, error) {

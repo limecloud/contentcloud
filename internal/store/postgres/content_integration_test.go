@@ -110,30 +110,21 @@ func TestSourceLifecycleWithPostgres(t *testing.T) {
 	if len(attempts) != 1 || attempts[0].State != "running" || attempts[0].TokenHash != "" || attempts[0].HeartbeatAt == nil {
 		t.Fatalf("unexpected persisted attempt history: %#v", attempts)
 	}
-	knowledge, err := service.CreateKnowledge(ctx, actor, app.CreateKnowledgeInput{ProjectID: project.ID, Kind: "fact", Title: "PostgreSQL fact", Statement: quote, Evidence: []domain.EvidenceRef{{SourceRevisionID: revision.ID, LocatorKind: "paragraph", Locator: `{"paragraph":1}`, Quote: quote}}}, "")
+	object, err := service.CreateKnowledgeObject(ctx, actor, app.CreateKnowledgeObjectInput{ProjectID: project.ID, ID: "fact:postgres", ObjectType: "FactAssertion", Layer: "product", Title: "PostgreSQL fact", Statement: quote, EvidenceRefs: []string{spans[0].ID}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ReviewKnowledge(ctx, actor, knowledge.ID, "approve", ""); err != nil {
-		t.Fatal(err)
+	object, decision, err := service.ReviewKnowledgeObject(ctx, actor, object.ID, app.ReviewKnowledgeObjectInput{ExpectedVersion: object.Version, ExpectedDigest: object.Digest, Decision: "approve", Reason: "已复核 PostgreSQL Evidence"}, "")
+	if err != nil || object.Status != "verified" || decision.ResultVersion != 2 {
+		t.Fatalf("knowledge object decision was not persisted: object=%#v decision=%#v err=%v", object, decision, err)
 	}
-	conflictingKnowledge, err := service.CreateKnowledge(ctx, actor, app.CreateKnowledgeInput{ProjectID: project.ID, Kind: "fact", Title: "PostgreSQL fact v2", Statement: "different value", Subject: knowledge.Title, Predicate: knowledge.Kind, Value: domain.TypedValue{Type: "text", Text: "different value"}, Evidence: []domain.EvidenceRef{{SourceRevisionID: revision.ID, LocatorKind: "paragraph", Locator: `{"paragraph":1}`, Quote: quote}}}, "")
+	pack, err := service.CreateKnowledgePack(ctx, actor, app.CreateKnowledgePackInput{ProjectID: project.ID, ID: "pack:postgres", Name: "PostgreSQL knowledge", Purpose: "test", ObjectRefs: []domain.KnowledgePackObjectRef{{ObjectID: object.ID, Version: object.Version}}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	conflicts, err := service.KnowledgeConflicts(ctx, actor, project.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	requests, err := service.DecisionRequests(ctx, actor, project.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if conflictingKnowledge.Status != "conflicted" || len(conflicts) != 1 || len(requests) != 1 {
-		t.Fatalf("typed knowledge conflict was not persisted: knowledge=%#v conflicts=%#v requests=%#v", conflictingKnowledge, conflicts, requests)
-	}
-	if _, err := service.ResolveDecisionRequest(ctx, actor, requests[0].ID, conflictingKnowledge.ID, "PostgreSQL resolution", ""); err != nil {
-		t.Fatal(err)
+	_, snapshot, err := service.PublishKnowledgePack(ctx, actor, pack.ID, "")
+	if err != nil || snapshot.ID == "" {
+		t.Fatalf("knowledge snapshot was not persisted: snapshot=%#v err=%v", snapshot, err)
 	}
 	asset, err := service.CreateAsset(ctx, actor, app.CreateAssetInput{ProjectID: project.ID, Name: "PostgreSQL product asset", AssetType: "product_image", SourceRevisionID: revision.ID, UsageMode: "generation_reference"}, "")
 	if err != nil {

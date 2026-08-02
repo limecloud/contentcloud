@@ -85,7 +85,7 @@ func TestDaemonEndToEndWithRealServicePollFixtureReportAndProgress(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	items, err := service.Knowledge(ctx, actor, project.ID)
+	items, err := service.KnowledgeObjects(ctx, actor, project.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

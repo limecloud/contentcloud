@@ -56,7 +56,7 @@ func (s *Store) CreateRunWithBundle(ctx context.Context, v domain.TaskRun, bundl
 }
 
 func insertRun(ctx context.Context, tx pgx.Tx, v domain.TaskRun) error {
-	_, err := tx.Exec(ctx, `INSERT INTO task_runs(id,tenant_id,project_id,input_snapshot_id,idempotency_key,task_type,capability_id,capability_version,input_schema,output_schema,output_count,delivery_profiles,state,priority,attempt_count,active_attempt_id,lease_device_id,lease_expires_at,run_token_hash,progress_label,error_code,cancel_requested_at,report_hash,heartbeat_sequence,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`, v.ID, v.TenantID, v.ProjectID, v.InputSnapshotID, v.IdempotencyKey, v.TaskType, v.CapabilityID, v.CapabilityVersion, v.InputSchema, v.OutputSchema, v.OutputCount, jsonArrayValue(v.DeliveryProfiles), v.State, v.Priority, v.AttemptCount, nullable(v.ActiveAttemptID), nullable(v.LeaseDeviceID), v.LeaseExpiresAt, v.RunTokenHash, v.ProgressLabel, v.ErrorCode, v.CancelRequestedAt, v.ReportHash, v.HeartbeatSequence, v.CreatedAt, v.UpdatedAt)
+	_, err := tx.Exec(ctx, `INSERT INTO task_runs(id,tenant_id,project_id,work_task_id,sop_id,sop_version,sop_digest,stage_id,execution_mode,executor_kind,output_refs,task_revision_id,gate_evaluation_id,input_snapshot_id,idempotency_key,task_type,capability_id,capability_version,input_schema,output_schema,output_count,delivery_profiles,state,priority,attempt_count,active_attempt_id,lease_device_id,lease_expires_at,run_token_hash,progress_label,error_code,cancel_requested_at,report_hash,heartbeat_sequence,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36)`, v.ID, v.TenantID, v.ProjectID, v.WorkTaskID, v.SOPID, v.SOPVersion, v.SOPDigest, v.StageID, v.ExecutionMode, v.ExecutorKind, jsonArrayValue(v.OutputRefs), v.TaskRevisionID, v.GateEvaluationID, v.InputSnapshotID, v.IdempotencyKey, v.TaskType, v.CapabilityID, v.CapabilityVersion, v.InputSchema, v.OutputSchema, v.OutputCount, jsonArrayValue(v.DeliveryProfiles), v.State, v.Priority, v.AttemptCount, nullable(v.ActiveAttemptID), nullable(v.LeaseDeviceID), v.LeaseExpiresAt, v.RunTokenHash, v.ProgressLabel, v.ErrorCode, v.CancelRequestedAt, v.ReportHash, v.HeartbeatSequence, v.CreatedAt, v.UpdatedAt)
 	return dbError(err)
 }
 
@@ -79,15 +79,18 @@ func (s *Store) ExecutionBundle(ctx context.Context, tenantID, runID string) (en
 
 func scanRun(row pgx.Row) (domain.TaskRun, error) {
 	var v domain.TaskRun
-	var profiles []byte
-	err := row.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.InputSnapshotID, &v.IdempotencyKey, &v.TaskType, &v.CapabilityID, &v.CapabilityVersion, &v.InputSchema, &v.OutputSchema, &v.OutputCount, &profiles, &v.State, &v.Priority, &v.AttemptCount, &v.ActiveAttemptID, &v.LeaseDeviceID, &v.LeaseExpiresAt, &v.RunTokenHash, &v.ProgressLabel, &v.ErrorCode, &v.CancelRequestedAt, &v.ReportHash, &v.HeartbeatSequence, &v.CreatedAt, &v.UpdatedAt)
+	var profiles, outputRefs []byte
+	err := row.Scan(&v.ID, &v.TenantID, &v.ProjectID, &v.WorkTaskID, &v.SOPID, &v.SOPVersion, &v.SOPDigest, &v.StageID, &v.ExecutionMode, &v.ExecutorKind, &outputRefs, &v.TaskRevisionID, &v.GateEvaluationID, &v.InputSnapshotID, &v.IdempotencyKey, &v.TaskType, &v.CapabilityID, &v.CapabilityVersion, &v.InputSchema, &v.OutputSchema, &v.OutputCount, &profiles, &v.State, &v.Priority, &v.AttemptCount, &v.ActiveAttemptID, &v.LeaseDeviceID, &v.LeaseExpiresAt, &v.RunTokenHash, &v.ProgressLabel, &v.ErrorCode, &v.CancelRequestedAt, &v.ReportHash, &v.HeartbeatSequence, &v.CreatedAt, &v.UpdatedAt)
 	if err == nil {
 		v.DeliveryProfiles, err = decodeJSON[[]string](profiles)
+	}
+	if err == nil {
+		v.OutputRefs, err = decodeJSON[[]string](outputRefs)
 	}
 	return v, err
 }
 
-const runSelect = `SELECT id,tenant_id,project_id,input_snapshot_id,idempotency_key,task_type,capability_id,capability_version,input_schema,output_schema,output_count,delivery_profiles,state,priority,attempt_count,COALESCE(active_attempt_id::text,''),COALESCE(lease_device_id::text,''),lease_expires_at,run_token_hash,COALESCE(progress_label,''),COALESCE(error_code,''),cancel_requested_at,report_hash,heartbeat_sequence,created_at,updated_at FROM task_runs`
+const runSelect = `SELECT id,tenant_id,project_id,work_task_id,sop_id,sop_version,sop_digest,stage_id,execution_mode,executor_kind,output_refs,task_revision_id,gate_evaluation_id,input_snapshot_id,idempotency_key,task_type,capability_id,capability_version,input_schema,output_schema,output_count,delivery_profiles,state,priority,attempt_count,COALESCE(active_attempt_id::text,''),COALESCE(lease_device_id::text,''),lease_expires_at,run_token_hash,COALESCE(progress_label,''),COALESCE(error_code,''),cancel_requested_at,report_hash,heartbeat_sequence,created_at,updated_at FROM task_runs`
 
 func (s *Store) Runs(ctx context.Context, tenantID, projectID string) ([]domain.TaskRun, error) {
 	out := []domain.TaskRun{}
@@ -132,7 +135,7 @@ func (s *Store) Run(ctx context.Context, tenantID, id string) (domain.TaskRun, e
 
 func (s *Store) SaveRun(ctx context.Context, v domain.TaskRun) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE task_runs SET state=$3,priority=$4,attempt_count=$5,active_attempt_id=$6,lease_device_id=$7,lease_expires_at=$8,run_token_hash=$9,progress_label=$10,error_code=$11,cancel_requested_at=$12,report_hash=$13,heartbeat_sequence=$14,updated_at=$15 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.State, v.Priority, v.AttemptCount, nullable(v.ActiveAttemptID), nullable(v.LeaseDeviceID), v.LeaseExpiresAt, v.RunTokenHash, v.ProgressLabel, v.ErrorCode, v.CancelRequestedAt, v.ReportHash, v.HeartbeatSequence, v.UpdatedAt)
+		result, err := tx.Exec(ctx, `UPDATE task_runs SET work_task_id=$3,sop_id=$4,sop_version=$5,sop_digest=$6,stage_id=$7,execution_mode=$8,executor_kind=$9,output_refs=$10,task_revision_id=$11,gate_evaluation_id=$12,state=$13,priority=$14,attempt_count=$15,active_attempt_id=$16,lease_device_id=$17,lease_expires_at=$18,run_token_hash=$19,progress_label=$20,error_code=$21,cancel_requested_at=$22,report_hash=$23,heartbeat_sequence=$24,updated_at=$25 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.WorkTaskID, v.SOPID, v.SOPVersion, v.SOPDigest, v.StageID, v.ExecutionMode, v.ExecutorKind, jsonArrayValue(v.OutputRefs), v.TaskRevisionID, v.GateEvaluationID, v.State, v.Priority, v.AttemptCount, nullable(v.ActiveAttemptID), nullable(v.LeaseDeviceID), v.LeaseExpiresAt, v.RunTokenHash, v.ProgressLabel, v.ErrorCode, v.CancelRequestedAt, v.ReportHash, v.HeartbeatSequence, v.UpdatedAt)
 		if err != nil {
 			return dbError(err)
 		}

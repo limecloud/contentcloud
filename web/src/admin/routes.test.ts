@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { isValidElement } from 'react';
 import { matchRoutes } from 'react-router-dom';
 import { appRoutes } from '../router';
 import { consolePath } from '../consoleRoutes';
@@ -17,6 +18,15 @@ describe('admin routes',()=>{
     const unknown=matchRoutes(appRoutes,'/admin/unknown');
     expect(unknown?.map(item=>item.route.path)).toEqual(['/admin',undefined,'*']);
     expect(matchRoutes(appRoutes,'/administer')?.map(item=>item.route.path)).toEqual(['*']);
+  });
+
+  it('redirects retired platform directory links to the configuration control plane',()=>{
+    const tenants=matchRoutes(appRoutes,'/admin/tenants');
+    const users=matchRoutes(appRoutes,'/admin/users');
+    const tenantRedirect=tenants?.at(-1)?.route.element;
+    const userRedirect=users?.at(-1)?.route.element;
+    expect(isValidElement(tenantRedirect)?tenantRedirect.props.to:undefined).toBe('/admin/dashboard');
+    expect(isValidElement(userRedirect)?userRedirect.props.to:undefined).toBe('/admin/dashboard');
   });
 
   it('keeps the tenant console and public surfaces outside the admin route tree',()=>{

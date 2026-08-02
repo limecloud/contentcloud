@@ -27,9 +27,17 @@ export const appRoutes: RouteObject[] = [
         lazy: async()=>({Component:(await import('./admin/AdminShell')).AdminShell}),
         children: [
           {index: true, element: <Navigate to="dashboard" replace />},
-          {path: 'dashboard', lazy: async()=>({Component:(await import('./admin/views/AdminDashboardPage')).AdminDashboardPage})},
-          {path: 'tenants', lazy: async()=>({Component:(await import('./admin/views/AdminTenantsPage')).AdminTenantsPage})},
-          {path: 'users', lazy: async()=>({Component:(await import('./admin/views/AdminUsersPage')).AdminUsersPage})},
+          {path: 'dashboard', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
+          // Platform directory pages belonged to the retired operations console. Keep
+          // their URLs as safe deep links, but do not expose sample tenant/user data.
+          {path: 'tenants', element: <Navigate to="/admin/dashboard" replace />},
+          {path: 'users', element: <Navigate to="/admin/dashboard" replace />},
+          {path: 'environments', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
+          {path: 'sops', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
+          {path: 'gates', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
+          {path: 'capabilities', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
+          {path: 'audit', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
+          {path: 'usage', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
           {path: '*', element: <Navigate to="dashboard" replace />}
         ]
       }
@@ -37,6 +45,12 @@ export const appRoutes: RouteObject[] = [
   },
   protectedConsoleRoute('/workspace', [
     {index: true, lazy: async()=>({Component:(await import('./workspace/pages')).ConsoleDashboardPage})},
+    {path: 'tasks/new', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSNewTaskPage})},
+    {path: 'tasks/:taskID', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskDetailPage})},
+    {path: 'tasks', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskListPage})},
+    {path: 'my-tasks', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskListPage})},
+    {path: 'inbox', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSInboxPage})},
+    {path: 'knowledge', lazy: async()=>({Component:(await import('./workspace/pages')).WorkspaceKnowledgeRedirectPage})},
     {path: '*', element: <Navigate to="/workspace" replace />}
   ]),
   protectedConsoleRoute('/team', [
@@ -45,6 +59,10 @@ export const appRoutes: RouteObject[] = [
   ]),
   protectedConsoleRoute('/projects/:projectID', [
     {index: true, element: <Navigate to="setup" replace />},
+    {path: 'tasks/new', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSNewTaskPage})},
+    {path: 'tasks', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskListPage})},
+    {path: 'tasks/:taskID', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskDetailPage})},
+    {path: 'sop', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSSOPPage})},
     ...projectRoutes(),
     {path: '*', element: <Navigate to="setup" replace />}
   ]),
@@ -63,11 +81,16 @@ function protectedConsoleRoute(path:string, children:RouteObject[]):RouteObject 
 }
 
 function projectRoutes():RouteObject[] {
-  return projectViewIDs.map(view=>({
-    path:projectRoute(view),
-    lazy:async()=>{
-      const {ConsoleProjectPage}=await import('./workspace/pages');
-      return {Component:()=> <ConsoleProjectPage view={view}/>};
+  return projectViewIDs.map(view=>{
+    if(view==='knowledge'){
+      return {path:projectRoute(view),lazy:async()=>({Component:(await import('./workspace/workOS')).WorkOSKnowledgePage})};
     }
-  }));
+    return {
+      path:projectRoute(view),
+      lazy:async()=>{
+        const {ConsoleProjectPage}=await import('./workspace/pages');
+        return {Component:()=> <ConsoleProjectPage view={view}/>};
+      }
+    };
+  });
 }

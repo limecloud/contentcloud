@@ -160,18 +160,32 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 		b.edge("source_revision", record.ProofSourceRevisionID, "rights_record", record.ID, "proves", "来源修订提供权利证明")
 	}
 
-	knowledge, err := s.store.Knowledge(ctx, tenantID, projectID)
+	knowledge, err := s.store.KnowledgeObjects(ctx, tenantID, projectID)
 	if err != nil {
 		return nil, err
 	}
-	for _, item := range knowledge {
-		b.node("knowledge_item", item.ID, firstNonEmpty(item.Title, item.Statement), item.Status, "knowledge", item.CreatedAt, map[string]any{"kind": item.Kind, "risk_level": item.RiskLevel})
-		b.edge("task_run", item.OriginRunID, "knowledge_item", item.ID, "produces", "Automation Run 产出待审核知识候选")
-		for _, evidence := range item.Evidence {
-			b.edge("source_revision", evidence.SourceRevisionID, "knowledge_item", item.ID, "supports", "来源证据支持知识项")
+	for _, object := range knowledge {
+		b.node("knowledge_object", object.ID, firstNonEmpty(object.Title, object.Statement), object.Status, "knowledge", object.CreatedAt, map[string]any{"object_type": object.ObjectType, "layer": object.Layer})
+		if origin, _ := object.Payload["origin_run_id"].(string); origin != "" {
+			b.edge("task_run", origin, "knowledge_object", object.ID, "produces", "Automation Run 产出知识候选")
 		}
-		for _, dependencyID := range item.DependsOnFactIDs {
-			b.edge("knowledge_item", dependencyID, "knowledge_item", item.ID, "depends_on", "知识项依赖另一事实")
+		for _, evidenceID := range object.EvidenceRefs {
+			span, spanErr := s.store.EvidenceSpan(ctx, tenantID, evidenceID)
+			if spanErr == nil {
+				b.edge("source_revision", span.RevisionID, "knowledge_object", object.ID, "supports", "Evidence 支持知识对象")
+			}
+		}
+		switch dependencies := object.Payload["depends_on_fact_ids"].(type) {
+		case []string:
+			for _, dependencyID := range dependencies {
+				b.edge("knowledge_object", dependencyID, "knowledge_object", object.ID, "depends_on", "知识对象依赖另一事实")
+			}
+		case []any:
+			for _, dependency := range dependencies {
+				if dependencyID, ok := dependency.(string); ok {
+					b.edge("knowledge_object", dependencyID, "knowledge_object", object.ID, "depends_on", "知识对象依赖另一事实")
+				}
+			}
 		}
 	}
 

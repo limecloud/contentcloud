@@ -10,7 +10,7 @@ import (
 
 var validMembershipRoles = map[string]bool{
 	"tenant_admin": true, "project_manager": true, "strategist": true,
-	"editor": true, "reviewer": true, "viewer": true,
+	"editor": true, "reviewer": true, "client_approver": true, "viewer": true,
 }
 
 func requireRole(actor Actor, roles ...string) error {
@@ -388,5 +388,8 @@ func (s *Service) CreateProjectTemplate(ctx context.Context, actor Actor, in Cre
 }
 
 func (s *Service) ProjectTemplates(ctx context.Context, actor Actor) ([]domain.ProjectTemplate, error) {
+	if err := s.ensureBuiltinProjectTemplates(ctx, actor); err != nil {
+		return nil, err
+	}
 	return s.store.ProjectTemplates(ctx, actor.TenantID)
 }

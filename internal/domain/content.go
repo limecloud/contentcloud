@@ -102,10 +102,9 @@ type KnowledgeExtractionPackage struct {
 }
 
 type KnowledgeExtractionResult struct {
-	RunID     string              `json:"run_id"`
-	Items     []KnowledgeItem     `json:"items"`
-	Conflicts []KnowledgeConflict `json:"conflicts"`
-	Warnings  []string            `json:"warnings"`
+	RunID    string            `json:"run_id"`
+	Objects  []KnowledgeObject `json:"objects"`
+	Warnings []string          `json:"warnings"`
 }
 
 type Asset struct {

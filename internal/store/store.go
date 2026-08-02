@@ -104,17 +104,64 @@ type Store interface {
 	RightsRecord(context.Context, string, string) (domain.RightsRecord, error)
 	SaveRightsRecord(context.Context, domain.RightsRecord) error
 
-	CreateKnowledge(context.Context, domain.KnowledgeItem) error
-	Knowledge(context.Context, string, string) ([]domain.KnowledgeItem, error)
-	KnowledgeItem(context.Context, string, string) (domain.KnowledgeItem, error)
-	SaveKnowledge(context.Context, domain.KnowledgeItem) error
-	CreateKnowledgeConflict(context.Context, domain.KnowledgeConflict, domain.DecisionRequest) error
-	KnowledgeConflicts(context.Context, string, string) ([]domain.KnowledgeConflict, error)
-	KnowledgeConflict(context.Context, string, string) (domain.KnowledgeConflict, error)
-	SaveKnowledgeConflict(context.Context, domain.KnowledgeConflict) error
-	DecisionRequests(context.Context, string, string) ([]domain.DecisionRequest, error)
-	DecisionRequest(context.Context, string, string) (domain.DecisionRequest, error)
-	SaveDecisionRequest(context.Context, domain.DecisionRequest) error
+	CreateKnowledgeObject(context.Context, domain.KnowledgeObject) error
+	CreateKnowledgeObjectDecision(context.Context, domain.KnowledgeObject, domain.KnowledgeDecision) error
+	KnowledgeObjects(context.Context, string, string) ([]domain.KnowledgeObject, error)
+	KnowledgeObject(context.Context, string, string, int) (domain.KnowledgeObject, error)
+	CreateKnowledgePack(context.Context, domain.KnowledgePack) error
+	KnowledgePacks(context.Context, string, string) ([]domain.KnowledgePack, error)
+	KnowledgePack(context.Context, string, string) (domain.KnowledgePack, error)
+	SaveKnowledgePack(context.Context, domain.KnowledgePack) error
+	CreateKnowledgeSnapshot(context.Context, domain.KnowledgeSnapshot) error
+	KnowledgeSnapshots(context.Context, string, string, string) ([]domain.KnowledgeSnapshot, error)
+	KnowledgeSnapshot(context.Context, string, string) (domain.KnowledgeSnapshot, error)
+	KnowledgeDecisions(context.Context, string, string) ([]domain.KnowledgeDecision, error)
+
+	CreateEnvironment(context.Context, domain.Environment) error
+	Environments(context.Context, string) ([]domain.Environment, error)
+	Environment(context.Context, string, string) (domain.Environment, error)
+	SaveEnvironment(context.Context, domain.Environment) error
+	CreateSOP(context.Context, domain.SOPDefinition, domain.SOPVersion) error
+	SaveSOPDefinition(context.Context, domain.SOPDefinition) error
+	CreateSOPVersion(context.Context, domain.SOPVersion) error
+	SOPs(context.Context, string) ([]domain.SOPSummary, error)
+	SOP(context.Context, string, string) (domain.SOPSummary, error)
+	SaveSOPVersion(context.Context, domain.SOPVersion) error
+	PublishSOPVersion(context.Context, string, string, int, string, time.Time) (domain.SOPVersion, error)
+	RetireSOPVersion(context.Context, string, string, int, time.Time) error
+	SaveProjectSOPBinding(context.Context, domain.ProjectSOPBinding) error
+	ProjectSOPBinding(context.Context, string, string) (domain.ProjectSOPBinding, error)
+	ProjectSOPBindings(context.Context, string) ([]domain.ProjectSOPBinding, error)
+	CreateWorkTask(context.Context, domain.WorkTask) error
+	WorkTaskByIdempotencyKey(context.Context, string, string) (domain.WorkTask, error)
+	WorkTasks(context.Context, string, string) ([]domain.WorkTask, error)
+	WorkTask(context.Context, string, string) (domain.WorkTask, error)
+	SaveWorkTask(context.Context, domain.WorkTask) error
+	CreateInputItem(context.Context, domain.InputItem) error
+	InputItems(context.Context, string, string, string, string) ([]domain.InputItem, error)
+	InputItem(context.Context, string, string) (domain.InputItem, error)
+	InputItemByIdempotencyKey(context.Context, string, string) (domain.InputItem, error)
+	SaveInputItem(context.Context, domain.InputItem, int) error
+	CreateConversationImport(context.Context, domain.ConversationImport) error
+	ConversationImport(context.Context, string, string) (domain.ConversationImport, error)
+	ConversationImportByIdempotencyKey(context.Context, string, string) (domain.ConversationImport, error)
+	ConversationImportsForTask(context.Context, string, string) ([]domain.ConversationImport, error)
+	SaveConversationImport(context.Context, domain.ConversationImport) error
+	StageRuns(context.Context, string, string) ([]domain.StageRun, error)
+	CreateStageRun(context.Context, domain.StageRun) error
+	SaveStageRun(context.Context, domain.StageRun) error
+	WorkTaskRuns(context.Context, string, string) ([]domain.TaskRun, error)
+	CreateGateEvaluation(context.Context, domain.GateEvaluation) error
+	GateEvaluations(context.Context, string, string) ([]domain.GateEvaluation, error)
+	GateEvaluation(context.Context, string, string) (domain.GateEvaluation, error)
+	SaveGateEvaluation(context.Context, domain.GateEvaluation) error
+	CreateTaskRevision(context.Context, domain.TaskRevision) error
+	TaskRevisions(context.Context, string, string) ([]domain.TaskRevision, error)
+	TaskRevision(context.Context, string, string) (domain.TaskRevision, error)
+	CreateTaskDelivery(context.Context, domain.TaskDelivery) error
+	TaskDeliveries(context.Context, string, string) ([]domain.TaskDelivery, error)
+	TaskDelivery(context.Context, string, string) (domain.TaskDelivery, error)
+	SaveTaskDelivery(context.Context, domain.TaskDelivery) error
 
 	CreateSnapshot(context.Context, domain.ContextSnapshot) error
 	Snapshot(context.Context, string, string) (domain.ContextSnapshot, error)

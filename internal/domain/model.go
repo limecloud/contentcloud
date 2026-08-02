@@ -152,35 +152,6 @@ type EvidenceRef struct {
 	Quote            string `json:"quote"`
 }
 
-type KnowledgeItem struct {
-	ID                  string         `json:"id"`
-	TenantID            string         `json:"tenant_id"`
-	ProjectID           string         `json:"project_id"`
-	Kind                string         `json:"kind"`
-	Title               string         `json:"title"`
-	Statement           string         `json:"statement"`
-	Subject             string         `json:"subject"`
-	Predicate           string         `json:"predicate"`
-	Value               TypedValue     `json:"value"`
-	Scope               KnowledgeScope `json:"scope"`
-	Status              string         `json:"status"`
-	RiskLevel           string         `json:"risk_level"`
-	AllowedChannels     []string       `json:"allowed_channels"`
-	Evidence            []EvidenceRef  `json:"evidence"`
-	ForbiddenExtensions []string       `json:"forbidden_extensions"`
-	DependsOnFactIDs    []string       `json:"depends_on_fact_ids"`
-	ValidFrom           *time.Time     `json:"valid_from,omitempty"`
-	ValidUntil          *time.Time     `json:"valid_until,omitempty"`
-	ExpiresAt           *time.Time     `json:"expires_at,omitempty"`
-	ApprovedBy          string         `json:"approved_by,omitempty"`
-	ApprovedAt          *time.Time     `json:"approved_at,omitempty"`
-	OriginRunID         string         `json:"origin_run_id,omitempty"`
-	DecisionRequired    bool           `json:"decision_required"`
-	RowVersion          int            `json:"row_version"`
-	CreatedAt           time.Time      `json:"created_at"`
-	UpdatedAt           time.Time      `json:"updated_at"`
-}
-
 type TypedValue struct {
 	Type    string   `json:"type"`
 	Text    string   `json:"text,omitempty"`
@@ -194,38 +165,6 @@ type KnowledgeScope struct {
 	Channels        []string `json:"channels"`
 	Audiences       []string `json:"audiences"`
 	ProductVariants []string `json:"product_variants"`
-}
-
-type KnowledgeConflict struct {
-	ID               string     `json:"id"`
-	TenantID         string     `json:"tenant_id"`
-	ProjectID        string     `json:"project_id"`
-	Subject          string     `json:"subject"`
-	Predicate        string     `json:"predicate"`
-	KnowledgeItemIDs []string   `json:"knowledge_item_ids"`
-	Reason           string     `json:"reason"`
-	Status           string     `json:"status"`
-	ResolvedBy       string     `json:"resolved_by,omitempty"`
-	ResolvedAt       *time.Time `json:"resolved_at,omitempty"`
-	Resolution       string     `json:"resolution,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-}
-
-type DecisionRequest struct {
-	ID                  string     `json:"id"`
-	TenantID            string     `json:"tenant_id"`
-	ProjectID           string     `json:"project_id"`
-	ConflictID          string     `json:"conflict_id"`
-	Question            string     `json:"question"`
-	KnowledgeItemIDs    []string   `json:"knowledge_item_ids"`
-	Status              string     `json:"status"`
-	RequestedBy         string     `json:"requested_by"`
-	ResolvedBy          string     `json:"resolved_by,omitempty"`
-	ResolvedAt          *time.Time `json:"resolved_at,omitempty"`
-	SelectedKnowledgeID string     `json:"selected_knowledge_id,omitempty"`
-	Notes               string     `json:"notes,omitempty"`
-	CreatedAt           time.Time  `json:"created_at"`
 }
 
 type ContextSnapshot struct {
@@ -257,6 +196,16 @@ type TaskRun struct {
 	ID                string     `json:"id"`
 	TenantID          string     `json:"tenant_id"`
 	ProjectID         string     `json:"project_id"`
+	WorkTaskID        string     `json:"work_task_id,omitempty"`
+	SOPID             string     `json:"sop_id,omitempty"`
+	SOPVersion        int        `json:"sop_version,omitempty"`
+	SOPDigest         string     `json:"sop_digest,omitempty"`
+	StageID           string     `json:"stage_id,omitempty"`
+	ExecutionMode     string     `json:"execution_mode,omitempty"`
+	ExecutorKind      string     `json:"executor_kind,omitempty"`
+	OutputRefs        []string   `json:"output_refs,omitempty"`
+	TaskRevisionID    string     `json:"task_revision_id,omitempty"`
+	GateEvaluationID  string     `json:"gate_evaluation_id,omitempty"`
 	InputSnapshotID   string     `json:"input_snapshot_id"`
 	IdempotencyKey    string     `json:"idempotency_key"`
 	TaskType          string     `json:"task_type"`

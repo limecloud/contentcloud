@@ -87,7 +87,7 @@ func TestRunAttemptCancellationWinsBeforeReport(t *testing.T) {
 	if len(attempts) != 1 || attempts[0].State != "canceled" {
 		t.Fatalf("attempt cancellation was not preserved: %#v", attempts)
 	}
-	items, err := service.Knowledge(ctx, actor, run.ProjectID)
+	items, err := service.KnowledgeObjects(ctx, actor, run.ProjectID)
 	must(t, err)
 	if len(items) != 0 {
 		t.Fatalf("canceled report wrote knowledge: %#v", items)
