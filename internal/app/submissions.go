@@ -466,7 +466,19 @@ func (s *Service) validateTenantSubmissionContentTypes(ctx context.Context, tena
 		case "content_batch":
 			switch identity.SchemaVersion {
 			case localworkspace.ContentItemSchema:
-				objectContentType = domain.ContentTypeVideoScript
+				var itemIdentity struct {
+					ContentKind string `json:"content_kind"`
+				}
+				if err := json.Unmarshal(object.Content, &itemIdentity); err != nil {
+					return domain.Invalid("CONTENT_ITEM_KIND_INVALID", "ContentItem content_kind 无效")
+				}
+				objectContentType = itemIdentity.ContentKind
+				if objectContentType == "" {
+					objectContentType = domain.ContentTypeVideoScript
+				}
+				if !domain.ValidTenantContentType(objectContentType) {
+					return domain.Invalid("CONTENT_ITEM_KIND_INVALID", "ContentItem content_kind 不受支持")
+				}
 			case localworkspace.ArticleSchema:
 				if _, err := localworkspace.ValidateArticleItemForSubmission(object.Content, projectID); err != nil {
 					return err

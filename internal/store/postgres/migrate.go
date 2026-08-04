@@ -20,6 +20,8 @@ const builtinSOPMetadataMigration = "00008_builtin_sop_metadata.sql"
 const conversationImportsMigration = "00009_conversation_imports.sql"
 const inputItemsMigration = "00010_input_items.sql"
 const workTaskIdempotencyMigration = "00011_work_task_idempotency.sql"
+const mediaPipelineMigration = "00012_v7_media_pipeline.sql"
+const projectContentTypeMigration = "00013_project_content_type.sql"
 
 func (s *Store) Migrate(ctx context.Context) error {
 	conn, err := s.pool.Acquire(ctx)
@@ -94,7 +96,7 @@ func validateV3MigrationSet(available, applied []string) error {
 	// Keep the pure validator compatible with callers that validate the
 	// pre-governance six-file set; Migrate itself passes the current embedded
 	// set and therefore requires every current infrastructure migration.
-	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration}
+	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration}
 	for length := len(suffix); length >= 1; length-- {
 		if len(available) == len(expected)+length {
 			candidate := append([]string{}, suffix[:length]...)

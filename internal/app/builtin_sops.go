@@ -13,11 +13,23 @@ import (
 const (
 	builtinSOPContentResearch = "content_research"
 	builtinSOPShortVideo      = "short_video_production"
+	builtinSOPMarketingVideo  = "marketing_video_production"
 	builtinSOPArticle         = "article_collaboration"
 	builtinSOPRetrospective   = "campaign_retrospective"
 	builtinSOPSourceRef       = "content-work-os/builtin-sops@1"
 	builtinSOPLegacySourceRef = "legacy/default-short-video"
 )
+
+func builtinSOPKeyForContentType(contentType string) string {
+	switch contentType {
+	case domain.ContentTypeMarketingVideo:
+		return builtinSOPMarketingVideo
+	case domain.ContentTypeWeChatArticle:
+		return builtinSOPArticle
+	default:
+		return builtinSOPShortVideo
+	}
+}
 
 type builtinSOPTemplate struct {
 	Key                  string
@@ -58,6 +70,28 @@ func builtinSOPTemplates() []builtinSOPTemplate {
 				{ID: "delivery", Name: "Accepted 与交付", Order: 60, OwnerRoles: []string{"editor", "project_manager"}, InputRefs: []string{"script", "quality"}, OutputSchema: "contentcloud.delivery/1.0", ExecutionModes: []string{"local"}, Checks: []string{"content.schema"}, RetryMaxAttempts: 1},
 			},
 			Gates: []domain.GateDefinition{{ID: "quality_check", Name: "内容质量确定性检查", Mode: domain.GateModeRequiredCheck, Blocking: true, Checks: []string{"content.schema", "claim.references", "rights.references"}, OnReject: "changes_requested"}},
+		},
+		{
+			Key: builtinSOPMarketingVideo, ID: "builtin-sop-marketing-video", Name: "营销视频全流程",
+			Description:  "从来源、知识、剧本和分镜到视频生成、质检、后期与可验证交付的完整生产流程。",
+			ContentTypes: []string{domain.ContentTypeMarketingVideo}, DefaultExecutionMode: "local", SourceRef: builtinSOPSourceRef,
+			Stages: []domain.StageDefinition{
+				{ID: "sources", Name: "来源与 Evidence", Order: 10, OwnerRoles: []string{"strategist", "editor"}, OutputSchema: "contentcloud.source_bundle/1.0", OutputSchemaRefs: []string{"contentcloud.source-revision/1.0"}, RequiredOutputTypes: []domain.StageObjectRequirement{{OutputType: domain.StageOutputSourceRevision, Role: domain.StageOutputRolePrimary, MinStatus: domain.StageOutputStatusValidated, MinCount: 1}}, CompletionPolicy: domain.StageCompletionAllRequired, ExecutionModes: []string{"local", "agent"}, Checks: []string{"source.registered"}, RetryPolicy: domain.StageRetryPolicy{MaxAttempts: 2}},
+				{ID: "knowledge", Name: "知识与权利快照", Order: 20, OwnerRoles: []string{"strategist", "reviewer"}, InputRefs: []string{"sources"}, OutputSchema: domain.KnowledgeSnapshotSchema, OutputSchemaRefs: []string{domain.KnowledgeSnapshotSchema}, RequiredOutputTypes: []domain.StageObjectRequirement{{OutputType: domain.StageOutputKnowledgeSnapshot, Role: domain.StageOutputRolePrimary, MinStatus: domain.StageOutputStatusApproved, MinCount: 1}}, CompletionPolicy: domain.StageCompletionAllRequired, ExecutionModes: []string{"local", "agent"}, Checks: []string{"claim.references", "rights.references"}, GateIDs: []string{"knowledge_check"}, RetryPolicy: domain.StageRetryPolicy{MaxAttempts: 2}},
+				{ID: "script", Name: "短视频剧本", Order: 30, OwnerRoles: []string{"editor", "strategist"}, InputRefs: []string{"knowledge"}, OutputSchema: "contentcloud.marketing_video_script/1.0", OutputSchemaRefs: []string{"contentcloud.marketing_video_script/1.0"}, RequiredCapabilities: []string{"content.script.compose"}, RequiredOutputTypes: []domain.StageObjectRequirement{{OutputType: domain.StageOutputSubmissionRevision, Role: domain.StageOutputRolePrimary, MinStatus: domain.StageOutputStatusValidated, MinCount: 1}}, CompletionPolicy: domain.StageCompletionAllRequired, ExecutionModes: []string{"local", "agent"}, Checks: []string{"content.schema", "claim.references"}, GateIDs: []string{"script_review"}, RetryPolicy: domain.StageRetryPolicy{MaxAttempts: 3}},
+				{ID: "storyboard", Name: "分镜与图片素材", Order: 40, OwnerRoles: []string{"editor", "reviewer"}, InputRefs: []string{"script", "knowledge"}, OutputSchema: "contentcloud.storyboard-package/1.0", OutputSchemaRefs: []string{"contentcloud.storyboard-package/1.0"}, RequiredOutputTypes: []domain.StageObjectRequirement{{OutputType: domain.StageOutputStoryboardPackage, Role: domain.StageOutputRolePrimary, MinStatus: domain.StageOutputStatusApproved, MinCount: 1}}, CompletionPolicy: domain.StageCompletionAllRequired, ExecutionModes: []string{"local", "agent"}, Checks: []string{"storyboard.locked", "rights.references"}, GateIDs: []string{"storyboard_review"}, RetryPolicy: domain.StageRetryPolicy{MaxAttempts: 3, AllowPartialRetry: true}},
+				{ID: "generation", Name: "视频生成", Order: 50, OwnerRoles: []string{"editor", "project_manager"}, InputRefs: []string{"storyboard"}, OutputSchema: "contentcloud.media-generation-result/1.0", OutputSchemaRefs: []string{"contentcloud.media-generation-job/1.0", "contentcloud.artifact/1.0"}, RequiredCapabilities: []string{"media.video.generate"}, RequiredOutputTypes: []domain.StageObjectRequirement{{OutputType: domain.StageOutputGenerationJob, Role: domain.StageOutputRolePrimary, MinStatus: domain.StageOutputStatusValidated, MinCount: 1}, {OutputType: domain.StageOutputArtifact, Role: domain.StageOutputRolePreview, MinStatus: domain.StageOutputStatusValidated, MinCount: 1}}, CompletionPolicy: domain.StageCompletionAllRequired, ExecutorPolicy: "media_worker", ExecutionModes: []string{"local"}, Checks: []string{"media.technical", "cost.confirmed"}, RetryPolicy: domain.StageRetryPolicy{MaxAttempts: 3, AllowPartialRetry: true, RetryableErrorCode: []string{"RATE_LIMITED", "PROVIDER_UNAVAILABLE", "DOWNLOAD_EXPIRED"}}, CostPolicy: domain.StageCostPolicy{Currency: "CNY", RequireApprovalAboveMinor: 1, EstimateTTLSeconds: 900}},
+				{ID: "review", Name: "成片质检与 Take 选择", Order: 60, OwnerRoles: []string{"reviewer", "editor"}, InputRefs: []string{"generation"}, OutputSchema: "contentcloud.media-review/1.0", OutputSchemaRefs: []string{"contentcloud.media-review/1.0"}, RequiredOutputTypes: []domain.StageObjectRequirement{{OutputType: domain.StageOutputMediaReview, Role: domain.StageOutputRoleSelectedTake, MinStatus: domain.StageOutputStatusApproved, MinCount: 1}}, CompletionPolicy: domain.StageCompletionAllRequired, ExecutionModes: []string{"local"}, Checks: []string{"media.technical", "media.content"}, GateIDs: []string{"take_review"}, RetryPolicy: domain.StageRetryPolicy{MaxAttempts: 3, AllowPartialRetry: true}},
+				{ID: "postproduction", Name: "后期与最终批准", Order: 70, OwnerRoles: []string{"editor", "reviewer"}, InputRefs: []string{"review"}, OutputSchema: "contentcloud.final-render/1.0", OutputSchemaRefs: []string{"contentcloud.artifact/1.0", "contentcloud.media-review/1.0"}, RequiredOutputTypes: []domain.StageObjectRequirement{{OutputType: domain.StageOutputArtifact, Role: domain.StageOutputRoleFinal, MinStatus: domain.StageOutputStatusValidated, MinCount: 1}, {OutputType: domain.StageOutputMediaReview, Role: domain.StageOutputRoleFinal, MinStatus: domain.StageOutputStatusApproved, MinCount: 1}}, CompletionPolicy: domain.StageCompletionAllRequired, ExecutionModes: []string{"local"}, Checks: []string{"media.final", "offer.valid", "rights.references"}, GateIDs: []string{"final_review"}, RetryPolicy: domain.StageRetryPolicy{MaxAttempts: 2}},
+				{ID: "delivery", Name: "交付包", Order: 80, OwnerRoles: []string{"project_manager", "editor"}, InputRefs: []string{"postproduction"}, OutputSchema: "contentcloud.delivery-package/1.0", OutputSchemaRefs: []string{"contentcloud.delivery-package/1.0"}, RequiredOutputTypes: []domain.StageObjectRequirement{{OutputType: domain.StageOutputDeliveryPackage, Role: domain.StageOutputRoleFinal, MinStatus: domain.StageOutputStatusApproved, MinCount: 1}}, CompletionPolicy: domain.StageCompletionAllRequired, ExecutionModes: []string{"local"}, Checks: []string{"delivery.integrity"}, RetryPolicy: domain.StageRetryPolicy{MaxAttempts: 1}},
+			},
+			Gates: []domain.GateDefinition{
+				{ID: "knowledge_check", Name: "知识与权利检查", Mode: domain.GateModeRequiredCheck, Blocking: true, Checks: []string{"claim.references", "rights.references"}, OnReject: "changes_requested"},
+				{ID: "script_review", Name: "剧本审核", Mode: domain.GateModeInternalReview, Blocking: true, AssigneeRoles: []string{"reviewer", "project_manager"}, Checks: []string{"content.schema", "claim.references"}, OnReject: "changes_requested"},
+				{ID: "storyboard_review", Name: "分镜锁定", Mode: domain.GateModeInternalReview, Blocking: true, AssigneeRoles: []string{"reviewer", "project_manager"}, Checks: []string{"storyboard.locked", "rights.references"}, OnReject: "changes_requested"},
+				{ID: "take_review", Name: "Take 选择确认", Mode: domain.GateModeInternalReview, Blocking: true, AssigneeRoles: []string{"reviewer", "project_manager"}, Checks: []string{"media.technical", "media.content"}, OnReject: "changes_requested"},
+				{ID: "final_review", Name: "最终成片批准", Mode: domain.GateModeClientDecision, Blocking: true, AssigneeRoles: []string{"client_approver", "tenant_admin"}, Checks: []string{"media.final", "offer.valid", "rights.references"}, OnReject: "changes_requested"},
+			},
 		},
 		{
 			Key: builtinSOPArticle, ID: "builtin-sop-article", Name: "文章协作",

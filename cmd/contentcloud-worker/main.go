@@ -56,6 +56,12 @@ func main() {
 			} else if processed > 0 {
 				logger.Info("processed sources", "count", processed)
 			}
+			mediaProcessed, mediaErr := worker.ProcessPendingMedia(ctx, service, 10)
+			if mediaErr != nil {
+				logger.Error("process media jobs", "error", mediaErr)
+			} else if mediaProcessed > 0 {
+				logger.Info("processed media jobs", "count", mediaProcessed)
+			}
 		}
 	}
 }

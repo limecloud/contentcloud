@@ -21,7 +21,7 @@ func TestConversationImportRequestAndBundleAreScopedAndIdempotent(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "品牌", ProductName: "产品"}, "")
+	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "品牌", ProductName: "产品", ContentType: domain.ContentTypeVideoScript}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

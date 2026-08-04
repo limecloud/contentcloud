@@ -136,10 +136,18 @@ func (s *Service) UploadSourceRevision(ctx context.Context, actor Actor, sourceI
 	if err != nil {
 		return revision, err
 	}
+	revision.ProcessingStatus = "uploading"
+	if err := s.store.SaveSourceRevision(ctx, revision); err != nil {
+		return revision, err
+	}
 	if err := s.blobs.Put(ctx, revision.ObjectKey, data); err != nil {
 		revision.ProcessingStatus = "failed"
 		revision.ErrorCode = "OBJECT_WRITE_FAILED"
 		_ = s.store.SaveSourceRevision(ctx, revision)
+		return revision, err
+	}
+	revision.ProcessingStatus = "pending"
+	if err := s.store.SaveSourceRevision(ctx, revision); err != nil {
 		return revision, err
 	}
 	return revision, nil
@@ -160,10 +168,18 @@ func (s *Service) UploadSource(ctx context.Context, actor Actor, projectID, name
 	if err != nil {
 		return revision, err
 	}
+	revision.ProcessingStatus = "uploading"
+	if err := s.store.SaveSourceRevision(ctx, revision); err != nil {
+		return revision, err
+	}
 	if err := s.blobs.Put(ctx, revision.ObjectKey, data); err != nil {
 		revision.ProcessingStatus = "failed"
 		revision.ErrorCode = "OBJECT_WRITE_FAILED"
 		_ = s.store.SaveSourceRevision(ctx, revision)
+		return revision, err
+	}
+	revision.ProcessingStatus = "pending"
+	if err := s.store.SaveSourceRevision(ctx, revision); err != nil {
 		return revision, err
 	}
 	return revision, nil

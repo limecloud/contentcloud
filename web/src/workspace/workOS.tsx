@@ -24,7 +24,6 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
-  UserRound,
   Workflow,
   X
 } from 'lucide-react';
@@ -47,12 +46,21 @@ const statusLabel: Record<TaskStatus, string> = {needs_input: '待补输入', re
 const knowledgeStatusLabel: Record<string, string> = {approved: '已批准', needs_review: '待审核', candidate: '候选', open: '知识缺口', conflicted: '有冲突', blocked: '已阻断', published: '已发布', draft: '草稿', retired: '已退役'};
 const inputStatusLabel: Record<string, string> = {untriaged: '待分流', needs_info: '待补信息', routed: '已转负责人', task_created: '已创建任务', task_merged: '已并入任务', project_material: '已归档为资料', archived: '已归档'};
 
+function latestKnowledgeObjects(values: KnowledgeObject[]): KnowledgeObject[] {
+  const latest = new Map<string, KnowledgeObject>();
+  for (const value of values) {
+    const previous = latest.get(value.id);
+    if (!previous || value.version > previous.version) latest.set(value.id, value);
+  }
+  return [...latest.values()].sort((left, right) => left.title.localeCompare(right.title, 'zh-CN'));
+}
+
 export function taskPath(task: Pick<ApiWorkTask, 'id'|'project_id'>): string {
   return `/projects/${encodeURIComponent(task.project_id)}/tasks/${encodeURIComponent(task.id)}`;
 }
 
-function workspaceTaskPath(taskID: string): string {
-  return `/workspace/tasks/${encodeURIComponent(taskID)}`;
+function taskStageLabel(task: Pick<ApiWorkTask, 'status'|'current_stage_id'>): string {
+  return task.status === 'delivered' ? '已完成' : task.current_stage_id || '未开始';
 }
 
 export function WorkOSHomePage() {
@@ -133,7 +141,7 @@ export function WorkOSTaskListPage({projectID: explicitProjectID}: {projectID?: 
     <div className="workos-tabs" role="tablist">{([['all', '所有任务'], ['mine', '我的任务'], ['waiting_gate', '待决定'], ['running', '运行中'], ['delivered', '已交付']] as const).map(([id, label]) => <button key={id} className={filter === id ? 'is-active' : ''} onClick={() => setFilter(id)} role="tab" aria-selected={filter === id}>{label}<b>{countFor(id)}</b></button>)}</div>
     <div className="workos-toolbar"><label className="search-field"><Search size={16}/><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索任务、流程规范或阶段" aria-label="搜索任务"/></label><div className="filter-control"><button className={`filter-button ${filter !== 'all' ? 'is-active' : ''}`} aria-expanded={filterOpen} aria-haspopup="menu" onClick={() => setFilterOpen(value => !value)}><Filter size={15}/>{filter === 'all' ? '筛选' : taskFilterLabels[filter]} <ChevronRight size={14}/></button>{filterOpen && <div className="filter-menu" role="menu"><strong>按状态筛选</strong>{(Object.entries(taskFilterLabels) as [TaskFilter, string][]).map(([id, label]) => <button key={id} role="menuitemradio" aria-checked={filter === id} className={filter === id ? 'is-selected' : ''} onClick={() => {setFilter(id); setFilterOpen(false);}}>{label}<span>{countFor(id)}</span></button>)}</div>}</div><span className="toolbar-count">{filteredTasks.length} / {tasks.length} 项</span></div>
     {error && <div className="workos-notice is-error"><AlertCircle size={16}/>{error}</div>}
-    <section className="workos-section task-table-section">{loading ? <div className="workos-loading">正在读取任务...</div> : <><div className="task-table-head"><span>任务</span><span>流程规范 / 阶段</span><span>状态</span><span>负责人 / 执行方式</span><span>下一动作</span><span>更新时间</span><span aria-hidden="true"></span></div>{filteredTasks.length === 0 ? <Empty title={tasks.length === 0 ? '还没有任务' : '没有匹配的任务'} detail={tasks.length === 0 ? '从一个真实业务目标开始创建任务，任务会固定当前项目的流程规范版本。' : '换一个筛选条件，或创建新的内容任务。'} action={<Button onClick={() => navigate('/workspace/tasks/new')}><Plus size={15}/>新建任务</Button>}/> : filteredTasks.map(task => <button className="task-table-row" key={task.id} onClick={() => navigate(`${projectID ? `/projects/${project.id}/tasks/${task.id}` : `/workspace/tasks/${task.id}`}`)}><div className="task-title-cell"><span className={`object-mark is-${task.status === 'delivered' ? 'success' : task.status === 'blocked' ? 'review' : 'production'}`}><ListTodo size={15}/></span><span><strong>{task.title}</strong><small>{task.content_type || '内容任务'} · {project.brand_name}</small></span></div><div><strong>{task.sop_id} <small>v{task.sop_version}</small></strong><small className="stage-text"><Workflow size={13}/>{task.current_stage_id || '未开始'}</small></div><StatusText value={task.status}/><div><strong>{task.assignee_user_id || '未分派'}</strong><small>{task.environment_id}</small></div><div className="next-action-cell"><span>{task.next_action}</span><ArrowRight size={14}/></div><time>{formatDateTime(task.updated_at)}</time><MoreHorizontal size={16}/></button>)}</>}</section>
+    <section className="workos-section task-table-section">{loading ? <div className="workos-loading">正在读取任务...</div> : <><div className="task-table-head"><span>任务</span><span>流程规范 / 阶段</span><span>状态</span><span>负责人 / 执行方式</span><span>下一动作</span><span>更新时间</span><span aria-hidden="true"></span></div>{filteredTasks.length === 0 ? <Empty title={tasks.length === 0 ? '还没有任务' : '没有匹配的任务'} detail={tasks.length === 0 ? '从一个真实业务目标开始创建任务，任务会固定当前项目的流程规范版本。' : '换一个筛选条件，或创建新的内容任务。'} action={<Button onClick={() => navigate('/workspace/tasks/new')}><Plus size={15}/>新建任务</Button>}/> : filteredTasks.map(task => <button className="task-table-row" key={task.id} onClick={() => navigate(`${projectID ? `/projects/${project.id}/tasks/${task.id}` : `/workspace/tasks/${task.id}`}`)}><div className="task-title-cell"><span className={`object-mark is-${task.status === 'delivered' ? 'success' : task.status === 'blocked' ? 'review' : 'production'}`}><ListTodo size={15}/></span><span><strong>{task.title}</strong><small>{task.content_type || '内容任务'} · {project.brand_name}</small></span></div><div><strong>{task.sop_id} <small>v{task.sop_version}</small></strong><small className="stage-text"><Workflow size={13}/>{taskStageLabel(task)}</small></div><StatusText value={task.status}/><div><strong>{task.assignee_user_id || '未分派'}</strong><small>{task.environment_id}</small></div><div className="next-action-cell"><span>{task.next_action}</span><ArrowRight size={14}/></div><time>{formatDateTime(task.updated_at)}</time><MoreHorizontal size={16}/></button>)}</>}</section>
   </div>;
 }
 
@@ -163,7 +171,7 @@ export function WorkOSInboxPage() {
     setBusy(item.id);
     setError('');
     try {
-      await post<InputItem>(`/api/bff/input-items/${encodeURIComponent(item.id)}/triage`, {action, expected_version: item.row_version, project_id: item.project_id || project?.id || '', content_type: 'video_script', ...extra});
+		await post<InputItem>(`/api/bff/input-items/${encodeURIComponent(item.id)}/triage`, {action, expected_version: item.row_version, project_id: item.project_id || project?.id || '', content_type: project?.content_type || 'marketing_video', ...extra});
       await load();
     } catch (value) {
       setError(value instanceof Error ? value.message : '输入分流失败');
@@ -193,13 +201,15 @@ export function WorkOSNewTaskPage({projectID: explicitProjectID}: {projectID?: s
   const {projectID: routeProjectID} = useParams();
   const projectID = explicitProjectID ?? routeProjectID;
   const project = dashboard.projects.find(item => item.id === projectID) || dashboard.projects[0];
+  const projectContentType = project?.content_type || 'marketing_video';
   const [title, setTitle] = useState('');
-  const [contentType, setContentType] = useState('video_script');
+  const [contentType, setContentType] = useState(projectContentType);
   const [input, setInput] = useState('');
   const [sopView, setSopView] = useState<ProjectSOPView>();
   const [created, setCreated] = useState<WorkTaskView>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => setContentType(projectContentType), [projectContentType]);
   useEffect(() => {
     if (!project) return;
     api<ProjectSOPView>(`/api/bff/projects/${encodeURIComponent(project.id)}/sop`).then(value => setSopView(normalizeProjectSOPView(value))).catch(value => setError(value instanceof Error ? value.message : '项目 SOP 加载失败'));
@@ -219,112 +229,9 @@ export function WorkOSNewTaskPage({projectID: explicitProjectID}: {projectID?: s
     }
   };
   if (!project) return <div className="workos-page"><PageHeader eyebrow="工作区 / 新建任务" title="新建任务" description="任务必须绑定一个真实 Project。"/><Empty title="还没有 Project" detail="先创建一个 Project，再把业务目标交给 SOP。"/></div>;
-  return <div className="workos-page workos-form-page"><button className="back-link" onClick={() => navigate(-1)}><ArrowLeft size={15}/>返回</button><PageHeader eyebrow="工作区 / 新建任务" title="新建任务" description="只填写业务目标，执行细节由已发布 SOP 承接。"/><div className="new-task-layout"><section className="workos-section new-task-main"><div className="form-progress"><span className="is-current">1 <b>目标</b></span><i></i><span>2 <b>输入</b></span><i></i><span>3 <b>确认</b></span></div><Field label="这次要完成什么？"><textarea value={title} onChange={event => setTitle(event.target.value)} placeholder="例如：为夏季新品生成 3 条短视频脚本" rows={3}/></Field><div className="form-grid"><Field label="Project"><select><option>{project.brand_name} · {project.product_name}</option></select></Field><Field label="内容类型"><select value={contentType} onChange={event => setContentType(event.target.value)}><option value="video_script">短视频脚本</option><option value="wechat_article">公众号文章</option></select></Field><Field label="使用 SOP"><select disabled><option>{sopView ? `${sopView.sop.name} · v${sopView.sop.version}` : '正在读取项目 SOP...'}</option></select></Field><Field label="执行环境"><input value={sopView?.binding.environment_id || '正在读取 Environment...'} readOnly/></Field></div><Field label="补充输入（可选）"><textarea value={input} onChange={event => setInput(event.target.value)} placeholder="Brief、目标受众、截止时间或需要注意的边界" rows={4}/></Field><div className="new-task-actions"><Button variant="secondary" onClick={() => navigate(-1)}>取消</Button><Button disabled={!canCreate || busy || !sopView} onClick={submit}><Plus size={15}/>{busy ? '创建中...' : '创建任务'}</Button></div>{error && <div className="workos-notice is-error"><AlertCircle size={16}/>{error}</div>}{created && <div className="created-task-message"><CheckCircle2 size={17}/><div><strong>任务已创建</strong><span>已固定 SOP v{created.task.sop_version} 和 digest，下一步：{created.task.next_action}。</span></div><Button variant="secondary" onClick={() => navigate(`/workspace/tasks/${created.task.id}`)}>打开任务</Button></div>}</section><aside className="new-task-aside"><div className="aside-label">创建前会检查</div><CheckLine label="Project 可访问且未归档"/><CheckLine label="SOP 已发布且适用当前内容类型"/><CheckLine label="Environment 有可用的本地执行方式"/><CheckLine label="必填输入和输出 Schema 完整"/><div className="aside-note"><Settings2 size={16}/><span>模型、Prompt、本机目录和 CLI 命令不在这里配置，统一由 SOP 和管理后台托底。</span></div></aside></div></div>;
+  return <div className="workos-page workos-form-page"><button className="back-link" onClick={() => navigate(-1)}><ArrowLeft size={15}/>返回</button><PageHeader eyebrow="工作区 / 新建任务" title="新建任务" description="只填写业务目标，执行细节由已发布 SOP 承接。"/><div className="new-task-layout"><section className="workos-section new-task-main"><div className="form-progress"><span className="is-current">1 <b>目标</b></span><i></i><span>2 <b>输入</b></span><i></i><span>3 <b>确认</b></span></div><Field label="这次要完成什么？"><textarea value={title} onChange={event => setTitle(event.target.value)} placeholder="例如：为新品生成一条从剧本到成片的营销视频" rows={3}/></Field><div className="form-grid"><Field label="Project"><select><option>{project.brand_name} · {project.product_name}</option></select></Field><Field label="内容类型"><select value={contentType} disabled aria-label="Project 生产类型"><option value="marketing_video">营销视频（剧本到成片）</option><option value="video_script">短视频剧本</option><option value="wechat_article">公众号文章</option></select></Field><Field label="使用 SOP"><select disabled><option>{sopView ? `${sopView.sop.name} · v${sopView.sop.version}` : '正在读取项目 SOP...'}</option></select></Field><Field label="执行环境"><input value={sopView?.binding.environment_id || '正在读取 Environment...'} readOnly/></Field></div><Field label="补充输入（可选）"><textarea value={input} onChange={event => setInput(event.target.value)} placeholder="Brief、目标受众、截止时间或需要注意的边界" rows={4}/></Field><div className="new-task-actions"><Button variant="secondary" onClick={() => navigate(-1)}>取消</Button><Button disabled={!canCreate || busy || !sopView} onClick={submit}><Plus size={15}/>{busy ? '创建中...' : '创建任务'}</Button></div>{error && <div className="workos-notice is-error"><AlertCircle size={16}/>{error}</div>}{created && <div className="created-task-message"><CheckCircle2 size={17}/><div><strong>任务已创建</strong><span>已固定 SOP v{created.task.sop_version} 和 digest，下一步：{created.task.next_action}。</span></div><Button variant="secondary" onClick={() => navigate(`/workspace/tasks/${created.task.id}`)}>打开任务</Button></div>}</section><aside className="new-task-aside"><div className="aside-label">创建前会检查</div><CheckLine label="Project 可访问且未归档"/><CheckLine label="SOP 已发布且适用当前内容类型"/><CheckLine label="Environment 有可用的本地执行方式"/><CheckLine label="必填输入和输出 Schema 完整"/><div className="aside-note"><Settings2 size={16}/><span>模型、Prompt、本机目录和 CLI 命令不在这里配置，统一由 SOP 和管理后台托底。</span></div></aside></div></div>;
 }
 
-export function WorkOSTaskDetailPage({projectID: explicitProjectID}: {projectID?: string} = {}) {
-  const {taskID, projectID: routeProjectID} = useParams();
-  const projectID = explicitProjectID ?? routeProjectID;
-  const navigate = useNavigate();
-  const [view, setView] = useState<WorkTaskView>();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [actionError, setActionError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [showReport, setShowReport] = useState(false);
-  const [stageOutput, setStageOutput] = useState('');
-  const [revisionContent, setRevisionContent] = useState('{\n  "title": "",\n  "scenes": []\n}');
-  const [showRevision, setShowRevision] = useState(false);
-  const [deliveryDestination, setDeliveryDestination] = useState('workspace');
-  const [showDelivery, setShowDelivery] = useState(false);
-  const reload = async () => {
-    if (!taskID) return;
-    const value = await api<WorkTaskView>(`/api/bff/tasks/${encodeURIComponent(taskID)}`);
-    setView(normalizeWorkTaskView(value));
-  };
-  useEffect(() => {
-    if (!taskID) return;
-    setLoading(true);
-    setError('');
-    api<WorkTaskView>(`/api/bff/tasks/${encodeURIComponent(taskID)}`).then(value => {
-      const normalized = normalizeWorkTaskView(value);
-      setView(normalized);
-      if (!projectID && normalized.project?.id) {
-        navigate(taskPath(normalized.task), {replace: true});
-      }
-    }).catch(value => setError(value instanceof Error ? value.message : '任务加载失败')).finally(() => setLoading(false));
-  }, [navigate, projectID, taskID]);
-  if (loading) return <div className="workos-page"><div className="workos-loading">正在读取任务...</div></div>;
-  if (error || !view) return <div className="workos-page"><Empty title="任务不可用" detail={error || '任务不存在或已被移除。'} action={<Button onClick={() => navigate(projectID ? `/projects/${projectID}/tasks` : '/workspace/tasks')}><ArrowLeft size={15}/>返回任务列表</Button>}/></div>;
-  const task = view.task;
-  const gate = view.sop.gates.find(candidate => view.sop.stages.some(stage => stage.stage_id === task.current_stage_id && stage.gate_ids.includes(candidate.gate_id)));
-  const activeStageRun = view.stage_runs.find(run => run.stage_id === task.current_stage_id);
-  const primaryAction = task.status === 'waiting_gate' ? '查看 Gate' : task.status === 'running' ? '上报 Stage' : task.status === 'needs_input' ? '补充输入' : task.status === 'blocked' ? '重试当前 Stage' : task.status === 'accepted' ? '提交 Revision' : task.status === 'delivered' ? '查看交付' : task.status === 'paused' ? '恢复执行' : '开始当前 Stage';
-  const action = async (name: string) => {
-    if (!taskID) return;
-    setBusy(true);
-    setNotice('');
-    try {
-      const next = await post<WorkTaskView>(`/api/bff/tasks/${encodeURIComponent(taskID)}/actions`, {action: name});
-      setView(normalizeWorkTaskView(next));
-      if (name === 'start' || name === 'resume') setShowReport(true);
-      setNotice(name === 'cancel' ? '任务已取消。' : '任务状态已更新。');
-    } catch (value) { setNotice(value instanceof Error ? value.message : '任务动作失败'); }
-    finally { setBusy(false); }
-  };
-  const report = async () => {
-    if (!taskID || !activeStageRun) return;
-    const outputRefs = stageOutput.split('\n').map(value => value.trim()).filter(Boolean);
-    setBusy(true);
-    try {
-      const next = await post<WorkTaskView>(`/api/bff/tasks/${encodeURIComponent(taskID)}/stages/${encodeURIComponent(activeStageRun.stage_id)}/report`, {stage_run_id: activeStageRun.id, stage_id: activeStageRun.stage_id, status: 'completed', output_refs: outputRefs, checks: {passed: true}});
-      setView(normalizeWorkTaskView(next));
-      setStageOutput('');
-      setShowReport(false);
-      setNotice('Stage 结果已记录，下一动作已重新计算。');
-    } catch (value) { setNotice(value instanceof Error ? value.message : 'Stage 上报失败'); }
-    finally { setBusy(false); }
-  };
-  const decide = async (gateID: string, decision: string) => {
-    if (!taskID) return;
-    setBusy(true);
-    try {
-      const next = await post<WorkTaskView>(`/api/bff/tasks/${encodeURIComponent(taskID)}/gates/${encodeURIComponent(gateID)}/decide`, {decision, reason: decision === 'approved' ? '工作台确认通过' : '需要补充或修改'});
-      setView(normalizeWorkTaskView(next));
-      setNotice(decision === 'approved' ? 'Gate 已通过。' : 'Gate 已退回，任务进入阻断恢复路径。');
-    } catch (value) { setNotice(value instanceof Error ? value.message : 'Gate 决定失败'); }
-    finally { setBusy(false); }
-  };
-  const submitRevision = async () => {
-    if (!taskID) return;
-    let content: unknown;
-    try { content = JSON.parse(revisionContent); } catch { setNotice('Revision 内容必须是有效 JSON。'); return; }
-    setBusy(true);
-    try {
-      const revision = await post<{id:string}>('/api/bff/tasks/' + encodeURIComponent(taskID) + '/revisions', {content_type: task.content_type, content});
-      await reload();
-      setShowRevision(false);
-      setNotice(`Revision ${revision.id.slice(0, 8)} 已提交。`);
-    } catch (value) { setNotice(value instanceof Error ? value.message : 'Revision 提交失败'); }
-    finally { setBusy(false); }
-  };
-  const deliver = async () => {
-    if (!taskID) return;
-    const revision = [...view.revisions].reverse().find(value => value.status === 'accepted');
-    if (!revision) { setNotice('当前没有可交付的已接受 Revision。'); return; }
-    setBusy(true);
-    try {
-      await post(`/api/bff/tasks/${encodeURIComponent(taskID)}/deliveries`, {revision_id: revision.id, destination: deliveryDestination, deliver: true});
-      await reload();
-      setShowDelivery(false);
-      setNotice('交付已记录。');
-    } catch (value) { setNotice(value instanceof Error ? value.message : '交付失败'); }
-    finally { setBusy(false); }
-  };
-  const headerAction = task.status === 'waiting_gate' ? () => document.getElementById('task-gates')?.scrollIntoView({behavior: 'smooth'}) : task.status === 'running' ? () => setShowReport(true) : task.status === 'accepted' ? () => setShowRevision(true) : task.status === 'delivered' ? () => document.getElementById('task-deliveries')?.scrollIntoView({behavior: 'smooth'}) : task.status === 'blocked' ? () => action('retry') : task.status === 'paused' ? () => action('resume') : () => action('start');
-  return <div className="workos-page task-detail-page"><button className="back-link" onClick={() => navigate(projectID ? `/projects/${projectID}/tasks` : '/workspace/tasks')}><ArrowLeft size={15}/>返回任务列表</button><header className="task-detail-header"><div><span className="eyebrow">{view.project.brand_name} / Task</span><h1>{task.title}</h1><p>{task.content_type || '内容任务'} · {view.sop.name} v{view.sop.version} · 更新于 {formatDateTime(task.updated_at)}</p></div><div className="task-header-actions"><StatusText value={task.status}/><Button disabled={busy || task.status === 'cancelled'} onClick={headerAction}>{primaryAction}<ArrowRight size={15}/></Button></div></header>{notice && <div className="workos-notice is-info"><CircleHelp size={16}/><span>{notice}</span><IconButton label="关闭提示" onClick={() => setNotice('')}><X size={15}/></IconButton></div>}<div className="task-detail-layout"><main><section className="workos-section task-goal"><SectionHeader kicker="目标与输出" title="把业务目标推进到可交付结果"/><p>{task.intent || '任务目标已记录，输入和输出由当前 SOP 的 Stage Schema 约束。'}</p><div className="detail-tags"><span><FileInput size={14}/>输入 {task.input_refs.length} 项</span><span><GitBranch size={14}/>SOP digest {task.sop_digest.slice(0, 18)}…</span><span><PackageCheck size={14}/>{Object.keys(task.requested_output || {}).length} 项输出要求</span></div></section><section className="workos-section task-stage-section"><SectionHeader kicker="当前 Stage" title={view.sop.stages.find(stage => stage.stage_id === task.current_stage_id)?.name || task.current_stage_id || '尚未开始'} action={<span className="stage-progress">{view.stage_runs.filter(run => run.status === 'completed').length} / {view.sop.stages.length}</span>}/><div className="stage-timeline">{view.sop.stages.map((stage, index) => {const run = view.stage_runs.find(candidate => candidate.stage_id === stage.stage_id); const done = run?.status === 'completed'; const current = stage.stage_id === task.current_stage_id; return <div key={stage.stage_id} className={`timeline-step ${done ? 'is-done' : current ? 'is-current' : ''}`}><span>{done ? <Check size={13}/> : index + 1}</span><div><strong>{stage.name}</strong><small>{done ? '已完成' : current ? run?.status || '当前' : '未开始'}</small></div></div>;})}</div><div className="stage-action"><div><strong>唯一下一动作</strong><span>{task.next_action}</span></div><div className="task-action-group">{task.status === 'running' && <Button variant="secondary" onClick={() => setShowReport(value => !value)}><FileCheck2 size={15}/>上报 Stage</Button>}{task.status === 'paused' && <Button variant="secondary" onClick={() => action('resume')}><PlayCircle size={15}/>恢复</Button>}{task.status === 'blocked' && <Button variant="secondary" onClick={() => action('retry')}><ArrowRight size={15}/>重试</Button>}{['ready', 'needs_input'].includes(task.status) && <Button variant="secondary" onClick={() => action('start')}><PlayCircle size={15}/>开始</Button>}{task.status === 'waiting_gate' && <Button variant="secondary" onClick={() => document.getElementById('task-gates')?.scrollIntoView({behavior: 'smooth'})}><ClipboardCheck size={15}/>处理 Gate</Button>}{task.status === 'accepted' && <Button variant="secondary" onClick={() => setShowRevision(true)}><FileCheck2 size={15}/>提交 Revision</Button>}{task.status !== 'cancelled' && task.status !== 'delivered' && <Button variant="secondary" onClick={() => action('cancel')}><X size={15}/>取消任务</Button>}</div></div>{showReport && task.status === 'running' && <div className="task-inline-editor"><Field label="Stage 输出引用（每行一条）"><textarea value={stageOutput} onChange={event => setStageOutput(event.target.value)} rows={3} placeholder="local://workspace/output/script.json"/></Field><div className="new-task-actions"><Button onClick={report} disabled={busy || !activeStageRun}><Check size={15}/>确认上报</Button></div></div>}</section><section className="workos-section"><SectionHeader kicker="输入与执行记录" title="本次任务的可追溯事实"/><div className="evidence-list">{task.input_refs.length === 0 ? <Empty title="尚未绑定输入" detail="本地客户端确认后的 Brief、知识快照或来源会出现在这里。"/> : task.input_refs.map(ref => <EvidenceRow key={ref} label={ref} detail="任务输入引用" status="已绑定" icon={FileInput}/>)}{view.stage_runs.map(run => <EvidenceRow key={run.id} label={run.stage_id} detail={`${run.execution_mode} · ${run.status}`} status="Stage Run" icon={Workflow}/>)}</div></section><section className="workos-section" id="task-gates"><SectionHeader kicker="Gate 决定" title="按 SOP 配置处理人工门禁"/><div className="evidence-list">{view.gates.length === 0 ? <Empty title="当前没有 Gate 评估" detail="审批是可配置的；没有 Gate 不会阻断低风险任务。"/> : view.gates.map(item => <div className="evidence-row" key={item.id}><span className="object-mark is-review"><ClipboardCheck size={15}/></span><div><strong>{item.gate_id}</strong><small>{item.gate_mode} · {item.reason || '等待决定'}</small></div><StatusText value={item.status}/>{item.status === 'pending' && <div className="input-actions"><Button variant="secondary" disabled={busy} onClick={() => decide(item.id, 'rejected')}>退回</Button><Button disabled={busy} onClick={() => decide(item.id, 'approved')}><Check size={14}/>通过</Button></div>}</div>)}</div></section>{showRevision && <section className="workos-section task-inline-editor"><SectionHeader kicker="Task Revision" title="提交正式内容结果"/><p className="editor-hint">内容必须符合当前 Task 的 Schema；提交后保留历史 Revision，不覆盖旧结果。</p><Field label="Revision JSON"><textarea value={revisionContent} onChange={event => setRevisionContent(event.target.value)} rows={10}/></Field><div className="new-task-actions"><Button variant="secondary" onClick={() => setShowRevision(false)}>取消</Button><Button onClick={submitRevision} disabled={busy}><Check size={15}/>提交 Revision</Button></div></section>}<section className="workos-section" id="task-deliveries"><SectionHeader kicker="Delivery" title="交付结果" action={task.status === 'accepted' ? <Button variant="secondary" onClick={() => setShowDelivery(value => !value)}><PackageCheck size={15}/>准备交付</Button> : undefined}/>{view.deliveries.length === 0 ? <Empty title="还没有交付记录" detail="接受 Revision 后，交付目的地和摘要会固定在这里。"/> : <div className="evidence-list">{view.deliveries.map(item => <EvidenceRow key={item.id} label={item.destination} detail={item.delivery_digest} status={item.status} icon={PackageCheck}/>)}</div>}{showDelivery && <div className="task-inline-editor"><Field label="交付目的地"><input value={deliveryDestination} onChange={event => setDeliveryDestination(event.target.value)}/></Field><div className="new-task-actions"><Button variant="secondary" onClick={() => setShowDelivery(false)}>取消</Button><Button onClick={deliver} disabled={busy}><PackageCheck size={15}/>确认交付</Button></div></div>}</section></main><aside className="task-side-panel"><SideFact label="状态" value={task.status}/><SideFact label="负责人" value={task.assignee_user_id || '未分派'} icon={UserRound}/><SideFact label="Environment" value={view.environment.name} icon={Workflow}/><SideFact label="风险" value={task.risk_profile} icon={task.risk_profile === 'high' ? ShieldAlert : ShieldCheck}/><SideFact label="Gate" value={gate ? `${gate.name} · ${gate.mode}` : '当前 Stage 未配置 Gate'} icon={ClipboardCheck}/><SideFact label="执行记录" value={`${view.runs.length} 次 Run`} icon={PlayCircle}/><SideFact label="Revision" value={`${view.revisions.length} 个`} icon={FileCheck2}/><div className="side-divider"></div><div className="side-block"><span>固定 SOP</span><strong>v{task.sop_version}</strong><small>{task.sop_digest}</small></div><div className="side-block"><span>执行方式</span><strong>{view.sop.default_execution_mode}</strong><small>本地客户端负责实际运行</small></div></aside></div></div>;
-}
 
 export function WorkOSKnowledgePage({projectID: explicitProjectID}: {projectID?: string}) {
   const {dashboard} = useWorkspace();
@@ -362,7 +269,7 @@ export function WorkOSKnowledgePage({projectID: explicitProjectID}: {projectID?:
       api<KnowledgeObject[]>(`/api/bff/projects/${encodeURIComponent(project.id)}/knowledge-objects`),
       api<KnowledgePack[]>(`/api/bff/projects/${encodeURIComponent(project.id)}/knowledge-packs`),
       api<Source[]>(`/api/bff/projects/${encodeURIComponent(project.id)}/sources`)
-    ]).then(([nextObjects, nextPacks, nextSources]) => { if (!cancelled) { setObjects(nextObjects); setPacks(nextPacks); setSources(nextSources); } }).catch(value => { if (!cancelled) setError(value instanceof Error ? value.message : '知识库加载失败'); }).finally(() => { if (!cancelled) setLoading(false); });
+    ]).then(([nextObjects, nextPacks, nextSources]) => { if (!cancelled) { setObjects(latestKnowledgeObjects(nextObjects)); setPacks(nextPacks); setSources(nextSources); } }).catch(value => { if (!cancelled) setError(value instanceof Error ? value.message : '知识库加载失败'); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [project?.id]);
   const filtered = objects.filter(item => tab !== 'review' ? true : ['needs_review', 'candidate', 'open', 'conflicted'].includes(item.status)).filter(item => query.trim() === '' || `${item.title}${item.statement}${item.object_type}${item.layer}`.toLowerCase().includes(query.toLowerCase()));
@@ -516,7 +423,7 @@ function AdminUsagePanel({usage, generatedAt}: {usage:AdminWorkOSView['usage']; 
   return <><section className="workos-metrics"><Metric icon={ListTodo} label="工作任务总数" value={String(usage.task_count)} detail="当前租户真实任务" tone="ink"/><Metric icon={PlayCircle} label="运行中" value={String(usage.running_count)} detail="等待本地客户端" tone="production"/><Metric icon={ClipboardCheck} label="待处理检查" value={String(usage.waiting_gate_count)} detail="不等于所有任务都要审批" tone="review"/><Metric icon={Clock3} label="数据更新时间" value={formatDateTime(generatedAt)} detail="服务端聚合" tone="success"/></section><section className="workos-section admin-config-section"><SectionHeader kicker="执行方式" title="工作任务分布"/>{modes.length === 0 ? <Empty title="还没有执行记录" detail="创建任务并由本地客户端执行后，这里会按执行方式统计。"/> : <div className="admin-config-table">{modes.map(([mode, count]) => <article key={mode}><div className="admin-row-icon"><Workflow size={17}/></div><div><strong>{executionModeLabel(mode)}</strong><span>{mode} · 当前任务执行方式</span></div><span className="config-state is-info">{count} 个</span><span className="text-action">查看任务 <ArrowRight size={14}/></span></article>)}</div>}</section></>;
 }
 
-function KnowledgeOverview({objects, onTab, onSelect}: {objects: KnowledgeObject[]; onTab: (tab: 'objects' | 'review' | 'sources' | 'packs' | 'query') => void; onSelect: (object: KnowledgeObject) => void}) { const layers = [['identity', '身份'], ['product', '产品'], ['market', '市场'], ['expression', '表达'], ['operations', '运营'], ['content_engine', '内容引擎'], ['compliance', '合规']]; const statusFor = (layer: string) => { const scoped = objects.filter(item => item.layer === layer); if (scoped.length === 0) return '未建立'; if (scoped.some(item => item.status === 'conflicted' || item.object_type === 'ConflictRecord')) return '有冲突'; if (scoped.some(item => ['needs_review', 'candidate', 'open'].includes(item.status))) return '待处理'; return '已覆盖'; }; const reviewObjects = objects.filter(item => item.status !== 'approved').slice(0, 4); return <div className="knowledge-overview-grid"><section className="workos-section"><SectionHeader kicker="七层覆盖" title="基础建设状态"/><div className="coverage-list">{layers.map(([layer, label]) => { const status = statusFor(layer); return <button key={layer} onClick={() => onTab('objects')}><span className="coverage-bar"><i className={status === '已覆盖' ? 'is-full' : status === '有冲突' ? 'is-danger' : 'is-half'}></i></span><strong>{label}</strong><small>{status}</small><ChevronRight size={14}/></button>; })}</div></section><section className="workos-section"><SectionHeader kicker="最近变化" title="需要你处理的对象" action={<button className="text-action" onClick={() => onTab('review')}>打开待审 <ArrowRight size={14}/></button>}/><div className="knowledge-review-list">{reviewObjects.length === 0 ? <Empty title="没有待处理对象" detail="服务端没有需要当前账号处理的知识对象。"/> : reviewObjects.map(item => <button key={item.id} onClick={() => onSelect(item)}><span className="object-mark is-review"><BookOpen size={15}/></span><span><strong>{item.title}</strong><small>{knowledgeStatusLabel[item.status] || item.status} · {item.impact || '需要确认来源'}</small></span><ChevronRight size={14}/></button>)}</div></section><section className="workos-section knowledge-query-card"><SectionHeader kicker="确定性查询" title="查询前先选范围"/><p>返回 eligible、blocked 和 gaps。查询不会修改知识对象，也不会把 blocked 当作可用事实。</p><button className="text-action" onClick={() => onTab('query')}>运行一次查询 <ArrowRight size={14}/></button></section></div>; }
+function KnowledgeOverview({objects, onTab, onSelect}: {objects: KnowledgeObject[]; onTab: (tab: 'overview' | 'objects' | 'review' | 'sources' | 'packs' | 'query') => void; onSelect: (object: KnowledgeObject) => void}) { const layers = [['identity', '身份'], ['product', '产品'], ['market', '市场'], ['expression', '表达'], ['operations', '运营'], ['content_engine', '内容引擎'], ['compliance', '合规']]; const statusFor = (layer: string) => { const scoped = objects.filter(item => item.layer === layer); if (scoped.length === 0) return '未建立'; if (scoped.some(item => item.status === 'conflicted' || item.object_type === 'ConflictRecord')) return '有冲突'; if (scoped.some(item => ['needs_review', 'candidate', 'open'].includes(item.status))) return '待处理'; return '已覆盖'; }; const reviewObjects = objects.filter(item => ['needs_review', 'candidate', 'open', 'conflicted'].includes(item.status)).slice(0, 4); return <div className="knowledge-overview-grid"><section className="workos-section"><SectionHeader kicker="七层覆盖" title="基础建设状态"/><div className="coverage-list">{layers.map(([layer, label]) => { const status = statusFor(layer); return <button key={layer} onClick={() => onTab('objects')}><span className="coverage-bar"><i className={status === '已覆盖' ? 'is-full' : status === '有冲突' ? 'is-danger' : 'is-half'}></i></span><strong>{label}</strong><small>{status}</small><ChevronRight size={14}/></button>; })}</div></section><section className="workos-section"><SectionHeader kicker="最近变化" title="需要你处理的对象" action={<button className="text-action" onClick={() => onTab('review')}>打开待审 <ArrowRight size={14}/></button>}/><div className="knowledge-review-list">{reviewObjects.length === 0 ? <Empty title="没有待处理对象" detail="服务端没有需要当前账号处理的知识对象。"/> : reviewObjects.map(item => <button key={`${item.id}:${item.version}`} onClick={() => onSelect(item)}><span className="object-mark is-review"><BookOpen size={15}/></span><span><strong>{item.title}</strong><small>{knowledgeStatusLabel[item.status] || item.status} · {item.impact || '需要确认来源'}</small></span><ChevronRight size={14}/></button>)}</div></section><section className="workos-section knowledge-query-card"><SectionHeader kicker="确定性查询" title="查询前先选范围"/><p>返回 eligible、blocked 和 gaps。查询不会修改知识对象，也不会把 blocked 当作可用事实。</p><button className="text-action" onClick={() => onTab('query')}>运行一次查询 <ArrowRight size={14}/></button></section></div>; }
 
 function KnowledgeSources({projectID, sources, onCreated}: {projectID: string; sources: Source[]; onCreated: () => Promise<void>}) {
   const [name, setName] = useState('');
@@ -601,7 +508,5 @@ function KnowledgeMetric({label, value, detail, tone = 'default'}: {label: strin
 function TaskRow({task, onClick}: {task: ApiWorkTask; onClick?: () => void}) { const navigate = useNavigate(); const status = task.status as TaskStatus; const tone = status === 'blocked' ? 'review' : status === 'delivered' ? 'success' : 'production'; const open = () => task.project_id ? navigate(taskPath(task)) : onClick?.(); return <button className="task-queue-row" onClick={open}><span className={`object-mark is-${tone}`}><ListTodo size={15}/></span><span className="task-row-copy"><strong>{task.title}</strong><small>{task.sop_id} v{task.sop_version} · {task.current_stage_id || '未开始'}</small></span><span className="task-row-next"><small>下一动作</small><strong>{task.next_action || '等待客户端继续'}</strong></span><StatusText value={status}/><ChevronRight size={15}/></button>; }
 function StatusText({value}: {value: string}) { const label = statusLabel[value as TaskStatus] || knowledgeStatusLabel[value] || inputStatusLabel[value] || value; const tone = value === 'delivered' || value === 'approved' || value === 'project_material' || value === 'task_created' || value === 'task_merged' || value === '已确认' ? 'is-success' : value === 'blocked' || value === 'conflicted' || value === 'archived' ? 'is-danger' : value === 'waiting_gate' || value === 'needs_review' || value === 'candidate' || value === 'open' || value === 'needs_info' || value === 'untriaged' || value === '待审核' || value === '需留意' ? 'is-warning' : value === 'running' || value === 'routed' ? 'is-production' : 'is-muted'; return <span className={`status-text ${tone}`}><i></i>{label}</span>; }
 function CheckLine({label}: {label: string}) { return <div className="check-line"><CheckCircle2 size={15}/><span>{label}</span></div>; }
-function EvidenceRow({label, detail, status, icon: Icon}: {label: string; detail: string; status: string; icon: typeof FileInput}) { return <div className="evidence-row"><span className="object-mark is-source"><Icon size={15}/></span><div><strong>{label}</strong><small>{detail}</small></div><span className="evidence-status">{status}</span><ChevronRight size={14}/></div>; }
-function SideFact({label, value, icon: Icon}: {label: string; value?: string; icon?: typeof UserRound; children?: React.ReactNode}) { return <div className="side-fact"><span>{label}</span><strong>{Icon && <Icon size={14}/>} {value}</strong></div>; }
 function QueryResultRow({label, value, detail, tone}: {label: string; value: string; detail: string; tone: string}) { return <div className="query-result-row"><span className={tone}><i></i>{label}</span><strong>{value}</strong><small>{detail}</small></div>; }
 function formatDateTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? '未知时间' : new Intl.DateTimeFormat('zh-CN', {month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'}).format(date); }

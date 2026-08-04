@@ -24,6 +24,7 @@ type BindProjectSOPInput struct {
 	EnvironmentID string `json:"environment_id"`
 	SOPID         string `json:"sop_id"`
 	SOPVersion    int    `json:"sop_version"`
+	ContentType   string `json:"content_type,omitempty"`
 }
 
 type ProjectSOPBindingResult struct {
@@ -137,17 +138,26 @@ type CreateWorkTaskInput struct {
 }
 
 type WorkTaskView struct {
-	Task           domain.WorkTask         `json:"task"`
-	Project        domain.Project          `json:"project"`
-	Environment    domain.Environment      `json:"environment"`
-	SOP            domain.SOPVersion       `json:"sop"`
-	StageRuns      []domain.StageRun       `json:"stage_runs"`
-	Runs           []domain.TaskRun        `json:"runs"`
-	Gates          []domain.GateEvaluation `json:"gates"`
-	Revisions      []domain.TaskRevision   `json:"revisions"`
-	Deliveries     []domain.TaskDelivery   `json:"deliveries"`
-	AllowedActions []string                `json:"allowed_actions"`
-	GeneratedAt    time.Time               `json:"generated_at"`
+	Task               domain.WorkTask             `json:"task"`
+	Project            domain.Project              `json:"project"`
+	Environment        domain.Environment          `json:"environment"`
+	SOP                domain.SOPVersion           `json:"sop"`
+	SourceRevisions    []domain.SourceRevision     `json:"source_revisions"`
+	KnowledgeSnapshots []domain.KnowledgeSnapshot  `json:"knowledge_snapshots"`
+	ApprovedSnapshots  []domain.ApprovedSnapshot   `json:"approved_snapshots"`
+	StageRuns          []domain.StageRun           `json:"stage_runs"`
+	Runs               []domain.TaskRun            `json:"runs"`
+	Gates              []domain.GateEvaluation     `json:"gates"`
+	Revisions          []domain.TaskRevision       `json:"revisions"`
+	Deliveries         []domain.TaskDelivery       `json:"deliveries"`
+	StageOutputs       []domain.TaskStageOutput    `json:"stage_outputs"`
+	MediaJobs          []domain.MediaGenerationJob `json:"media_jobs"`
+	ProviderAttempts   []domain.ProviderAttempt    `json:"provider_attempts"`
+	MediaReviews       []domain.MediaReview        `json:"media_reviews"`
+	DeliveryPackages   []domain.DeliveryPackage    `json:"delivery_packages"`
+	Artifacts          []domain.Artifact           `json:"artifacts"`
+	AllowedActions     []string                    `json:"allowed_actions"`
+	GeneratedAt        time.Time                   `json:"generated_at"`
 }
 
 func (s *Service) ensureOrchestrationDefaults(ctx context.Context, actor Actor) (domain.Environment, domain.SOPVersion, error) {
@@ -166,7 +176,7 @@ func (s *Service) ensureOrchestrationDefaults(ctx context.Context, actor Actor) 
 	var sop domain.SOPVersion
 	for _, summary := range sops {
 		for _, candidate := range summary.Versions {
-			if candidate.Status == "published" && summary.Definition.TemplateKey == builtinSOPShortVideo && (sop.ID == "" || candidate.Version > sop.Version) {
+			if candidate.Status == "published" && summary.Definition.TemplateKey == builtinSOPMarketingVideo && (sop.ID == "" || candidate.Version > sop.Version) {
 				sop = candidate
 			}
 		}
@@ -879,8 +889,25 @@ func (s *Service) LintSOPVersion(ctx context.Context, actor Actor, sopID string,
 }
 
 func (s *Service) ProjectSOP(ctx context.Context, actor Actor, projectID string) (domain.ProjectSOPBinding, domain.SOPVersion, error) {
-	if _, err := s.store.Project(ctx, actor.TenantID, projectID); err != nil {
+	project, err := s.store.Project(ctx, actor.TenantID, projectID)
+	if err != nil {
 		return domain.ProjectSOPBinding{}, domain.SOPVersion{}, err
+	}
+	projectContentType := defaultString(project.ContentType, domain.DefaultProjectContentType)
+	environment, defaultSOP, err := s.ensureOrchestrationDefaults(ctx, actor)
+	if err != nil {
+		return domain.ProjectSOPBinding{}, domain.SOPVersion{}, err
+	}
+	sops, err := s.store.SOPs(ctx, actor.TenantID)
+	if err != nil {
+		return domain.ProjectSOPBinding{}, domain.SOPVersion{}, err
+	}
+	desiredSOP, found := latestPublishedBuiltinSOP(sops, builtinSOPKeyForContentType(projectContentType))
+	if !found {
+		desiredSOP = defaultSOP
+	}
+	if configuredSOP, configuredErr := s.publishedSOPVersion(ctx, actor.TenantID, environment.DefaultSOPID, environment.DefaultSOPVersion); configuredErr == nil && containsString(configuredSOP.ContentTypes, projectContentType) {
+		desiredSOP = configuredSOP
 	}
 	binding, err := s.store.ProjectSOPBinding(ctx, actor.TenantID, projectID)
 	if err == nil {
@@ -890,20 +917,46 @@ func (s *Service) ProjectSOP(ctx context.Context, actor Actor, projectID string)
 		}
 		for _, version := range summary.Versions {
 			if version.Version == binding.SOPVersion {
-				return binding, version, nil
+				if desiredSOP.SOPID == "" || binding.SOPID == desiredSOP.SOPID || containsString(version.ContentTypes, projectContentType) {
+					return binding, version, nil
+				}
+				binding.EnvironmentID = defaultString(binding.EnvironmentID, environment.ID)
+				binding.SOPID = desiredSOP.SOPID
+				binding.SOPVersion = desiredSOP.Version
+				binding.SOPDigest = desiredSOP.Digest
+				binding.BoundBy = actor.UserID
+				binding.BoundAt = s.now().UTC()
+				if err := s.store.SaveProjectSOPBinding(ctx, binding); err != nil {
+					return binding, domain.SOPVersion{}, err
+				}
+				return binding, desiredSOP, nil
 			}
 		}
 		return binding, domain.SOPVersion{}, domain.NotFound("SOP 版本")
 	}
-	environment, sop, err := s.ensureOrchestrationDefaults(ctx, actor)
-	if err != nil {
+	if !domain.IsNotFound(err) {
 		return domain.ProjectSOPBinding{}, domain.SOPVersion{}, err
 	}
-	binding = domain.ProjectSOPBinding{TenantID: actor.TenantID, ProjectID: projectID, EnvironmentID: environment.ID, SOPID: sop.SOPID, SOPVersion: sop.Version, SOPDigest: sop.Digest, BoundBy: actor.UserID, BoundAt: s.now().UTC()}
+	binding = domain.ProjectSOPBinding{TenantID: actor.TenantID, ProjectID: projectID, EnvironmentID: environment.ID, SOPID: desiredSOP.SOPID, SOPVersion: desiredSOP.Version, SOPDigest: desiredSOP.Digest, BoundBy: actor.UserID, BoundAt: s.now().UTC()}
 	if err := s.store.SaveProjectSOPBinding(ctx, binding); err != nil {
 		return binding, domain.SOPVersion{}, err
 	}
-	return binding, sop, nil
+	return binding, desiredSOP, nil
+}
+
+func latestPublishedBuiltinSOP(sops []domain.SOPSummary, templateKey string) (domain.SOPVersion, bool) {
+	var result domain.SOPVersion
+	for _, summary := range sops {
+		if summary.Definition.TemplateKey != templateKey {
+			continue
+		}
+		for _, version := range summary.Versions {
+			if version.Status == "published" && (result.ID == "" || version.Version > result.Version) {
+				result = version
+			}
+		}
+	}
+	return result, result.ID != ""
 }
 
 // BindProjectSOP explicitly selects the SOP configured by an Environment for
@@ -912,7 +965,8 @@ func (s *Service) BindProjectSOP(ctx context.Context, actor Actor, projectID str
 	if err := requireRole(actor, "tenant_admin", "project_manager"); err != nil && !actor.PlatformAdmin {
 		return ProjectSOPBindingResult{}, err
 	}
-	if _, err := s.store.Project(ctx, actor.TenantID, projectID); err != nil {
+	project, err := s.store.Project(ctx, actor.TenantID, projectID)
+	if err != nil {
 		return ProjectSOPBindingResult{}, err
 	}
 	environmentID := strings.TrimSpace(input.EnvironmentID)
@@ -940,6 +994,24 @@ func (s *Service) BindProjectSOP(ctx context.Context, actor Actor, projectID str
 	sop, err := s.publishedSOPVersion(ctx, actor.TenantID, sopID, version)
 	if err != nil {
 		return ProjectSOPBindingResult{}, err
+	}
+	projectContentType := strings.TrimSpace(input.ContentType)
+	if projectContentType == "" && containsString(sop.ContentTypes, project.ContentType) {
+		projectContentType = project.ContentType
+	}
+	if projectContentType == "" && len(sop.ContentTypes) == 1 {
+		projectContentType = sop.ContentTypes[0]
+	}
+	if !domain.ValidTenantContentType(projectContentType) || !containsString(sop.ContentTypes, projectContentType) {
+		return ProjectSOPBindingResult{}, domain.Policy("PROJECT_SOP_CONTENT_TYPE_REQUIRED", "绑定 SOP 必须明确且适用 Project 的内容类型", "选择 SOP 支持的内容类型后重试")
+	}
+	if project.ContentType != projectContentType {
+		project.ContentType = projectContentType
+		project.RowVersion++
+		project.UpdatedAt = s.now().UTC()
+		if err := s.store.UpdateProject(ctx, project, project.RowVersion-1); err != nil {
+			return ProjectSOPBindingResult{}, err
+		}
 	}
 	previous, previousErr := s.store.ProjectSOPBinding(ctx, actor.TenantID, projectID)
 	if previousErr != nil && !domain.IsNotFound(previousErr) {
@@ -1049,9 +1121,28 @@ func (s *Service) CreateWorkTask(ctx context.Context, actor Actor, input CreateW
 	if len(sop.Stages) > 0 {
 		stageID = sop.Stages[0].ID
 	}
-	contentType := defaultString(input.ContentType, domain.ContentTypeVideoScript)
+	contentType := defaultString(input.ContentType, defaultString(project.ContentType, domain.DefaultProjectContentType))
 	if !domain.ValidTenantContentType(contentType) {
 		return WorkTaskView{}, domain.Invalid("TASK_CONTENT_TYPE_INVALID", "任务内容类型不受支持")
+	}
+	if project.ContentType != "" && contentType != project.ContentType {
+		return WorkTaskView{}, domain.Policy("TASK_CONTENT_TYPE_NOT_IN_PROJECT", "任务内容类型必须与 Project 生产类型一致", "在对应内容类型的 Project 中创建任务")
+	}
+	if contentType == domain.ContentTypeMarketingVideo {
+		capabilities, capabilityErr := s.store.TenantContentCapabilities(ctx, actor.TenantID)
+		if capabilityErr != nil {
+			return WorkTaskView{}, capabilityErr
+		}
+		enabled := false
+		for _, capability := range capabilities {
+			if capability.ContentType == contentType && capability.Enabled {
+				enabled = true
+				break
+			}
+		}
+		if !enabled {
+			return WorkTaskView{}, domain.Policy("MARKETING_VIDEO_CAPABILITY_DISABLED", "当前租户未启用营销视频全流程能力", "由平台管理员启用 marketing_video 内容能力")
+		}
 	}
 	contentTypeAllowed := false
 	for _, candidate := range sop.ContentTypes {
@@ -1160,7 +1251,7 @@ func (s *Service) WorkTask(ctx context.Context, actor Actor, id string) (WorkTas
 	if err != nil {
 		return WorkTaskView{}, err
 	}
-	revisions, err := s.store.TaskRevisions(ctx, actor.TenantID, id)
+	revisions, err := s.taskRevisions(ctx, task)
 	if err != nil {
 		return WorkTaskView{}, err
 	}
@@ -1182,7 +1273,115 @@ func (s *Service) WorkTask(ctx context.Context, actor Actor, id string) (WorkTas
 	} else if task.Status == domain.TaskStatusBlocked {
 		actions = append(actions, "retry", "cancel")
 	} else if task.Status == domain.TaskStatusAccepted {
-		actions = append(actions, "submit_revision", "deliver")
+		if task.ContentType == domain.ContentTypeMarketingVideo {
+			actions = append(actions, "deliver")
+		} else {
+			actions = append(actions, "submit_revision", "deliver")
+		}
 	}
-	return WorkTaskView{Task: task, Project: project, Environment: environment, SOP: sop, StageRuns: stageRuns, Runs: runs, Gates: gates, Revisions: revisions, Deliveries: deliveries, AllowedActions: actions, GeneratedAt: s.now().UTC()}, nil
+	stageOutputs, err := s.store.TaskStageOutputs(ctx, actor.TenantID, id)
+	if err != nil {
+		return WorkTaskView{}, err
+	}
+	mediaJobs, err := s.store.MediaGenerationJobs(ctx, actor.TenantID, id)
+	if err != nil {
+		return WorkTaskView{}, err
+	}
+	attempts := []domain.ProviderAttempt{}
+	for _, job := range mediaJobs {
+		values, attemptErr := s.store.ProviderAttempts(ctx, actor.TenantID, job.ID)
+		if attemptErr != nil {
+			return WorkTaskView{}, attemptErr
+		}
+		attempts = append(attempts, values...)
+	}
+	mediaReviews, err := s.store.MediaReviews(ctx, actor.TenantID, id)
+	if err != nil {
+		return WorkTaskView{}, err
+	}
+	packages, err := s.store.DeliveryPackages(ctx, actor.TenantID, task.ProjectID)
+	if err != nil {
+		return WorkTaskView{}, err
+	}
+	sourceRevisions := []domain.SourceRevision{}
+	knowledgeSnapshots := []domain.KnowledgeSnapshot{}
+	approvedSnapshots := []domain.ApprovedSnapshot{}
+	sourceSeen := map[string]bool{}
+	knowledgeSeen := map[string]bool{}
+	snapshotSeen := map[string]bool{}
+	for _, output := range stageOutputs {
+		switch output.OutputType {
+		case domain.StageOutputSourceRevision:
+			if sourceSeen[output.ObjectID] {
+				continue
+			}
+			value, loadErr := s.store.SourceRevision(ctx, actor.TenantID, output.ObjectID)
+			if loadErr != nil {
+				return WorkTaskView{}, loadErr
+			}
+			sourceSeen[value.ID] = true
+			sourceRevisions = append(sourceRevisions, value)
+		case domain.StageOutputKnowledgeSnapshot:
+			if knowledgeSeen[output.ObjectID] {
+				continue
+			}
+			value, loadErr := s.store.KnowledgeSnapshot(ctx, actor.TenantID, output.ObjectID)
+			if loadErr != nil {
+				return WorkTaskView{}, loadErr
+			}
+			knowledgeSeen[value.ID] = true
+			knowledgeSnapshots = append(knowledgeSnapshots, value)
+		case domain.StageOutputApprovedSnapshot, domain.StageOutputStoryboardPackage:
+			if snapshotSeen[output.ObjectID] {
+				continue
+			}
+			value, loadErr := s.store.ApprovedSnapshot(ctx, actor.TenantID, output.ObjectID)
+			if loadErr != nil {
+				return WorkTaskView{}, loadErr
+			}
+			snapshotSeen[value.ID] = true
+			approvedSnapshots = append(approvedSnapshots, value)
+		}
+	}
+	taskPackages := []domain.DeliveryPackage{}
+	artifacts := []domain.Artifact{}
+	artifactSeen := map[string]bool{}
+	for _, snapshot := range approvedSnapshots {
+		values, artifactErr := s.store.ArtifactsByApprovedSnapshot(ctx, actor.TenantID, snapshot.ID)
+		if artifactErr != nil {
+			return WorkTaskView{}, artifactErr
+		}
+		for _, artifact := range values {
+			if artifactSeen[artifact.ID] {
+				continue
+			}
+			artifactSeen[artifact.ID] = true
+			artifacts = append(artifacts, artifact)
+		}
+	}
+	for _, value := range packages {
+		if value.ContentItemID != task.ID {
+			continue
+		}
+		taskPackages = append(taskPackages, value)
+		for _, artifact := range value.Manifest {
+			if !artifactSeen[artifact.ID] {
+				artifactSeen[artifact.ID] = true
+				artifacts = append(artifacts, artifact)
+			}
+		}
+	}
+	for _, review := range mediaReviews {
+		if artifactSeen[review.SubjectArtifactID] {
+			continue
+		}
+		artifact, artifactErr := s.store.Artifact(ctx, actor.TenantID, review.SubjectArtifactID)
+		if artifactErr == nil {
+			artifactSeen[artifact.ID] = true
+			artifacts = append(artifacts, artifact)
+		} else if !domain.IsNotFound(artifactErr) {
+			return WorkTaskView{}, artifactErr
+		}
+	}
+	return WorkTaskView{Task: task, Project: project, Environment: environment, SOP: sop, SourceRevisions: sourceRevisions, KnowledgeSnapshots: knowledgeSnapshots, ApprovedSnapshots: approvedSnapshots, StageRuns: stageRuns, Runs: runs, Gates: gates, Revisions: revisions, Deliveries: deliveries, StageOutputs: stageOutputs, MediaJobs: mediaJobs, ProviderAttempts: attempts, MediaReviews: mediaReviews, DeliveryPackages: taskPackages, Artifacts: artifacts, AllowedActions: actions, GeneratedAt: s.now().UTC()}, nil
 }

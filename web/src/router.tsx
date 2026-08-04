@@ -1,9 +1,12 @@
 import { Navigate, type RouteObject } from 'react-router-dom';
 import { projectRoute, projectViewIDs } from './v3/page-contracts';
 
+const routeHydrateFallback = {hydrateFallbackElement: <div className="splash" aria-live="polite"><strong>正在加载...</strong></div>};
+
 export const appRoutes: RouteObject[] = [
-  {path: '/', lazy: async()=>({Component:(await import('./marketing/MarketingHome')).MarketingHome})},
+  {...routeHydrateFallback, path: '/', lazy: async()=>({Component:(await import('./marketing/MarketingHome')).MarketingHome})},
   {
+    ...routeHydrateFallback,
     path: '/docs',
     lazy: async()=>({Component:(await import('./docs/DocsRoutes')).DocsRoute}),
     children: [
@@ -15,11 +18,12 @@ export const appRoutes: RouteObject[] = [
       {path:'*',element:<Navigate to="/docs" replace/>}
     ]
   },
-  {path: '/login', lazy: async()=>({Component:(await import('./views/auth/AuthRoutes')).LoginRoute})},
-  {path: '/register', lazy: async()=>({Component:(await import('./views/auth/AuthRoutes')).RegisterRoute})},
-  {path: '/device-auth', lazy: async()=>({Component:(await import('./views/PublicRoutes')).DeviceAuthRoute})},
-  {path: '/review/:token', lazy: async()=>({Component:(await import('./views/PublicRoutes')).PublicReviewRoute})},
+  {...routeHydrateFallback, path: '/login', lazy: async()=>({Component:(await import('./views/auth/AuthRoutes')).LoginRoute})},
+  {...routeHydrateFallback, path: '/register', lazy: async()=>({Component:(await import('./views/auth/AuthRoutes')).RegisterRoute})},
+  {...routeHydrateFallback, path: '/device-auth', lazy: async()=>({Component:(await import('./views/PublicRoutes')).DeviceAuthRoute})},
+  {...routeHydrateFallback, path: '/review/:token', lazy: async()=>({Component:(await import('./views/PublicRoutes')).PublicReviewRoute})},
   {
+    ...routeHydrateFallback,
     path: '/admin',
     lazy: async()=>({Component:(await import('./admin/AdminRoute')).AdminRoute}),
     children: [
@@ -46,7 +50,7 @@ export const appRoutes: RouteObject[] = [
   protectedConsoleRoute('/workspace', [
     {index: true, lazy: async()=>({Component:(await import('./workspace/pages')).ConsoleDashboardPage})},
     {path: 'tasks/new', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSNewTaskPage})},
-    {path: 'tasks/:taskID', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskDetailPage})},
+    {path: 'tasks/:taskID', lazy: async()=>({Component:(await import('./workspace/pages')).TaskProductionPage})},
     {path: 'tasks', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskListPage})},
     {path: 'my-tasks', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskListPage})},
     {path: 'inbox', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSInboxPage})},
@@ -61,7 +65,7 @@ export const appRoutes: RouteObject[] = [
     {index: true, element: <Navigate to="setup" replace />},
     {path: 'tasks/new', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSNewTaskPage})},
     {path: 'tasks', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskListPage})},
-    {path: 'tasks/:taskID', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskDetailPage})},
+    {path: 'tasks/:taskID', lazy: async()=>({Component:(await import('./workspace/pages')).TaskProductionPage})},
     {path: 'sop', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSSOPPage})},
     ...projectRoutes(),
     {path: '*', element: <Navigate to="setup" replace />}
@@ -71,6 +75,7 @@ export const appRoutes: RouteObject[] = [
 
 function protectedConsoleRoute(path:string, children:RouteObject[]):RouteObject {
   return {
+    ...routeHydrateFallback,
     path,
     lazy:async()=>({Component:(await import('./App')).App}),
     children:[{

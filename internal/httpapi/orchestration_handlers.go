@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -208,6 +209,99 @@ func (s *Server) reportStage(w http.ResponseWriter, r *http.Request) {
 	input.StageID = defaultInput(input.StageID, chi.URLParam(r, "stageID"))
 	value, err := s.service.ReportStage(r.Context(), actor, chi.URLParam(r, "taskID"), input, middleware.GetReqID(r.Context()))
 	s.dispatchResult(w, r, "task.stage.report", value, err)
+}
+
+func (s *Server) createMediaGenerationJob(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input app.CreateMediaGenerationJobInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	if strings.TrimSpace(input.IdempotencyKey) == "" {
+		input.IdempotencyKey = strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	}
+	value, err := s.service.CreateMediaGenerationJob(r.Context(), actor, chi.URLParam(r, "taskID"), input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "media.job.create", value, err)
+}
+
+func (s *Server) uploadStoryboardArtifact(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	const maxBytes = 25 * 1024 * 1024
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes+1<<20)
+	if err := r.ParseMultipartForm(maxBytes + 1<<20); err != nil {
+		s.fail(w, r, "storyboard.artifact.upload", domain.Invalid("STORYBOARD_MULTIPART_INVALID", "分镜素材上传表单无效或超过大小限制"))
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		s.fail(w, r, "storyboard.artifact.upload", domain.Invalid("STORYBOARD_FILE_REQUIRED", "必须上传一个分镜素材文件"))
+		return
+	}
+	defer file.Close()
+	body, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		s.fail(w, r, "storyboard.artifact.upload", err)
+		return
+	}
+	fileName := ""
+	if header != nil {
+		fileName = header.Filename
+	}
+	value, err := s.service.UploadStoryboardArtifact(r.Context(), actor, chi.URLParam(r, "taskID"), app.UploadStoryboardArtifactInput{SnapshotID: r.FormValue("snapshot_id"), AssetID: r.FormValue("asset_id"), FileName: fileName, Body: body}, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "storyboard.artifact.upload", value, err)
+}
+
+func (s *Server) createFinalRender(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input app.CreateFinalRenderInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.CreateFinalRender(r.Context(), actor, chi.URLParam(r, "taskID"), input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "media.final_render.create", value, err)
+}
+
+func (s *Server) approveMediaGenerationJob(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input app.MediaJobDecisionInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.ApproveMediaGenerationJob(r.Context(), actor, chi.URLParam(r, "id"), input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "media.job.approve_cost", value, err)
+}
+
+func (s *Server) cancelMediaGenerationJob(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input app.MediaJobDecisionInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.CancelMediaGenerationJob(r.Context(), actor, chi.URLParam(r, "id"), input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "media.job.cancel", value, err)
+}
+
+func (s *Server) decideMediaReview(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input app.MediaReviewDecisionInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.DecideMediaReview(r.Context(), actor, chi.URLParam(r, "id"), input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "media.review.decide", value, err)
+}
+
+func (s *Server) buildTaskDeliveryPackage(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input app.BuildTaskDeliveryPackageInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.BuildTaskDeliveryPackage(r.Context(), actor, chi.URLParam(r, "taskID"), input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "task.delivery_package.build", value, err)
 }
 
 func (s *Server) taskRuns(w http.ResponseWriter, r *http.Request) {

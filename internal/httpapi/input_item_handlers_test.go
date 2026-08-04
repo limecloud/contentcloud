@@ -25,7 +25,7 @@ func TestInputItemBFFTriage(t *testing.T) {
 	}
 	bootstrap.Body.Close()
 
-	project := callBFF[domain.Project](t, client, http.MethodPost, server.URL+"/api/bff/projects", app.CreateProjectInput{BrandName: "收件品牌", ProductName: "收件产品"})
+	project := callBFF[domain.Project](t, client, http.MethodPost, server.URL+"/api/bff/projects", app.CreateProjectInput{BrandName: "收件品牌", ProductName: "收件产品", ContentType: domain.ContentTypeVideoScript})
 	item := callBFF[domain.InputItem](t, client, http.MethodPost, server.URL+"/api/bff/input-items", app.CreateInputItemInput{ProjectID: project.ID, SourceType: "conversation_bundle", Title: "本地摘要", Summary: "已确认的任务摘要", Disclosure: "project", IdempotencyKey: "http-input-1"})
 	items := callBFF[[]domain.InputItem](t, client, http.MethodGet, server.URL+"/api/bff/input-items?status=untriaged", nil)
 	if len(items) != 1 || items[0].ID != item.ID {

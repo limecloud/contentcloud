@@ -19,7 +19,7 @@ func TestInputItemTriageCreatesTaskAndUsesRowVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "输入品牌", ProductName: "输入产品"}, "")
+	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "输入品牌", ProductName: "输入产品", ContentType: domain.ContentTypeVideoScript}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

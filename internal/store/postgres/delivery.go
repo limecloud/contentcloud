@@ -20,8 +20,16 @@ func (s *Store) CreateDeliveryPackage(ctx context.Context, value domain.Delivery
 			}
 		}
 		for position, artifact := range artifacts {
-			if err := insertArtifact(ctx, tx, artifact); err != nil {
+			var existingTenantID, existingProjectID, existingSnapshotID, existingSHA256 string
+			err := tx.QueryRow(ctx, `SELECT tenant_id,project_id,approved_snapshot_id,sha256 FROM artifacts WHERE id=$1`, artifact.ID).Scan(&existingTenantID, &existingProjectID, &existingSnapshotID, &existingSHA256)
+			if errors.Is(err, pgx.ErrNoRows) {
+				if err := insertArtifact(ctx, tx, artifact); err != nil {
+					return err
+				}
+			} else if err != nil {
 				return err
+			} else if existingTenantID != artifact.TenantID || existingProjectID != artifact.ProjectID || existingSnapshotID != artifact.ApprovedSnapshotID || existingSHA256 != artifact.SHA256 {
+				return domain.Conflict("ARTIFACT_IDENTITY_MISMATCH", "交付 Artifact 与已存对象不一致")
 			}
 			if _, err := tx.Exec(ctx, `INSERT INTO delivery_package_artifacts(tenant_id,delivery_package_id,artifact_id,position) VALUES($1,$2,$3,$4)`, value.TenantID, value.ID, artifact.ID, position); err != nil {
 				return dbError(err)

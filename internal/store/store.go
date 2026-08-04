@@ -150,6 +150,24 @@ type Store interface {
 	StageRuns(context.Context, string, string) ([]domain.StageRun, error)
 	CreateStageRun(context.Context, domain.StageRun) error
 	SaveStageRun(context.Context, domain.StageRun) error
+	CompleteStageRun(context.Context, domain.StageRun, []domain.TaskStageOutput) error
+	TaskStageOutputs(context.Context, string, string) ([]domain.TaskStageOutput, error)
+	CreateProviderProfile(context.Context, domain.ProviderProfile) error
+	ProviderProfile(context.Context, string, string) (domain.ProviderProfile, error)
+	SaveProviderBinding(context.Context, domain.ProviderBinding) error
+	ProviderBinding(context.Context, string, string) (domain.ProviderBinding, error)
+	CreateMediaGenerationJob(context.Context, domain.MediaGenerationJob) error
+	PendingMediaGenerationJobs(context.Context, int) ([]domain.MediaGenerationJob, error)
+	MediaGenerationJob(context.Context, string, string) (domain.MediaGenerationJob, error)
+	MediaGenerationJobs(context.Context, string, string) ([]domain.MediaGenerationJob, error)
+	SaveMediaGenerationJob(context.Context, domain.MediaGenerationJob, int) error
+	CreateProviderAttempt(context.Context, domain.ProviderAttempt) error
+	SaveProviderAttempt(context.Context, domain.ProviderAttempt) error
+	ProviderAttempts(context.Context, string, string) ([]domain.ProviderAttempt, error)
+	CreateMediaReview(context.Context, domain.MediaReview) error
+	SaveMediaReview(context.Context, domain.MediaReview, int) error
+	MediaReview(context.Context, string, string) (domain.MediaReview, error)
+	MediaReviews(context.Context, string, string) ([]domain.MediaReview, error)
 	WorkTaskRuns(context.Context, string, string) ([]domain.TaskRun, error)
 	CreateGateEvaluation(context.Context, domain.GateEvaluation) error
 	GateEvaluations(context.Context, string, string) ([]domain.GateEvaluation, error)

@@ -10,8 +10,14 @@ import (
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/app"
+	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/ingest"
 )
+
+type mediaProcessor interface {
+	PendingMediaGenerationJobs(context.Context, int) ([]domain.MediaGenerationJob, error)
+	ProcessMediaGenerationJob(context.Context, string, string) error
+}
 
 func ProcessPendingSources(ctx context.Context, service *app.Service, limit int) (int, error) {
 	pending, err := service.PendingSourceRevisions(ctx, limit)
@@ -60,6 +66,21 @@ func ProcessPendingSources(ctx context.Context, service *app.Service, limit int)
 		}
 		_, err = service.CompleteSource(ctx, app.Actor{TenantID: revision.TenantID, Type: "worker"}, revision.ID, app.CompleteSourceInput{DetectedMIME: detectedMIME, Status: result.Status, ParserVersion: ingest.ParserVersion, ErrorCode: result.ErrorCode, Evidence: evidence}, "")
 		if err != nil {
+			return processed, err
+		}
+		processed++
+	}
+	return processed, nil
+}
+
+func ProcessPendingMedia(ctx context.Context, service mediaProcessor, limit int) (int, error) {
+	pending, err := service.PendingMediaGenerationJobs(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+	processed := 0
+	for _, job := range pending {
+		if err := service.ProcessMediaGenerationJob(ctx, job.TenantID, job.ID); err != nil {
 			return processed, err
 		}
 		processed++

@@ -390,12 +390,16 @@ func (s *Store) CreateDeliveryPackage(_ context.Context, value domain.DeliveryPa
 		if artifact.TenantID != value.TenantID || artifact.ProjectID != value.ProjectID || !approved[artifact.ApprovedSnapshotID] {
 			return domain.Invalid("DELIVERY_ARTIFACT_SCOPE_INVALID", "交付 Artifact 必须绑定交付包中的 ApprovedSnapshot")
 		}
-		if _, exists := s.artifacts[artifact.ID]; exists {
-			return domain.Conflict("ARTIFACT_EXISTS", "交付 Artifact 已存在")
+		if existing, exists := s.artifacts[artifact.ID]; exists {
+			if existing.TenantID != artifact.TenantID || existing.ProjectID != artifact.ProjectID || existing.ApprovedSnapshotID != artifact.ApprovedSnapshotID || existing.SHA256 != artifact.SHA256 {
+				return domain.Conflict("ARTIFACT_IDENTITY_MISMATCH", "交付 Artifact 与已存对象不一致")
+			}
 		}
 	}
 	for _, artifact := range artifacts {
-		s.artifacts[artifact.ID] = artifact
+		if _, exists := s.artifacts[artifact.ID]; !exists {
+			s.artifacts[artifact.ID] = artifact
+		}
 	}
 	value.Manifest = append([]domain.Artifact(nil), artifacts...)
 	s.deliveryPackages[value.ID] = value

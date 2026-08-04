@@ -165,6 +165,10 @@ func (s *Service) TriageInputItem(ctx context.Context, actor Actor, id string, i
 		if projectID == "" {
 			return domain.InputItem{}, domain.Invalid("INPUT_ITEM_PROJECT_REQUIRED", "从输入创建任务时必须指定 Project")
 		}
+		project, err := s.store.Project(ctx, actor.TenantID, projectID)
+		if err != nil {
+			return domain.InputItem{}, err
+		}
 		if value.ProjectID != "" && value.ProjectID != projectID {
 			return domain.InputItem{}, domain.Policy("INPUT_ITEM_PROJECT_MISMATCH", "输入和目标任务不属于同一 Project", "选择输入所属 Project 下的任务")
 		}
@@ -172,7 +176,7 @@ func (s *Service) TriageInputItem(ctx context.Context, actor Actor, id string, i
 			return s.store.InputItem(ctx, actor.TenantID, value.ID)
 		}
 		title := defaultString(strings.TrimSpace(input.Title), value.Title)
-		created, err := s.CreateWorkTask(ctx, actor, CreateWorkTaskInput{ProjectID: projectID, Title: title, Intent: defaultString(strings.TrimSpace(input.Intent), value.Summary), ContentType: defaultString(strings.TrimSpace(input.ContentType), domain.ContentTypeVideoScript), InputRefs: []string{"input:" + value.ID}, Priority: input.Priority, RiskProfile: input.RiskProfile, RequestedOutput: input.RequestedOutput}, requestID)
+		created, err := s.CreateWorkTask(ctx, actor, CreateWorkTaskInput{ProjectID: projectID, Title: title, Intent: defaultString(strings.TrimSpace(input.Intent), value.Summary), ContentType: defaultString(strings.TrimSpace(input.ContentType), defaultString(project.ContentType, domain.DefaultProjectContentType)), InputRefs: []string{"input:" + value.ID}, Priority: input.Priority, RiskProfile: input.RiskProfile, RequestedOutput: input.RequestedOutput}, requestID)
 		if err != nil {
 			return domain.InputItem{}, err
 		}

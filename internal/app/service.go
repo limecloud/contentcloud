@@ -245,6 +245,7 @@ type CreateProjectInput struct {
 	TemplateID     string `json:"template_id"`
 	BrandName      string `json:"brand_name"`
 	ProductName    string `json:"product_name"`
+	ContentType    string `json:"content_type"`
 	Channel        string `json:"channel"`
 	StageObjective string `json:"stage_objective"`
 	OwnerName      string `json:"owner_name"`
@@ -259,6 +260,10 @@ func (s *Service) CreateProject(ctx context.Context, actor Actor, in CreateProje
 	if strings.TrimSpace(in.BrandName) == "" || strings.TrimSpace(in.ProductName) == "" {
 		return domain.Project{}, domain.Invalid("PROJECT_FIELDS_REQUIRED", "品牌名和单品名必填")
 	}
+	in.ContentType = defaultString(strings.TrimSpace(in.ContentType), domain.DefaultProjectContentType)
+	if !domain.ValidTenantContentType(in.ContentType) {
+		return domain.Project{}, domain.Invalid("PROJECT_CONTENT_TYPE_INVALID", "项目内容类型不受支持")
+	}
 	if in.TemplateID != "" {
 		template, err := s.store.ProjectTemplate(ctx, actor.TenantID, in.TemplateID)
 		if err != nil {
@@ -272,11 +277,14 @@ func (s *Service) CreateProject(ctx context.Context, actor Actor, in CreateProje
 		}
 	}
 	now := s.now().UTC()
-	p := domain.Project{ID: domain.NewID(), TenantID: actor.TenantID, Slug: slugify(in.BrandName + "-" + in.ProductName), BrandName: strings.TrimSpace(in.BrandName), ProductName: strings.TrimSpace(in.ProductName), Channel: defaultString(in.Channel, "douyin"), StageObjective: in.StageObjective, Status: "draft", OwnerName: in.OwnerName, ReviewerName: in.ReviewerName, ClientApprover: in.ClientApprover, RowVersion: 1, CreatedAt: now, UpdatedAt: now}
+	p := domain.Project{ID: domain.NewID(), TenantID: actor.TenantID, Slug: slugify(in.BrandName + "-" + in.ProductName), BrandName: strings.TrimSpace(in.BrandName), ProductName: strings.TrimSpace(in.ProductName), ContentType: in.ContentType, Channel: defaultString(in.Channel, "douyin"), StageObjective: in.StageObjective, Status: "draft", OwnerName: in.OwnerName, ReviewerName: in.ReviewerName, ClientApprover: in.ClientApprover, RowVersion: 1, CreatedAt: now, UpdatedAt: now}
 	if err := s.store.CreateProject(ctx, p); err != nil {
 		return p, err
 	}
-	s.audit(ctx, actor, p.ID, "project.created", "project", p.ID, requestID, map[string]any{"brand_name": p.BrandName, "product_name": p.ProductName})
+	if _, _, err := s.ProjectSOP(ctx, actor, p.ID); err != nil {
+		return p, err
+	}
+	s.audit(ctx, actor, p.ID, "project.created", "project", p.ID, requestID, map[string]any{"brand_name": p.BrandName, "product_name": p.ProductName, "content_type": p.ContentType})
 	return p, nil
 }
 func (s *Service) Projects(ctx context.Context, actor Actor) ([]domain.Project, error) {
