@@ -21,7 +21,7 @@ func TestOrchestrationDefaultsAndTaskPinPublishedSOP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "品牌", ProductName: "产品", Channel: "douyin"}, "")
+	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "品牌", ProductName: "产品", ContentType: domain.ContentTypeVideoScript, Channel: "douyin"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,15 +30,15 @@ func TestOrchestrationDefaultsAndTaskPinPublishedSOP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(admin.Environments) != 1 || len(admin.SOPs) != 4 || len(admin.Gates) != 3 {
+	if len(admin.Environments) != 1 || len(admin.SOPs) != 5 || len(admin.Gates) != 8 {
 		t.Fatalf("defaults were not materialized: %#v", admin)
 	}
 	if !strings.HasPrefix(admin.Environments[0].ManifestDigest, "sha256:") || len(admin.Environments[0].ManifestDigest) != len("sha256:")+64 {
 		t.Fatalf("environment digest is not a sha256 digest: %q", admin.Environments[0].ManifestDigest)
 	}
 	for _, gate := range admin.Gates {
-		if gate.Mode != domain.GateModeRequiredCheck || !gate.Blocking {
-			t.Fatalf("built-in deterministic Gate must block on failure: %#v", gate)
+		if !gate.Blocking {
+			t.Fatalf("built-in Gate must block on failure: %#v", gate)
 		}
 	}
 
@@ -142,7 +142,7 @@ func TestBuiltinSOPsAreTenantScopedAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.SOPs) != 4 || len(firstAgain.SOPs) != 4 {
+	if len(first.SOPs) != 5 || len(firstAgain.SOPs) != 5 {
 		t.Fatalf("built-in SOP installation is not idempotent: first=%d again=%d", len(first.SOPs), len(firstAgain.SOPs))
 	}
 	for _, summary := range firstAgain.SOPs {
@@ -163,7 +163,7 @@ func TestBuiltinSOPsAreTenantScopedAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(second.SOPs) != 4 || len(second.Environments) != 1 {
+	if len(second.SOPs) != 5 || len(second.Environments) != 1 {
 		t.Fatalf("built-in SOPs leaked across tenant storage: %#v", second)
 	}
 	for _, summary := range second.SOPs {
@@ -252,12 +252,62 @@ func TestExistingProjectGetsNewSOPBindingOnFirstWorkOSAccess(t *testing.T) {
 	if binding.ProjectID != project.ID || binding.SOPID == "" || binding.SOPVersion < 1 || version.Status != "published" {
 		t.Fatalf("existing project was not attached to a published SOP: binding=%#v version=%#v", binding, version)
 	}
-	if version.Name != "短视频生产" {
-		t.Fatalf("existing project should use the default short-video template: %#v", version)
+	if project.ContentType != domain.DefaultProjectContentType || version.Name != "营销视频全流程" {
+		t.Fatalf("new projects should use the marketing-video template by default: project=%#v version=%#v", project, version)
 	}
 	again, sameVersion, err := service.ProjectSOP(ctx, actor, project.ID)
 	if err != nil || again.SOPDigest != binding.SOPDigest || sameVersion.Digest != version.Digest {
 		t.Fatalf("repeated project binding was not stable: first=%#v second=%#v err=%v", binding, again, err)
+	}
+}
+
+func TestProjectSOPRepairsLegacyBindingToProjectContentType(t *testing.T) {
+	ctx := t.Context()
+	st := memory.New()
+	service := app.New(st, nil)
+	session, err := service.Register(ctx, "project-binding-repair@example.com", "long-enough-password", "项目用户", "项目租户")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, _, err := service.SessionActor(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "营销品牌", ProductName: "营销产品"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin, err := service.AdminWorkOS(ctx, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shortVideo, marketingVideo domain.SOPVersion
+	for _, summary := range admin.SOPs {
+		for _, version := range summary.Versions {
+			if version.Status != "published" {
+				continue
+			}
+			switch summary.Definition.TemplateKey {
+			case "short_video_production":
+				shortVideo = version
+			case "marketing_video_production":
+				marketingVideo = version
+			}
+		}
+	}
+	if shortVideo.ID == "" || marketingVideo.ID == "" {
+		t.Fatalf("expected both built-in production SOPs: short=%#v marketing=%#v", shortVideo, marketingVideo)
+	}
+	environment := admin.Environments[0]
+	if err := st.SaveProjectSOPBinding(ctx, domain.ProjectSOPBinding{TenantID: actor.TenantID, ProjectID: project.ID, EnvironmentID: environment.ID, SOPID: shortVideo.SOPID, SOPVersion: shortVideo.Version, SOPDigest: shortVideo.Digest, BoundBy: actor.UserID, BoundAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	binding, version, err := service.ProjectSOP(ctx, actor, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding.SOPID != marketingVideo.SOPID || version.SOPID != marketingVideo.SOPID {
+		t.Fatalf("legacy binding was not repaired to the Project content type: binding=%#v version=%#v", binding, version)
 	}
 }
 
@@ -322,7 +372,7 @@ func TestSOPDiffImpactRollbackAndRetire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "治理品牌", ProductName: "治理产品"}, "")
+	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "治理品牌", ProductName: "治理产品", ContentType: domain.ContentTypeVideoScript}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +547,7 @@ func TestProjectSOPBindingIsExplicitAndDoesNotRewriteHistoricalTasks(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "绑定品牌", ProductName: "绑定产品"}, "")
+	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "绑定品牌", ProductName: "绑定产品", ContentType: domain.ContentTypeVideoScript}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -600,7 +650,7 @@ func TestCreateWorkTaskIdempotencyReturnsOriginalOrConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "幂等品牌", ProductName: "幂等产品"}, "")
+	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "幂等品牌", ProductName: "幂等产品", ContentType: domain.ContentTypeVideoScript}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

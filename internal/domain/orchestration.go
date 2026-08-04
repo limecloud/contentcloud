@@ -116,17 +116,24 @@ type SOPVersion struct {
 }
 
 type StageDefinition struct {
-	ID                   string   `json:"stage_id"`
-	Name                 string   `json:"name"`
-	Order                int      `json:"order"`
-	OwnerRoles           []string `json:"owner_roles"`
-	InputRefs            []string `json:"input_refs"`
-	OutputSchema         string   `json:"output_schema"`
-	RequiredCapabilities []string `json:"required_capabilities"`
-	ExecutionModes       []string `json:"execution_modes"`
-	Checks               []string `json:"checks"`
-	GateIDs              []string `json:"gate_ids"`
-	RetryMaxAttempts     int      `json:"retry_max_attempts"`
+	ID                   string                   `json:"stage_id"`
+	Name                 string                   `json:"name"`
+	Order                int                      `json:"order"`
+	OwnerRoles           []string                 `json:"owner_roles"`
+	InputRefs            []string                 `json:"input_refs"`
+	OutputSchema         string                   `json:"output_schema"`
+	RequiredCapabilities []string                 `json:"required_capabilities"`
+	ExecutionModes       []string                 `json:"execution_modes"`
+	Checks               []string                 `json:"checks"`
+	GateIDs              []string                 `json:"gate_ids"`
+	RetryMaxAttempts     int                      `json:"retry_max_attempts"`
+	AcceptedInputTypes   []StageObjectRequirement `json:"accepted_input_types,omitempty"`
+	RequiredOutputTypes  []StageObjectRequirement `json:"required_output_types,omitempty"`
+	OutputSchemaRefs     []string                 `json:"output_schema_refs,omitempty"`
+	CompletionPolicy     string                   `json:"completion_policy,omitempty"`
+	ExecutorPolicy       string                   `json:"executor_policy,omitempty"`
+	RetryPolicy          StageRetryPolicy         `json:"retry_policy,omitempty"`
+	CostPolicy           StageCostPolicy          `json:"cost_policy,omitempty"`
 }
 
 type GateDefinition struct {
@@ -163,6 +170,18 @@ func (v *SOPVersion) NormalizeCollections() {
 		stage.ExecutionModes = normalizeStrings(stage.ExecutionModes)
 		stage.Checks = normalizeStrings(stage.Checks)
 		stage.GateIDs = normalizeStrings(stage.GateIDs)
+		if stage.AcceptedInputTypes == nil {
+			stage.AcceptedInputTypes = []StageObjectRequirement{}
+		} else {
+			stage.AcceptedInputTypes = append([]StageObjectRequirement{}, stage.AcceptedInputTypes...)
+		}
+		if stage.RequiredOutputTypes == nil {
+			stage.RequiredOutputTypes = []StageObjectRequirement{}
+		} else {
+			stage.RequiredOutputTypes = append([]StageObjectRequirement{}, stage.RequiredOutputTypes...)
+		}
+		stage.OutputSchemaRefs = normalizeStrings(stage.OutputSchemaRefs)
+		stage.RetryPolicy.RetryableErrorCode = normalizeStrings(stage.RetryPolicy.RetryableErrorCode)
 	}
 	for index := range v.Gates {
 		gate := &v.Gates[index]
@@ -219,17 +238,18 @@ type WorkTask struct {
 }
 
 type StageRun struct {
-	ID            string     `json:"id"`
-	TenantID      string     `json:"tenant_id"`
-	TaskID        string     `json:"task_id"`
-	StageID       string     `json:"stage_id"`
-	Status        string     `json:"status"`
-	ExecutionMode string     `json:"execution_mode"`
-	InputRefs     []string   `json:"input_refs"`
-	OutputRefs    []string   `json:"output_refs"`
-	StartedAt     *time.Time `json:"started_at,omitempty"`
-	CompletedAt   *time.Time `json:"completed_at,omitempty"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID            string            `json:"id"`
+	TenantID      string            `json:"tenant_id"`
+	TaskID        string            `json:"task_id"`
+	StageID       string            `json:"stage_id"`
+	Status        string            `json:"status"`
+	ExecutionMode string            `json:"execution_mode"`
+	InputRefs     []string          `json:"input_refs"`
+	OutputRefs    []string          `json:"output_refs"`
+	Outputs       []TaskStageOutput `json:"outputs"`
+	StartedAt     *time.Time        `json:"started_at,omitempty"`
+	CompletedAt   *time.Time        `json:"completed_at,omitempty"`
+	UpdatedAt     time.Time         `json:"updated_at"`
 }
 
 type GateEvaluation struct {
@@ -322,20 +342,22 @@ func (v TaskRevision) Validate() error {
 }
 
 type TaskDelivery struct {
-	ID             string     `json:"id"`
-	TenantID       string     `json:"tenant_id"`
-	ProjectID      string     `json:"project_id"`
-	TaskID         string     `json:"task_id"`
-	RevisionID     string     `json:"revision_id"`
-	Destination    string     `json:"destination"`
-	Status         string     `json:"status"`
-	Manifest       []string   `json:"manifest"`
-	DeliveryDigest string     `json:"delivery_digest"`
-	DeliveredBy    string     `json:"delivered_by,omitempty"`
-	DeliveredAt    *time.Time `json:"delivered_at,omitempty"`
-	ErrorCode      string     `json:"error_code,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID                string     `json:"id"`
+	TenantID          string     `json:"tenant_id"`
+	ProjectID         string     `json:"project_id"`
+	TaskID            string     `json:"task_id"`
+	RevisionID        string     `json:"revision_id"`
+	Destination       string     `json:"destination"`
+	Status            string     `json:"status"`
+	Manifest          []string   `json:"manifest"`
+	DeliveryPackageID string     `json:"delivery_package_id,omitempty"`
+	IntegrityStatus   string     `json:"integrity_status"`
+	DeliveryDigest    string     `json:"delivery_digest"`
+	DeliveredBy       string     `json:"delivered_by,omitempty"`
+	DeliveredAt       *time.Time `json:"delivered_at,omitempty"`
+	ErrorCode         string     `json:"error_code,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 func (v *TaskDelivery) NormalizeCollections() {
@@ -355,6 +377,9 @@ func (v TaskDelivery) Validate() error {
 	}
 	if v.DeliveryDigest != "" && !validSHA256Digest(v.DeliveryDigest) {
 		return Invalid("TASK_DELIVERY_HASH_INVALID", "交付摘要必须是 sha256 摘要")
+	}
+	if v.Status == TaskDeliveryDelivered && (v.DeliveryPackageID == "" || len(v.Manifest) == 0 || v.IntegrityStatus != "complete") {
+		return Invalid("TASK_DELIVERY_INCOMPLETE", "已交付记录必须引用完整 DeliveryPackage 和非空 manifest")
 	}
 	return nil
 }
@@ -436,6 +461,14 @@ func (v SOPVersion) Validate() error {
 		}
 		lastOrder = stage.Order
 		seenStages[stage.ID] = true
+		if stage.CompletionPolicy != "" && stage.CompletionPolicy != StageCompletionAllRequired && stage.CompletionPolicy != StageCompletionAtLeastOne && stage.CompletionPolicy != StageCompletionControlOnly {
+			return Invalid("SOP_STAGE_COMPLETION_POLICY_INVALID", "Stage 完成策略无效")
+		}
+		for _, requirement := range append(append([]StageObjectRequirement{}, stage.AcceptedInputTypes...), stage.RequiredOutputTypes...) {
+			if _, ok := validStageOutputTypes[requirement.OutputType]; !ok || requirement.MinCount < 0 {
+				return Invalid("SOP_STAGE_OBJECT_REQUIREMENT_INVALID", "Stage 对象契约包含无效类型或数量")
+			}
+		}
 	}
 	seenGates := map[string]bool{}
 	for _, gate := range v.Gates {

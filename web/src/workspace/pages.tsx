@@ -3,7 +3,8 @@ import { TeamView } from '../views/TeamView';
 import type { ProjectView } from '../v3/page-contracts';
 import { V3ProjectPage } from '../v3/ProjectPage';
 import { useWorkspace } from './context';
-import { WorkOSHomePage, WorkOSInboxPage, WorkOSKnowledgePage, WorkOSNewTaskPage, WorkOSSOPPage, WorkOSTaskDetailPage, WorkOSTaskListPage } from './workOS';
+import { WorkOSHomePage, WorkOSInboxPage, WorkOSKnowledgePage, WorkOSNewTaskPage, WorkOSSOPPage, WorkOSTaskListPage } from './workOS';
+import { TaskProductionPage } from './TaskProductionPage';
 
 export function ConsoleDashboardPage() {
   return <WorkOSHomePage/>;
@@ -21,4 +22,4 @@ export function ConsoleProjectPage({view}:{view:ProjectView}) {
   return <V3ProjectPage view={view}/>;
 }
 
-export {WorkOSInboxPage,WorkOSKnowledgePage,WorkOSNewTaskPage,WorkOSSOPPage,WorkOSTaskDetailPage,WorkOSTaskListPage};
+export {TaskProductionPage,WorkOSInboxPage,WorkOSKnowledgePage,WorkOSNewTaskPage,WorkOSSOPPage,WorkOSTaskListPage};

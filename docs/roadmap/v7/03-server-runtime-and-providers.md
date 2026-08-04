@@ -1,0 +1,205 @@
+# V7 服务端 Runtime 与媒体 Provider
+
+## 1. 执行边界
+
+| 执行面 | 允许 | 禁止 |
+| --- | --- | --- |
+| Web/API | 创建任务、验证权限、创建 Job、展示状态、作出 Gate 决定 | 同步等待视频生成、直接持有 Provider 明文密钥 |
+| Source Worker | 读取来源对象、检测 MIME、确定性解析 Evidence | 生成或批准知识主张 |
+| Local Agent/Daemon | 生成候选知识、策略、剧本和分镜任务 | 自行批准或把本地文件冒充服务端 Artifact |
+| Media Worker | 调用 allowlist Provider、轮询、下载、校验、存储 Artifact | 修改剧本、批准内容、发布外部账号 |
+| Render Worker | 字幕、音频、品牌层和 CTA 的确定性合成 | 生成未经批准的动态权益或文案 |
+| Human | 批准事实、方向、内容、分镜、费用、take 和最终成片 | 绕过确定性 Schema、rights 和租户权限 |
+
+## 2. Worker 拓扑
+
+V7 延续现有 Go Server + Worker + PostgreSQL + S3 拓扑：
+
+```text
+                    PostgreSQL
+             jobs / leases / attempts
+                ^                 |
+                | claim           | state
+                |                 v
+API Server ------------------> Media Worker
+   |                               |
+   | create job                    | HTTPS egress
+   v                               v
+Object Storage <------------- Provider API
+   ^                    download result / callback hint
+   |
+Render Worker
+```
+
+首版不引入新的队列基础设施。Worker 用短租约领取 Job，心跳续租，进程崩溃后由 lease expiry 恢复。规模或延迟指标证明数据库队列不足后，再单独评审专用消息系统。
+
+## 3. ProviderAdapter
+
+ProviderAdapter 是内部 Go 接口，不是公共 SDK：
+
+```text
+Validate(request, profile) -> normalized request / policy error
+Estimate(request)          -> price, currency, expiry
+Submit(ctx, request, key)  -> external job ref
+Status(ctx, external ref)  -> normalized state, progress, outputs
+Cancel(ctx, external ref)  -> accepted / unsupported
+Download(ctx, output ref)  -> bounded stream, metadata
+```
+
+Adapter 必须把 Vendor 状态映射到统一状态，保留 Vendor 原始 request id 供诊断，但不能把原始错误正文直接显示给用户。
+
+## 4. 首批 Provider 模式
+
+### `managed_http_video`
+
+- V7 正式自动生成路径。
+- 通过部署配置绑定一个真实适配器和模型，不在业务代码散落 URL、模型名或限制。
+- 支持异步 submit + poll；支持回调的 Provider 也必须保留轮询对账路径。
+- 生产发布前至少一个真实适配器通过沙箱、限额、小流量和账单对账验收。
+
+### `external_operator`
+
+- 复用现有 SeedancePromptPackage 和人工上传清单。
+- Job 状态为 `awaiting_external_result`，不能标成 succeeded。
+- 用户生成后通过受控上传登记真实结果，系统创建 Artifact、运行技术检查和人工质检。
+- 用于 Provider API 不可用、特定区域只能 Web 操作或人工创意实验。
+
+两种模式产生相同的 Artifact、MediaReview 和 DeliveryPackage，不让下游感知 Vendor 差异。
+
+## 5. Provider Profile
+
+每个 Profile 必须版本化并由平台管理员发布：
+
+- provider、adapter version、model label、region。
+- 支持的生成模式、输入媒体类型、格式、数量、大小和时长。
+- 输出格式、分辨率、时长、声音和水印能力。
+- face/rights/content policy、数据保留和训练使用声明。
+- 费用单位、估算规则、并发、rate limit 和 timeout。
+- callback 签名方式、轮询间隔和幂等能力。
+- verified_at、expires_at、evidence refs、digest 和撤回状态。
+
+过期或撤回 Profile 允许历史读取，不允许创建新 Job。
+
+## 6. Secret 与配置
+
+```text
+ProviderBinding
+  tenant_id
+  provider_id
+  profile_version
+  state
+  credential_ref  ---> deployment env / Secret Manager
+  egress_policy
+  monthly_budget
+  max_concurrency
+```
+
+- 数据库只保存 `credential_ref`，不保存 API key、cookie、refresh token 或密码。
+- Secret 在 Worker 启动或单次请求时解析，最小权限注入，不打印值。
+- 配置诊断只返回 `configured/missing/invalid/expired` 和安全 reason code。
+- Secret 轮换不改变历史 Job 的 Profile digest；新 Attempt 使用新的 secret version ref。
+- 租户不能提交任意 base URL。Provider endpoint 来自平台 allowlist 和签名 Profile，防止 SSRF。
+
+## 7. 提交和对账
+
+```text
+Create Job
+  -> validate locked inputs
+  -> estimate cost
+  -> budget/cost Gate
+  -> claim job
+  -> create ProviderAttempt
+  -> Submit(idempotency key)
+       | timeout / unknown
+       v
+     reconcile by idempotency or provider query
+  -> poll or accept signed callback
+  -> download output
+  -> sniff MIME + size/duration/codec validation
+  -> stream to object storage + SHA-256
+  -> create Artifact transactionally
+  -> mark Job succeeded
+```
+
+Provider “成功”只表示允许尝试下载。只有 Artifact 落库并通过技术校验后，Job 才能 succeeded。
+
+## 8. 重试策略
+
+| 错误类别 | 行为 |
+| --- | --- |
+| 429 / rate limit | 遵守 Retry-After，指数退避并加 jitter |
+| 5xx / network timeout | 在幂等或对账成立时重试 |
+| submit 结果未知 | 先对账，禁止盲目创建第二个外部 Job |
+| invalid input / policy rejected | 终止，不自动改 Prompt 绕过 |
+| budget exceeded | `budget_blocked`，等待项目经理决定 |
+| output expired | 若 Provider 可重新签发则重取，否则明确失败 |
+| output invalid | 保留诊断 Artifact/元数据，按 policy 重试或人工处理 |
+| credential invalid | ProviderBinding `misconfigured`，阻断同租户新 Job |
+
+默认最多三次 Attempt，但费用型重试由 Profile 和租户预算共同限制。已经产生费用的失败必须显示 estimated/actual cost。
+
+## 9. 下载与媒体校验
+
+- 只从 Provider 返回且通过 allowlist/签名校验的 URL 下载。
+- 禁止跟随到私网、link-local、metadata endpoint 或非 HTTPS 地址。
+- 流式读取并同时计算 SHA-256；设置连接、首字节、总时长和最大字节限制。
+- MIME 使用内容嗅探，不信任扩展名或响应头。
+- 使用受限媒体探测工具读取 duration、dimensions、codec、frame rate 和音轨。
+- 对空文件、HTML 错误页、损坏容器、超长时长、错误画幅和不可解码输出拒绝创建成功 Artifact。
+- 病毒扫描和内容安全策略按生产上传边界启用，失败时进入 quarantine。
+
+## 10. 回调
+
+- 每个 Provider 使用独立 allowlisted 路由和签名验证器。
+- 验证时间戳、nonce/event id、防重放窗口和 body digest。
+- 回调只写“需要对账”的轻量事件，不直接相信回调中的输出 URL 或最终状态。
+- 乱序、重复和未知 external job id 返回幂等响应并写安全审计。
+- 没有回调的 Provider 只用 polling，不强行模拟 webhook。
+
+## 11. 成本与配额
+
+预算维度：
+
+- 单 Job 估算上限。
+- 项目日/月预算。
+- 租户日/月预算。
+- 同时活动 Job 数。
+- 单任务最大 Attempt 和最大生成时长。
+
+费用使用整数最小货币单位或 decimal，记录估算时使用的 Profile 和价格版本。Provider 账单导入后可对账 actual cost；没有账单证据时明确显示 `estimated`。
+
+## 12. 可观测性
+
+### 指标
+
+- queued jobs、queue latency、active leases、lease expiry。
+- submit/poll/download latency 和错误率，按 provider/profile/error class 聚合。
+- generated bytes、Artifact validation failures、duplicate callbacks。
+- estimated/actual cost、budget blocks、retry cost。
+- final success rate、take approval rate、segment retry rate。
+
+### 日志和审计
+
+- 结构化日志使用 job/attempt/provider/request id，不记录 prompt 正文、secret、签名 URL 或客户文件内容。
+- 审计记录谁创建 Job、批准预算、发送了哪些 Artifact 摘要、选择了哪个 take、批准了哪个 final digest。
+- Provider 原始响应在受限诊断存储中短期保留，默认业务日志不保存。
+
+## 13. SLO 与告警
+
+| 指标 | 首版目标 |
+| --- | --- |
+| API 创建 Job | p95 < 500ms，不含外部生成 |
+| Job 入队到提交 | p95 < 60s，未被预算或并发阻断时 |
+| 状态新鲜度 | Provider 活动期内 60s 内更新 |
+| Worker 恢复 | 实例退出后 2 个 lease 周期内被重新领取 |
+| Artifact 完整性 | 100% 有 SHA-256、MIME、字节数和媒体探测结果 |
+| 重复外部提交 | 0 个已知重复计费 Job |
+
+告警按 Provider 故障、凭据故障、队列堆积、对象存储故障和预算异常分开，避免一个“生成失败”总告警无法定位。
+
+## 14. 本地开发与测试 Provider
+
+- 提供进程内 FakeProvider，可脚本化 queued/running/succeeded/failed/timeout/duplicate callback。
+- 测试视频使用仓库内小型固定 fixture，输出摘要可复现。
+- CI 永不调用真实付费 Provider。
+- 真实 Provider smoke test 使用显式环境开关、低预算租户和人工确认，只在发布候选环境执行。

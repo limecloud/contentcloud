@@ -508,7 +508,7 @@ func (s *Store) SaveMembershipInvite(ctx context.Context, v domain.MembershipInv
 	})
 }
 
-const projectSelect = `SELECT p.id,p.tenant_id,p.slug,p.brand_name,p.product_name,p.channel,p.stage_objective,p.status,p.owner_name,p.reviewer_name,p.client_approver,p.row_version,p.created_at,p.updated_at,
+const projectSelect = `SELECT p.id,p.tenant_id,p.slug,p.brand_name,p.product_name,p.content_type,p.channel,p.stage_objective,p.status,p.owner_name,p.reviewer_name,p.client_approver,p.row_version,p.created_at,p.updated_at,
   (SELECT count(*) FROM project_device_grants g JOIN devices d ON d.id=g.device_id WHERE g.project_id=p.id AND g.revoked_at IS NULL AND d.revoked_at IS NULL),
   (SELECT count(*) FROM knowledge_objects k WHERE k.project_id=p.id AND k.status IN ('verified','approved','valid','active')),
   (SELECT count(*) FROM knowledge_objects k WHERE k.project_id=p.id AND k.status IN ('candidate','needs_review','conflicted','blocked','open'))
@@ -516,13 +516,13 @@ const projectSelect = `SELECT p.id,p.tenant_id,p.slug,p.brand_name,p.product_nam
 
 func scanProject(row pgx.Row) (domain.Project, error) {
 	var v domain.Project
-	err := row.Scan(&v.ID, &v.TenantID, &v.Slug, &v.BrandName, &v.ProductName, &v.Channel, &v.StageObjective, &v.Status, &v.OwnerName, &v.ReviewerName, &v.ClientApprover, &v.RowVersion, &v.CreatedAt, &v.UpdatedAt, &v.ConnectedDevices, &v.KnowledgeReady, &v.OpenBlockers)
+	err := row.Scan(&v.ID, &v.TenantID, &v.Slug, &v.BrandName, &v.ProductName, &v.ContentType, &v.Channel, &v.StageObjective, &v.Status, &v.OwnerName, &v.ReviewerName, &v.ClientApprover, &v.RowVersion, &v.CreatedAt, &v.UpdatedAt, &v.ConnectedDevices, &v.KnowledgeReady, &v.OpenBlockers)
 	return v, err
 }
 
 func (s *Store) CreateProject(ctx context.Context, v domain.Project) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO brand_projects(id,tenant_id,slug,brand_name,product_name,channel,stage_objective,status,owner_name,reviewer_name,client_approver,row_version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, v.ID, v.TenantID, v.Slug, v.BrandName, v.ProductName, v.Channel, v.StageObjective, v.Status, v.OwnerName, v.ReviewerName, v.ClientApprover, v.RowVersion, v.CreatedAt, v.UpdatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO brand_projects(id,tenant_id,slug,brand_name,product_name,content_type,channel,stage_objective,status,owner_name,reviewer_name,client_approver,row_version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, v.ID, v.TenantID, v.Slug, v.BrandName, v.ProductName, v.ContentType, v.Channel, v.StageObjective, v.Status, v.OwnerName, v.ReviewerName, v.ClientApprover, v.RowVersion, v.CreatedAt, v.UpdatedAt)
 		return dbError(err)
 	})
 }
@@ -562,7 +562,7 @@ func (s *Store) Project(ctx context.Context, tenantID, id string) (domain.Projec
 
 func (s *Store) SaveProject(ctx context.Context, v domain.Project) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE brand_projects SET slug=$3,brand_name=$4,product_name=$5,channel=$6,stage_objective=$7,status=$8,owner_name=$9,reviewer_name=$10,client_approver=$11,row_version=$12,updated_at=$13 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.Slug, v.BrandName, v.ProductName, v.Channel, v.StageObjective, v.Status, v.OwnerName, v.ReviewerName, v.ClientApprover, v.RowVersion, v.UpdatedAt)
+		result, err := tx.Exec(ctx, `UPDATE brand_projects SET slug=$3,brand_name=$4,product_name=$5,content_type=$6,channel=$7,stage_objective=$8,status=$9,owner_name=$10,reviewer_name=$11,client_approver=$12,row_version=$13,updated_at=$14 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.Slug, v.BrandName, v.ProductName, v.ContentType, v.Channel, v.StageObjective, v.Status, v.OwnerName, v.ReviewerName, v.ClientApprover, v.RowVersion, v.UpdatedAt)
 		if err != nil {
 			return dbError(err)
 		}
@@ -575,7 +575,7 @@ func (s *Store) SaveProject(ctx context.Context, v domain.Project) error {
 
 func (s *Store) UpdateProject(ctx context.Context, v domain.Project, expectedVersion int) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE brand_projects SET slug=$3,brand_name=$4,product_name=$5,channel=$6,stage_objective=$7,status=$8,owner_name=$9,reviewer_name=$10,client_approver=$11,row_version=$12,updated_at=$13 WHERE tenant_id=$1 AND id=$2 AND row_version=$14`, v.TenantID, v.ID, v.Slug, v.BrandName, v.ProductName, v.Channel, v.StageObjective, v.Status, v.OwnerName, v.ReviewerName, v.ClientApprover, v.RowVersion, v.UpdatedAt, expectedVersion)
+		result, err := tx.Exec(ctx, `UPDATE brand_projects SET slug=$3,brand_name=$4,product_name=$5,content_type=$6,channel=$7,stage_objective=$8,status=$9,owner_name=$10,reviewer_name=$11,client_approver=$12,row_version=$13,updated_at=$14 WHERE tenant_id=$1 AND id=$2 AND row_version=$15`, v.TenantID, v.ID, v.Slug, v.BrandName, v.ProductName, v.ContentType, v.Channel, v.StageObjective, v.Status, v.OwnerName, v.ReviewerName, v.ClientApprover, v.RowVersion, v.UpdatedAt, expectedVersion)
 		if err != nil {
 			return dbError(err)
 		}

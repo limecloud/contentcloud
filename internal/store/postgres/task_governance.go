@@ -168,12 +168,12 @@ func (s *Store) TaskRevision(ctx context.Context, tenantID, id string) (domain.T
 	return result, err
 }
 
-const taskDeliverySelect = `SELECT tenant_id,id,project_id,task_id,revision_id,destination,status,manifest,delivery_digest,delivered_by,delivered_at,error_code,created_at,updated_at FROM task_deliveries`
+const taskDeliverySelect = `SELECT tenant_id,id,project_id,task_id,revision_id,destination,status,manifest,COALESCE(delivery_package_id::text,''),integrity_status,delivery_digest,delivered_by,delivered_at,error_code,created_at,updated_at FROM task_deliveries`
 
 func scanTaskDelivery(row pgx.Row) (domain.TaskDelivery, error) {
 	var value domain.TaskDelivery
 	var manifest []byte
-	err := row.Scan(&value.TenantID, &value.ID, &value.ProjectID, &value.TaskID, &value.RevisionID, &value.Destination, &value.Status, &manifest, &value.DeliveryDigest, &value.DeliveredBy, &value.DeliveredAt, &value.ErrorCode, &value.CreatedAt, &value.UpdatedAt)
+	err := row.Scan(&value.TenantID, &value.ID, &value.ProjectID, &value.TaskID, &value.RevisionID, &value.Destination, &value.Status, &manifest, &value.DeliveryPackageID, &value.IntegrityStatus, &value.DeliveryDigest, &value.DeliveredBy, &value.DeliveredAt, &value.ErrorCode, &value.CreatedAt, &value.UpdatedAt)
 	if err == nil {
 		value.Manifest, err = decodeJSON[[]string](manifest)
 	}
@@ -187,7 +187,7 @@ func (s *Store) CreateTaskDelivery(ctx context.Context, value domain.TaskDeliver
 		return err
 	}
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO task_deliveries(tenant_id,id,project_id,task_id,revision_id,destination,status,manifest,delivery_digest,delivered_by,delivered_at,error_code,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, value.TenantID, value.ID, value.ProjectID, value.TaskID, value.RevisionID, value.Destination, value.Status, jsonArrayValue(value.Manifest), value.DeliveryDigest, value.DeliveredBy, value.DeliveredAt, value.ErrorCode, value.CreatedAt, value.UpdatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO task_deliveries(tenant_id,id,project_id,task_id,revision_id,destination,status,manifest,delivery_package_id,integrity_status,delivery_digest,delivered_by,delivered_at,error_code,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, value.TenantID, value.ID, value.ProjectID, value.TaskID, value.RevisionID, value.Destination, value.Status, jsonArrayValue(value.Manifest), nullable(value.DeliveryPackageID), value.IntegrityStatus, value.DeliveryDigest, value.DeliveredBy, value.DeliveredAt, value.ErrorCode, value.CreatedAt, value.UpdatedAt)
 		return dbError(err)
 	})
 }
@@ -231,7 +231,7 @@ func (s *Store) SaveTaskDelivery(ctx context.Context, value domain.TaskDelivery)
 		return err
 	}
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		command, err := tx.Exec(ctx, `UPDATE task_deliveries SET status=$3,manifest=$4,delivery_digest=$5,delivered_by=$6,delivered_at=$7,error_code=$8,updated_at=$9 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.Status, jsonArrayValue(value.Manifest), value.DeliveryDigest, value.DeliveredBy, value.DeliveredAt, value.ErrorCode, value.UpdatedAt)
+		command, err := tx.Exec(ctx, `UPDATE task_deliveries SET status=$3,manifest=$4,delivery_package_id=$5,integrity_status=$6,delivery_digest=$7,delivered_by=$8,delivered_at=$9,error_code=$10,updated_at=$11 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.Status, jsonArrayValue(value.Manifest), nullable(value.DeliveryPackageID), value.IntegrityStatus, value.DeliveryDigest, value.DeliveredBy, value.DeliveredAt, value.ErrorCode, value.UpdatedAt)
 		if err == nil && command.RowsAffected() == 0 {
 			return domain.NotFound("Task 交付")
 		}

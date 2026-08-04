@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,10 +123,11 @@ func TestKnowledgeBFFVerticalSlice(t *testing.T) {
 		t.Fatalf("expected one accepted evidence span, got %d: %v", len(spans), err)
 	}
 	fact := callBFF[domain.KnowledgeObject](t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/knowledge-objects", map[string]any{"id": "fact:weight", "object_type": "FactAssertion", "layer": "product", "title": "净重", "evidence_refs": []string{spans[0].ID}})
+	encodedFactID := strings.ReplaceAll(url.PathEscape(fact.ID), ":", "%3A")
 	reviewed := callBFF[struct {
 		Object   domain.KnowledgeObject   `json:"object"`
 		Decision domain.KnowledgeDecision `json:"decision"`
-	}](t, client, http.MethodPost, server.URL+"/api/bff/knowledge-objects/"+fact.ID+"/transitions", app.ReviewKnowledgeObjectInput{ExpectedVersion: fact.Version, ExpectedDigest: fact.Digest, Decision: "approve", Reason: "已复核规格来源"})
+	}](t, client, http.MethodPost, server.URL+"/api/bff/knowledge-objects/"+encodedFactID+"/transitions", app.ReviewKnowledgeObjectInput{ExpectedVersion: fact.Version, ExpectedDigest: fact.Digest, Decision: "approve", Reason: "已复核规格来源"})
 	fact = reviewed.Object
 	if fact.Status != "verified" || reviewed.Decision.ID == "" {
 		t.Fatalf("unexpected knowledge review result: %#v", reviewed)
@@ -137,7 +140,7 @@ func TestKnowledgeBFFVerticalSlice(t *testing.T) {
 	published := callBFF[struct {
 		Pack     domain.KnowledgePack     `json:"pack"`
 		Snapshot domain.KnowledgeSnapshot `json:"snapshot"`
-	}](t, client, http.MethodPost, server.URL+"/api/bff/knowledge-packs/"+pack.ID+"/publish", map[string]any{})
+	}](t, client, http.MethodPost, server.URL+"/api/bff/knowledge-packs/"+strings.ReplaceAll(url.PathEscape(pack.ID), ":", "%3A")+"/publish", map[string]any{})
 	if published.Pack.Status != "published" || published.Snapshot.ID == "" {
 		t.Fatalf("unexpected published pack: %#v", published)
 	}
@@ -149,8 +152,16 @@ func TestKnowledgeBFFVerticalSlice(t *testing.T) {
 	if len(objects) != 3 {
 		t.Fatalf("unexpected knowledge objects: %#v", objects)
 	}
-	decisions := callBFF[[]domain.KnowledgeDecision](t, client, http.MethodGet, server.URL+"/api/bff/knowledge-objects/"+fact.ID+"/decisions", nil)
+	decisions := callBFF[[]domain.KnowledgeDecision](t, client, http.MethodGet, server.URL+"/api/bff/knowledge-objects/"+encodedFactID+"/decisions", nil)
 	if len(decisions) != 1 || decisions[0].ResultVersion != fact.Version {
 		t.Fatalf("unexpected knowledge decisions: %#v", decisions)
+	}
+	snapshot := callBFF[domain.KnowledgeSnapshot](t, client, http.MethodGet, server.URL+"/api/bff/knowledge-snapshots/"+strings.ReplaceAll(url.PathEscape(published.Snapshot.ID), ":", "%3A"), nil)
+	if snapshot.ID != published.Snapshot.ID || snapshot.PackID != pack.ID {
+		t.Fatalf("unexpected knowledge snapshot: %#v", snapshot)
+	}
+	snapshots := callBFF[[]domain.KnowledgeSnapshot](t, client, http.MethodGet, server.URL+"/api/bff/projects/"+project.ID+"/knowledge-packs/"+strings.ReplaceAll(url.PathEscape(pack.ID), ":", "%3A")+"/snapshots", nil)
+	if len(snapshots) != 1 || snapshots[0].ID != published.Snapshot.ID {
+		t.Fatalf("unexpected knowledge snapshots: %#v", snapshots)
 	}
 }

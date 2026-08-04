@@ -4,6 +4,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -133,7 +134,11 @@ func multipartSourceFile(w http.ResponseWriter, r *http.Request) ([]byte, string
 
 func (s *Server) knowledgeObjects(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
-	value, err := s.service.KnowledgeObjects(r.Context(), actor, chi.URLParam(r, "projectID"))
+	projectID, ok := s.knowledgeParam(w, r, "projectID", "knowledge_object.list")
+	if !ok {
+		return
+	}
+	value, err := s.service.KnowledgeObjects(r.Context(), actor, projectID)
 	s.dispatchResult(w, r, "knowledge_object.list", value, err)
 }
 
@@ -143,7 +148,11 @@ func (s *Server) createKnowledgeObject(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &input) {
 		return
 	}
-	input.ProjectID = chi.URLParam(r, "projectID")
+	projectID, ok := s.knowledgeParam(w, r, "projectID", "knowledge_object.create")
+	if !ok {
+		return
+	}
+	input.ProjectID = projectID
 	value, err := s.service.CreateKnowledgeObject(r.Context(), actor, input, middleware.GetReqID(r.Context()))
 	s.dispatchResult(w, r, "knowledge_object.create", value, err)
 }
@@ -154,19 +163,31 @@ func (s *Server) transitionKnowledgeObject(w http.ResponseWriter, r *http.Reques
 	if !s.decode(w, r, &input) {
 		return
 	}
-	object, decision, err := s.service.ReviewKnowledgeObject(r.Context(), actor, chi.URLParam(r, "id"), input, middleware.GetReqID(r.Context()))
+	id, ok := s.knowledgeParam(w, r, "id", "knowledge_object.transition")
+	if !ok {
+		return
+	}
+	object, decision, err := s.service.ReviewKnowledgeObject(r.Context(), actor, id, input, middleware.GetReqID(r.Context()))
 	s.dispatchResult(w, r, "knowledge_object.transition", map[string]any{"object": object, "decision": decision}, err)
 }
 
 func (s *Server) knowledgeDecisions(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
-	value, err := s.service.KnowledgeDecisions(r.Context(), actor, chi.URLParam(r, "id"))
+	id, ok := s.knowledgeParam(w, r, "id", "knowledge_decision.list")
+	if !ok {
+		return
+	}
+	value, err := s.service.KnowledgeDecisions(r.Context(), actor, id)
 	s.dispatchResult(w, r, "knowledge_decision.list", value, err)
 }
 
 func (s *Server) knowledgePacks(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
-	value, err := s.service.KnowledgePacks(r.Context(), actor, chi.URLParam(r, "projectID"))
+	projectID, ok := s.knowledgeParam(w, r, "projectID", "knowledge_pack.list")
+	if !ok {
+		return
+	}
+	value, err := s.service.KnowledgePacks(r.Context(), actor, projectID)
 	s.dispatchResult(w, r, "knowledge_pack.list", value, err)
 }
 
@@ -176,27 +197,56 @@ func (s *Server) createKnowledgePack(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &input) {
 		return
 	}
-	input.ProjectID = chi.URLParam(r, "projectID")
+	projectID, ok := s.knowledgeParam(w, r, "projectID", "knowledge_pack.create")
+	if !ok {
+		return
+	}
+	input.ProjectID = projectID
 	value, err := s.service.CreateKnowledgePack(r.Context(), actor, input, middleware.GetReqID(r.Context()))
 	s.dispatchResult(w, r, "knowledge_pack.create", value, err)
 }
 
 func (s *Server) publishKnowledgePack(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
-	pack, snapshot, err := s.service.PublishKnowledgePack(r.Context(), actor, chi.URLParam(r, "id"), middleware.GetReqID(r.Context()))
+	id, ok := s.knowledgeParam(w, r, "id", "knowledge_pack.publish")
+	if !ok {
+		return
+	}
+	pack, snapshot, err := s.service.PublishKnowledgePack(r.Context(), actor, id, middleware.GetReqID(r.Context()))
 	s.dispatchResult(w, r, "knowledge_pack.publish", map[string]any{"pack": pack, "snapshot": snapshot}, err)
 }
 
 func (s *Server) knowledgeSnapshot(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
-	value, err := s.service.KnowledgeSnapshot(r.Context(), actor, chi.URLParam(r, "id"))
+	id, ok := s.knowledgeParam(w, r, "id", "knowledge_snapshot.show")
+	if !ok {
+		return
+	}
+	value, err := s.service.KnowledgeSnapshot(r.Context(), actor, id)
 	s.dispatchResult(w, r, "knowledge_snapshot.show", value, err)
 }
 
 func (s *Server) knowledgeSnapshots(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
-	value, err := s.service.KnowledgeSnapshots(r.Context(), actor, chi.URLParam(r, "projectID"), chi.URLParam(r, "packID"))
+	projectID, ok := s.knowledgeParam(w, r, "projectID", "knowledge_snapshot.list")
+	if !ok {
+		return
+	}
+	packID, ok := s.knowledgeParam(w, r, "packID", "knowledge_snapshot.list")
+	if !ok {
+		return
+	}
+	value, err := s.service.KnowledgeSnapshots(r.Context(), actor, projectID, packID)
 	s.dispatchResult(w, r, "knowledge_snapshot.list", value, err)
+}
+
+func (s *Server) knowledgeParam(w http.ResponseWriter, r *http.Request, name, action string) (string, bool) {
+	value, err := url.PathUnescape(chi.URLParam(r, name))
+	if err != nil {
+		s.fail(w, r, action, domain.Invalid("URL_PARAM_INVALID", "请求路径参数编码无效"))
+		return "", false
+	}
+	return value, true
 }
 
 func (s *Server) queryKnowledge(w http.ResponseWriter, r *http.Request) {

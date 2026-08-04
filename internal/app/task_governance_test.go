@@ -20,7 +20,7 @@ func TestTaskLifecycleRevisionAndDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "测试品牌", ProductName: "测试产品"}, "")
+	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "测试品牌", ProductName: "测试产品", ContentType: domain.ContentTypeVideoScript}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,12 +59,16 @@ func TestTaskLifecycleRevisionAndDelivery(t *testing.T) {
 	if err != nil || revision.Status != domain.TaskRevisionAccepted {
 		t.Fatalf("revision should be accepted after final stage: %#v err=%v", revision, err)
 	}
-	delivery, err := service.CreateTaskDelivery(ctx, actor, view.Task.ID, app.CreateTaskDeliveryInput{RevisionID: revision.ID, Destination: "workspace"}, "")
-	if err != nil || delivery.Status != domain.TaskDeliveryDelivered {
-		t.Fatalf("delivery did not complete: %#v err=%v", delivery, err)
+	if _, err := service.CreateTaskDelivery(ctx, actor, view.Task.ID, app.CreateTaskDeliveryInput{RevisionID: revision.ID, Destination: "workspace"}, ""); err == nil {
+		t.Fatal("empty client manifest must not create a delivered record")
+	}
+	deliver := false
+	delivery, err := service.CreateTaskDelivery(ctx, actor, view.Task.ID, app.CreateTaskDeliveryInput{RevisionID: revision.ID, Destination: "workspace", Deliver: &deliver}, "")
+	if err != nil || delivery.Status != domain.TaskDeliveryReady || delivery.IntegrityStatus != "script_only" {
+		t.Fatalf("script-only delivery projection was not created: %#v err=%v", delivery, err)
 	}
 	view, err = service.WorkTask(ctx, actor, view.Task.ID)
-	if err != nil || view.Task.Status != domain.TaskStatusDelivered || len(view.Deliveries) != 1 {
+	if err != nil || view.Task.Status != domain.TaskStatusAccepted || len(view.Deliveries) != 1 {
 		t.Fatalf("task projection did not reflect delivery: view=%#v err=%v", view, err)
 	}
 }
@@ -92,7 +96,7 @@ func TestClientDecisionGateRequiresClientApprover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := service.CreateProject(ctx, owner, app.CreateProjectInput{BrandName: "客户品牌", ProductName: "客户产品"}, "")
+	project, err := service.CreateProject(ctx, owner, app.CreateProjectInput{BrandName: "客户品牌", ProductName: "客户产品", ContentType: domain.ContentTypeVideoScript}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

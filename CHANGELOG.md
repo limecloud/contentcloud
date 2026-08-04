@@ -2,6 +2,25 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.16.0] - 2026-08-04
+
+### Added
+
+- 增加 V7 营销视频生产纵向链路：类型化 Stage 输出、分镜素材、媒体生成任务、Provider 运行、Take 质检、最终渲染和交付包。
+- 增加营销视频内置 SOP、媒体任务和任务详情读模型；工作台展示来源、知识、批准快照、媒体 Job、质检和交付事实。
+- 增加 V7 路线、领域契约、PostgreSQL 迁移以及 Memory、Postgres、Worker 和 Web 回归测试。
+
+### Changed
+
+- Stage 上报改为验证当前租户和项目内规范对象的 digest、version、status；营销视频任务拒绝裸字符串输出，并要求服务端 DeliveryPackage 才能完成交付。
+- 项目内容类型会选择对应的默认 SOP；Server、Worker、Web、CLI、Plugin、MCP 和 Environment Profile 统一升级到 `0.16.0`。
+- 保留 V6 任务与交付的兼容读路径，新增媒体事实通过类型化对象和血缘引用进入任务投影。
+
+### Fixed
+
+- 修复从输入创建任务时项目内容类型丢失，以及旧 SOP 绑定不会按项目类型修复的问题。
+- 修复任务详情无法展示规范对象、媒体输出和交付事实的问题。
+
 ## [0.15.0] - 2026-08-03
 
 ### Added

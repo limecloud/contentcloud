@@ -90,6 +90,9 @@ func main() {
 					if _, err := worker.ProcessPendingSources(workerCtx, service, 5); err != nil {
 						logger.Error("development source ingestion", "error", err)
 					}
+					if _, err := worker.ProcessPendingMedia(workerCtx, service, 5); err != nil {
+						logger.Error("development media processing", "error", err)
+					}
 				}
 			}
 		}()

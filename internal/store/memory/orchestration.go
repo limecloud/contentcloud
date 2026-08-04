@@ -27,6 +27,10 @@ func cloneSOPVersion(value domain.SOPVersion) domain.SOPVersion {
 		value.Stages[i].ExecutionModes = append([]string{}, value.Stages[i].ExecutionModes...)
 		value.Stages[i].Checks = append([]string{}, value.Stages[i].Checks...)
 		value.Stages[i].GateIDs = append([]string{}, value.Stages[i].GateIDs...)
+		value.Stages[i].AcceptedInputTypes = append([]domain.StageObjectRequirement{}, value.Stages[i].AcceptedInputTypes...)
+		value.Stages[i].RequiredOutputTypes = append([]domain.StageObjectRequirement{}, value.Stages[i].RequiredOutputTypes...)
+		value.Stages[i].OutputSchemaRefs = append([]string{}, value.Stages[i].OutputSchemaRefs...)
+		value.Stages[i].RetryPolicy.RetryableErrorCode = append([]string{}, value.Stages[i].RetryPolicy.RetryableErrorCode...)
 	}
 	for i := range value.Gates {
 		value.Gates[i].AssigneeRoles = append([]string{}, value.Gates[i].AssigneeRoles...)
@@ -516,6 +520,13 @@ func (s *Store) StageRuns(_ context.Context, tenantID, taskID string) ([]domain.
 	result := []domain.StageRun{}
 	for _, value := range s.stageRuns {
 		if value.TenantID == tenantID && value.TaskID == taskID {
+			value.Outputs = []domain.TaskStageOutput{}
+			for _, output := range s.stageOutputs {
+				if output.StageRunID == value.ID {
+					value.Outputs = append(value.Outputs, cloneStageOutput(output))
+				}
+			}
+			sort.Slice(value.Outputs, func(i, j int) bool { return value.Outputs[i].CreatedAt.Before(value.Outputs[j].CreatedAt) })
 			result = append(result, value)
 		}
 	}

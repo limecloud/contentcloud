@@ -82,6 +82,7 @@ type Project struct {
 	Slug             string    `json:"slug"`
 	BrandName        string    `json:"brand_name"`
 	ProductName      string    `json:"product_name"`
+	ContentType      string    `json:"content_type"`
 	Channel          string    `json:"channel"`
 	StageObjective   string    `json:"stage_objective"`
 	Status           string    `json:"status"`

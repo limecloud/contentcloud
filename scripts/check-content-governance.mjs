@@ -82,10 +82,20 @@ if (marketplaceEntry?.policy?.installation !== 'AVAILABLE' || marketplaceEntry?.
 }
 
 const tenantDomain = read('internal/domain/platform.go')
-requireText(tenantDomain, 'result := []string{ContentTypeVideoScript}', 'video_script must remain the default tenant content type')
-requireText(tenantDomain, 'ContentTypeWeChatArticle: {}', 'wechat_article must remain an optional tenant capability')
+requireText(tenantDomain, 'DefaultProjectContentType = ContentTypeMarketingVideo', 'marketing_video must remain the default Project content type')
+requireText(tenantDomain, 'result := []string{ContentTypeVideoScript}', 'video_script must remain the always-enabled baseline content type')
+if (!/ContentTypeMarketingVideo:\s*\{\}/.test(tenantDomain)) failures.push('marketing_video must remain an optional tenant capability')
+if (!/ContentTypeWeChatArticle:\s*\{\}/.test(tenantDomain)) failures.push('wechat_article must remain an optional tenant capability')
 for (const file of ['internal/cli/local_commands.go', 'internal/cli/workspace_commands.go', ...expectedSkills.map((skill) => `${skillRoot}/${skill}/SKILL.md`)]) {
   forbidText(read(file), 'UpdatePlatformTenantContentCapability', `${file} must not enable tenant content capabilities`)
+}
+
+const workspaceRouter = read('web/src/router.tsx')
+if ((workspaceRouter.match(/\.TaskProductionPage/g) ?? []).length !== 2) {
+  failures.push('both workspace and Project task routes must use TaskProductionPage')
+}
+for (const file of ['web/src/router.tsx', 'web/src/workspace/pages.tsx', 'web/src/workspace/workOS.tsx']) {
+  forbidText(read(file), 'WorkOSTaskDetailPage', `${file} must not restore the retired task detail page`)
 }
 
 if (failures.length > 0) {

@@ -545,7 +545,25 @@ func (s *Store) StageRuns(ctx context.Context, tenantID, taskID string) ([]domai
 			}
 			result = append(result, value)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		rows.Close()
+		outputs, err := taskStageOutputsTx(ctx, tx, tenantID, taskID)
+		if err != nil {
+			return err
+		}
+		byRun := map[string][]domain.TaskStageOutput{}
+		for _, output := range outputs {
+			byRun[output.StageRunID] = append(byRun[output.StageRunID], output)
+		}
+		for index := range result {
+			result[index].Outputs = byRun[result[index].ID]
+			if result[index].Outputs == nil {
+				result[index].Outputs = []domain.TaskStageOutput{}
+			}
+		}
+		return nil
 	})
 	return result, err
 }

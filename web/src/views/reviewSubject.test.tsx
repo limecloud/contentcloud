@@ -5,7 +5,7 @@ import { ArticleReviewContent } from './ReviewContent';
 import { commentsForArticleBlock, reviewSubject } from './reviewSubject';
 
 const baseProjection:ReviewProjection={
-  project:{id:'project-1',brand_name:'Brand',product_name:'Product',channel:'wechat_official_account',stage_objective:'',status:'active',owner_name:'',reviewer_name:'',client_approver:'',row_version:1,connected_devices:1,knowledge_ready:1,open_blockers:0,updated_at:'2026-07-29T00:00:00Z'},
+  project:{id:'project-1',brand_name:'Brand',product_name:'Product',content_type:'wechat_article',channel:'wechat_official_account',stage_objective:'',status:'active',owner_name:'',reviewer_name:'',client_approver:'',row_version:1,connected_devices:1,knowledge_ready:1,open_blockers:0,updated_at:'2026-07-29T00:00:00Z'},
   comments:[],verified:true,
 };
 

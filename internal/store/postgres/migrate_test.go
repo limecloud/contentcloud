@@ -3,6 +3,8 @@ package postgres
 import (
 	"strings"
 	"testing"
+
+	"github.com/limecloud/contentcloud/migrations"
 )
 
 func TestValidateV3MigrationSet(t *testing.T) {
@@ -43,7 +45,23 @@ func TestValidateV3MigrationSetRejectsTenantCapabilitiesWithoutV5(t *testing.T) 
 }
 
 func currentMigrationSet() []string {
-	return []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration, runProgressEventsMigration, knowledgeInfrastructureMigration, orchestrationInfrastructureMigration, taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration}
+	return []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration, runProgressEventsMigration, knowledgeInfrastructureMigration, orchestrationInfrastructureMigration, taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration}
+}
+
+func TestProjectContentTypeMigrationExpandsTenantCapabilityConstraint(t *testing.T) {
+	body, err := migrations.Files.ReadFile(projectContentTypeMigration)
+	if err != nil {
+		t.Fatalf("read project content type migration: %v", err)
+	}
+	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
+	for _, required := range []string{
+		"DROP CONSTRAINT tenant_content_capabilities_content_type_check",
+		"CHECK (content_type IN ('marketing_video','wechat_article'))",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("project content type migration must contain %q", required)
+		}
+	}
 }
 
 func TestJSONArrayValueNormalizesNilSlice(t *testing.T) {
