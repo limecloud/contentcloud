@@ -15,7 +15,7 @@ function handoff(overrides:Partial<AgentHandoff>={}):AgentHandoff {
   const prompt='[@ContentCloud](plugin://contentcloud-video-production@contentcloud) project project-1; workspace_context';
   const value:AgentHandoff={
     schema_version:'contentcloud.agent-handoff/1.0',client:codex,kind:'project',project_id:'project-1',
-    target:{kind:'project',id:'project-1'},integration:{kind:'plugin',id:'contentcloud-video-production@contentcloud',version:'0.16.0'},
+    target:{kind:'project',id:'project-1'},integration:{kind:'plugin',id:'contentcloud-video-production@contentcloud',version:'0.17.0'},
     requires_new_session:true,requires_workspace_selection:true,launch:{mode:'deep_link',url:`codex://new?prompt=${encodeURIComponent(prompt)}`},
     prompt,steps:['select workspace'],fallback_url:'/codex',...overrides,
   };

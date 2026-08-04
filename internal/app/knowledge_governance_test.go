@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"reflect"
 	"testing"
 
 	"github.com/limecloud/contentcloud/internal/app"
@@ -31,6 +32,11 @@ func TestKnowledgeObjectRequiresDecisionAndPreservesHistory(t *testing.T) {
 	if object.Version != 1 || object.Status != "candidate" {
 		t.Fatalf("unexpected candidate: %#v", object)
 	}
+	candidates, err := service.KnowledgeObjects(ctx, actor, project.ID)
+	must(t, err)
+	if len(candidates) != 1 || !reflect.DeepEqual(candidates[0].AllowedActions, []string{"approve", "reject"}) {
+		t.Fatalf("candidate review actions are incomplete: %#v", candidates)
+	}
 	approved, decision, err := service.ReviewKnowledgeObject(ctx, actor, object.ID, app.ReviewKnowledgeObjectInput{ExpectedVersion: object.Version, ExpectedDigest: object.Digest, Decision: "approve", Reason: "已核对来源"}, "")
 	must(t, err)
 	if approved.Version != 2 || approved.Status != "verified" || decision.ResultVersion != 2 {
@@ -43,6 +49,11 @@ func TestKnowledgeObjectRequiresDecisionAndPreservesHistory(t *testing.T) {
 	must(t, err)
 	if len(objects) != 2 {
 		t.Fatalf("knowledge history must remain immutable: %#v", objects)
+	}
+	for _, item := range objects {
+		if len(item.AllowedActions) != 0 {
+			t.Fatalf("governed and historical versions must be read-only: %#v", objects)
+		}
 	}
 }
 

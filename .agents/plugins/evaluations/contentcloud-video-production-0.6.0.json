@@ -4,7 +4,7 @@
   "plugin": {
     "id": "contentcloud-video-production",
     "version": "0.6.0",
-    "digest": "sha256:14076c0a2dd8031589e6e5904cc13bd63f14fe8ad23d54b208aa4dbde7bbb326"
+    "digest": "sha256:0bfd835b8ff141b7a45f699f2fd2f4513f87bfaf7d570917cf46d416ba65378a"
   },
   "scope": "deterministic_release_contract",
   "status": "passed",
@@ -52,10 +52,17 @@
       "status": "passed"
     },
     {
-      "id": "script-contract",
-      "requirement": "Script packages enforce explicit arrays, blocked reasons, approved references, and declared revision drift before publish or export.",
-      "command": ["go", "test", "-v", "./internal/localworkspace", "./internal/cli", "-run", "^(TestScriptRevisionDiffRejectsUndeclaredDrift|TestScriptLintRequiresExplicitArraysAndBlockedReasons|TestPublishPreflightAllowsBlockedScriptOnlyWithReasons|TestPublishPreflightRejectsBriefThatSkippedLocalLint)$"],
-      "evidence": ["TestScriptRevisionDiffRejectsUndeclaredDrift", "TestScriptLintRequiresExplicitArraysAndBlockedReasons", "TestPublishPreflightAllowsBlockedScriptOnlyWithReasons", "TestPublishPreflightRejectsBriefThatSkippedLocalLint"],
+      "id": "content-contract",
+      "requirement": "ContentItem and ContentBatch contracts enforce explicit arrays, blocked reasons, approved references, and declared revision drift before publish or export.",
+      "command": ["go", "test", "-v", "./internal/localworkspace", "./internal/cli", "-run", "^(TestContentItemRevisionDiffRejectsUndeclaredDrift|TestContentItemLintRequiresExplicitArraysAndBlockedReasons|TestPublishPreflightUsesContentBatchManifestAndAllowsBlockedItems|TestPublishPreflightRejectsBriefThatSkippedLocalLint)$"],
+      "evidence": ["TestContentItemRevisionDiffRejectsUndeclaredDrift", "TestContentItemLintRequiresExplicitArraysAndBlockedReasons", "TestPublishPreflightUsesContentBatchManifestAndAllowsBlockedItems", "TestPublishPreflightRejectsBriefThatSkippedLocalLint"],
+      "status": "passed"
+    },
+    {
+      "id": "browser-navigation-safety",
+      "requirement": "View intent remains read-only, arbitrary targets and page-provided instructions are rejected, Tool success is distinct from verified Browser success, and unavailable Browser/link outcomes do not rewrite the underlying business result.",
+      "command": ["go", "test", "-v", "./plugins/contentcloud-video-production/skills", "./internal/cli", "-run", "^(TestWorkspaceSkillBrowserSafetyContract|TestWorkspaceSkillBrowserEvalCases|TestMCPOpenProjectViewReturnsTrustedResourceLink|TestMCPOpenProjectViewRejectsUnsafeInputs|TestMCPWorkspaceToolLinkFailureDoesNotReverseBusinessSuccess|TestMCPProjectViewTargetSelectionDoesNotInventObjectPrecision)$"],
+      "evidence": ["TestWorkspaceSkillBrowserSafetyContract", "TestWorkspaceSkillBrowserEvalCases", "TestMCPOpenProjectViewReturnsTrustedResourceLink", "TestMCPOpenProjectViewRejectsUnsafeInputs", "TestMCPWorkspaceToolLinkFailureDoesNotReverseBusinessSuccess", "TestMCPProjectViewTargetSelectionDoesNotInventObjectPrecision"],
       "status": "passed"
     },
     {
@@ -67,7 +74,8 @@
     }
   ],
   "limitations": [
-    "Codex Desktop host loading, Deep Link behavior, and session boundaries remain separate W0 smoke-test gates.",
+    "The deterministic Browser trace evaluation does not replace model-sampled Skill behavior or the ChatGPT Desktop Browser W4-01 host gate.",
+    "Codex Desktop host loading, Deep Link behavior, authentication profile, and session boundaries remain separate W4 smoke-test gates.",
     "The report does not use production credentials, publish release artifacts, or contact production services.",
     "Optional future Skill and Provider Packs require their own creative-quality evaluations under W5-06."
   ]

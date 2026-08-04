@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { api, post } from '../api';
+import { api, postWithoutBody } from '../api';
 import type { Session } from '../types';
 import { Banner, Button, Loading } from '../components/ui';
 import { BrandMark } from '../components/Brand';
@@ -20,7 +20,7 @@ export function AdminRoute() {
     try{setSession(await api<Session>('/api/bff/session'));setAuthRequired(false)}
     catch(value){
       if((value as {status?:number}).status===401){
-        try{await post('/api/v1/dev/bootstrap');setSession(await api<Session>('/api/bff/session'));setAuthRequired(false)}
+        try{await postWithoutBody('/api/v1/dev/bootstrap');setSession(await api<Session>('/api/bff/session'));setAuthRequired(false)}
         catch{setAuthRequired(true)}
       }else setError(value instanceof Error?value.message:'管理员会话加载失败');
     }finally{setLoading(false)}

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api } from './api';
+import { api, postWithoutBody } from './api';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -14,6 +14,21 @@ describe('API response parsing', () => {
     )));
 
     await expect(api<{id: string}>('/api/bff/projects/project-1')).resolves.toEqual({id: 'project-1'});
+  });
+
+  it('posts development bootstrap without an implicit fixture body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ok: true, data: {ready: true}}),
+      {status: 200, headers: {'Content-Type': 'application/json'}}
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(postWithoutBody<{ready: boolean}>('/api/v1/dev/bootstrap')).resolves.toEqual({ready: true});
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/dev/bootstrap', {
+      credentials: 'same-origin',
+      headers: {},
+      method: 'POST'
+    });
   });
 
   it('reports non-JSON responses without exposing the parser SyntaxError', async () => {

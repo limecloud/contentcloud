@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -23,10 +24,11 @@ import (
 )
 
 type Server struct {
-	service *app.Service
-	log     *slog.Logger
-	devMode bool
-	webDist string
+	service        *app.Service
+	log            *slog.Logger
+	devMode        bool
+	webDist        string
+	devBootstrapMu sync.Mutex
 }
 
 type envelope struct {
@@ -269,6 +271,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.ok(w, r, "auth.login", map[string]any{"expires_at": session.ExpiresAt})
 }
 func (s *Server) devBootstrap(w http.ResponseWriter, r *http.Request) {
+	s.devBootstrapMu.Lock()
+	defer s.devBootstrapMu.Unlock()
+
 	session, err := s.service.Login(r.Context(), "demo@contentcloud.local", "contentcloud-demo-2026")
 	if err != nil {
 		session, err = s.service.Register(r.Context(), "demo@contentcloud.local", "contentcloud-demo-2026", "林舟", "南京澄观内容科技")
@@ -280,6 +285,14 @@ func (s *Server) devBootstrap(w http.ResponseWriter, r *http.Request) {
 	s.setSession(w, r, session)
 	actor, _, _ := s.service.SessionActor(r.Context(), session.ID)
 	data := map[string]any{"ready": true}
+	if actor.PlatformAdmin {
+		result, fixtureErr := s.service.EnsureMarketingVideoDemoFixture(r.Context(), actor, middleware.GetReqID(r.Context()))
+		if fixtureErr != nil {
+			s.fail(w, r, "dev.bootstrap", fixtureErr)
+			return
+		}
+		data["marketing_video_fixture"] = result
+	}
 	fixture, err := fixturev3.Decode(r.Body)
 	if err == nil {
 		result, importErr := s.service.ImportFixtureV3(r.Context(), actor, fixture, middleware.GetReqID(r.Context()))

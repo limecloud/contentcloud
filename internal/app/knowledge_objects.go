@@ -58,6 +58,13 @@ type QueryKnowledgeInput struct {
 	At          time.Time `json:"at"`
 }
 
+type KnowledgeObjectView struct {
+	domain.KnowledgeObject
+	AllowedActions    []string `json:"allowed_actions"`
+	GovernanceState   string   `json:"governance_state"`
+	GovernanceMessage string   `json:"governance_message"`
+}
+
 func (s *Service) CreateKnowledgeObject(ctx context.Context, actor Actor, in CreateKnowledgeObjectInput, requestID string) (domain.KnowledgeObject, error) {
 	if actor.Type != "device" && actor.Type != "worker" {
 		if err := requireRole(actor, "tenant_admin", "project_manager", "strategist", "editor", "reviewer"); err != nil {
@@ -236,11 +243,79 @@ func (s *Service) KnowledgeObject(ctx context.Context, actor Actor, objectID str
 	return object, nil
 }
 
-func (s *Service) KnowledgeObjects(ctx context.Context, actor Actor, projectID string) ([]domain.KnowledgeObject, error) {
-	if _, err := s.store.Project(ctx, actor.TenantID, projectID); err != nil {
+func (s *Service) KnowledgeObjects(ctx context.Context, actor Actor, projectID string) ([]KnowledgeObjectView, error) {
+	project, err := s.store.Project(ctx, actor.TenantID, projectID)
+	if err != nil {
 		return nil, err
 	}
-	return s.store.KnowledgeObjects(ctx, actor.TenantID, projectID)
+	objects, err := s.store.KnowledgeObjects(ctx, actor.TenantID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	latestVersions := make(map[string]int, len(objects))
+	for _, object := range objects {
+		if object.Version > latestVersions[object.ID] {
+			latestVersions[object.ID] = object.Version
+		}
+	}
+	views := make([]KnowledgeObjectView, 0, len(objects))
+	for _, object := range objects {
+		views = append(views, s.knowledgeObjectView(ctx, actor, object, project.Status != "archived", object.Version == latestVersions[object.ID]))
+	}
+	return views, nil
+}
+
+func (s *Service) knowledgeObjectView(ctx context.Context, actor Actor, object domain.KnowledgeObject, projectWritable, latest bool) KnowledgeObjectView {
+	view := KnowledgeObjectView{KnowledgeObject: object, AllowedActions: []string{}}
+	if !latest {
+		view.GovernanceState = "historical"
+		view.GovernanceMessage = "这是历史版本，只能查看；治理动作只作用于最新版本。"
+		return view
+	}
+	if !projectWritable {
+		view.GovernanceState = "read_only"
+		view.GovernanceMessage = "项目已归档，知识对象只能查看。恢复项目后才能继续治理。"
+		return view
+	}
+	if object.ObjectType == "KnowledgeGap" || object.ObjectType == "ConflictRecord" {
+		view.GovernanceState = "requires_resolution"
+		view.GovernanceMessage = "知识缺口和冲突不能使用通用审核，需要创建处理任务并由专用流程解决。"
+		return view
+	}
+	if object.Status != "candidate" && object.Status != "needs_review" {
+		if knowledgeObjectStatusEligible(object.Status) {
+			view.GovernanceState = "governed"
+			view.GovernanceMessage = "当前版本已完成治理，可被知识包引用；内容变化时应创建新候选版本。"
+		} else {
+			view.GovernanceState = "inactive"
+			view.GovernanceMessage = "当前版本不处于可审核状态，也不会作为可用知识进入确定性查询。"
+		}
+		return view
+	}
+	if err := requireRole(actor, "tenant_admin", "reviewer"); err != nil {
+		view.GovernanceState = "read_only"
+		view.GovernanceMessage = "当前账号没有知识审核权限，可查看对象或创建补料任务。"
+		return view
+	}
+	view.AllowedActions = append(view.AllowedActions, "reject")
+	if len(object.EvidenceRefs) == 0 || s.validateKnowledgeEvidenceRefs(ctx, object.TenantID, object.ProjectID, object.EvidenceRefs, true) != nil {
+		view.GovernanceState = "evidence_required"
+		view.GovernanceMessage = "批准前需要至少一条已验收 Evidence；当前仍可拒绝或创建补料任务。"
+		return view
+	}
+	view.AllowedActions = []string{"approve", "reject"}
+	view.GovernanceState = "reviewable"
+	view.GovernanceMessage = "填写审核理由后，可以批准为正式知识或拒绝当前候选版本。"
+	return view
+}
+
+func knowledgeObjectStatusEligible(status string) bool {
+	for _, eligible := range domain.KnowledgeEligibleStatuses {
+		if status == eligible {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) CreateKnowledgePack(ctx context.Context, actor Actor, in CreateKnowledgePackInput, requestID string) (domain.KnowledgePack, error) {
