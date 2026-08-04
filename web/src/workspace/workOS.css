@@ -70,3 +70,11 @@
 /* Let the task detail columns shrink around long hashes and review summaries. */
 .task-detail-layout>main,.task-detail-layout>aside{min-width:0}
 .task-production-page{overflow-x:clip}
+.knowledge-governance-state{display:flex;align-items:flex-start;gap:9px;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r-ctl);color:var(--muted);background:var(--surface-subtle)}
+.knowledge-governance-state>svg{flex:0 0 auto;margin-top:1px}
+.knowledge-governance-state strong,.knowledge-governance-state p{display:block}
+.knowledge-governance-state strong{color:var(--ink);font-size:12px}
+.knowledge-governance-state p{margin:4px 0 0;font-size:11px;line-height:1.55}
+.knowledge-governance-state.is-governed{border-color:#bfe1d4;color:var(--success);background:var(--success-soft)}
+.knowledge-governance-state.is-reviewable,.knowledge-governance-state.is-evidence_required,.knowledge-governance-state.is-requires_resolution{border-color:#ead6b7;color:var(--warning);background:var(--warning-soft)}
+.knowledge-drawer-content>.field{margin:0}

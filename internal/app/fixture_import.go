@@ -30,7 +30,7 @@ func (s *Service) ImportFixtureV3(ctx context.Context, actor Actor, fixture fixt
 	if err != nil {
 		return FixtureImportResult{}, err
 	}
-	device, binding, err := s.ensureFixtureWorkspace(ctx, actor, project, fixture, requestID)
+	device, binding, err := s.ensureFixtureWorkspace(ctx, actor, project, fixture.Workspace, requestID)
 	if err != nil {
 		return FixtureImportResult{}, err
 	}
@@ -127,12 +127,12 @@ func (s *Service) ensureFixtureProject(ctx context.Context, actor Actor, fixture
 	}, requestID)
 }
 
-func (s *Service) ensureFixtureWorkspace(ctx context.Context, actor Actor, project domain.Project, fixture fixturev3.Fixture, requestID string) (domain.Device, domain.WorkspaceBinding, error) {
+func (s *Service) ensureFixtureWorkspace(ctx context.Context, actor Actor, project domain.Project, workspace fixturev3.WorkspaceSpec, requestID string) (domain.Device, domain.WorkspaceBinding, error) {
 	now := s.now().UTC()
 	deviceID := fixturev3.DeterministicID("fixture-device", actor.TenantID+":"+project.ID)
 	device, err := s.store.Device(ctx, actor.TenantID, deviceID)
 	if isNotFound(err) {
-		device = domain.Device{ID: deviceID, TenantID: actor.TenantID, OwnerUserID: actor.UserID, DisplayName: fixture.Workspace.DeviceName, Hostname: "fixture.local", Platform: "development", Arch: "fixture", Version: "fixture-v3", TokenHash: fixturev3.SHA256Hex("device:" + actor.TenantID + ":" + project.ID), Capabilities: []domain.Capability{}, ProjectIDs: []string{}, LastSeenAt: now}
+		device = domain.Device{ID: deviceID, TenantID: actor.TenantID, OwnerUserID: actor.UserID, DisplayName: workspace.DeviceName, Hostname: "fixture.local", Platform: "development", Arch: "fixture", Version: "fixture-v3", TokenHash: fixturev3.SHA256Hex("device:" + actor.TenantID + ":" + project.ID), Capabilities: []domain.Capability{}, ProjectIDs: []string{}, LastSeenAt: now}
 		if err = s.store.SaveDevice(ctx, device); err != nil {
 			return domain.Device{}, domain.WorkspaceBinding{}, err
 		}
@@ -147,7 +147,7 @@ func (s *Service) ensureFixtureWorkspace(ctx context.Context, actor Actor, proje
 	workspaceID := fixturev3.DeterministicID("fixture-workspace", actor.TenantID+":"+project.ID)
 	binding, err := s.store.WorkspaceBinding(ctx, actor.TenantID, workspaceID)
 	if isNotFound(err) {
-		binding = domain.WorkspaceBinding{ID: workspaceID, TenantID: actor.TenantID, ProjectID: project.ID, DeviceID: device.ID, OwnerUserID: actor.UserID, TemplateID: fixture.Workspace.TemplateID, TemplateVersion: fixture.Workspace.TemplateVersion, Targets: append([]string(nil), fixture.Workspace.Targets...), CredentialHash: fixturev3.SHA256Hex("workspace:" + actor.TenantID + ":" + project.ID), Status: "active", InitializedAt: now, LastSeenAt: now}
+		binding = domain.WorkspaceBinding{ID: workspaceID, TenantID: actor.TenantID, ProjectID: project.ID, DeviceID: device.ID, OwnerUserID: actor.UserID, TemplateID: workspace.TemplateID, TemplateVersion: workspace.TemplateVersion, Targets: append([]string(nil), workspace.Targets...), CredentialHash: fixturev3.SHA256Hex("workspace:" + actor.TenantID + ":" + project.ID), Status: "active", InitializedAt: now, LastSeenAt: now}
 		if err = s.store.CreateWorkspaceBinding(ctx, binding); err != nil {
 			return domain.Device{}, domain.WorkspaceBinding{}, err
 		}
@@ -158,7 +158,7 @@ func (s *Service) ensureFixtureWorkspace(ctx context.Context, actor Actor, proje
 		return domain.Device{}, domain.WorkspaceBinding{}, domain.Conflict("FIXTURE_WORKSPACE_MISMATCH", "Fixture Workspace 已绑定到其他项目或设备")
 	}
 	workspaceActor := Actor{UserID: actor.UserID, TenantID: actor.TenantID, Role: actor.Role, Type: "workspace", DeviceID: device.ID, WorkspaceID: binding.ID}
-	binding, err = s.RegisterWorkspace(ctx, workspaceActor, binding, fixture.Workspace.TemplateID, fixture.Workspace.TemplateVersion, fixture.Workspace.Targets, requestID)
+	binding, err = s.RegisterWorkspace(ctx, workspaceActor, binding, workspace.TemplateID, workspace.TemplateVersion, workspace.Targets, requestID)
 	return device, binding, err
 }
 

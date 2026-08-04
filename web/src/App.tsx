@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { api, post } from './api';
+import { api, post, postWithoutBody } from './api';
 import type { Dashboard, Session, Tenant } from './types';
 import { Banner, Button, Loading } from './components/ui';
 import { BrandMark } from './components/Brand';
@@ -21,7 +21,7 @@ export function App() {
     const loadWorkspace=async()=>{const [nextSession,nextDashboard,nextTenants]=await Promise.all([api<Session>('/api/bff/session'),api<Dashboard>('/api/bff/dashboard'),api<Tenant[]>('/api/bff/tenants')]);setSession(nextSession);setDashboard(nextDashboard);setTenants(nextTenants);setAuthRequired(false)};
     try{await loadWorkspace()}
     catch(value){
-      if((value as {status?:number}).status===401){try{await post('/api/v1/dev/bootstrap');await loadWorkspace()}catch{setAuthRequired(true)}}
+      if((value as {status?:number}).status===401){try{await postWithoutBody('/api/v1/dev/bootstrap');await loadWorkspace()}catch{setAuthRequired(true)}}
       else setError(value instanceof Error?value.message:'工作台加载失败');
     }finally{setLoading(false)}
   },[]);

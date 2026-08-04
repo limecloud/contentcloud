@@ -1,0 +1,341 @@
+{
+  "$schema": "../../../contracts/plugin-evaluation-1.0.schema.json",
+  "schema_version": "1.0",
+  "plugin": {
+    "id": "contentcloud-video-production",
+    "version": "0.17.0",
+    "digest": "sha256:8d5f06219a3c504722666ff6c06b6a94b8aab8dfbd68cfb129ae4a3f3934c0da"
+  },
+  "scope": "deterministic_release_contract",
+  "status": "passed",
+  "scenarios": [
+    {
+      "id": "codex-plugin-transaction",
+      "requirement": "Pinned Marketplace and Plugin plans remain read-only until confirmation, validate after install, roll back only owned changes, and open a new Codex chat through the documented fallback.",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./internal/codexplugin",
+        "-run",
+        "^(TestPlanIsReadOnlyAndPinsMarketplaceAndPlugin|TestDetectClassifiesCurrentOutdatedAndBroken|TestDetectAcceptsMarketplaceListWithoutRefWhenCheckoutMatchesPinnedRef|TestPlanRepairsSameSourceMarketplaceRef|TestPlanBlocksPluginOnlyDriftThatCannotBeRolledBack|TestUpgradeFailureRestoresPreviousMarketplaceAndPlugin|TestApplyRequiresConfirmation|TestApplyInstallsAndValidates|TestApplyRollsBackOnlyMarketplaceAddedByThisRun|TestNewChatDeepLinkContainsWorkspaceAndPluginMention|TestLaunchNewChatFallsBackToWorkspaceCommand)$"
+      ],
+      "evidence": [
+        "TestPlanIsReadOnlyAndPinsMarketplaceAndPlugin",
+        "TestDetectAcceptsMarketplaceListWithoutRefWhenCheckoutMatchesPinnedRef",
+        "TestPlanRepairsSameSourceMarketplaceRef",
+        "TestPlanBlocksPluginOnlyDriftThatCannotBeRolledBack",
+        "TestUpgradeFailureRestoresPreviousMarketplaceAndPlugin",
+        "TestApplyRequiresConfirmation",
+        "TestApplyInstallsAndValidates",
+        "TestApplyRollsBackOnlyMarketplaceAddedByThisRun",
+        "TestLaunchNewChatFallsBackToWorkspaceCommand"
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "bootstrap-confirmation",
+      "requirement": "Bootstrap uses a deterministic plan_id, performs no mutation before exact confirmation, binds one browser authorization attempt to one session, runs doctor before registration, and preserves recoverability on failure.",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./internal/cli",
+        "./internal/app",
+        "-run",
+        "^(TestBootstrapPlanIsReadOnlyAndUsesOnlyPublicSessionID|TestBootstrapPlanIDIsStableUntilInputsChange|TestBootstrapApplyInstallsInitializesDoctorsAndRegisters|TestBootstrapApplyUpgradesExistingPluginAndInitializesWorkspace|TestBootstrapResumeUpgradesExistingPluginWithoutReinitializingWorkspace|TestBootstrapApplyAuthorizationFailureDoesNotMutatePluginOrWorkspace|TestBootstrapApplyRejectsUnconfirmedPlanID|TestBootstrapApplyRequiresPlanIDBeforeMutation|TestBootstrapApplyRejectsPlanAfterCodexStateChanges|TestBootstrapAuthorizationRequiresApprovalAndMatchingVerifier|TestBootstrapAuthorizationAllowsOnlyOneActiveAttemptPerSession)$"
+      ],
+      "evidence": [
+        "TestBootstrapPlanIsReadOnlyAndUsesOnlyPublicSessionID",
+        "TestBootstrapApplyInstallsInitializesDoctorsAndRegisters",
+        "TestBootstrapApplyUpgradesExistingPluginAndInitializesWorkspace",
+        "TestBootstrapResumeUpgradesExistingPluginWithoutReinitializingWorkspace",
+        "TestBootstrapApplyRejectsUnconfirmedPlanID",
+        "TestBootstrapApplyRejectsPlanAfterCodexStateChanges",
+        "TestBootstrapAuthorizationRequiresApprovalAndMatchingVerifier",
+        "TestBootstrapAuthorizationAllowsOnlyOneActiveAttemptPerSession"
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "cross-conversation-handoff",
+      "requirement": "New conversations recover persisted state, expose one business next step for an uninitialized project, and atomically transfer one exact Run revision without reading prior transcripts.",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./internal/localworkspace",
+        "./internal/cli",
+        "-run",
+        "^(TestConversationContextReadsPersistedOfflineState|TestConversationContextExposesOneBusinessNextStep|TestRunClaimIsSingleWriterAndExpiredTakeoverIsExplicit|TestHandoffAcceptIsAtomicAcrossConversations|TestHandoffRejectsChangedInputDigest|TestMCPListsAndCallsWorkspaceTools|TestMCPRunsCrossConversationHandoffLifecycle)$"
+      ],
+      "evidence": [
+        "TestConversationContextReadsPersistedOfflineState",
+        "TestConversationContextExposesOneBusinessNextStep",
+        "TestRunClaimIsSingleWriterAndExpiredTakeoverIsExplicit",
+        "TestHandoffAcceptIsAtomicAcrossConversations",
+        "TestHandoffRejectsChangedInputDigest",
+        "TestMCPListsAndCallsWorkspaceTools",
+        "TestMCPRunsCrossConversationHandoffLifecycle"
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "governed-publish",
+      "requirement": "Publish binds exact files, disclosures, message, idempotency key, and environment to a confirmed plan_id and performs no cloud write for a missing, stale, or unconfirmed plan.",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./internal/cli",
+        "-run",
+        "^(TestPublishPlanIDIsStableAndBindsExactInputs|TestPublishCLIRejectsMissingOrStalePlanBeforeCloudWrite|TestMCPPublishApplyRequiresExactConfirmationBeforeCloudWrite|TestPublishReadersRejectSymlinksOutsideWorkspace)$"
+      ],
+      "evidence": [
+        "TestPublishPlanIDIsStableAndBindsExactInputs",
+        "TestPublishCLIRejectsMissingOrStalePlanBeforeCloudWrite",
+        "TestMCPPublishApplyRequiresExactConfirmationBeforeCloudWrite",
+        "TestPublishReadersRejectSymlinksOutsideWorkspace"
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "review-and-approved-resume",
+      "requirement": "Review feedback and ApprovedSnapshots are explicitly pulled, stored immutably, verified, and reused by later credential-free conversations without cloud reads.",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./internal/localworkspace",
+        "./internal/cli",
+        "-run",
+        "^(TestReviewFeedbackInboxKeepsImmutableRevisionsOfOneSubmissionRevision|TestReviewFeedbackInboxRejectsDigestMismatch|TestMCPFeedbackPullCreatesImmutableInboxForNewConversation|TestApprovedSnapshotCacheKeepsImmutableVersions|TestApprovedSnapshotCacheRejectsTamperingAndUnverifiedLegacyEntry|TestMCPApprovedSnapshotPullSupportsOfflineCrossConversationRead|TestWorkspaceApprovedCommandsReadCacheWithoutCredential)$"
+      ],
+      "evidence": [
+        "TestReviewFeedbackInboxKeepsImmutableRevisionsOfOneSubmissionRevision",
+        "TestMCPFeedbackPullCreatesImmutableInboxForNewConversation",
+        "TestApprovedSnapshotCacheKeepsImmutableVersions",
+        "TestApprovedSnapshotCacheRejectsTamperingAndUnverifiedLegacyEntry",
+        "TestMCPApprovedSnapshotPullSupportsOfflineCrossConversationRead"
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "knowledge-contract",
+      "requirement": "Knowledge candidates remain evidence-bound, reject invented or out-of-workspace inputs, and become eligible only through a verified ApprovedSnapshot.",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./internal/localworkspace",
+        "-run",
+        "^(TestKnowledgeCandidateFlowToApprovedQueryAndPack|TestKnowledgeImportRejectsInventedEvidence|TestKnowledgeImportRejectsSymlinkOutsideWorkspace|TestKnowledgeImportRejectsInvalidCandidatePackageShapes)$"
+      ],
+      "evidence": [
+        "TestKnowledgeCandidateFlowToApprovedQueryAndPack",
+        "TestKnowledgeImportRejectsInventedEvidence",
+        "TestKnowledgeImportRejectsSymlinkOutsideWorkspace",
+        "TestKnowledgeImportRejectsInvalidCandidatePackageShapes"
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "content-contract",
+      "requirement": "ContentItem and ContentBatch contracts enforce explicit arrays, blocked reasons, approved references, and declared revision drift before publish or export.",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./internal/localworkspace",
+        "./internal/cli",
+        "-run",
+        "^(TestContentItemRevisionDiffRejectsUndeclaredDrift|TestContentItemLintRequiresExplicitArraysAndBlockedReasons|TestPublishPreflightUsesContentBatchManifestAndAllowsBlockedItems|TestPublishPreflightRejectsBriefThatSkippedLocalLint)$"
+      ],
+      "evidence": [
+        "TestContentItemRevisionDiffRejectsUndeclaredDrift",
+        "TestContentItemLintRequiresExplicitArraysAndBlockedReasons",
+        "TestPublishPreflightUsesContentBatchManifestAndAllowsBlockedItems",
+        "TestPublishPreflightRejectsBriefThatSkippedLocalLint"
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "v5-local-production-boundary",
+      "requirement": "Audience strategy, storyboard, and Seedance workflows keep candidates local, require governed ApprovedSnapshots for downstream work, and prevent Codex from fabricating server approval or external-platform side effects.",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./internal/localworkspace",
+        "./internal/app",
+        "./internal/cli",
+        "./plugins/contentcloud-video-production/skills",
+        "-run",
+        "^(TestAudienceStrategyScaffoldRequiresPulledTaxonomyAndProducesCandidates|TestStoryboardApprovalBoundaryAndSeedanceExport|TestStoryboardShotIDsCannotEscapeTheirPackage|TestServerRejectsLocalV5CandidatesAsFormalSubmissions|TestServerRequiresApprovedTaxonomyBaselineForAudienceStrategy|TestServerValidatesStoryboardContentBaseline|TestStrategyPublishPreflightIncludesApprovedTaxonomyBaseline|TestV5SkillsDeclareExecutionBoundaries)$"
+      ],
+      "evidence": [
+        "TestAudienceStrategyScaffoldRequiresPulledTaxonomyAndProducesCandidates",
+        "TestStoryboardApprovalBoundaryAndSeedanceExport",
+        "TestStoryboardShotIDsCannotEscapeTheirPackage",
+        "TestServerRejectsLocalV5CandidatesAsFormalSubmissions",
+        "TestServerRequiresApprovedTaxonomyBaselineForAudienceStrategy",
+        "TestServerValidatesStoryboardContentBaseline",
+        "TestStrategyPublishPreflightIncludesApprovedTaxonomyBaseline",
+        "TestV5SkillsDeclareExecutionBoundaries"
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "wechat-article-governance",
+      "requirement": "Tenant-gated WeChat article briefs, structured article batches, evidence-bound assertions, public documentation, and the additive migration remain deterministic and fail closed outside approved capabilities and snapshots.",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./internal/localworkspace",
+        "./internal/app",
+        "./internal/httpapi",
+        "./internal/store/postgres",
+        "-run",
+        "^(TestWeChatArticleGoldenJourney|TestArticleAssertionAndRevisionGates|TestArticleSubmissionRequiresTenantCapabilityAndApprovedEvidence|TestPublicDocumentationCatalogAndPages|TestDocumentationDoesNotExposeInternalPages|TestValidateV3MigrationSetRejectsTenantCapabilitiesWithoutV5)$"
+      ],
+      "evidence": [
+        "TestWeChatArticleGoldenJourney",
+        "TestArticleAssertionAndRevisionGates",
+        "TestArticleSubmissionRequiresTenantCapabilityAndApprovedEvidence",
+        "TestPublicDocumentationCatalogAndPages",
+        "TestDocumentationDoesNotExposeInternalPages",
+        "TestValidateV3MigrationSetRejectsTenantCapabilitiesWithoutV5"
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "browser-navigation-safety",
+      "requirement": "View intent remains read-only, arbitrary targets and page-provided instructions are rejected, Tool success is distinct from verified Browser success, and unavailable Browser/link outcomes do not rewrite the underlying business result.",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./plugins/contentcloud-video-production/skills",
+        "./internal/cli",
+        "-run",
+        "^(TestWorkspaceSkillBrowserSafetyContract|TestWorkspaceSkillBrowserEvalCases|TestMCPOpenProjectViewReturnsTrustedResourceLink|TestMCPOpenProjectViewRejectsUnsafeInputs|TestMCPWorkspaceToolLinkFailureDoesNotReverseBusinessSuccess|TestMCPProjectViewTargetSelectionDoesNotInventObjectPrecision)$"
+      ],
+      "evidence": [
+        "TestWorkspaceSkillBrowserSafetyContract",
+        "TestWorkspaceSkillBrowserEvalCases",
+        "TestMCPOpenProjectViewReturnsTrustedResourceLink",
+        "TestMCPOpenProjectViewRejectsUnsafeInputs",
+        "TestMCPWorkspaceToolLinkFailureDoesNotReverseBusinessSuccess",
+        "TestMCPProjectViewTargetSelectionDoesNotInventObjectPrecision"
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "environment-control-plane",
+      "requirement": "Project-bound Manifests and Execution Bundles are signed and expiry-checked; Registry, local Lock, Pack, capability digest, subject binding, Automation pre-lease resolution, and attempt-scoped execution workspaces all fail closed without leaking run credentials or leaving an unfinished attempt.",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./internal/environment",
+        "./internal/app",
+        "./internal/localworkspace",
+        "./internal/capabilitycatalog",
+        "./internal/serverconfig",
+        "./internal/automationworkspace",
+        "./internal/agentadapter",
+        "./internal/cli",
+        "-run",
+        "^(TestManifestSignatureBindsPayloadProjectExpiryAndTrust|TestBuildManifestUsesOnlyExactPublishedCompatibleRegistryEntries|TestRevokedEntryBlocksNewUseButRemainsHistoricallyAuditable|TestLocalResolverIntersectsManifestRegistryAndLock|TestPreparationPlanBindsSignedPermissionsCostAndExecutionPlan|TestPreparedLockAddsOnlyExactConfirmedTaskPack|TestRegistryCanonicalPayloadMatchesNodeConformanceVector|TestCreativeExecutionBundleIsDeterministicAndBindsSubjectEnvironmentAndTrust|TestCreativeExecutionBundleFailsClosedForPackRegistryLockAndCapabilityDrift|TestBrowserBootstrapReturnsProjectBoundSignedEnvironmentManifest|TestAutomationPollRequiresVerifiedEnvironmentPackAndCapabilityBeforeLease|TestEnvironmentStateStoresAndVerifiesSignedManifestAndExactLock|TestEnvironmentStateFailsClosedForWrongProjectMissingPluginAndTampering|TestEnvironmentLockCompareAndSwapRejectsConcurrentChange|TestEnvironmentPreparationAndRunClaimAreMutuallyExclusive|TestBuiltinsUseDeterministicSHA256Digests|TestLoadEnvironmentBuildsVerifiedControlPlaneAndAutomationPolicy|TestLoadEnvironmentFailsClosedForPartialOrUnsafeConfiguration|TestMCPEnvironmentExecutionPlanUsesVerifiedOfflineState|TestMCPEnvironmentPreparationRequiresExactConfirmationAndReachesReady|TestWorkspacePrepareCLIPlanAndApplyUseTheSameDeterministicPlan|TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack|TestAttemptWorkspaceFreezesInputsWithoutRunCredentialAndUsesExclusiveLease|TestAttemptWorkspaceRejectsInteractiveOverlapAndRecoversOnlyExpiredOwnedLease|TestAttemptWorkspaceRenewsExclusiveLeaseFromServerExpiry|TestAdapterLoadsOnlyFrozenAutomationWorkspaceResources|TestAgentEnvironmentDoesNotInheritUnrelatedSecret|TestDaemonFixtureUsesAttemptScopedWorkspaceWithoutPersistingRunCredential|TestDaemonFinishesAttemptWhenWorkspaceIsolationFails)$"
+      ],
+      "evidence": [
+        "TestManifestSignatureBindsPayloadProjectExpiryAndTrust",
+        "TestBuildManifestUsesOnlyExactPublishedCompatibleRegistryEntries",
+        "TestRevokedEntryBlocksNewUseButRemainsHistoricallyAuditable",
+        "TestLocalResolverIntersectsManifestRegistryAndLock",
+        "TestPreparationPlanBindsSignedPermissionsCostAndExecutionPlan",
+        "TestPreparedLockAddsOnlyExactConfirmedTaskPack",
+        "TestRegistryCanonicalPayloadMatchesNodeConformanceVector",
+        "TestCreativeExecutionBundleIsDeterministicAndBindsSubjectEnvironmentAndTrust",
+        "TestCreativeExecutionBundleFailsClosedForPackRegistryLockAndCapabilityDrift",
+        "TestBrowserBootstrapReturnsProjectBoundSignedEnvironmentManifest",
+        "TestAutomationPollRequiresVerifiedEnvironmentPackAndCapabilityBeforeLease",
+        "TestEnvironmentStateStoresAndVerifiesSignedManifestAndExactLock",
+        "TestEnvironmentStateFailsClosedForWrongProjectMissingPluginAndTampering",
+        "TestEnvironmentLockCompareAndSwapRejectsConcurrentChange",
+        "TestEnvironmentPreparationAndRunClaimAreMutuallyExclusive",
+        "TestBuiltinsUseDeterministicSHA256Digests",
+        "TestLoadEnvironmentBuildsVerifiedControlPlaneAndAutomationPolicy",
+        "TestLoadEnvironmentFailsClosedForPartialOrUnsafeConfiguration",
+        "TestMCPEnvironmentExecutionPlanUsesVerifiedOfflineState",
+        "TestMCPEnvironmentPreparationRequiresExactConfirmationAndReachesReady",
+        "TestWorkspacePrepareCLIPlanAndApplyUseTheSameDeterministicPlan",
+        "TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack",
+        "TestAttemptWorkspaceFreezesInputsWithoutRunCredentialAndUsesExclusiveLease",
+        "TestAttemptWorkspaceRejectsInteractiveOverlapAndRecoversOnlyExpiredOwnedLease",
+        "TestAttemptWorkspaceRenewsExclusiveLeaseFromServerExpiry",
+        "TestAdapterLoadsOnlyFrozenAutomationWorkspaceResources",
+        "TestAgentEnvironmentDoesNotInheritUnrelatedSecret",
+        "TestDaemonFixtureUsesAttemptScopedWorkspaceWithoutPersistingRunCredential",
+        "TestDaemonFinishesAttemptWhenWorkspaceIsolationFails"
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "agent-client-governance",
+      "requirement": "The registered Agent client catalog, capability matrix, automation strategies, handoff strategies, environment contracts, and public API stay aligned; reserved clients fail closed until each capability is available.",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./contracts",
+        "./internal/agentadapter",
+        "./internal/environment",
+        "./internal/httpapi",
+        "./internal/bootstrapcheck",
+        "./internal/localworkspace",
+        "-run",
+        "^(TestEnvironmentSchemasReserveRegisteredAgentClients|TestClientRegistryResolvesAliasesAndPlannedCapabilities|TestAutomationStrategiesMatchAvailableRegistryCapabilities|TestHandoffStrategiesMatchAvailableRegistryCapabilities|TestSelectionAndHandoffFailClosedForUnsupportedInputs|TestBuildManifestUsesOnlyExactPublishedCompatibleRegistryEntries|TestAgentClientCatalogExposesPlannedClientsByCapability|TestGenericAgentHandoffUsesStrategyAndRejectsPlannedClient|TestGenericReviewFeedbackHandoffBindsRevisionAndTenant|TestPreflightReportsCodexCLIAndDesktopFailures|TestPlanRecognizesReservedButUnavailableClient)$"
+      ],
+      "evidence": [
+        "TestEnvironmentSchemasReserveRegisteredAgentClients",
+        "TestClientRegistryResolvesAliasesAndPlannedCapabilities",
+        "TestAutomationStrategiesMatchAvailableRegistryCapabilities",
+        "TestHandoffStrategiesMatchAvailableRegistryCapabilities",
+        "TestSelectionAndHandoffFailClosedForUnsupportedInputs",
+        "TestBuildManifestUsesOnlyExactPublishedCompatibleRegistryEntries",
+        "TestAgentClientCatalogExposesPlannedClientsByCapability",
+        "TestGenericAgentHandoffUsesStrategyAndRejectsPlannedClient",
+        "TestGenericReviewFeedbackHandoffBindsRevisionAndTenant",
+        "TestPreflightReportsCodexCLIAndDesktopFailures",
+        "TestPlanRecognizesReservedButUnavailableClient"
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "v7-marketing-video-golden-journey",
+      "requirement": "营销视频任务必须通过类型化 Stage 输出、真实媒体 Job、最终质检和交付包完整性门禁。",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "./internal/app",
+        "-run",
+        "^TestMarketingVideoGoldenJourney$"
+      ],
+      "evidence": [
+        "TestMarketingVideoGoldenJourney"
+      ],
+      "status": "passed"
+    }
+  ],
+  "limitations": [
+    "The deterministic Browser trace evaluation does not replace model-sampled Skill behavior or the ChatGPT Desktop Browser W4-01 host gate.",
+    "Codex Desktop host loading, Deep Link behavior, authentication profile, and session boundaries remain separate W4 smoke-test gates.",
+    "The V5 evaluation covers the local vertical slice and server governance gates; it does not claim Web review, media generation, PublishedCreativeBinding attribution, or a real Seedance/Douyin E2E.",
+    "The first WeChat article release ends at a validated local operator package and does not claim external login, asset upload, preview, or publication side effects.",
+    "Only capabilities marked available in the Agent Client Registry are release claims; reserved clients and planned capabilities are not claimed as implemented.",
+    "The report does not use production credentials, publish release artifacts, or contact production services."
+  ]
+}

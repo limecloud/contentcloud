@@ -52,6 +52,10 @@ export function post<T>(path: string, value: unknown = {}): Promise<T> {
   return api<T>(path, {method: 'POST', body: JSON.stringify(value)});
 }
 
+export function postWithoutBody<T>(path: string): Promise<T> {
+  return api<T>(path, {method: 'POST'});
+}
+
 export function patch<T>(path: string, value: unknown): Promise<T> {
   return api<T>(path, {method: 'PATCH', body: JSON.stringify(value)});
 }

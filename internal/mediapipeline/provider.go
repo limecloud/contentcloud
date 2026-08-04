@@ -3,9 +3,9 @@ package mediapipeline
 import (
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
-	"fmt"
 	"strings"
 
 	"github.com/limecloud/contentcloud/internal/domain"
@@ -55,6 +55,9 @@ type Adapter interface {
 
 type FakeProvider struct{}
 
+//go:embed testdata/fake-provider-video.mp4
+var fakeProviderVideo []byte
+
 func (FakeProvider) Validate(request Request, profile domain.ProviderProfile) error {
 	if request.JobID == "" || request.IdempotencyKey == "" || request.StoryboardSnapshotID == "" || request.DurationSeconds < 1 {
 		return domain.Invalid("FAKE_PROVIDER_REQUEST_INVALID", "FakeProvider 请求缺少 Job、分镜或时长")
@@ -100,12 +103,26 @@ func ValidateDownload(value Download, maxBytes int64) (map[string]any, error) {
 	}
 	boxes := map[string]bool{}
 	for offset := 0; offset+8 <= len(value.Body); {
-		size := int(binary.BigEndian.Uint32(value.Body[offset : offset+4]))
-		if size < 8 || offset+size > len(value.Body) {
+		size32 := binary.BigEndian.Uint32(value.Body[offset : offset+4])
+		headerSize := uint64(8)
+		var size uint64
+		switch size32 {
+		case 0:
+			size = uint64(len(value.Body) - offset)
+		case 1:
+			if offset+16 > len(value.Body) {
+				return nil, domain.Invalid("MEDIA_OUTPUT_CONTAINER_INVALID", "MP4 扩展 box 头不完整")
+			}
+			headerSize = 16
+			size = binary.BigEndian.Uint64(value.Body[offset+8 : offset+16])
+		default:
+			size = uint64(size32)
+		}
+		if size < headerSize || size > uint64(len(value.Body)-offset) {
 			return nil, domain.Invalid("MEDIA_OUTPUT_CONTAINER_INVALID", "MP4 box 长度无效")
 		}
 		boxes[string(value.Body[offset+4:offset+8])] = true
-		offset += size
+		offset += int(size)
 	}
 	if !boxes["ftyp"] || !boxes["moov"] || !boxes["mdat"] {
 		return nil, domain.Invalid("MEDIA_OUTPUT_CONTAINER_INVALID", "MP4 缺少必要容器 box")
@@ -118,26 +135,8 @@ func SHA256(body []byte) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func fakeMP4(seed string) []byte {
-	ftypPayload := []byte("isom\x00\x00\x02\x00isomiso2")
-	moovPayload := []byte("contentcloud-fixture-video")
-	mdatHash := sha256.Sum256([]byte(seed))
-	result := []byte{}
-	result = append(result, mp4Box("ftyp", ftypPayload)...)
-	result = append(result, mp4Box("moov", moovPayload)...)
-	result = append(result, mp4Box("mdat", mdatHash[:])...)
-	return result
-}
-
-func mp4Box(kind string, payload []byte) []byte {
-	if len(kind) != 4 {
-		panic(fmt.Sprintf("invalid MP4 box kind %q", kind))
-	}
-	result := make([]byte, 8+len(payload))
-	binary.BigEndian.PutUint32(result[:4], uint32(len(result)))
-	copy(result[4:8], kind)
-	copy(result[8:], payload)
-	return result
+func fakeMP4(string) []byte {
+	return append([]byte(nil), fakeProviderVideo...)
 }
 
 func contains(values []string, target string) bool {

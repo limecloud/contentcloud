@@ -3,12 +3,14 @@ package httpapi_test
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/limecloud/contentcloud/internal/app"
@@ -115,6 +117,11 @@ func TestPlatformAdminEndpointsRequireExplicitGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		t.Fatalf("development bootstrap status=%d body=%s", response.StatusCode, body)
+	}
 	response.Body.Close()
 	response, err = client.Get(server.URL + "/api/v1/admin/dashboard")
 	if err != nil {
@@ -144,7 +151,34 @@ func TestPlatformAdminOverviewAndTenantStatusEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		t.Fatalf("development bootstrap status=%d body=%s", response.StatusCode, body)
+	}
 	response.Body.Close()
+	demoProjects := callBFF[[]domain.Project](t, client, http.MethodGet, server.URL+"/api/bff/projects", nil)
+	if len(demoProjects) != 1 || demoProjects[0].ContentType != domain.ContentTypeMarketingVideo || demoProjects[0].ConnectedDevices != 1 {
+		t.Fatalf("development bootstrap did not create the marketing video project: %#v", demoProjects)
+	}
+	demoTasks := callBFF[[]domain.WorkTask](t, client, http.MethodGet, server.URL+"/api/bff/tasks?project_id="+demoProjects[0].ID, nil)
+	if len(demoTasks) != 1 || demoTasks[0].Status != domain.TaskStatusDelivered {
+		t.Fatalf("development bootstrap did not deliver the V7 task: %#v", demoTasks)
+	}
+	demoTask := callBFF[app.WorkTaskView](t, client, http.MethodGet, server.URL+"/api/bff/tasks/"+demoTasks[0].ID, nil)
+	if len(demoTask.SourceRevisions) != 1 || len(demoTask.KnowledgeSnapshots) != 1 || len(demoTask.KnowledgeSnapshots[0].Objects) != 4 || len(demoTask.Revisions) != 1 || len(demoTask.MediaJobs) != 1 || len(demoTask.ProviderAttempts) != 1 || len(demoTask.MediaReviews) != 3 || len(demoTask.DeliveryPackages) != 1 || len(demoTask.Deliveries) != 1 {
+		t.Fatalf("development V7 fixture is incomplete: %#v", demoTask)
+	}
+	response, err = client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	demoProjects = callBFF[[]domain.Project](t, client, http.MethodGet, server.URL+"/api/bff/projects", nil)
+	demoTasks = callBFF[[]domain.WorkTask](t, client, http.MethodGet, server.URL+"/api/bff/tasks?project_id="+demoProjects[0].ID, nil)
+	if len(demoProjects) != 1 || len(demoTasks) != 1 || demoTasks[0].ID != demoTask.Task.ID {
+		t.Fatalf("development V7 fixture is not idempotent: projects=%#v tasks=%#v", demoProjects, demoTasks)
+	}
 	overview := callBFF[domain.PlatformOverview](t, client, http.MethodGet, server.URL+"/api/v1/admin/dashboard", nil)
 	if overview.Counts.Tenants != 2 || overview.Counts.Users != 2 {
 		t.Fatalf("unexpected platform overview %#v", overview.Counts)
@@ -159,6 +193,70 @@ func TestPlatformAdminOverviewAndTenantStatusEndpoint(t *testing.T) {
 	}
 	if _, _, err := service.SessionActor(t.Context(), targetSession.ID); err == nil {
 		t.Fatal("tenant status endpoint did not revoke active sessions")
+	}
+}
+
+func TestDevelopmentBootstrapIsConcurrentIdempotent(t *testing.T) {
+	service := app.New(memory.New(), slog.Default(), app.WithPlatformAdminEmails("demo@contentcloud.local"))
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+
+	const workers = 6
+	start := make(chan struct{})
+	results := make(chan struct {
+		status int
+		err    error
+	}, workers)
+	var group sync.WaitGroup
+	for range workers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			<-start
+			response, err := http.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
+			if err != nil {
+				results <- struct {
+					status int
+					err    error
+				}{err: err}
+				return
+			}
+			response.Body.Close()
+			results <- struct {
+				status int
+				err    error
+			}{status: response.StatusCode}
+		}()
+	}
+	close(start)
+	group.Wait()
+	close(results)
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("development bootstrap failed: %v", result.err)
+		}
+		if result.status != http.StatusOK {
+			t.Fatalf("development bootstrap status=%d", result.status)
+		}
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("development bootstrap status=%d", response.StatusCode)
+	}
+	projects := callBFF[[]domain.Project](t, client, http.MethodGet, server.URL+"/api/bff/projects", nil)
+	if len(projects) != 1 || projects[0].ConnectedDevices != 1 {
+		t.Fatalf("concurrent bootstrap created %d projects: %#v", len(projects), projects)
+	}
+	tasks := callBFF[[]domain.WorkTask](t, client, http.MethodGet, server.URL+"/api/bff/tasks?project_id="+projects[0].ID, nil)
+	if len(tasks) != 1 || tasks[0].Status != domain.TaskStatusDelivered {
+		t.Fatalf("concurrent bootstrap created unexpected tasks: %#v", tasks)
 	}
 }
 
