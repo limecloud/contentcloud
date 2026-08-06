@@ -37,7 +37,7 @@ func ProcessPendingSources(ctx context.Context, service *app.Service, limit int)
 		if err != nil {
 			_, completeErr := service.CompleteSource(ctx, app.Actor{TenantID: revision.TenantID, Type: "worker"}, revision.ID, app.CompleteSourceInput{DetectedMIME: revision.DeclaredMIME, Status: "failed", ParserVersion: ingest.ParserVersion, ErrorCode: "OBJECT_READ_FAILED"}, "")
 			if completeErr != nil {
-				return processed, fmt.Errorf("read source %s: %w; complete: %v", revision.ID, err, completeErr)
+				return processed, fmt.Errorf("读取来源 %s 失败：%w；标记完成时又发生错误：%v", revision.ID, err, completeErr)
 			}
 			processed++
 			continue
@@ -54,7 +54,7 @@ func ProcessPendingSources(ctx context.Context, service *app.Service, limit int)
 		if scanCode, scanErr := scanSource(ctx, revision.FileName, body); scanErr != nil {
 			_, completeErr := service.CompleteSource(ctx, app.Actor{TenantID: revision.TenantID, Type: "worker"}, revision.ID, app.CompleteSourceInput{DetectedMIME: detectedMIME, Status: "failed", ParserVersion: ingest.ParserVersion, ErrorCode: scanCode}, "")
 			if completeErr != nil {
-				return processed, fmt.Errorf("scan source %s: %w; complete: %v", revision.ID, scanErr, completeErr)
+				return processed, fmt.Errorf("扫描来源 %s 失败：%w；标记完成时又发生错误：%v", revision.ID, scanErr, completeErr)
 			}
 			processed++
 			continue
@@ -99,7 +99,7 @@ func scanSource(ctx context.Context, fileName string, data []byte) (string, erro
 	}
 	if binary == "" {
 		if required {
-			return "MALWARE_SCANNER_UNAVAILABLE", fmt.Errorf("ClamAV scanner is unavailable")
+			return "MALWARE_SCANNER_UNAVAILABLE", fmt.Errorf("ClamAV 扫描器不可用")
 		}
 		return "", nil
 	}
@@ -123,7 +123,7 @@ func scanSource(ctx context.Context, fileName string, data []byte) (string, erro
 		return "", nil
 	}
 	if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 {
-		return "MALWARE_DETECTED", fmt.Errorf("malware detected: %s", strings.TrimSpace(string(output)))
+		return "MALWARE_DETECTED", fmt.Errorf("检测到恶意文件：%s", strings.TrimSpace(string(output)))
 	}
-	return "MALWARE_SCAN_FAILED", fmt.Errorf("ClamAV scan failed: %w", err)
+	return "MALWARE_SCAN_FAILED", fmt.Errorf("ClamAV 扫描失败：%w", err)
 }

@@ -49,7 +49,7 @@ func (s *Service) CreateSource(ctx context.Context, actor Actor, in CreateSource
 		return domain.SourceRevision{}, domain.E("validation", "content_type", "SOURCE_MIME_BLOCKED", "仅支持 PDF、DOCX、XLSX、PPTX、PNG 和 JPEG", 7)
 	}
 	if in.ByteSize <= 0 || in.ByteSize > 100*1024*1024 {
-		return domain.SourceRevision{}, domain.Invalid("SOURCE_SIZE_INVALID", "单文件大小必须在 1B 到 100MB 之间")
+		return domain.SourceRevision{}, domain.Invalid("SOURCE_SIZE_INVALID", "单个文件大小必须在 1 字节至 100 MB 之间")
 	}
 	if len(in.SHA256) != 64 {
 		return domain.SourceRevision{}, domain.Invalid("SOURCE_HASH_INVALID", "来源必须提供 SHA-256")
@@ -93,7 +93,7 @@ func (s *Service) CreateSourceRevision(ctx context.Context, actor Actor, in Crea
 		return domain.SourceRevision{}, err
 	}
 	if strings.TrimSpace(in.FileName) == "" || !allowedSourceMIME[in.MIME] {
-		return domain.SourceRevision{}, domain.Invalid("SOURCE_REVISION_INVALID", "来源修订需要支持的文件名和 MIME")
+		return domain.SourceRevision{}, domain.Invalid("SOURCE_REVISION_INVALID", "来源版本需要有效的文件名和受支持的媒体类型")
 	}
 	if in.ByteSize <= 0 || in.ByteSize > 100*1024*1024 || len(in.SHA256) != 64 {
 		return domain.SourceRevision{}, domain.Invalid("SOURCE_REVISION_INVALID", "来源修订大小或 SHA-256 无效")
@@ -124,7 +124,7 @@ func (s *Service) CreateSourceRevision(ctx context.Context, actor Actor, in Crea
 
 func (s *Service) UploadSourceRevision(ctx context.Context, actor Actor, sourceID, fileName, declaredMIME string, data []byte, requestID string) (domain.SourceRevision, error) {
 	if len(data) == 0 || len(data) > 100*1024*1024 {
-		return domain.SourceRevision{}, domain.Invalid("SOURCE_SIZE_INVALID", "单文件大小必须在 1B 到 100MB 之间")
+		return domain.SourceRevision{}, domain.Invalid("SOURCE_SIZE_INVALID", "单个文件大小必须在 1 字节至 100 MB 之间")
 	}
 	extension := strings.ToLower(filepath.Ext(fileName))
 	extensionMIME := map[string]string{".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".txt": "text/plain"}
@@ -155,7 +155,7 @@ func (s *Service) UploadSourceRevision(ctx context.Context, actor Actor, sourceI
 
 func (s *Service) UploadSource(ctx context.Context, actor Actor, projectID, name, sourceType, fileName, declaredMIME string, data []byte, requestID string) (domain.SourceRevision, error) {
 	if len(data) == 0 || len(data) > 100*1024*1024 {
-		return domain.SourceRevision{}, domain.Invalid("SOURCE_SIZE_INVALID", "单文件大小必须在 1B 到 100MB 之间")
+		return domain.SourceRevision{}, domain.Invalid("SOURCE_SIZE_INVALID", "单个文件大小必须在 1 字节至 100 MB 之间")
 	}
 	extension := strings.ToLower(filepath.Ext(fileName))
 	extensionMIME := map[string]string{".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".txt": "text/plain"}
@@ -261,7 +261,7 @@ func (s *Service) CompleteSource(ctx context.Context, actor Actor, revisionID st
 		return revision, err
 	}
 	if actor.Type != "worker" && actor.Role != "tenant_admin" && actor.Role != "reviewer" {
-		return revision, domain.Policy("ROLE_DENIED", "当前角色不能完成来源解析", "等待 Worker 或审核员处理")
+		return revision, domain.Policy("ROLE_DENIED", "当前角色不能完成来源解析", "等待后台处理程序或审核员处理")
 	}
 	if in.Status != "ready" && in.Status != "needs_review" && in.Status != "failed" {
 		return revision, domain.Invalid("SOURCE_STATUS_INVALID", "解析状态无效")
@@ -316,7 +316,7 @@ func (s *Service) ReviewEvidence(ctx context.Context, actor Actor, evidenceID, d
 	case "reject":
 		span.ReviewStatus = "rejected"
 	default:
-		return span, domain.Invalid("EVIDENCE_DECISION_INVALID", "证据复核只允许 accept 或 reject")
+		return span, domain.Invalid("EVIDENCE_DECISION_INVALID", "证据复核只允许“接受（accept）”或“拒绝（reject）”")
 	}
 	now := s.now().UTC()
 	span.ReviewedBy, span.ReviewedAt = actor.UserID, &now
@@ -416,7 +416,7 @@ func (s *Service) collectSourceImpact(ctx context.Context, tenantID, projectID s
 		for _, evidenceID := range object.EvidenceRefs {
 			span, err := s.store.EvidenceSpan(ctx, tenantID, evidenceID)
 			if err == nil && revisionIDs[span.RevisionID] {
-				impacts = append(impacts, ImpactItem{ObjectType: "knowledge_object", ObjectID: object.ID, Reason: "引用了该来源修订的 Evidence", CurrentStatus: object.Status, SuggestedAction: "复核新修订中的原文和值"})
+				impacts = append(impacts, ImpactItem{ObjectType: "knowledge_object", ObjectID: object.ID, Reason: "引用了该来源版本的证据", CurrentStatus: object.Status, SuggestedAction: "复核新版本中的原文和值"})
 				break
 			}
 		}

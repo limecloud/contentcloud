@@ -13,69 +13,80 @@ import (
 )
 
 type Store struct {
-	mu                   sync.RWMutex
-	users                map[string]domain.User
-	userByEmail          map[string]string
-	sessions             map[string]domain.Session
-	tenants              map[string]domain.Tenant
-	tenantContentCaps    map[string]domain.TenantContentCapability
-	memberships          map[string]domain.Membership
-	membershipInvites    map[string]domain.MembershipInvite
-	projects             map[string]domain.Project
-	projectTemplates     map[string]domain.ProjectTemplate
-	connects             map[string]domain.ConnectSession
-	bootstrapAttempts    map[string]domain.BootstrapAttempt
-	bootstrapEvents      map[string]map[int64]domain.BootstrapProgressEvent
-	bootstrapDiagnostics map[string]domain.BootstrapDiagnostic
-	devices              map[string]domain.Device
-	workspaceBindings    map[string]domain.WorkspaceBinding
-	userDeviceFlows      map[string]domain.UserDeviceFlow
-	cliTokens            map[string]domain.CLIToken
-	sources              map[string]domain.Source
-	revisions            map[string]domain.SourceRevision
-	evidence             map[string]domain.EvidenceSpan
-	assets               map[string]domain.Asset
-	rightsRecords        map[string]domain.RightsRecord
-	knowledgeObjects     map[string]domain.KnowledgeObject
-	knowledgeDecisions   map[string]domain.KnowledgeDecision
-	knowledgePacks       map[string]domain.KnowledgePack
-	knowledgeSnapshots   map[string]domain.KnowledgeSnapshot
-	environments         map[string]domain.Environment
-	sopDefinitions       map[string]domain.SOPDefinition
-	sopVersions          map[string]domain.SOPVersion
-	projectSOPBindings   map[string]domain.ProjectSOPBinding
-	workTasks            map[string]domain.WorkTask
-	inputItems           map[string]domain.InputItem
-	conversationImports  map[string]domain.ConversationImport
-	stageRuns            map[string]domain.StageRun
-	stageOutputs         map[string]domain.TaskStageOutput
-	providerProfiles     map[string]domain.ProviderProfile
-	providerBindings     map[string]domain.ProviderBinding
-	mediaJobs            map[string]domain.MediaGenerationJob
-	providerAttempts     map[string]domain.ProviderAttempt
-	mediaReviews         map[string]domain.MediaReview
-	gateEvaluations      map[string]domain.GateEvaluation
-	taskRevisions        map[string]domain.TaskRevision
-	taskDeliveries       map[string]domain.TaskDelivery
-	snapshots            map[string]domain.ContextSnapshot
-	runs                 map[string]domain.TaskRun
-	executionBundles     map[string]environment.CreativeExecutionBundle
-	runAttempts          map[string]domain.RunAttempt
-	runProgress          map[string][]domain.RunProgressEvent
-	runProgressCursor    int64
-	approvals            map[string]domain.ApprovalDecision
-	reviewCycles         map[string]domain.ReviewCycle
-	reviewComments       map[string]domain.ReviewComment
-	reviewGrants         map[string]domain.ReviewGrant
-	submissions          map[string]domain.Submission
-	submissionRevisions  map[string]domain.SubmissionRevision
-	approvedSnapshots    map[string]domain.ApprovedSnapshot
-	artifacts            map[string]domain.Artifact
-	deliveryPackages     map[string]domain.DeliveryPackage
-	performanceBatches   map[string]domain.PerformanceImportBatch
-	observations         map[string]domain.PerformanceObservation
-	ratingDecisions      map[string]domain.RatingDecision
-	audits               []domain.AuditEvent
+	mu                    sync.RWMutex
+	users                 map[string]domain.User
+	userByEmail           map[string]string
+	sessions              map[string]domain.Session
+	tenants               map[string]domain.Tenant
+	tenantContentCaps     map[string]domain.TenantContentCapability
+	memberships           map[string]domain.Membership
+	membershipInvites     map[string]domain.MembershipInvite
+	projects              map[string]domain.Project
+	projectTemplates      map[string]domain.ProjectTemplate
+	connects              map[string]domain.ConnectSession
+	bootstrapAttempts     map[string]domain.BootstrapAttempt
+	bootstrapEvents       map[string]map[int64]domain.BootstrapProgressEvent
+	bootstrapDiagnostics  map[string]domain.BootstrapDiagnostic
+	devices               map[string]domain.Device
+	workspaceBindings     map[string]domain.WorkspaceBinding
+	userDeviceFlows       map[string]domain.UserDeviceFlow
+	cliTokens             map[string]domain.CLIToken
+	sources               map[string]domain.Source
+	revisions             map[string]domain.SourceRevision
+	evidence              map[string]domain.EvidenceSpan
+	assets                map[string]domain.Asset
+	rightsRecords         map[string]domain.RightsRecord
+	knowledgeObjects      map[string]domain.KnowledgeObject
+	knowledgeDecisions    map[string]domain.KnowledgeDecision
+	knowledgePacks        map[string]domain.KnowledgePack
+	knowledgeSnapshots    map[string]domain.KnowledgeSnapshot
+	environments          map[string]domain.Environment
+	sopDefinitions        map[string]domain.SOPDefinition
+	sopVersions           map[string]domain.SOPVersion
+	projectSOPBindings    map[string]domain.ProjectSOPBinding
+	workTasks             map[string]domain.WorkTask
+	inputItems            map[string]domain.InputItem
+	conversationImports   map[string]domain.ConversationImport
+	stageRuns             map[string]domain.StageRun
+	stageOutputs          map[string]domain.TaskStageOutput
+	providerProfiles      map[string]domain.ProviderProfile
+	providerBindings      map[string]domain.ProviderBinding
+	mediaJobs             map[string]domain.MediaGenerationJob
+	providerAttempts      map[string]domain.ProviderAttempt
+	mediaReviews          map[string]domain.MediaReview
+	gateEvaluations       map[string]domain.GateEvaluation
+	taskRevisions         map[string]domain.TaskRevision
+	taskDeliveries        map[string]domain.TaskDelivery
+	snapshots             map[string]domain.ContextSnapshot
+	runs                  map[string]domain.TaskRun
+	executionBundles      map[string]environment.CreativeExecutionBundle
+	runAttempts           map[string]domain.RunAttempt
+	runProgress           map[string][]domain.RunProgressEvent
+	runProgressCursor     int64
+	runtimePlans          map[string]domain.JobPlanRevision
+	runtimeJobs           map[string]domain.JobRun
+	runtimeNodes          map[string]domain.NodeRun
+	runtimeEvents         map[string][]domain.JobEvent
+	runtimeContextViews   map[string]domain.ContextView
+	runtimeAgents         map[string]domain.AgentInstance
+	runtimeAttempts       map[string]domain.RuntimeAttempt
+	runtimeStates         map[string]domain.RuntimeState
+	runtimeStateMutations map[string]string
+	runtimeCheckpoints    map[string]domain.Checkpoint
+	runtimeEffects        map[string]domain.ExternalEffect
+	approvals             map[string]domain.ApprovalDecision
+	reviewCycles          map[string]domain.ReviewCycle
+	reviewComments        map[string]domain.ReviewComment
+	reviewGrants          map[string]domain.ReviewGrant
+	submissions           map[string]domain.Submission
+	submissionRevisions   map[string]domain.SubmissionRevision
+	approvedSnapshots     map[string]domain.ApprovedSnapshot
+	artifacts             map[string]domain.Artifact
+	deliveryPackages      map[string]domain.DeliveryPackage
+	performanceBatches    map[string]domain.PerformanceImportBatch
+	observations          map[string]domain.PerformanceObservation
+	ratingDecisions       map[string]domain.RatingDecision
+	audits                []domain.AuditEvent
 }
 
 func New() *Store {
@@ -85,6 +96,7 @@ func New() *Store {
 		connects: map[string]domain.ConnectSession{}, bootstrapAttempts: map[string]domain.BootstrapAttempt{}, bootstrapEvents: map[string]map[int64]domain.BootstrapProgressEvent{}, bootstrapDiagnostics: map[string]domain.BootstrapDiagnostic{}, devices: map[string]domain.Device{}, workspaceBindings: map[string]domain.WorkspaceBinding{}, userDeviceFlows: map[string]domain.UserDeviceFlow{}, cliTokens: map[string]domain.CLIToken{},
 		sources: map[string]domain.Source{}, revisions: map[string]domain.SourceRevision{}, evidence: map[string]domain.EvidenceSpan{}, assets: map[string]domain.Asset{}, rightsRecords: map[string]domain.RightsRecord{}, knowledgeObjects: map[string]domain.KnowledgeObject{}, knowledgeDecisions: map[string]domain.KnowledgeDecision{}, knowledgePacks: map[string]domain.KnowledgePack{}, knowledgeSnapshots: map[string]domain.KnowledgeSnapshot{}, environments: map[string]domain.Environment{}, sopDefinitions: map[string]domain.SOPDefinition{}, sopVersions: map[string]domain.SOPVersion{}, projectSOPBindings: map[string]domain.ProjectSOPBinding{}, workTasks: map[string]domain.WorkTask{}, inputItems: map[string]domain.InputItem{}, conversationImports: map[string]domain.ConversationImport{}, stageRuns: map[string]domain.StageRun{}, stageOutputs: map[string]domain.TaskStageOutput{}, providerProfiles: map[string]domain.ProviderProfile{}, providerBindings: map[string]domain.ProviderBinding{}, mediaJobs: map[string]domain.MediaGenerationJob{}, providerAttempts: map[string]domain.ProviderAttempt{}, mediaReviews: map[string]domain.MediaReview{}, gateEvaluations: map[string]domain.GateEvaluation{}, taskRevisions: map[string]domain.TaskRevision{}, taskDeliveries: map[string]domain.TaskDelivery{},
 		snapshots: map[string]domain.ContextSnapshot{}, runs: map[string]domain.TaskRun{}, executionBundles: map[string]environment.CreativeExecutionBundle{}, runAttempts: map[string]domain.RunAttempt{}, runProgress: map[string][]domain.RunProgressEvent{},
+		runtimePlans: map[string]domain.JobPlanRevision{}, runtimeJobs: map[string]domain.JobRun{}, runtimeNodes: map[string]domain.NodeRun{}, runtimeEvents: map[string][]domain.JobEvent{}, runtimeContextViews: map[string]domain.ContextView{}, runtimeAgents: map[string]domain.AgentInstance{}, runtimeAttempts: map[string]domain.RuntimeAttempt{}, runtimeStates: map[string]domain.RuntimeState{}, runtimeStateMutations: map[string]string{}, runtimeCheckpoints: map[string]domain.Checkpoint{}, runtimeEffects: map[string]domain.ExternalEffect{},
 		approvals: map[string]domain.ApprovalDecision{}, reviewCycles: map[string]domain.ReviewCycle{}, reviewComments: map[string]domain.ReviewComment{}, reviewGrants: map[string]domain.ReviewGrant{}, submissions: map[string]domain.Submission{}, submissionRevisions: map[string]domain.SubmissionRevision{}, approvedSnapshots: map[string]domain.ApprovedSnapshot{}, artifacts: map[string]domain.Artifact{}, deliveryPackages: map[string]domain.DeliveryPackage{}, performanceBatches: map[string]domain.PerformanceImportBatch{}, observations: map[string]domain.PerformanceObservation{}, ratingDecisions: map[string]domain.RatingDecision{}, audits: []domain.AuditEvent{},
 	}
 }
@@ -453,7 +465,7 @@ func (s *Store) Projects(_ context.Context, tenantID string) ([]domain.Project, 
 	out := []domain.Project{}
 	for _, v := range s.projects {
 		if v.TenantID == tenantID {
-			out = append(out, v)
+			out = append(out, s.projectWithKnowledgeMetricsLocked(v))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
@@ -466,7 +478,24 @@ func (s *Store) Project(_ context.Context, tenantID, id string) (domain.Project,
 	if !ok || v.TenantID != tenantID {
 		return v, domain.NotFound("项目")
 	}
-	return v, nil
+	return s.projectWithKnowledgeMetricsLocked(v), nil
+}
+
+func (s *Store) projectWithKnowledgeMetricsLocked(project domain.Project) domain.Project {
+	project.KnowledgeReady = 0
+	project.OpenBlockers = 0
+	for _, object := range s.knowledgeObjects {
+		if object.TenantID != project.TenantID || object.ProjectID != project.ID {
+			continue
+		}
+		switch object.Status {
+		case "verified", "approved", "valid", "active":
+			project.KnowledgeReady++
+		case "candidate", "needs_review", "conflicted", "blocked", "open":
+			project.OpenBlockers++
+		}
+	}
+	return project
 }
 func (s *Store) SaveProject(_ context.Context, v domain.Project) error {
 	s.mu.Lock()
@@ -775,7 +804,7 @@ func (s *Store) CreateRunWithBundle(_ context.Context, v domain.TaskRun, bundle 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if bundle.ProjectID != v.ProjectID || bundle.Subject.ID != v.InputSnapshotID {
-		return domain.Conflict("EXECUTION_BUNDLE_RUN_MISMATCH", "CreativeExecutionBundle 与 TaskRun 不匹配")
+		return domain.Conflict("EXECUTION_BUNDLE_RUN_MISMATCH", "创作执行包与任务不匹配")
 	}
 	if err := s.createRun(v); err != nil {
 		return err
@@ -800,7 +829,7 @@ func (s *Store) ExecutionBundle(_ context.Context, tenantID, runID string) (envi
 	run, exists := s.runs[runID]
 	bundle, bundled := s.executionBundles[runID]
 	if !exists || run.TenantID != tenantID || !bundled {
-		return environment.CreativeExecutionBundle{}, domain.NotFound("CreativeExecutionBundle")
+		return environment.CreativeExecutionBundle{}, domain.NotFound("创作执行包")
 	}
 	return bundle, nil
 }

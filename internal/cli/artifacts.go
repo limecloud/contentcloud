@@ -10,10 +10,10 @@ import (
 )
 
 func (r *Root) artifactCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "artifact", Short: "Export and download ApprovedSnapshot artifacts"}
+	cmd := &cobra.Command{Use: "artifact", Short: "导出和下载批准快照成果"}
 
 	var format, contentItemID string
-	export := &cobra.Command{Use: "export <approved-snapshot-id>", Args: cobra.ExactArgs(1), Short: "Export one approved content item", RunE: func(cmd *cobra.Command, args []string) error {
+	export := &cobra.Command{Use: "export <approved-snapshot-id>", Args: cobra.ExactArgs(1), Short: "导出一项已批准内容", RunE: func(cmd *cobra.Command, args []string) error {
 		_, client, _, err := r.userClient()
 		if err != nil {
 			return err
@@ -24,11 +24,11 @@ func (r *Root) artifactCommand() *cobra.Command {
 		}
 		return r.writeOK("artifact.export", result)
 	}}
-	export.Flags().StringVar(&format, "format", "json", "markdown, xlsx, or json")
-	export.Flags().StringVar(&contentItemID, "content-item", "", "content item ID when the snapshot contains multiple items")
+	export.Flags().StringVar(&format, "format", "json", "导出格式：markdown、xlsx 或 json")
+	export.Flags().StringVar(&contentItemID, "content-item", "", "批准快照包含多项内容时指定内容项 ID")
 
 	var outputPath string
-	download := &cobra.Command{Use: "download <artifact-id>", Args: cobra.ExactArgs(1), Short: "Download a hosted ApprovedSnapshot artifact", RunE: func(cmd *cobra.Command, args []string) error {
+	download := &cobra.Command{Use: "download <artifact-id>", Args: cobra.ExactArgs(1), Short: "下载服务端保存的批准快照成果", RunE: func(cmd *cobra.Command, args []string) error {
 		_, client, _, err := r.userClient()
 		if err != nil {
 			return err
@@ -53,17 +53,17 @@ func (r *Root) artifactCommand() *cobra.Command {
 		}
 		return r.writeOK("artifact.download", map[string]any{"artifact_id": result.Artifact.ID, "path": path, "byte_size": len(data), "sha256": result.Artifact.SHA256})
 	}}
-	download.Flags().StringVar(&outputPath, "out", "", "output file path")
+	download.Flags().StringVar(&outputPath, "out", "", "输出文件路径")
 
 	cmd.AddCommand(export, download)
 	return cmd
 }
 
 func (r *Root) deliveryCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "delivery", Short: "Manage immutable ApprovedSnapshot delivery packages"}
+	cmd := &cobra.Command{Use: "delivery", Short: "管理不可变的批准快照交付包"}
 
 	var contentItemID string
-	create := &cobra.Command{Use: "create <approved-snapshot-id>", Args: cobra.ExactArgs(1), Short: "Create a three-format delivery package", RunE: func(cmd *cobra.Command, args []string) error {
+	create := &cobra.Command{Use: "create <approved-snapshot-id>", Args: cobra.ExactArgs(1), Short: "创建包含三种格式的交付包", RunE: func(cmd *cobra.Command, args []string) error {
 		_, client, _, err := r.userClient()
 		if err != nil {
 			return err
@@ -74,10 +74,10 @@ func (r *Root) deliveryCommand() *cobra.Command {
 		}
 		return r.writeOK("delivery.create", result)
 	}}
-	create.Flags().StringVar(&contentItemID, "content-item", "", "content item ID when the snapshot contains multiple items")
+	create.Flags().StringVar(&contentItemID, "content-item", "", "批准快照包含多项内容时指定内容项 ID")
 
 	var projectID string
-	list := &cobra.Command{Use: "list", Short: "List immutable delivery packages", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "列出不可变交付包", RunE: func(cmd *cobra.Command, args []string) error {
 		_, client, _, err := r.userClient()
 		if err != nil {
 			return err
@@ -88,10 +88,10 @@ func (r *Root) deliveryCommand() *cobra.Command {
 		}
 		return r.writeOK("delivery.list", result)
 	}}
-	list.Flags().StringVar(&projectID, "project", "", "project ID")
+	list.Flags().StringVar(&projectID, "project", "", "项目 ID")
 	_ = list.MarkFlagRequired("project")
 
-	show := &cobra.Command{Use: "show <delivery-package-id>", Args: cobra.ExactArgs(1), Short: "Show a delivery package manifest", RunE: func(cmd *cobra.Command, args []string) error {
+	show := &cobra.Command{Use: "show <delivery-package-id>", Args: cobra.ExactArgs(1), Short: "显示交付包清单", RunE: func(cmd *cobra.Command, args []string) error {
 		_, client, _, err := r.userClient()
 		if err != nil {
 			return err

@@ -1,4 +1,4 @@
-# Workspace 与 Handoff 故障排查
+# 本地工作区与任务交接故障排查
 
 按确定性状态排查，不要通过重复安装、猜测路径或复用旧聊天绕过错误。
 
@@ -6,47 +6,47 @@
 
 检查以下条件是否全部完成：
 
-1. ConnectSession 尚未过期或取消。
+1. 初始化会话（`ConnectSession`）尚未过期或取消。
 2. 浏览器中已批准当前设备显示的匹配短码。
-3. 固定 Plugin 的 ID、版本和 digest 校验通过。
-4. Workspace doctor 通过。
+3. 固定插件的 ID、版本和摘要校验通过。
+4. 本地工作区诊断通过。
 5. `workspace.register` 成功。
 
-初始化成功不代表已有文件被上传，也不代表 Daemon 已启动。
+初始化成功不代表已有文件被上传，也不代表后台进程已启动。
 
-## 新对话看不到 ContentCloud 工具
+## 新对话看不到 Content Work OS 工具
 
-- 确认安装或 Plugin 变更后已经新建对话。
-- 确认新对话打开的是包含 `.contentcloud/workspace.yaml` 的同一 Workspace Root。
+- 确认安装或插件变更后已经新建对话。
+- 确认新对话打开的是包含 `.contentcloud/workspace.yaml` 的同一本地工作区根目录。
 - 调用 `workspace_context`，不要从旧聊天复制项目状态。
 - 只有结果明确为 `repair_required` 时才调用 `workspace_doctor`。
 
-## `workspace_context` 发现多个项目或多个 Run
+## `workspace_context` 发现多个项目或多个执行记录
 
-不要猜测。选择唯一包含目标 `.contentcloud/workspace.yaml` 的根目录；多个活跃 Run 时展示其 intent、stage、claim 和更新时间，让用户选择精确 `run_id` 后再写入。
+不要猜测。选择唯一包含目标 `.contentcloud/workspace.yaml` 的根目录；存在多个活跃执行记录时，展示其意图、阶段、单写者声明和更新时间，让用户选择精确的 `run_id` 后再写入。
 
-## “在 Agent 中继续”不可用
+## “在智能体客户端中继续”不可用
 
-- 确认项目至少连接了一台 Workspace 设备。
+- 确认项目至少连接了一台本地工作区设备。
 - 确认所选客户端的 `interactive_handoff` 状态为“可用”。
-- 当前只有 Codex 支持交互式 Handoff；其他客户端显示“即将支持”是预留状态。
-- 审核修订入口还要求目标 Revision 存在评论或处于 `changes_requested`。
+- 当前只有 Codex 支持交互式任务交接；其他客户端显示“即将支持”是预留状态。
+- 审核修订入口还要求目标内容版本存在评论或处于“待修改（`changes_requested`）”状态。
 
-## Handoff 打开后内容不匹配
+## 任务交接打开后内容不匹配
 
 停止修订并核对：
 
 - 项目 ID。
 - 目标类型和目标 ID。
-- 完整 `sha256:` digest。
-- 当前 Workspace 绑定。
+- 完整的 `sha256:` 摘要。
+- 当前本地工作区绑定。
 
-Handoff 只预填 Prompt，不会自动发送或选择本机 Workspace。摘要不一致时不得把评论应用到其他版本。
+任务交接只预填操作指令，不会自动发送或选择本机工作区。摘要不一致时不得把评论应用到其他版本。
 
 ## publish 出现冲突
 
-重新读取 Workspace 和云端状态，保留当前候选，不要覆盖最新 revision。再次执行类型化 lint 和 `publish_preflight`，并只对新的精确计划请求确认。
+重新读取本地工作区和云端状态，保留当前候选，不要覆盖最新内容版本。再次执行类型化检查和 `publish_preflight`，并只对新的精确计划请求确认。
 
 ## 仍无法恢复
 
-保留错误码、support code、失败检查 ID 和脱敏诊断包。不要把 token、Cookie、绝对路径、客户正文或本机安全存储内容粘贴到问题描述中。
+保留错误码、支持码、失败检查 ID 和脱敏诊断包。不要把令牌、Cookie、绝对路径、客户正文或本机安全存储内容粘贴到问题描述中。

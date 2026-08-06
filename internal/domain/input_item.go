@@ -55,7 +55,7 @@ func (v InputItem) Validate() error {
 		return Invalid("INPUT_ITEM_TOO_LARGE", "输入收集内容超过大小限制")
 	}
 	switch v.SourceType {
-	case "brief", "workspace_file", "comment", "external_request", "trigger", "conversation_bundle", "other":
+	case "brief", "manual_inspiration", "workspace_file", "comment", "external_request", "trigger", "conversation_bundle", "other":
 	default:
 		return Invalid("INPUT_ITEM_SOURCE_INVALID", "输入收集来源类型无效")
 	}

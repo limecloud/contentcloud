@@ -323,7 +323,7 @@ func defaultValue(value, fallback string) string {
 
 func ValidateReport(report Report) error {
 	if report.SchemaVersion != domain.BootstrapSchemaVersion || len(report.Checks) == 0 {
-		return fmt.Errorf("bootstrap check report schema is invalid")
+		return fmt.Errorf("bootstrap 检查报告结构无效")
 	}
 	for _, check := range report.Checks {
 		event := domain.BootstrapProgressEvent{SchemaVersion: report.SchemaVersion, Sequence: 1, OccurredAt: time.Now().UTC(), Stage: check.Stage, Status: check.Status, CheckID: check.CheckID, ErrorCode: check.ErrorCode, ActionID: check.ActionID, Facts: check.Facts}

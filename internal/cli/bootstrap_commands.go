@@ -47,7 +47,7 @@ type bootstrapPlan struct {
 }
 
 func (r *Root) bootstrapCommand() *cobra.Command {
-	command := &cobra.Command{Use: "bootstrap", Short: "Install the pinned Codex plugin and initialize a ContentCloud workspace"}
+	command := &cobra.Command{Use: "bootstrap", Short: "安装固定版本的 Codex 插件并初始化 Content Work OS 工作区"}
 	command.AddCommand(r.bootstrapPreflightCommand(), r.bootstrapPlanCommand(), r.bootstrapApplyCommand(), r.bootstrapResumeCommand(), r.bootstrapDiagnosticCommand())
 	return command
 }
@@ -57,7 +57,7 @@ func (r *Root) bootstrapPreflightCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "preflight [directory]",
 		Args:  cobra.MaximumNArgs(1),
-		Short: "Check Node, Codex, network, and workspace prerequisites",
+		Short: "检查 Node、Codex、网络和工作区前置条件",
 		RunE: func(command *cobra.Command, args []string) error {
 			cfg, err := localconfig.Load()
 			if err != nil {
@@ -70,7 +70,7 @@ func (r *Root) bootstrapPreflightCommand() *cobra.Command {
 			return r.writeOK("bootstrap.preflight", report)
 		},
 	}
-	command.Flags().BoolVar(&offline, "offline", false, "skip network reachability checks")
+	command.Flags().BoolVar(&offline, "offline", false, "跳过网络连接检查")
 	return command
 }
 
@@ -79,7 +79,7 @@ func (r *Root) bootstrapPlanCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "plan [directory]",
 		Args:  cobra.MaximumNArgs(1),
-		Short: "Inspect Codex and workspace changes without modifying either",
+		Short: "预览 Codex 和工作区变更，但不执行修改",
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := validateBootstrapSession(sessionID); err != nil {
 				return err
@@ -95,7 +95,7 @@ func (r *Root) bootstrapPlanCommand() *cobra.Command {
 			return r.writeOK("bootstrap.plan", plan)
 		},
 	}
-	command.Flags().StringVar(&sessionID, "session", "", "public ConnectSession ID used with browser device authorization")
+	command.Flags().StringVar(&sessionID, "session", "", "浏览器设备授权使用的公开连接会话（ConnectSession）ID")
 	return command
 }
 
@@ -105,7 +105,7 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "apply [directory]",
 		Args:  cobra.MaximumNArgs(1),
-		Short: "Apply one confirmed Codex plugin and ContentCloud workspace plan",
+		Short: "执行已确认的 Codex 插件和 Content Work OS 工作区初始化计划",
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := validateBootstrapSession(sessionID); err != nil {
 				return err
@@ -122,7 +122,7 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 				err := domain.Conflict("BOOTSTRAP_PLAN_BLOCKED", "当前 Codex 或目标目录不能执行 bootstrap apply")
 				err.Details = plan.BlockingReasons
 				if plan.State == "resume_required" {
-					err.Hint = "对已初始化的 ContentCloud Workspace 使用 bootstrap resume"
+					err.Hint = "对已初始化的 Content Work OS 工作区使用 bootstrap resume"
 				}
 				return err
 			}
@@ -132,11 +132,11 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 			if plan.PlanID != strings.TrimSpace(planID) {
 				err := domain.Conflict("BOOTSTRAP_PLAN_STALE", "当前 bootstrap 状态与用户确认的 plan_id 不一致")
 				err.Details = map[string]any{"approved_plan_id": strings.TrimSpace(planID), "current_plan_id": plan.PlanID}
-				err.Hint = "重新运行 bootstrap plan、检查变化并再次确认"
+				err.Hint = "重新运行 bootstrap plan，检查变化并再次确认"
 				return err
 			}
 			if !accept {
-				err := domain.Policy("BOOTSTRAP_CONFIRMATION_REQUIRED", "bootstrap 将安装固定 Codex Plugin、绑定设备、写入目标 Workspace 并启动本机 Automation Daemon", "先检查 bootstrap plan，再传入 --accept")
+				err := domain.Policy("BOOTSTRAP_CONFIRMATION_REQUIRED", "bootstrap 将安装固定版本的 Codex 插件、绑定设备、写入目标工作区并启动本机自动化后台服务", "先检查 bootstrap plan，再传入 --accept")
 				err.ExitCode = 2
 				return err
 			}
@@ -177,21 +177,21 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 				if progress != nil {
 					progress.append(command.Context(), "workspace_initializing", "failed", "workspace.binding", "WORKSPACE_INITIALIZATION_FAILED", "repair.bootstrap.resume")
 				}
-				return withBootstrapDetails(err, map[string]any{"recovery": "retry with bootstrap resume after resolving the workspace error"})
+				return withBootstrapDetails(err, map[string]any{"recovery": "解决工作区错误后，运行 bootstrap resume 重试"})
 			}
 			if progress != nil {
 				progress.append(command.Context(), "workspace_initializing", "passed", "workspace.binding", "", "")
 			}
 			if connected.EnvironmentManifest == nil {
-				return withBootstrapDetails(domain.Conflict("ENVIRONMENT_MANIFEST_REQUIRED", "服务端未返回签名 Creative Environment Manifest"), map[string]any{"recovery": "configure the server Environment Control Plane, then run bootstrap resume"})
+				return withBootstrapDetails(domain.Conflict("ENVIRONMENT_MANIFEST_REQUIRED", "服务端未返回已签名的创作环境清单（Creative Environment Manifest）"), map[string]any{"recovery": "配置服务端环境控制平面后，运行 bootstrap resume"})
 			}
 			registry, err := fetchEnvironmentRegistry(command.Context(), r.resolveServer(cfg), connected.WorkspaceToken)
 			if err != nil {
-				return withBootstrapDetails(err, map[string]any{"recovery": "retry with bootstrap resume to refresh the signed Plugin Registry"})
+				return withBootstrapDetails(err, map[string]any{"recovery": "运行 bootstrap resume，重新获取已签名的插件注册表"})
 			}
 			environmentState, err := storeBootstrapEnvironment(status.Root, *connected.EnvironmentManifest, registry, adapter.Spec, verifier, registryVerifier, r.currentTime())
 			if err != nil {
-				return withBootstrapDetails(err, map[string]any{"recovery": "refresh the trusted Environment configuration, then run bootstrap resume"})
+				return withBootstrapDetails(err, map[string]any{"recovery": "更新可信环境配置后，运行 bootstrap resume"})
 			}
 			status, err = localworkspace.LoadStatus(status.Root)
 			if err != nil {
@@ -200,7 +200,7 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 			cfg.WorkspaceRoot = status.Root
 			cfg.UpsertDaemonBinding(localconfig.DaemonBinding{ServerURL: r.resolveServer(cfg), DeviceID: cfg.DeviceID, Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: status.Binding.WorkspaceID, ProjectID: status.Binding.ProjectID, Root: status.Root}}})
 			if err := localconfig.Save(cfg); err != nil {
-				return withBootstrapDetails(err, map[string]any{"recovery": "retry with bootstrap resume to persist the workspace root"})
+				return withBootstrapDetails(err, map[string]any{"recovery": "运行 bootstrap resume，重新保存工作区根目录"})
 			}
 			if progress != nil {
 				progress.append(command.Context(), "doctor_running", "started", "", "", "")
@@ -213,7 +213,7 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 				if progress != nil {
 					progress.append(command.Context(), "doctor_running", "failed", "workspace.managed_files", "WORKSPACE_DOCTOR_FAILED", "review.workspace.managed_files")
 				}
-				return withBootstrapDetails(err, map[string]any{"recovery": "fix the reported workspace check, then run bootstrap resume"})
+				return withBootstrapDetails(err, map[string]any{"recovery": "修复报告中的工作区检查项后，运行 bootstrap resume"})
 			}
 			if progress != nil {
 				progress.append(command.Context(), "doctor_running", "passed", "workspace.managed_files", "", "")
@@ -221,25 +221,25 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 			}
 			handoff, handoffPath, err := localworkspace.StoreBootstrapHandoff(status.Root, adapter.Spec.PluginID, adapter.Spec.PluginVersion, adapter.Spec.MarketplaceRef, r.currentTime())
 			if err != nil {
-				return withBootstrapDetails(err, map[string]any{"recovery": "retry with bootstrap resume to regenerate the new-chat handoff"})
+				return withBootstrapDetails(err, map[string]any{"recovery": "运行 bootstrap resume，重新生成新对话交接信息"})
 			}
 			registered, err := registerBootstrapWorkspace(command.Context(), r.resolveServer(cfg), connected.WorkspaceToken, status)
 			if err != nil {
 				if progress != nil {
 					progress.append(command.Context(), "registering", "failed", "workspace.registration", "WORKSPACE_REGISTRATION_FAILED", "retry.bootstrap.resume")
 				}
-				return withBootstrapDetails(err, map[string]any{"recovery": "network registration can be retried with bootstrap resume"})
+				return withBootstrapDetails(err, map[string]any{"recovery": "运行 bootstrap resume，重试网络注册"})
 			}
 			if progress != nil {
 				progress.append(command.Context(), "registering", "passed", "workspace.registration", "", "")
 			}
 			daemonService, err := r.localDaemonService()
 			if err != nil {
-				return withBootstrapDetails(err, map[string]any{"recovery": "run contentcloud daemon start after resolving the local service error"})
+				return withBootstrapDetails(err, map[string]any{"recovery": "解决本地服务错误后，运行 contentcloud daemon start"})
 			}
 			daemonState, err := daemonService.Start()
 			if err != nil {
-				return withBootstrapDetails(err, map[string]any{"recovery": "run contentcloud daemon start after resolving the local service error"})
+				return withBootstrapDetails(err, map[string]any{"recovery": "解决本地服务错误后，运行 contentcloud daemon start"})
 			}
 			if progress != nil {
 				progress.append(command.Context(), "opening_desktop", "started", "", "", "")
@@ -274,11 +274,11 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 			})
 		},
 	}
-	command.Flags().StringVar(&sessionID, "session", "", "public ConnectSession ID used with browser device authorization")
-	command.Flags().StringVar(&planID, "plan-id", "", "exact plan_id returned by the user-confirmed bootstrap plan")
-	command.Flags().StringVar(&name, "name", "", "workspace device display name")
-	command.Flags().BoolVar(&accept, "accept", false, "confirm the exact plugin, user Codex state, project binding, and workspace changes from bootstrap plan")
-	command.Flags().BoolVar(&openCodex, "open-codex", true, "open a new Codex project chat after verified registration")
+	command.Flags().StringVar(&sessionID, "session", "", "浏览器设备授权使用的公开连接会话（ConnectSession）ID")
+	command.Flags().StringVar(&planID, "plan-id", "", "用户确认的初始化计划返回的确切 plan_id")
+	command.Flags().StringVar(&name, "name", "", "工作区设备显示名称")
+	command.Flags().BoolVar(&accept, "accept", false, "确认计划中列出的插件、用户 Codex 状态、项目绑定和工作区变更")
+	command.Flags().BoolVar(&openCodex, "open-codex", true, "验证并注册成功后打开新的 Codex 项目对话")
 	return command
 }
 
@@ -287,10 +287,10 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "resume [directory]",
 		Args:  cobra.MaximumNArgs(1),
-		Short: "Resume doctor and registration after browser device authorization completed",
+		Short: "浏览器设备授权完成后，继续执行检查和注册",
 		RunE: func(command *cobra.Command, args []string) error {
 			if !accept {
-				err := domain.Policy("BOOTSTRAP_RESUME_CONFIRMATION_REQUIRED", "resume 将修复固定 Codex Plugin 状态并重新注册现有 Workspace", "检查当前 Workspace 后传入 --accept")
+				err := domain.Policy("BOOTSTRAP_RESUME_CONFIRMATION_REQUIRED", "resume 将修复固定版本的 Codex 插件并重新注册现有工作区", "检查当前工作区后传入 --accept")
 				err.ExitCode = 2
 				return err
 			}
@@ -316,7 +316,7 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 			switch workspacePlan.State {
 			case "empty", "missing":
 				if cfg.DeviceID == "" || cfg.WorkspaceID == "" || cfg.ProjectID == "" {
-					return domain.Conflict("BOOTSTRAP_RESUME_BINDING_MISSING", "本机没有可恢复的 ContentCloud device/workspace/project 绑定")
+					return domain.Conflict("BOOTSTRAP_RESUME_BINDING_MISSING", "本机没有可恢复的 Content Work OS 设备、工作区和项目绑定")
 				}
 				server := r.resolveServer(cfg)
 				if err := validateBootstrapServer(server); err != nil {
@@ -329,7 +329,7 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 					return err
 				}
 				if !hasBootstrapTarget(status.Template.Targets) {
-					return domain.Conflict("BOOTSTRAP_TARGET_MISMATCH", "当前 Workspace 不是 codex-plugin 交付模式")
+					return domain.Conflict("BOOTSTRAP_TARGET_MISMATCH", "当前工作区不是 codex-plugin 交付模式")
 				}
 			default:
 				return domain.Conflict("BOOTSTRAP_RESUME_DIRECTORY_CONFLICT", "恢复目标包含未知文件，拒绝覆盖")
@@ -409,8 +409,8 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 			return r.writeOK("bootstrap.resume", map[string]any{"plugin": pluginResult, "workspace": status, "environment": environmentState, "doctor": report, "cloud_binding": registered, "bootstrap_handoff": handoff, "bootstrap_handoff_path": handoffPath, "new_chat": launch, "daemon_enabled": true, "daemon": daemonState})
 		},
 	}
-	command.Flags().BoolVar(&accept, "accept", false, "confirm plugin repair and workspace registration")
-	command.Flags().BoolVar(&openCodex, "open-codex", true, "open a new Codex project chat after verified registration")
+	command.Flags().BoolVar(&accept, "accept", false, "确认修复插件并注册工作区")
+	command.Flags().BoolVar(&openCodex, "open-codex", true, "验证并注册成功后打开新的 Codex 项目对话")
 	return command
 }
 
@@ -463,7 +463,7 @@ func (r *Root) buildBootstrapPlan(ctx context.Context, directory string) (bootst
 		plan.BlockingReasons = append(plan.BlockingReasons, "目标目录包含未知文件")
 	case "workspace":
 		plan.State = "resume_required"
-		plan.BlockingReasons = append(plan.BlockingReasons, "目标目录已经是 ContentCloud Workspace")
+		plan.BlockingReasons = append(plan.BlockingReasons, "目标目录已经是 Content Work OS 工作区")
 	}
 	planID, err := bootstrapPlanID(plan)
 	if err != nil {
@@ -527,7 +527,7 @@ func (r *Root) environmentRegistryVerifier() (*environment.RegistryVerifier, err
 
 func storeBootstrapEnvironment(root string, manifest environment.Manifest, registry environment.Registry, spec codexplugin.Spec, verifier *environment.Verifier, registryVerifier *environment.RegistryVerifier, now time.Time) (localworkspace.EnvironmentState, error) {
 	if manifest.Distribution.Marketplace != spec.MarketplaceName {
-		return localworkspace.EnvironmentState{}, domain.Conflict("BOOTSTRAP_ENVIRONMENT_MARKETPLACE_MISMATCH", "Environment Manifest Marketplace 与固定 Codex Plugin 规格不一致")
+		return localworkspace.EnvironmentState{}, domain.Conflict("BOOTSTRAP_ENVIRONMENT_MARKETPLACE_MISMATCH", "创作环境清单中的插件市场与固定 Codex 插件规格不一致")
 	}
 	installed := make([]environment.LockedPlugin, 0, 1)
 	for _, plugin := range manifest.Distribution.Plugins {
@@ -535,12 +535,12 @@ func storeBootstrapEnvironment(root string, manifest environment.Manifest, regis
 			continue
 		}
 		if plugin.ID != spec.PluginName || plugin.Kind != "scene_plugin" || plugin.Version != spec.PluginVersion || plugin.SourceRef != spec.MarketplaceRef {
-			return localworkspace.EnvironmentState{}, domain.Conflict("BOOTSTRAP_ENVIRONMENT_PLUGIN_MISMATCH", "Environment Manifest 的必装 Plugin 与本次已验证 Codex 安装不一致")
+			return localworkspace.EnvironmentState{}, domain.Conflict("BOOTSTRAP_ENVIRONMENT_PLUGIN_MISMATCH", "创作环境清单中的必装插件与本次已验证的 Codex 安装不一致")
 		}
 		installed = append(installed, environment.LockedPlugin{ID: plugin.ID, Kind: plugin.Kind, Version: plugin.Version, Digest: plugin.Digest, Installed: true})
 	}
 	if len(installed) != 1 {
-		return localworkspace.EnvironmentState{}, domain.Conflict("BOOTSTRAP_ENVIRONMENT_PLUGIN_UNSUPPORTED", "首版 Bootstrap 只接受一个环境级必装 Scene Plugin")
+		return localworkspace.EnvironmentState{}, domain.Conflict("BOOTSTRAP_ENVIRONMENT_PLUGIN_UNSUPPORTED", "首版初始化只接受一个环境级必装场景插件")
 	}
 	verifiedRegistry, err := localworkspace.StoreEnvironmentRegistry(root, registry, registryVerifier)
 	if err != nil {
@@ -582,16 +582,16 @@ func requireHealthyWorkspace(report localworkspace.DoctorReport) error {
 	if report.OK {
 		return nil
 	}
-	err := domain.Conflict("WORKSPACE_DOCTOR_FAILED", "Workspace 必需检查未全部通过，已阻止云端注册")
+	err := domain.Conflict("WORKSPACE_DOCTOR_FAILED", "工作区必需检查未全部通过，已阻止云端注册")
 	err.Details = report
-	err.Hint = "修复 doctor 中失败的 required checks 后重试"
+	err.Hint = "修复 doctor 中失败的必需检查项后重试"
 	return err
 }
 
 func validateBootstrapServer(value string) error {
 	parsed, err := url.ParseRequestURI(value)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return domain.Invalid("SERVER_URL_INVALID", "bootstrap server URL 必须是无内嵌凭据的 HTTP(S) origin")
+		return domain.Invalid("SERVER_URL_INVALID", "bootstrap 服务端地址必须是没有内嵌凭据的 HTTP(S) 源地址")
 	}
 	return nil
 }

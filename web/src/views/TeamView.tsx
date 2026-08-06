@@ -3,11 +3,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, patch, post } from '../api';
 import { Banner, Button, Empty, Field, IconButton, Loading, Modal, Status } from '../components/ui';
 import type { Member, MembershipInvite, Session } from '../types';
+import { roleLabel } from '../uiLabels';
 
 const roles = ['tenant_admin', 'project_manager', 'strategist', 'editor', 'reviewer', 'viewer'] as const;
-const roleLabels: Record<string, string> = {
-  tenant_admin: '租户管理员', project_manager: '项目经理', strategist: '策略', editor: '编辑', reviewer: '审核', viewer: '查看者'
-};
 
 export function TeamView({session, onChanged}: {session: Session; onChanged: () => Promise<void>}) {
   const canViewMembers = ['tenant_admin', 'project_manager', 'reviewer'].includes(session.role);
@@ -98,7 +96,7 @@ export function TeamView({session, onChanged}: {session: Session; onChanged: () 
   };
 
   return <div className="page team-page">
-    <div className="page-heading"><div><span className="eyebrow">Tenant Access</span><h1>团队与权限</h1><p>{session.tenant.name} 使用固定角色和即时会话撤销。</p></div></div>
+    <div className="page-heading"><div><span className="eyebrow">租户访问管理</span><h1>团队与权限</h1><p>{session.tenant.name} 使用固定角色，撤销成员权限后其会话会立即失效。</p></div></div>
     {error && <Banner kind="error" onClose={() => setError('')}>{error}</Banner>}
     {notice && <Banner kind="success" onClose={() => setNotice('')}>{notice}</Banner>}
 
@@ -111,12 +109,12 @@ export function TeamView({session, onChanged}: {session: Session; onChanged: () 
 
     {!canViewMembers ? <section className="section"><Empty title="当前角色不显示成员目录" detail="邀请接受入口仍可使用；成员与权限目录仅对管理员、项目经理和审核角色开放。"/></section> : loading ? <section className="team-loading section"><Loading/></section> : <>
       <section className="section team-members">
-        <header className="section-header"><div><span className="section-kicker">Members</span><h2>成员</h2></div><span className="section-count">{members.filter(member => member.membership.status === 'active').length} 位有效成员</span></header>
+        <header className="section-header"><div><span className="section-kicker">团队成员</span><h2>成员</h2></div><span className="section-count">{members.filter(member => member.membership.status === 'active').length} 位有效成员</span></header>
         {members.length === 0 ? <Empty title="暂无团队成员"/> : <div className="team-table">
           <div className="team-table-head"><span>成员</span><span>角色</span><span>状态</span><span>加入时间</span><span>操作</span></div>
           {members.map(member => <article className="team-member-row" key={member.membership.user_id}>
             <div className="team-person"><div>{initials(member.display_name || member.email)}</div><span><strong>{member.display_name || '未命名成员'}{member.membership.user_id === session.user.id && <small>你</small>}</strong><small>{member.email}</small></span></div>
-            <div>{isAdmin && member.membership.status === 'active' ? <select aria-label={`设置 ${member.display_name} 的角色`} value={member.membership.role} disabled={busy === `role:${member.membership.user_id}`} onChange={event => updateRole(member.membership.user_id, event.target.value)}>{roles.map(role => <option key={role} value={role}>{roleLabels[role]}</option>)}</select> : <span className="role-label"><Shield size={13}/>{roleLabels[member.membership.role] || member.membership.role}</span>}</div>
+            <div>{isAdmin && member.membership.status === 'active' ? <select aria-label={`设置 ${member.display_name} 的角色`} value={member.membership.role} disabled={busy === `role:${member.membership.user_id}`} onChange={event => updateRole(member.membership.user_id, event.target.value)}>{roles.map(role => <option key={role} value={role}>{roleLabel(role)}</option>)}</select> : <span className="role-label"><Shield size={13}/>{roleLabel(member.membership.role)}</span>}</div>
             <Status value={member.membership.status}/>
             <time>{formatDate(member.membership.created_at)}</time>
             <div>{isAdmin && member.membership.status === 'active' && <IconButton label={`撤销 ${member.display_name} 的成员资格`} disabled={busy === `member:${member.membership.user_id}`} onClick={() => setConfirm({kind: 'member', id: member.membership.user_id, label: member.display_name || member.email})}><Trash2 size={16}/></IconButton>}</div>
@@ -126,17 +124,17 @@ export function TeamView({session, onChanged}: {session: Session; onChanged: () 
 
       {isAdmin && <div className="team-admin-grid">
         <section className="section invite-create">
-          <header className="section-header"><div><span className="section-kicker">Invitation</span><h2>邀请成员</h2></div><MailPlus size={18}/></header>
+          <header className="section-header"><div><span className="section-kicker">成员邀请</span><h2>邀请成员</h2></div><MailPlus size={18}/></header>
           <div className="team-form">
             <Field label="邮箱"><input type="email" value={inviteForm.email} onChange={event => setInviteForm({...inviteForm, email: event.target.value})} placeholder="name@company.com"/></Field>
-            <Field label="固定角色"><select value={inviteForm.role} onChange={event => setInviteForm({...inviteForm, role: event.target.value})}>{roles.map(role => <option key={role} value={role}>{roleLabels[role]}</option>)}</select></Field>
+            <Field label="固定角色"><select value={inviteForm.role} onChange={event => setInviteForm({...inviteForm, role: event.target.value})}>{roles.map(role => <option key={role} value={role}>{roleLabel(role)}</option>)}</select></Field>
             <Button disabled={!inviteForm.email.includes('@') || busy === 'invite'} onClick={invite}>{busy === 'invite' ? '创建中…' : '创建邀请'}</Button>
           </div>
           {createdToken && <div className="invite-token"><span>一次性邀请令牌</span><div><code>{createdToken}</code><IconButton label="复制邀请令牌" onClick={copyToken}>{copied ? <Check size={17}/> : <Clipboard size={17}/>}</IconButton></div></div>}
         </section>
         <section className="section invite-list">
-          <header className="section-header"><div><span className="section-kicker">Pending</span><h2>待处理邀请</h2></div><span className="section-count">{invites.filter(item => item.status === 'pending').length} 个待接受</span></header>
-          {invites.length === 0 ? <Empty title="暂无邀请"/> : <div>{invites.map(item => <article key={item.id}><div><strong>{item.email}</strong><span>{roleLabels[item.role] || item.role} · {formatExpiry(item.expires_at)}</span></div><Status value={item.status}/>{item.status === 'pending' && <IconButton label={`撤销 ${item.email} 的邀请`} disabled={busy === `invite:${item.id}`} onClick={() => setConfirm({kind: 'invite', id: item.id, label: item.email})}><Trash2 size={15}/></IconButton>}</article>)}</div>}
+          <header className="section-header"><div><span className="section-kicker">待接受</span><h2>待处理邀请</h2></div><span className="section-count">{invites.filter(item => item.status === 'pending').length} 个待接受</span></header>
+          {invites.length === 0 ? <Empty title="暂无邀请"/> : <div>{invites.map(item => <article key={item.id}><div><strong>{item.email}</strong><span>{roleLabel(item.role)} · {formatExpiry(item.expires_at)}</span></div><Status value={item.status}/>{item.status === 'pending' && <IconButton label={`撤销 ${item.email} 的邀请`} disabled={busy === `invite:${item.id}`} onClick={() => setConfirm({kind: 'invite', id: item.id, label: item.email})}><Trash2 size={15}/></IconButton>}</article>)}</div>}
         </section>
       </div>}
     </>}

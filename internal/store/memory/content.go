@@ -339,11 +339,11 @@ func (s *Store) CreateArtifact(_ context.Context, v domain.Artifact) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if v.ApprovedSnapshotID == "" {
-		return domain.Invalid("ARTIFACT_SNAPSHOT_REQUIRED", "Artifact 必须绑定 ApprovedSnapshot")
+		return domain.Invalid("ARTIFACT_SNAPSHOT_REQUIRED", "成果文件必须绑定批准快照")
 	}
 	snapshot, exists := s.approvedSnapshots[v.ApprovedSnapshotID]
 	if !exists || snapshot.TenantID != v.TenantID || snapshot.ProjectID != v.ProjectID {
-		return domain.NotFound("ApprovedSnapshot")
+		return domain.NotFound("批准快照")
 	}
 	s.artifacts[v.ID] = v
 	return nil
@@ -382,17 +382,17 @@ func (s *Store) CreateDeliveryPackage(_ context.Context, value domain.DeliveryPa
 	for _, snapshotID := range value.ApprovedSnapshotIDs {
 		snapshot, exists := s.approvedSnapshots[snapshotID]
 		if !exists || snapshot.TenantID != value.TenantID || snapshot.ProjectID != value.ProjectID {
-			return domain.NotFound("ApprovedSnapshot")
+			return domain.NotFound("批准快照")
 		}
 		approved[snapshotID] = true
 	}
 	for _, artifact := range artifacts {
 		if artifact.TenantID != value.TenantID || artifact.ProjectID != value.ProjectID || !approved[artifact.ApprovedSnapshotID] {
-			return domain.Invalid("DELIVERY_ARTIFACT_SCOPE_INVALID", "交付 Artifact 必须绑定交付包中的 ApprovedSnapshot")
+			return domain.Invalid("DELIVERY_ARTIFACT_SCOPE_INVALID", "交付成果文件必须绑定交付包中的批准快照")
 		}
 		if existing, exists := s.artifacts[artifact.ID]; exists {
 			if existing.TenantID != artifact.TenantID || existing.ProjectID != artifact.ProjectID || existing.ApprovedSnapshotID != artifact.ApprovedSnapshotID || existing.SHA256 != artifact.SHA256 {
-				return domain.Conflict("ARTIFACT_IDENTITY_MISMATCH", "交付 Artifact 与已存对象不一致")
+				return domain.Conflict("ARTIFACT_IDENTITY_MISMATCH", "交付成果文件与已保存对象不一致")
 			}
 		}
 	}
@@ -424,7 +424,7 @@ func (s *Store) DeliveryPackage(_ context.Context, tenantID, id string) (domain.
 	defer s.mu.RUnlock()
 	value, ok := s.deliveryPackages[id]
 	if !ok || value.TenantID != tenantID {
-		return value, domain.NotFound("DeliveryPackage")
+		return value, domain.NotFound("交付包")
 	}
 	return value, nil
 }

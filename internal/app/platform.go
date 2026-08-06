@@ -43,7 +43,7 @@ func (s *Service) UpdatePlatformTenantStatus(ctx context.Context, actor Actor, t
 	}
 	status = strings.ToLower(strings.TrimSpace(status))
 	if status != "active" && status != "suspended" {
-		return domain.Tenant{}, domain.Invalid("TENANT_STATUS_INVALID", "租户状态只能是 active 或 suspended")
+		return domain.Tenant{}, domain.Invalid("TENANT_STATUS_INVALID", "租户状态只能是运行中（active）或已停用（suspended）")
 	}
 	if tenantID == actor.TenantID && status != "active" {
 		return domain.Tenant{}, domain.Policy("CURRENT_TENANT_REQUIRED", "不能停用当前管理会话所在租户", "先切换到其他有效租户")

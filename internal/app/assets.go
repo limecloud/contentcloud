@@ -178,7 +178,7 @@ func (s *Service) ReviewRightsRecord(ctx context.Context, actor Actor, id, decis
 	case "reject":
 		record.Status = "rejected"
 	default:
-		return record, domain.Invalid("RIGHTS_DECISION_INVALID", "权利审核只允许 approve 或 reject")
+		return record, domain.Invalid("RIGHTS_DECISION_INVALID", "权利审核只允许“批准（approve）”或“拒绝（reject）”")
 	}
 	now := s.now().UTC()
 	if record.Status == "approved" && record.ValidUntil != nil && !record.ValidUntil.After(now) {

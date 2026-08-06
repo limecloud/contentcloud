@@ -164,7 +164,7 @@ func syncContextFiles(root string, brief ProjectBrief) error {
 	clientPath := filepath.Join(root, "10-context", "client.yaml")
 	client, err := loadYAMLMap(clientPath)
 	if err != nil {
-		return fmt.Errorf("read client context: %w", err)
+		return fmt.Errorf("读取客户上下文失败：%w", err)
 	}
 	client["schema_version"] = "contentcloud.client-context/3.0"
 	client["client_name"] = brief.Client
@@ -179,7 +179,7 @@ func syncContextFiles(root string, brief ProjectBrief) error {
 	projectPath := filepath.Join(root, "10-context", "project.yaml")
 	project, err := loadYAMLMap(projectPath)
 	if err != nil {
-		return fmt.Errorf("read project context: %w", err)
+		return fmt.Errorf("读取项目上下文失败：%w", err)
 	}
 	project["schema_version"] = "contentcloud.project-context/3.0"
 	project["stage"] = "brief"
@@ -195,7 +195,7 @@ func syncContextFiles(root string, brief ProjectBrief) error {
 	servicePath := filepath.Join(root, "10-context", "service-plan.yaml")
 	service, err := loadYAMLMap(servicePath)
 	if err != nil {
-		return fmt.Errorf("read service plan: %w", err)
+		return fmt.Errorf("读取服务方案失败：%w", err)
 	}
 	service["schema_version"] = "contentcloud.service-plan/3.0"
 	service["phase"] = "brief"

@@ -49,7 +49,7 @@ func ExportSeedancePackage(options ExportSeedancePackageOptions) (ExportSeedance
 		options.PackageID = domain.NewID()
 	}
 	if localSafeName(options.PackageID) != options.PackageID {
-		return ExportSeedancePackageResult{}, domain.Invalid("SEEDANCE_PACKAGE_ID_INVALID", "Seedance package ID 只能包含字母、数字、点、下划线和连字符")
+		return ExportSeedancePackageResult{}, domain.Invalid("SEEDANCE_PACKAGE_ID_INVALID", "Seedance 包 ID 只能包含字母、数字、点、下划线和连字符")
 	}
 	if strings.TrimSpace(options.ProviderProfileVersion) == "" || options.MinDurationSeconds < 1 || options.MaxDurationSeconds < options.MinDurationSeconds || options.MaxImages < 1 || options.MaxVideos < 0 || options.MaxAudios < 0 {
 		return ExportSeedancePackageResult{}, domain.Invalid("SEEDANCE_PROVIDER_PROFILE_REQUIRED", "导出必须提供已验证 profile 版本及正确定义的时长和素材上限")
@@ -66,7 +66,7 @@ func ExportSeedancePackage(options ExportSeedancePackageOptions) (ExportSeedance
 		return ExportSeedancePackageResult{}, err
 	}
 	if counts["image"] > options.MaxImages || counts["video"] > options.MaxVideos || counts["audio"] > options.MaxAudios {
-		return ExportSeedancePackageResult{}, domain.Policy("SEEDANCE_PROVIDER_LIMIT_EXCEEDED", "锁定分镜素材数量超过当前 provider profile 上限", "拆分分镜包或更新经人工验证的 provider profile")
+		return ExportSeedancePackageResult{}, domain.Policy("SEEDANCE_PROVIDER_LIMIT_EXCEEDED", "锁定分镜素材数量超过当前服务商配置上限", "拆分分镜包或更新经人工验证的服务商配置")
 	}
 	durationSeconds, segments, promptFiles, err := seedanceSegments(storyboard, uploads, assetByID, options.MinDurationSeconds, options.MaxDurationSeconds, options.AspectRatio, options.Sound)
 	if err != nil {
@@ -210,7 +210,7 @@ func seedanceUploads(storyboard domain.StoryboardPackage) ([]domain.SeedanceUplo
 	uploads := make([]domain.SeedanceUpload, 0, len(ordered))
 	for _, asset := range ordered {
 		if len(asset.RightsRefs) == 0 {
-			return nil, nil, nil, domain.Policy("SEEDANCE_RIGHTS_REQUIRED", "Seedance 输入素材缺少 RightsRecord："+asset.Path, "补齐权利记录并重新发布分镜审核")
+			return nil, nil, nil, domain.Policy("SEEDANCE_RIGHTS_REQUIRED", "Seedance 输入素材缺少权利记录："+asset.Path, "补齐权利记录并重新发布分镜审核")
 		}
 		kind, label, prefix := seedanceMediaKind(asset.MediaType)
 		if kind == "" {

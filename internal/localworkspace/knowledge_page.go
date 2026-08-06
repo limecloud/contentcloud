@@ -103,7 +103,7 @@ func readKnowledgePage(path string) (LocalKnowledgeItem, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(frontmatter))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&page); err != nil {
-		return LocalKnowledgeItem{}, fmt.Errorf("%s: invalid knowledge frontmatter: %w", path, err)
+		return LocalKnowledgeItem{}, fmt.Errorf("%s：知识页面前置信息无效：%w", path, err)
 	}
 	item, err := page.item()
 	if err != nil {
@@ -115,11 +115,11 @@ func readKnowledgePage(path string) (LocalKnowledgeItem, error) {
 func splitKnowledgeFrontmatter(body []byte) ([]byte, error) {
 	normalized := bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
 	if !bytes.HasPrefix(normalized, []byte("---\n")) {
-		return nil, errors.New("knowledge page must start with YAML frontmatter")
+		return nil, errors.New("知识页面必须以 YAML 前置信息开头")
 	}
 	end := bytes.Index(normalized[4:], []byte("\n---\n"))
 	if end < 0 {
-		return nil, errors.New("knowledge page frontmatter is not closed")
+		return nil, errors.New("知识页面的 YAML 前置信息未闭合")
 	}
 	return normalized[4 : 4+end], nil
 }
@@ -151,10 +151,10 @@ func knowledgePageFromItem(item LocalKnowledgeItem) knowledgePage {
 func (page knowledgePage) item() (LocalKnowledgeItem, error) {
 	kind, ok := knowledgeKindForType(page.Type)
 	if !ok {
-		return LocalKnowledgeItem{}, domain.Invalid("KNOWLEDGE_TYPE_INVALID", "knowledge page type 不受支持："+page.Type)
+		return LocalKnowledgeItem{}, domain.Invalid("KNOWLEDGE_TYPE_INVALID", "不支持该知识页面类型："+page.Type)
 	}
 	if page.ID == "" || page.Version < 1 {
-		return LocalKnowledgeItem{}, domain.Invalid("KNOWLEDGE_ID_VERSION_REQUIRED", "knowledge page 需要稳定 id 和正整数 version")
+		return LocalKnowledgeItem{}, domain.Invalid("KNOWLEDGE_ID_VERSION_REQUIRED", "知识页面需要稳定的 id 和正整数 version")
 	}
 	if !validKnowledgePageStatus(page.Type, page.Status) {
 		return LocalKnowledgeItem{}, domain.Invalid("KNOWLEDGE_STATUS_INVALID", page.Type+" 不允许 status="+page.Status)

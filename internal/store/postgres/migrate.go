@@ -22,6 +22,9 @@ const inputItemsMigration = "00010_input_items.sql"
 const workTaskIdempotencyMigration = "00011_work_task_idempotency.sql"
 const mediaPipelineMigration = "00012_v7_media_pipeline.sql"
 const projectContentTypeMigration = "00013_project_content_type.sql"
+const agenticJobRuntimeMigration = "00014_agentic_job_runtime.sql"
+const runtimeAgentInstancesMigration = "00015_runtime_agent_instances.sql"
+const runtimeAttemptsMigration = "00016_runtime_attempts.sql"
 
 func (s *Store) Migrate(ctx context.Context) error {
 	conn, err := s.pool.Acquire(ctx)
@@ -80,11 +83,11 @@ func (s *Store) Migrate(ctx context.Context) error {
 		sql := "BEGIN;\n" + up + fmt.Sprintf("\nINSERT INTO contentcloud_schema_migrations(version) VALUES('%s');\nCOMMIT;", strings.ReplaceAll(name, "'", "''"))
 		results, err := conn.Conn().PgConn().Exec(ctx, sql).ReadAll()
 		if err != nil {
-			return fmt.Errorf("apply migration %s: %w", name, err)
+			return fmt.Errorf("执行数据库迁移 %s 失败：%w", name, err)
 		}
 		for _, result := range results {
 			if result.Err != nil {
-				return fmt.Errorf("apply migration %s: %w", name, result.Err)
+				return fmt.Errorf("执行数据库迁移 %s 失败：%w", name, result.Err)
 			}
 		}
 	}
@@ -96,7 +99,7 @@ func validateV3MigrationSet(available, applied []string) error {
 	// Keep the pure validator compatible with callers that validate the
 	// pre-governance six-file set; Migrate itself passes the current embedded
 	// set and therefore requires every current infrastructure migration.
-	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration}
+	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration}
 	for length := len(suffix); length >= 1; length-- {
 		if len(available) == len(expected)+length {
 			candidate := append([]string{}, suffix[:length]...)
@@ -114,11 +117,11 @@ func validateV3MigrationSet(available, applied []string) error {
 		}
 	}
 	if len(available) != len(expected) {
-		return fmt.Errorf("migration 集合必须为 %v，当前为 %v", expected, available)
+		return fmt.Errorf("数据库迁移集合必须为 %v，当前为 %v", expected, available)
 	}
 	for index := range expected {
 		if available[index] != expected[index] {
-			return fmt.Errorf("migration 集合必须为 %v，当前为 %v", expected, available)
+			return fmt.Errorf("数据库迁移集合必须为 %v，当前为 %v", expected, available)
 		}
 	}
 	for index, version := range applied {
@@ -133,9 +136,9 @@ func validateV3MigrationSet(available, applied []string) error {
 			}
 		}
 		if !known {
-			return fmt.Errorf("检测到旧数据库 migration %s；V3 不提供历史兼容升级，需重建开发数据库", version)
+			return fmt.Errorf("检测到旧数据库迁移版本 %s；V3 不提供历史兼容升级，需要重建开发数据库", version)
 		}
-		return fmt.Errorf("migration 历史必须是 %v 的连续前缀，当前为 %v；migration 历史无效", expected, applied)
+		return fmt.Errorf("数据库迁移历史必须是 %v 的连续前缀，当前为 %v；迁移历史无效", expected, applied)
 	}
 	return nil
 }

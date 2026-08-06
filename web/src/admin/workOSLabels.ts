@@ -33,7 +33,7 @@ const statusLabels: Record<string, string> = {
   paused: '已暂停',
   draft: '草稿',
   published: '已发布',
-  retired: '已退役',
+  retired: '已停用',
   pending: '待处理',
   running: '运行中',
   completed: '已完成',
@@ -53,5 +53,5 @@ export function executionModeLabel(mode: string): string {
 }
 
 export function statusLabel(value: string): string {
-  return statusLabels[value] || value;
+  return statusLabels[value] || `未识别状态（${value}）`;
 }

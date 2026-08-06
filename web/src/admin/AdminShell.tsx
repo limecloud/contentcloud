@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Gauge, GitBranch, LayoutDashboard, LogOut, Menu, PackageCheck, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal, Workflow, X } from 'lucide-react';
+import { Activity, Gauge, GitBranch, LayoutDashboard, LogOut, Menu, PackageCheck, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal, Workflow, X } from 'lucide-react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { post } from '../api';
 import { Banner, IconButton, Loading } from '../components/ui';
@@ -16,6 +16,7 @@ const routeTitles:Record<string,string>={
   [adminPath('sops')]:'流程规范',
   [adminPath('gates')]:'检查与审批',
   [adminPath('capabilities')]:'本地能力',
+  [adminPath('runtime')]:'Runtime 运行',
   [adminPath('audit')]:'权限与审计',
   [adminPath('usage')]:'用量与成本'
 };
@@ -37,6 +38,7 @@ export function AdminShell() {
         <AdminNav to={adminPath('sops')} icon={GitBranch} label="流程规范" onClick={()=>setMobileOpen(false)}/>
         <AdminNav to={adminPath('gates')} icon={SlidersHorizontal} label="检查与审批" onClick={()=>setMobileOpen(false)}/>
         <AdminNav to={adminPath('capabilities')} icon={Settings2} label="本地能力" onClick={()=>setMobileOpen(false)}/>
+        <AdminNav to={adminPath('runtime')} icon={Activity} label="Runtime 运行" onClick={()=>setMobileOpen(false)}/>
         <div className="admin-nav-label">治理</div>
         <AdminNav to={adminPath('audit')} icon={ShieldCheck} label="权限与审计" onClick={()=>setMobileOpen(false)}/>
         <AdminNav to={adminPath('usage')} icon={PackageCheck} label="用量与成本" onClick={()=>setMobileOpen(false)}/>

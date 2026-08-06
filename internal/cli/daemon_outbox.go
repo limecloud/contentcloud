@@ -89,7 +89,7 @@ func (j *daemonJournal) begin(lease app.Lease, serverURL, deviceID string) error
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j == nil || strings.TrimSpace(lease.Attempt.ID) == "" || strings.TrimSpace(lease.Run.ID) == "" || strings.TrimSpace(lease.RunToken) == "" {
-		return domain.Invalid("DAEMON_JOURNAL_INVALID", "Automation Attempt journal 缺少租约身份")
+		return domain.Invalid("DAEMON_JOURNAL_INVALID", "自动化执行日志缺少租约身份")
 	}
 	path := j.entryPath(lease.Attempt.ID)
 	if existing, err := j.read(path); err == nil {
@@ -113,10 +113,10 @@ func (j *daemonJournal) queueReport(lease app.Lease, packageBody json.RawMessage
 		return err
 	}
 	if entry.RunID != lease.Run.ID || entry.AttemptID != lease.Attempt.ID {
-		return domain.Conflict("DAEMON_JOURNAL_IDENTITY_MISMATCH", "Attempt journal 与当前租约不一致")
+		return domain.Conflict("DAEMON_JOURNAL_IDENTITY_MISMATCH", "执行日志与当前租约不一致")
 	}
 	if len(packageBody) == 0 {
-		return domain.Invalid("DAEMON_JOURNAL_PACKAGE_REQUIRED", "成功 Attempt 必须先持久化结构化结果")
+		return domain.Invalid("DAEMON_JOURNAL_PACKAGE_REQUIRED", "执行成功后必须先保存结构化结果")
 	}
 	entry.State, entry.Package, entry.UpdatedAt, entry.LastError = daemonJournalReport, append(json.RawMessage(nil), packageBody...), j.currentTime(), ""
 	return j.write(path, entry)
@@ -142,7 +142,7 @@ func (j *daemonJournal) read(path string) (daemonJournalEntry, error) {
 	}
 	var entry daemonJournalEntry
 	if err := json.Unmarshal(body, &entry); err != nil || entry.SchemaVersion != daemonJournalSchemaVersion || entry.RunID == "" || entry.AttemptID == "" {
-		return daemonJournalEntry{}, domain.Invalid("DAEMON_JOURNAL_CORRUPT", "Automation Attempt journal 文件损坏")
+		return daemonJournalEntry{}, domain.Invalid("DAEMON_JOURNAL_CORRUPT", "自动化执行日志文件损坏")
 	}
 	return entry, nil
 }
@@ -205,7 +205,7 @@ func (j *daemonJournal) flushMatching(ctx context.Context, client *apiclient.Cli
 			continue
 		}
 		if entry.State == daemonJournalExecuting {
-			entry.State, entry.Outcome, entry.FailureClass, entry.Summary = daemonJournalFinish, "failed", "daemon_restarted", "Daemon 在 Agent 完成前重启，Attempt 已安全回收"
+			entry.State, entry.Outcome, entry.FailureClass, entry.Summary = daemonJournalFinish, "failed", "daemon_restarted", "后台服务在智能体完成前重启，本次执行已安全回收"
 			entry.UpdatedAt = j.currentTime()
 			if writeErr := j.write(path, entry); writeErr != nil {
 				if firstErr == nil {
@@ -226,7 +226,7 @@ func (j *daemonJournal) flushMatching(ctx context.Context, client *apiclient.Cli
 			}
 			dispatchErr = client.Dispatch(ctx, "run.finish", params, nil)
 		default:
-			dispatchErr = domain.Invalid("DAEMON_JOURNAL_STATE_INVALID", "Automation Attempt journal 状态无效")
+			dispatchErr = domain.Invalid("DAEMON_JOURNAL_STATE_INVALID", "自动化执行日志状态无效")
 		}
 		if dispatchErr == nil {
 			_ = os.Remove(path)
@@ -256,7 +256,7 @@ func (j *daemonJournal) deliverAttempt(ctx context.Context, client *apiclient.Cl
 		return err
 	}
 	if entry.State == daemonJournalExecuting {
-		return domain.Conflict("DAEMON_JOURNAL_RESULT_NOT_READY", "Automation Attempt 尚未进入可报告状态")
+		return domain.Conflict("DAEMON_JOURNAL_RESULT_NOT_READY", "本次自动化执行尚未进入可上报状态")
 	}
 	entry.Attempts++
 	var dispatchErr error

@@ -1,5 +1,6 @@
 import type { ArticleAssertion, ArticleBlock, ReviewComment } from '../types';
 import { Status } from '../components/ui';
+import { articleCalloutKindLabel, shotRoleLabel } from '../uiLabels';
 import { commentsForArticleBlock, type ArticleReviewSubject, type ReviewSubject, type VideoReviewSubject } from './reviewSubject';
 
 export function ReviewContent({subject,comments}:{subject:ReviewSubject;comments:ReviewComment[]}) {
@@ -14,7 +15,7 @@ export function ReviewContent({subject,comments}:{subject:ReviewSubject;comments
 
 function VideoReviewContent({subject,comments}:{subject:VideoReviewSubject;comments:ReviewComment[]}) {
   return <section className="review-shot-list">{subject.shots.map((shot,index)=><article key={shot.shot_id}>
-    <header><span>{String(index+1).padStart(2,'0')} · {Math.max(1,Math.round((shot.end_ms-shot.start_ms)/1000))}s</span><Status value={shot.role}/></header>
+    <header><span>{String(index+1).padStart(2,'0')} · {Math.max(1,Math.round((shot.end_ms-shot.start_ms)/1000))} 秒</span><span className={`status status-${shot.role}`}>{shotRoleLabel(shot.role)}</span></header>
     <h2>{shot.narrative_purpose}</h2>
     <dl><div><dt>画面</dt><dd>{shot.visual_intent}</dd></div><div><dt>动作</dt><dd>{shot.subject_action}</dd></div><div><dt>口播 / 字幕</dt><dd>{shot.voiceover||shot.on_screen_text||'无'}</dd></div><div><dt>验收</dt><dd>{shot.acceptance_criteria.join('；')||'无'}</dd></div></dl>
     <ReviewComments values={comments.filter(comment=>comment.shot_id===shot.shot_id)}/>
@@ -44,7 +45,7 @@ function ArticleBlockBody({block}:{block:ArticleBlock}) {
     case 'list': return block.ordered?<ol>{block.items.map((item,index)=><li key={index}>{item}</li>)}</ol>:<ul>{block.items.map((item,index)=><li key={index}>{item}</li>)}</ul>;
     case 'quote': return <blockquote className="review-article-quote">{block.text}{block.caption&&<cite>{block.caption}</cite>}</blockquote>;
     case 'image': return <figure><div className="review-article-image"><span>{block.alt_text||'文章配图'}</span><code>{block.asset_ref||'待上传素材'}</code></div>{block.caption&&<figcaption>{block.caption}</figcaption>}</figure>;
-    case 'callout': return <aside><strong>{block.callout_kind||'提示'}</strong><p>{block.text}</p></aside>;
+    case 'callout': return <aside><strong>{articleCalloutKindLabel(block.callout_kind)}</strong><p>{block.text}</p></aside>;
     case 'divider': return <hr/>;
     case 'cta': return <section className="review-article-cta"><strong>{block.text}</strong>{block.target&&<code>{block.target}</code>}</section>;
   }

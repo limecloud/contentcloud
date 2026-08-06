@@ -44,21 +44,21 @@ func (s *Service) UploadStoryboardArtifact(ctx context.Context, actor Actor, tas
 		return domain.Artifact{}, domain.Policy("STORYBOARD_ARTIFACT_STAGE_INVALID", "分镜素材只能在分镜或视频生成阶段登记", "打开当前营销视频任务的分镜阶段")
 	}
 	if len(input.Body) == 0 || len(input.Body) > maxStoryboardArtifactBytes {
-		return domain.Artifact{}, domain.Invalid("STORYBOARD_ARTIFACT_SIZE_INVALID", "分镜素材必须在 1B 到 25MB 之间")
+		return domain.Artifact{}, domain.Invalid("STORYBOARD_ARTIFACT_SIZE_INVALID", "分镜素材大小必须在 1 字节至 25 MB 之间")
 	}
 	snapshot, err := s.store.ApprovedSnapshot(ctx, actor.TenantID, strings.TrimSpace(input.SnapshotID))
 	if err != nil {
 		return domain.Artifact{}, err
 	}
 	if snapshot.ProjectID != task.ProjectID || snapshot.SubmissionType != "storyboard" {
-		return domain.Artifact{}, domain.Policy("STORYBOARD_SNAPSHOT_SCOPE_INVALID", "分镜快照不属于当前任务项目", "选择当前项目已批准的 storyboard 快照")
+		return domain.Artifact{}, domain.Policy("STORYBOARD_SNAPSHOT_SCOPE_INVALID", "分镜快照不属于当前任务项目", "选择当前项目已批准的分镜快照")
 	}
 	storyboard, ok, err := storyboardPackageFromSnapshot(snapshot)
 	if err != nil {
 		return domain.Artifact{}, err
 	}
 	if !ok {
-		return domain.Artifact{}, domain.Invalid("STORYBOARD_PACKAGE_REQUIRED", "ApprovedSnapshot 不包含可登记媒体的 StoryboardPackage")
+		return domain.Artifact{}, domain.Invalid("STORYBOARD_PACKAGE_REQUIRED", "已批准快照不包含可登记媒体的分镜包")
 	}
 	var asset domain.StoryboardAsset
 	for _, candidate := range storyboard.Assets {
@@ -68,7 +68,7 @@ func (s *Service) UploadStoryboardArtifact(ctx context.Context, actor Actor, tas
 		}
 	}
 	if asset.ID == "" {
-		return domain.Artifact{}, domain.NotFound("StoryboardAsset")
+		return domain.Artifact{}, domain.NotFound("分镜素材")
 	}
 	sha := mediapipeline.SHA256(input.Body)
 	if !strings.EqualFold(sha, strings.TrimPrefix(asset.SHA256, "sha256:")) || (asset.ByteSize > 0 && asset.ByteSize != int64(len(input.Body))) {
@@ -130,7 +130,7 @@ func (s *Service) CreateFinalRender(ctx context.Context, actor Actor, taskID str
 		return FinalRenderResult{}, err
 	}
 	if task.ContentType != domain.ContentTypeMarketingVideo || task.Status != domain.TaskStatusRunning || task.CurrentStageID != "postproduction" {
-		return FinalRenderResult{}, domain.Policy("FINAL_RENDER_STAGE_INVALID", "最终渲染只能在运行中的后期阶段创建", "先完成 Take 选择并开始后期阶段")
+		return FinalRenderResult{}, domain.Policy("FINAL_RENDER_STAGE_INVALID", "最终渲染只能在运行中的后期阶段创建", "先选择候选成片并开始后期阶段")
 	}
 	runs, err := s.store.StageRuns(ctx, actor.TenantID, task.ID)
 	if err != nil {
@@ -141,21 +141,21 @@ func (s *Service) CreateFinalRender(ctx context.Context, actor Actor, taskID str
 		return FinalRenderResult{}, err
 	}
 	if input.StageRunID != "" && input.StageRunID != run.ID {
-		return FinalRenderResult{}, domain.Conflict("FINAL_RENDER_STAGE_NOT_CURRENT", "最终渲染必须绑定当前 StageRun")
+		return FinalRenderResult{}, domain.Conflict("FINAL_RENDER_STAGE_NOT_CURRENT", "最终渲染必须绑定当前流程阶段执行记录")
 	}
 	selected, err := s.store.MediaReview(ctx, actor.TenantID, strings.TrimSpace(input.SelectedReviewID))
 	if err != nil {
 		return FinalRenderResult{}, err
 	}
 	if selected.TaskID != task.ID || selected.ReviewKind != domain.MediaReviewContent || selected.Status != domain.MediaReviewApproved || !selected.Selected {
-		return FinalRenderResult{}, domain.Policy("SELECTED_TAKE_REVIEW_REQUIRED", "最终渲染必须绑定当前任务已批准并选中的 Take", "先完成成片内容质检和 Take 选择")
+		return FinalRenderResult{}, domain.Policy("SELECTED_TAKE_REVIEW_REQUIRED", "最终渲染必须绑定当前任务已批准并选中的候选成片", "先完成成片内容质检并选择候选成片")
 	}
 	source, err := s.store.Artifact(ctx, actor.TenantID, selected.SubjectArtifactID)
 	if err != nil {
 		return FinalRenderResult{}, err
 	}
 	if source.ProjectID != task.ProjectID || normalizedSHA256(source.SHA256) != selected.SubjectDigest || source.MediaType != "video/mp4" || source.ByteSize <= 0 {
-		return FinalRenderResult{}, domain.Conflict("SELECTED_TAKE_INTEGRITY_FAILED", "选中 Take 的 Artifact 与审核摘要不一致")
+		return FinalRenderResult{}, domain.Conflict("SELECTED_TAKE_INTEGRITY_FAILED", "选中候选成片的成果文件与审核摘要不一致")
 	}
 	manifestDigest, err := domain.CanonicalHash(struct {
 		TaskID       string `json:"task_id"`
@@ -182,7 +182,7 @@ func (s *Service) CreateFinalRender(ctx context.Context, actor Actor, taskID str
 		return FinalRenderResult{}, err
 	}
 	if int64(len(body)) != source.ByteSize || normalizedSHA256(mediapipeline.SHA256(body)) != normalizedSHA256(source.SHA256) {
-		return FinalRenderResult{}, domain.Conflict("SELECTED_TAKE_BLOB_MISMATCH", "选中 Take 的对象存储字节与 Artifact 摘要不一致")
+		return FinalRenderResult{}, domain.Conflict("SELECTED_TAKE_BLOB_MISMATCH", "选中候选成片的存储文件与成果文件摘要不一致")
 	}
 	now := s.now().UTC()
 	artifactID := domain.NewID()
@@ -233,7 +233,7 @@ func storyboardPackageFromSnapshot(snapshot domain.ApprovedSnapshot) (domain.Sto
 		Objects []json.RawMessage `json:"objects"`
 	}
 	if err := json.Unmarshal(snapshot.CanonicalContent, &envelope); err != nil {
-		return domain.StoryboardPackage{}, false, domain.Invalid("STORYBOARD_SNAPSHOT_JSON_INVALID", "分镜 ApprovedSnapshot 正文不是有效 JSON")
+		return domain.StoryboardPackage{}, false, domain.Invalid("STORYBOARD_SNAPSHOT_JSON_INVALID", "分镜已批准快照的正文不是有效 JSON")
 	}
 	candidates := envelope.Objects
 	if len(candidates) == 0 {
@@ -280,7 +280,7 @@ func (s *Service) verifiedStoryboardInputArtifacts(ctx context.Context, tenantID
 		}
 		artifact, exists := byAssetID[asset.ID]
 		if !exists || normalizedSHA256(artifact.SHA256) != normalizedSHA256(asset.SHA256) || (asset.ByteSize > 0 && artifact.ByteSize != asset.ByteSize) {
-			return nil, domain.Policy("STORYBOARD_ARTIFACT_BYTES_REQUIRED", "锁定分镜的媒体字节尚未完整登记", "上传所有首尾帧和参考素材后再创建视频 Job")
+			return nil, domain.Policy("STORYBOARD_ARTIFACT_BYTES_REQUIRED", "锁定分镜的媒体文件尚未完整登记", "上传所有首尾帧和参考素材后再创建视频生成任务")
 		}
 		refs = append(refs, artifact.ID)
 	}

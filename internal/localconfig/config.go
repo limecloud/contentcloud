@@ -58,7 +58,7 @@ func Load() (Config, error) {
 	}
 	var c Config
 	if err := json.Unmarshal(b, &c); err != nil {
-		return c, fmt.Errorf("parse config: %w", err)
+		return c, fmt.Errorf("解析配置失败：%w", err)
 	}
 	return c, nil
 }
@@ -173,15 +173,15 @@ func normalizeDaemonBindings(bindings []DaemonBinding) []DaemonBinding {
 
 func SaveDeviceToken(deviceID, token string) error {
 	if env := os.Getenv("CONTENTCLOUD_CREDENTIAL_FILE"); env != "" {
-		return fmt.Errorf("refusing plaintext credential file %s", env)
+		return fmt.Errorf("拒绝使用明文凭据文件 %s", env)
 	}
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("secure credential storage is not implemented for %s; refusing plaintext fallback", runtime.GOOS)
+		return fmt.Errorf("%s 尚未实现安全凭据存储；拒绝降级为明文存储", runtime.GOOS)
 	}
 	cmd := exec.Command("security", "add-generic-password", "-U", "-a", deviceID, "-s", "contentcloud-device", "-w", token)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("store token in macOS Keychain: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("将令牌保存到 macOS 钥匙串失败：%w：%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -190,14 +190,14 @@ func DeviceToken(deviceID string) (string, error) {
 		return token, nil
 	}
 	if deviceID == "" {
-		return "", fmt.Errorf("device is not configured")
+		return "", fmt.Errorf("尚未配置设备")
 	}
 	if runtime.GOOS != "darwin" {
-		return "", fmt.Errorf("secure credential storage is not available for %s", runtime.GOOS)
+		return "", fmt.Errorf("%s 不支持安全凭据存储", runtime.GOOS)
 	}
 	out, err := exec.Command("security", "find-generic-password", "-w", "-a", deviceID, "-s", "contentcloud-device").CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("read token from macOS Keychain: %w", err)
+		return "", fmt.Errorf("从 macOS 钥匙串读取令牌失败：%w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -207,22 +207,22 @@ func DeleteDeviceToken(deviceID string) error {
 		return nil
 	}
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("secure credential storage is not available for %s", runtime.GOOS)
+		return fmt.Errorf("%s 不支持安全凭据存储", runtime.GOOS)
 	}
 	out, err := exec.Command("security", "delete-generic-password", "-a", deviceID, "-s", "contentcloud-device").CombinedOutput()
 	if err != nil && !strings.Contains(string(out), "could not be found") {
-		return fmt.Errorf("delete device token from macOS Keychain: %w", err)
+		return fmt.Errorf("从 macOS 钥匙串删除设备令牌失败：%w", err)
 	}
 	return nil
 }
 
 func SaveWorkspaceToken(workspaceID, token string) error {
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("secure credential storage is not implemented for %s; refusing plaintext fallback", runtime.GOOS)
+		return fmt.Errorf("%s 尚未实现安全凭据存储；拒绝降级为明文存储", runtime.GOOS)
 	}
 	out, err := exec.Command("security", "add-generic-password", "-U", "-a", workspaceID, "-s", "contentcloud-workspace", "-w", token).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("store workspace token in macOS Keychain: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("将工作区令牌保存到 macOS 钥匙串失败：%w：%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -232,26 +232,26 @@ func WorkspaceToken(workspaceID string) (string, error) {
 		return token, nil
 	}
 	if workspaceID == "" {
-		return "", fmt.Errorf("workspace is not configured")
+		return "", fmt.Errorf("尚未配置工作区")
 	}
 	if runtime.GOOS != "darwin" {
-		return "", fmt.Errorf("secure credential storage is not available for %s", runtime.GOOS)
+		return "", fmt.Errorf("%s 不支持安全凭据存储", runtime.GOOS)
 	}
 	out, err := exec.Command("security", "find-generic-password", "-w", "-a", workspaceID, "-s", "contentcloud-workspace").CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("read workspace token from macOS Keychain: %w", err)
+		return "", fmt.Errorf("从 macOS 钥匙串读取工作区令牌失败：%w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 func SaveUserToken(serverURL, token string) error {
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("secure credential storage is not implemented for %s; refusing plaintext fallback", runtime.GOOS)
+		return fmt.Errorf("%s 尚未实现安全凭据存储；拒绝降级为明文存储", runtime.GOOS)
 	}
 	account := credentialAccount(serverURL)
 	out, err := exec.Command("security", "add-generic-password", "-U", "-a", account, "-s", "contentcloud-user", "-w", token).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("store user token in macOS Keychain: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("将用户令牌保存到 macOS 钥匙串失败：%w：%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -261,22 +261,22 @@ func UserToken(serverURL string) (string, error) {
 		return token, nil
 	}
 	if runtime.GOOS != "darwin" {
-		return "", fmt.Errorf("secure credential storage is not available for %s", runtime.GOOS)
+		return "", fmt.Errorf("%s 不支持安全凭据存储", runtime.GOOS)
 	}
 	out, err := exec.Command("security", "find-generic-password", "-w", "-a", credentialAccount(serverURL), "-s", "contentcloud-user").CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("read user token from macOS Keychain: %w", err)
+		return "", fmt.Errorf("从 macOS 钥匙串读取用户令牌失败：%w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 func DeleteUserToken(serverURL string) error {
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("secure credential storage is not available for %s", runtime.GOOS)
+		return fmt.Errorf("%s 不支持安全凭据存储", runtime.GOOS)
 	}
 	out, err := exec.Command("security", "delete-generic-password", "-a", credentialAccount(serverURL), "-s", "contentcloud-user").CombinedOutput()
 	if err != nil && !strings.Contains(string(out), "could not be found") {
-		return fmt.Errorf("delete user token from macOS Keychain: %w", err)
+		return fmt.Errorf("从 macOS 钥匙串删除用户令牌失败：%w", err)
 	}
 	return nil
 }

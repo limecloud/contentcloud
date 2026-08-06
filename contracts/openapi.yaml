@@ -13,6 +13,8 @@ tags:
   - {name: Bootstrap, description: Public Agent-readable project initialization protocol}
   - {name: CLI, description: Private transport used only by the Go CLI}
   - {name: Web BFF, description: Same-origin human Web application}
+  - {name: Studio BFF, description: Same-origin customer creation projection without runtime internals}
+  - {name: Runtime Admin, description: Operations-only execution observation and controls}
   - {name: Admin, description: Same-origin platform administrator control plane}
   - {name: Review BFF, description: Token-bound customer approval projection}
 x-json-read: &jsonRead
@@ -108,6 +110,309 @@ paths:
   /v1/admin/tenants/{tenant_id}:
     parameters: [{name: tenant_id, in: path, required: true, schema: {type: string, format: uuid}}]
     patch: *adminJSONWrite
+  /studio/bootstrap:
+    get:
+      tags: [Studio BFF]
+      operationId: getStudioBootstrap
+      summary: Read the customer creation session, projects, and published experiences
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Customer Studio bootstrap projection
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioBootstrapEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+  /studio/session/switch:
+    post:
+      tags: [Studio BFF]
+      operationId: switchStudioTenant
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [tenant_id]
+              properties: {tenant_id: {type: string, format: uuid}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /studio/session/logout:
+    post:
+      tags: [Studio BFF]
+      operationId: logoutStudioSession
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+  /studio/tasks:
+    get:
+      tags: [Studio BFF]
+      operationId: listStudioTasks
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Customer-facing task summaries
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioTaskListEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Studio BFF]
+      operationId: createStudioTask
+      security: [{cookieAuth: []}]
+      parameters:
+        - {name: Idempotency-Key, in: header, required: false, schema: {type: string, maxLength: 128}}
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/StudioCreateTaskInput'}}
+      responses:
+        '200':
+          description: Created or idempotently replayed customer task
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioTaskEnvelope'}}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /studio/tasks/{task_id}:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      tags: [Studio BFF]
+      operationId: getStudioTask
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Customer-facing task detail
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioTaskEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /studio/tasks/{task_id}/actions:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Studio BFF]
+      operationId: actOnStudioTask
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action]
+              properties: {action: {type: string, enum: [start, pause, resume, retry]}}
+      responses:
+        '200':
+          description: Updated customer task
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioTaskEnvelope'}}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /studio/tasks/{task_id}/inspirations:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Studio BFF]
+      operationId: addStudioInspiration
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/StudioAddInspirationInput'}}
+      responses:
+        '200':
+          description: Updated customer task
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioTaskEnvelope'}}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /studio/tasks/{task_id}/decisions/{decision_id}:
+    parameters:
+      - {name: task_id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: decision_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Studio BFF]
+      operationId: decideStudioTaskResult
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision: {type: string, enum: [approved, changes_requested]}
+                reason: {type: string}
+      responses:
+        '200':
+          description: Updated customer task
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioTaskEnvelope'}}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /studio/tasks/{task_id}/assets:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Studio BFF]
+      operationId: attachStudioTaskAssets
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [asset_refs]
+              properties: {asset_refs: {type: array, items: {type: string}}}
+      responses:
+        '200':
+          description: Updated customer task
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioTaskEnvelope'}}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /studio/assets:
+    get:
+      tags: [Studio BFF]
+      operationId: listStudioAssets
+      security: [{cookieAuth: []}]
+      parameters:
+        - {name: project_id, in: query, required: false, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: Customer-facing reusable asset catalog
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioAssetCatalogEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /studio/deliveries:
+    get:
+      tags: [Studio BFF]
+      operationId: listStudioDeliveries
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Delivery packages and confirmed publication records
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioDeliveriesEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+  /studio/artifacts/{id}/download:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get:
+      tags: [Studio BFF]
+      operationId: downloadStudioArtifact
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Authorized artifact bytes
+          content: {application/octet-stream: {schema: {type: string, format: binary}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/admin/runtime/jobs:
+    get:
+      tags: [Runtime Admin]
+      operationId: listRuntimeJobs
+      security: [{cookieAuth: []}]
+      parameters:
+        - {name: project_id, in: query, required: false, schema: {type: string, format: uuid}}
+        - {name: state, in: query, required: false, schema: {type: string}}
+        - {name: after, in: query, required: false, schema: {type: integer, minimum: 0}}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Operations-only Runtime job list
+          content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeJobListEnvelope'}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /bff/admin/runtime/jobs/{job_id}:
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      tags: [Runtime Admin]
+      operationId: getRuntimeJob
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {description: Runtime job detail, content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeJobDetailEnvelope'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/admin/runtime/jobs/{job_id}/nodes:
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get: *adminJSONRead
+  /bff/admin/runtime/jobs/{job_id}/events:
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      tags: [Runtime Admin]
+      operationId: listRuntimeEvents
+      security: [{cookieAuth: []}]
+      parameters: [{name: after, in: query, required: false, schema: {type: integer, minimum: 0}}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/admin/runtime/jobs/{job_id}/events/stream:
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      tags: [Runtime Admin]
+      operationId: streamRuntimeEvents
+      security: [{cookieAuth: []}]
+      parameters:
+        - {name: after, in: query, required: false, schema: {type: integer, minimum: 0}}
+        - {name: Last-Event-ID, in: header, required: false, schema: {type: integer, minimum: 0}}
+      responses:
+        '200':
+          description: Runtime event stream with reconnect cursor
+          content: {text/event-stream: {schema: {type: string}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/admin/runtime/jobs/{job_id}/effects:
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get: *adminJSONRead
+  /bff/admin/runtime/jobs/{job_id}/checkpoints:
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get: *adminJSONRead
+  /bff/admin/runtime/jobs/{job_id}/refresh:
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post: *adminJSONWrite
+  /bff/admin/runtime/jobs/{job_id}/cancel:
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post: *adminJSONWrite
+  /bff/admin/runtime/jobs/{job_id}/resume:
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post: *adminJSONWrite
+  /bff/runtime/jobs:
+    $ref: '#/paths/~1bff~1admin~1runtime~1jobs'
+  /bff/runtime/jobs/{job_id}:
+    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}'
+  /bff/runtime/jobs/{job_id}/nodes:
+    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1nodes'
+  /bff/runtime/jobs/{job_id}/events:
+    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1events'
+  /bff/runtime/jobs/{job_id}/events/stream:
+    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1events~1stream'
+  /bff/runtime/jobs/{job_id}/effects:
+    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1effects'
+  /bff/runtime/jobs/{job_id}/checkpoints:
+    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1checkpoints'
+  /bff/runtime/jobs/{job_id}/refresh:
+    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1refresh'
+  /bff/runtime/jobs/{job_id}/cancel:
+    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1cancel'
+  /bff/runtime/jobs/{job_id}/resume:
+    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1resume'
   /bff/session:
     get: *jsonRead
   /bff/session/switch:
@@ -763,6 +1068,445 @@ components:
     ID: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
     ReviewToken: {name: token, in: path, required: true, schema: {type: string, pattern: '^crg_[A-Za-z0-9_-]+$'}}
   schemas:
+    RuntimeJobSummary:
+      type: object
+      additionalProperties: false
+      required: [id, work_task_id, task_title, project_id, project_name, state, plan_digest, priority, node_count, node_states, effect_count, checkpoint_count, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        work_task_id: {type: string, format: uuid}
+        task_title: {type: string}
+        project_id: {type: string, format: uuid}
+        project_name: {type: string}
+        state: {type: string}
+        plan_digest: {type: string}
+        priority: {type: integer}
+        error_code: {type: string}
+        node_count: {type: integer, minimum: 0}
+        node_states: {type: object, additionalProperties: {type: integer, minimum: 0}}
+        effect_count: {type: integer, minimum: 0}
+        checkpoint_count: {type: integer, minimum: 0}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    RuntimeJobList:
+      type: object
+      additionalProperties: false
+      required: [items, generated_at]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/RuntimeJobSummary'}}
+        next_after: {type: integer, minimum: 0}
+        generated_at: {type: string, format: date-time}
+    RuntimeNodeView:
+      type: object
+      additionalProperties: false
+      required: [id, node_key, name, kind, state, attempt_count, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        node_key: {type: string}
+        name: {type: string}
+        kind: {type: string}
+        customer_step_id: {type: string}
+        state: {type: string}
+        attempt_count: {type: integer, minimum: 0}
+        output_digest: {type: string}
+        error_code: {type: string}
+        lease_owner: {type: string}
+        updated_at: {type: string, format: date-time}
+    RuntimeEventView:
+      type: object
+      additionalProperties: false
+      required: [id, sequence, type, actor_type, payload, occurred_at]
+      properties:
+        id: {type: string, format: uuid}
+        sequence: {type: integer, minimum: 1}
+        type: {type: string}
+        node_key: {type: string}
+        actor_type: {type: string}
+        payload: {type: object}
+        occurred_at: {type: string, format: date-time}
+    RuntimeEffectView:
+      type: object
+      additionalProperties: false
+      required: [id, node_run_id, kind, state, request_digest, cost_minor, currency, safe_summary, version, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        node_run_id: {type: string, format: uuid}
+        kind: {type: string}
+        state: {type: string}
+        external_id: {type: string}
+        request_digest: {type: string}
+        response_digest: {type: string}
+        cost_minor: {type: integer}
+        currency: {type: string}
+        safe_summary: {type: object}
+        error_code: {type: string}
+        version: {type: integer, minimum: 1}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    RuntimeCheckpointView:
+      type: object
+      additionalProperties: false
+      required: [id, node_key, plan_digest, state_ref_count, output_ref_count, completed_nodes, digest, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        node_key: {type: string}
+        plan_digest: {type: string}
+        state_ref_count: {type: integer, minimum: 0}
+        output_ref_count: {type: integer, minimum: 0}
+        completed_nodes: {type: array, items: {type: string}}
+        digest: {type: string}
+        created_at: {type: string, format: date-time}
+    RuntimeContextView:
+      type: object
+      additionalProperties: false
+      required: [id, node_run_id, attempt_id, schema_version, input_ref_count, state_ref_count, event_ref_count, allowed_tools, max_tokens, budget_minor, digest, created_at, expires_at]
+      properties:
+        id: {type: string, format: uuid}
+        node_run_id: {type: string, format: uuid}
+        attempt_id: {type: string}
+        schema_version: {type: string}
+        input_ref_count: {type: integer, minimum: 0}
+        state_ref_count: {type: integer, minimum: 0}
+        event_ref_count: {type: integer, minimum: 0}
+        allowed_tools: {type: array, items: {type: string}}
+        max_tokens: {type: integer, minimum: 1}
+        budget_minor: {type: integer, minimum: 0}
+        digest: {type: string}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+    RuntimeAgentView:
+      type: object
+      additionalProperties: false
+      required: [id, node_run_id, role, harness_kind, execution_profile_id, context_view_id, session_bound, state, depth, remaining_descendants, budget_minor, used_cost_minor, version, context_view, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        node_run_id: {type: string, format: uuid}
+        parent_agent_instance_id: {type: string, format: uuid}
+        role: {type: string}
+        harness_kind: {type: string}
+        execution_profile_id: {type: string}
+        context_view_id: {type: string, format: uuid}
+        session_bound: {type: boolean}
+        state: {type: string}
+        depth: {type: integer, minimum: 0}
+        remaining_descendants: {type: integer, minimum: 0}
+        budget_minor: {type: integer, minimum: 0}
+        used_cost_minor: {type: integer, minimum: 0}
+        version: {type: integer, minimum: 1}
+        context_view: {$ref: '#/components/schemas/RuntimeContextView'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    RuntimePlanView:
+      type: object
+      additionalProperties: false
+      required: [id, sop_id, sop_version, sop_digest, schema_version, digest, customer_steps, compiled_at]
+      properties:
+        id: {type: string, format: uuid}
+        sop_id: {type: string}
+        sop_version: {type: integer, minimum: 1}
+        sop_digest: {type: string}
+        schema_version: {type: string}
+        digest: {type: string}
+        customer_steps: {type: array, items: {type: object}}
+        compiled_at: {type: string, format: date-time}
+    RuntimeJobDetail:
+      type: object
+      additionalProperties: false
+      required: [summary, plan, nodes, events, effects, checkpoints, agents, generated_at]
+      properties:
+        summary: {$ref: '#/components/schemas/RuntimeJobSummary'}
+        plan: {$ref: '#/components/schemas/RuntimePlanView'}
+        nodes: {type: array, items: {$ref: '#/components/schemas/RuntimeNodeView'}}
+        events: {type: array, items: {$ref: '#/components/schemas/RuntimeEventView'}}
+        effects: {type: array, items: {$ref: '#/components/schemas/RuntimeEffectView'}}
+        checkpoints: {type: array, items: {$ref: '#/components/schemas/RuntimeCheckpointView'}}
+        agents: {type: array, items: {$ref: '#/components/schemas/RuntimeAgentView'}}
+        generated_at: {type: string, format: date-time}
+    RuntimeJobListEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {type: string}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/RuntimeJobList'}
+        meta: {type: object}
+    RuntimeJobDetailEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {type: string}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/RuntimeJobDetail'}
+        meta: {type: object}
+    StudioUser:
+      type: object
+      additionalProperties: false
+      required: [id, display_name]
+      properties:
+        id: {type: string, format: uuid}
+        display_name: {type: string}
+    StudioTenant:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+    StudioSession:
+      type: object
+      additionalProperties: false
+      required: [user, tenant, role, can_create, can_manage_team, can_view_operations]
+      properties:
+        user: {$ref: '#/components/schemas/StudioUser'}
+        tenant: {$ref: '#/components/schemas/StudioTenant'}
+        role: {type: string}
+        operations_path: {type: string}
+        can_create: {type: boolean}
+        can_manage_team: {type: boolean}
+        can_view_operations: {type: boolean}
+    StudioProject:
+      type: object
+      additionalProperties: false
+      required: [id, brand_name, product_name, content_type, channel, status]
+      properties:
+        id: {type: string, format: uuid}
+        brand_name: {type: string}
+        product_name: {type: string}
+        content_type: {type: string}
+        channel: {type: string}
+        status: {type: string}
+    StudioExperience:
+      type: object
+      additionalProperties: false
+      required: [id, version, name, description, content_type, status, project_ids, step_titles, available_collection_methods, unavailable_collection_methods]
+      properties:
+        id: {type: string}
+        version: {type: string}
+        name: {type: string}
+        description: {type: string}
+        content_type: {type: string}
+        status: {type: string, enum: [published]}
+        project_ids: {type: array, items: {type: string, format: uuid}}
+        step_titles: {type: array, items: {type: string}}
+        available_collection_methods: {type: array, items: {type: string}}
+        unavailable_collection_methods: {type: array, items: {type: string}}
+    StudioBootstrap:
+      type: object
+      additionalProperties: false
+      required: [session, tenants, projects, experiences, generated_at]
+      properties:
+        session: {$ref: '#/components/schemas/StudioSession'}
+        tenants: {type: array, items: {$ref: '#/components/schemas/StudioTenant'}}
+        projects: {type: array, items: {$ref: '#/components/schemas/StudioProject'}}
+        experiences: {type: array, items: {$ref: '#/components/schemas/StudioExperience'}}
+        generated_at: {type: string, format: date-time}
+    StudioCustomerStep:
+      type: object
+      additionalProperties: false
+      required: [id, title, outcome_description, status, progress_summary]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        outcome_description: {type: string}
+        status: {type: string, enum: [completed, working, ready, needs_input, needs_decision, blocked, not_started]}
+        progress_summary: {type: string}
+    StudioTaskSummary:
+      type: object
+      additionalProperties: false
+      required: [id, project, experience_id, title, intent, content_type, status, status_label, current_step_id, next_action, asset_count, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        project: {$ref: '#/components/schemas/StudioProject'}
+        experience_id: {type: string}
+        title: {type: string}
+        intent: {type: string}
+        content_type: {type: string}
+        status: {type: string}
+        status_label: {type: string}
+        current_step_id: {type: string}
+        next_action: {type: string}
+        asset_count: {type: integer, minimum: 0}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    StudioInspiration:
+      type: object
+      additionalProperties: false
+      required: [id, title, summary, source_type, source_label, saved_for_reuse, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: string}
+        summary: {type: string}
+        source_type: {type: string}
+        source_label: {type: string}
+        saved_for_reuse: {type: boolean}
+        created_at: {type: string, format: date-time}
+    StudioDecision:
+      type: object
+      additionalProperties: false
+      required: [id, title, summary, result_count, can_decide]
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: string}
+        summary: {type: string}
+        result_count: {type: integer, minimum: 0}
+        can_decide: {type: boolean}
+    StudioDownload:
+      type: object
+      additionalProperties: false
+      required: [id, file_name, media_type, byte_size, href]
+      properties:
+        id: {type: string, format: uuid}
+        file_name: {type: string}
+        media_type: {type: string}
+        byte_size: {type: integer, minimum: 0}
+        href: {type: string}
+    StudioResult:
+      type: object
+      additionalProperties: false
+      required: [id, kind, title, status, summary, downloads, created_at]
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [content_revision, approved_result, delivery_package]}
+        title: {type: string}
+        status: {type: string}
+        summary: {type: string}
+        downloads: {type: array, items: {$ref: '#/components/schemas/StudioDownload'}}
+        created_at: {type: string, format: date-time}
+    StudioAssetItem:
+      type: object
+      additionalProperties: false
+      required: [ref, kind, category, project_id, project_name, title, summary, version, status, reusable, metadata, created_at]
+      properties:
+        ref: {type: string}
+        kind: {type: string}
+        category: {type: string, enum: [source, inspiration, persona, knowledge, media, approved]}
+        project_id: {type: string, format: uuid}
+        project_name: {type: string}
+        title: {type: string}
+        summary: {type: string}
+        version: {type: string}
+        status: {type: string}
+        reusable: {type: boolean}
+        blocked_reason: {type: string}
+        metadata: {type: object}
+        created_at: {type: string, format: date-time}
+    StudioTaskView:
+      type: object
+      additionalProperties: false
+      required: [task, steps, inspirations, pending_decisions, results, attached_assets, allowed_actions, generated_at]
+      properties:
+        task: {$ref: '#/components/schemas/StudioTaskSummary'}
+        steps: {type: array, minItems: 1, items: {$ref: '#/components/schemas/StudioCustomerStep'}}
+        inspirations: {type: array, items: {$ref: '#/components/schemas/StudioInspiration'}}
+        pending_decisions: {type: array, items: {$ref: '#/components/schemas/StudioDecision'}}
+        results: {type: array, items: {$ref: '#/components/schemas/StudioResult'}}
+        attached_assets: {type: array, items: {$ref: '#/components/schemas/StudioAssetItem'}}
+        allowed_actions: {type: array, items: {type: string, enum: [start, pause, resume, retry]}}
+        generated_at: {type: string, format: date-time}
+    StudioAssetCatalog:
+      type: object
+      additionalProperties: false
+      required: [items, counts, generated_at]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/StudioAssetItem'}}
+        counts: {type: object, additionalProperties: {type: integer, minimum: 0}}
+        generated_at: {type: string, format: date-time}
+    StudioDeliveryPackage:
+      type: object
+      additionalProperties: false
+      required: [id, project_name, status, files, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        project_name: {type: string}
+        status: {type: string}
+        files: {type: array, items: {$ref: '#/components/schemas/StudioDownload'}}
+        created_at: {type: string, format: date-time}
+    StudioPublication:
+      type: object
+      additionalProperties: false
+      required: [id, project_name, destination, status, published_at]
+      properties:
+        id: {type: string, format: uuid}
+        project_name: {type: string}
+        destination: {type: string}
+        status: {type: string}
+        published_at: {type: string, format: date-time}
+    StudioDeliveries:
+      type: object
+      additionalProperties: false
+      required: [packages, publications, generated_at]
+      properties:
+        packages: {type: array, items: {$ref: '#/components/schemas/StudioDeliveryPackage'}}
+        publications: {type: array, items: {$ref: '#/components/schemas/StudioPublication'}}
+        generated_at: {type: string, format: date-time}
+    StudioCreateTaskInput:
+      type: object
+      additionalProperties: false
+      required: [experience_id, project_id, title, goal, inspiration, asset_refs]
+      properties:
+        experience_id: {type: string}
+        project_id: {type: string, format: uuid}
+        title: {type: string, minLength: 1}
+        goal: {type: string, minLength: 1}
+        inspiration: {type: string}
+        asset_refs: {type: array, items: {type: string}}
+        idempotency_key: {type: string, maxLength: 128}
+    StudioAddInspirationInput:
+      type: object
+      additionalProperties: false
+      required: [title, body, save_for_reuse]
+      properties:
+        title: {type: string, minLength: 1}
+        body: {type: string, minLength: 1}
+        save_for_reuse: {type: boolean}
+        idempotency_key: {type: string, maxLength: 128}
+    StudioBootstrapEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: studio.bootstrap}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/StudioBootstrap'}
+        meta: {type: object}
+    StudioTaskListEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: studio.task.list}
+        request_id: {type: string}
+        data: {type: array, items: {$ref: '#/components/schemas/StudioTaskSummary'}}
+        meta: {type: object}
+    StudioTaskEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {type: string, pattern: '^studio\\.'}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/StudioTaskView'}
+        meta: {type: object}
+    StudioAssetCatalogEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: studio.asset.list}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/StudioAssetCatalog'}
+        meta: {type: object}
+    StudioDeliveriesEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: studio.delivery.list}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/StudioDeliveries'}
+        meta: {type: object}
     CreateConversationImportInput:
       type: object
       additionalProperties: false
@@ -876,7 +1620,7 @@ components:
       required: [source_type, title]
       properties:
         project_id: {type: string, format: uuid}
-        source_type: {type: string, enum: [brief, workspace_file, comment, external_request, trigger, conversation_bundle, other]}
+        source_type: {type: string, enum: [brief, manual_inspiration, workspace_file, comment, external_request, trigger, conversation_bundle, other]}
         title: {type: string, minLength: 1, maxLength: 300}
         summary: {type: string, maxLength: 10000}
         body: {type: string, maxLength: 500000}
@@ -898,7 +1642,7 @@ components:
         missing_fields: {type: array, minItems: 1, items: {type: string}}
         title: {type: string, maxLength: 300}
         intent: {type: string, maxLength: 10000}
-        content_type: {type: string, enum: [video_script, wechat_article]}
+        content_type: {type: string, enum: [video_script, marketing_video, wechat_article]}
         priority: {type: string}
         risk_profile: {type: string}
         requested_output: {type: object, additionalProperties: true}

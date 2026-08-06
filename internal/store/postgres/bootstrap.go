@@ -148,7 +148,7 @@ func (s *Store) AppendBootstrapProgress(ctx context.Context, tokenHash string, e
 			if reflect.DeepEqual(existing, event) {
 				return nil
 			}
-			return domain.Conflict("BOOTSTRAP_PROGRESS_SEQUENCE_CONFLICT", "同一 sequence 已存在不同事件")
+			return domain.Conflict("BOOTSTRAP_PROGRESS_SEQUENCE_CONFLICT", "同一进度序号（sequence）已存在不同事件")
 		}
 		if !errors.Is(scanErr, pgx.ErrNoRows) {
 			return scanErr
@@ -157,7 +157,7 @@ func (s *Store) AppendBootstrapProgress(ctx context.Context, tokenHash string, e
 			return domain.Conflict("BOOTSTRAP_PROGRESS_TERMINAL", "初始化尝试进入终态后不能追加新进度")
 		}
 		if event.Sequence != locked.LastSequence+1 {
-			return domain.Conflict("BOOTSTRAP_PROGRESS_SEQUENCE_GAP", "bootstrap progress sequence 必须连续递增")
+			return domain.Conflict("BOOTSTRAP_PROGRESS_SEQUENCE_GAP", "初始化进度序号（sequence）必须连续递增")
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO bootstrap_progress_events(attempt_id,sequence,tenant_id,project_id,schema_version,occurred_at,stage,status,check_id,error_code,action_id,facts) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, locked.ID, event.Sequence, locked.TenantID, locked.ProjectID, event.SchemaVersion, event.OccurredAt, event.Stage, event.Status, event.CheckID, event.ErrorCode, event.ActionID, jsonValue(event.Facts)); err != nil {
 			return dbError(err)

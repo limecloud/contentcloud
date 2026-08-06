@@ -97,7 +97,7 @@ type CreateRatingDecisionResult struct {
 func (s *Service) ImportPerformanceObservations(ctx context.Context, actor Actor, in ImportPerformanceInput, requestID string) (ImportPerformanceResult, error) {
 	result := ImportPerformanceResult{DryRun: in.DryRun, Observations: []domain.PerformanceObservation{}}
 	if actor.Type != "user" {
-		return result, domain.Policy("USER_ACTOR_REQUIRED", "只有登录用户可以导入业务结果", "使用用户 CLI 凭据或 Web 会话")
+		return result, domain.Policy("USER_ACTOR_REQUIRED", "只有登录用户可以导入业务结果", "使用用户 CLI 凭据或网页会话")
 	}
 	if err := requireRole(actor, "tenant_admin", "project_manager", "strategist"); err != nil {
 		return result, err
@@ -114,7 +114,7 @@ func (s *Service) ImportPerformanceObservations(ctx context.Context, actor Actor
 		format = "manual"
 	}
 	if format != "manual" && format != "json" && format != "csv" && format != "xlsx" {
-		return result, domain.Invalid("RESULT_SOURCE_FORMAT_INVALID", "结果来源格式必须是 manual、json、csv 或 xlsx")
+		return result, domain.Invalid("RESULT_SOURCE_FORMAT_INVALID", "结果来源格式必须是手动录入（manual）、JSON、CSV 或 XLSX")
 	}
 	sourceName := strings.TrimSpace(in.SourceName)
 	if sourceName == "" {
@@ -242,7 +242,7 @@ func (s *Service) ImportPerformanceObservations(ctx context.Context, actor Actor
 		}
 	}
 	if !isLowerHexSHA256(sourceSHA) {
-		return result, domain.Invalid("RESULT_SOURCE_HASH_INVALID", "结果来源 sha256 必须为 64 位小写十六进制")
+		return result, domain.Invalid("RESULT_SOURCE_HASH_INVALID", "结果来源的 SHA-256 必须为 64 位小写十六进制")
 	}
 	batch := domain.PerformanceImportBatch{
 		ID:            domain.NewID(),
@@ -372,7 +372,7 @@ func (s *Service) PerformanceImportDetails(ctx context.Context, actor Actor, id 
 func (s *Service) CreateRatingDecision(ctx context.Context, actor Actor, in CreateRatingDecisionInput, requestID string) (CreateRatingDecisionResult, error) {
 	result := CreateRatingDecisionResult{DryRun: in.DryRun}
 	if actor.Type != "user" {
-		return result, domain.Policy("USER_ACTOR_REQUIRED", "只有登录用户可以创建评级决策", "使用用户 CLI 凭据或 Web 会话")
+		return result, domain.Policy("USER_ACTOR_REQUIRED", "只有登录用户可以创建评级决策", "使用用户 CLI 凭据或网页会话")
 	}
 	if err := requireRole(actor, "tenant_admin", "project_manager", "strategist"); err != nil {
 		return result, err
@@ -381,7 +381,7 @@ func (s *Service) CreateRatingDecision(ctx context.Context, actor Actor, in Crea
 		return result, err
 	}
 	if !performanceSampleStatuses[in.Rating] {
-		return result, domain.Invalid("RATING_INVALID", "评级必须是 seed_candidate、repairable、discarded 或 insufficient_sample")
+		return result, domain.Invalid("RATING_INVALID", "评级必须是小范围测试候选（seed_candidate）、可修复（repairable）、不采用（discarded）或样本不足（insufficient_sample）")
 	}
 	if strings.TrimSpace(in.Reason) == "" || strings.TrimSpace(in.NextAction) == "" {
 		return result, domain.Invalid("RATING_REASON_REQUIRED", "评级依据和下一步动作必填")
@@ -440,7 +440,7 @@ func (s *Service) validateRatingSubject(ctx context.Context, actor Actor, projec
 		return domain.Invalid("RATING_SUBJECT_REQUIRED", "评级对象必填")
 	}
 	if subjectType != "approved_snapshot" {
-		return domain.Invalid("RATING_SUBJECT_TYPE_INVALID", "评级对象类型必须是 approved_snapshot")
+		return domain.Invalid("RATING_SUBJECT_TYPE_INVALID", "评级对象类型必须是已批准快照（approved_snapshot）")
 	}
 	value, err := s.store.ApprovedSnapshot(ctx, actor.TenantID, subjectID)
 	if err != nil || value.ProjectID != projectID || value.SubmissionType != "content_batch" {

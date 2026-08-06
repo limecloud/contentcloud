@@ -35,7 +35,7 @@ export function ContinueInAgentModal({clients,handoff,kind,loading,error,onSelec
     if (handoff) window.location.assign(handoff.launch.url);
   };
 
-  if(!handoff)return <Modal title={kind==='review_feedback'?'选择修订客户端':'选择 Agent 客户端'} onClose={onClose}>
+  if(!handoff)return <Modal title={kind==='review_feedback'?'选择修订客户端':'选择智能体客户端'} onClose={onClose}>
     <div className="agent-client-list" aria-busy={loading}>
       {(clients||[]).map(client=>{
         const available=capabilityStatus(client,'interactive_handoff')==='available';
@@ -52,15 +52,15 @@ export function ContinueInAgentModal({clients,handoff,kind,loading,error,onSelec
   </Modal>;
 
   return <Modal title={handoff.kind === 'review_feedback' ? `在 ${handoff.client.display_name} 中修订` : `在 ${handoff.client.display_name} 中继续`} onClose={onClose}>
-    <div className="agent-handoff-assurance"><ShieldCheck size={20}/><div><strong>安全的新对话恢复</strong><span>{handoff.client.display_name} 只会预填 Prompt，不会自动发送，也不会自动选择本机 Workspace。</span></div></div>
+    <div className="agent-handoff-assurance"><ShieldCheck size={20}/><div><strong>安全恢复到新对话</strong><span>{handoff.client.display_name} 只会预填操作指令，不会自动发送，也不会自动选择本机工作区。</span></div></div>
     <dl className="agent-handoff-facts">
       <div><dt>项目</dt><dd><code>{handoff.project_id}</code></dd></div>
-      <div><dt>目标</dt><dd><code>{handoff.target.kind} / {handoff.target.id}</code></dd></div>
-      {handoff.target.digest&&<div><dt>Digest</dt><dd><code>{handoff.target.digest}</code></dd></div>}
-      <div><dt>{handoff.integration.kind}</dt><dd><code>{handoff.integration.id} · {handoff.integration.version}</code></dd></div>
+      <div><dt>目标</dt><dd><code>{handoff.target.kind === 'project' ? '项目' : '提交内容版本'} / {handoff.target.id}</code></dd></div>
+      {handoff.target.digest&&<div><dt>内容摘要</dt><dd><code>{handoff.target.digest}</code></dd></div>}
+      <div><dt>{handoff.integration.kind === 'plugin' ? '插件' : '接入方式'}</dt><dd><code>{handoff.integration.id} · {handoff.integration.version}</code></dd></div>
     </dl>
     <ol className="agent-handoff-steps">{handoff.steps.map((step,index)=><li key={step}><span>{index+1}</span><p>{step}</p></li>)}</ol>
-    <section className="agent-handoff-prompt"><header><strong>恢复 Prompt</strong><Button variant="ghost" onClick={()=>void copyPrompt()}>{copied?<Check size={15}/>:<Clipboard size={15}/>} {copied?'已复制':'复制 Prompt'}</Button></header><pre><code>{handoff.prompt}</code></pre></section>
+    <section className="agent-handoff-prompt"><header><strong>恢复操作指令</strong><Button variant="ghost" onClick={()=>void copyPrompt()}>{copied?<Check size={15}/>:<Clipboard size={15}/>} {copied?'已复制':'复制操作指令'}</Button></header><pre><code>{handoff.prompt}</code></pre></section>
     {copyError&&<Banner kind="error" onClose={()=>setCopyError('')}>{copyError}</Banner>}
     <footer className="modal-actions agent-handoff-actions">
       <Button variant="ghost" onClick={onBack}><ArrowLeft size={15}/>更换客户端</Button>

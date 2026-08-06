@@ -24,5 +24,6 @@ describe('后台业务术语映射', () => {
     expect(executionModeLabel('local')).toBe('本地客户端');
     expect(executionModeLabel('agent')).toBe('自动执行适配器');
     expect(statusLabel('published')).toBe('已发布');
+    expect(statusLabel('unknown_status')).toBe('未识别状态（unknown_status）');
   });
 });

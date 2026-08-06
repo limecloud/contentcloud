@@ -131,7 +131,7 @@ func (s *Service) TriageInputItem(ctx context.Context, actor Actor, id string, i
 	case "archive_project":
 		projectID := defaultString(strings.TrimSpace(input.ProjectID), value.ProjectID)
 		if projectID == "" {
-			return domain.InputItem{}, domain.Invalid("INPUT_ITEM_PROJECT_REQUIRED", "归档为 Project 资料时必须指定 Project")
+			return domain.InputItem{}, domain.Invalid("INPUT_ITEM_PROJECT_REQUIRED", "归档为项目资料时必须指定项目")
 		}
 		if _, err := s.store.Project(ctx, actor.TenantID, projectID); err != nil {
 			return domain.InputItem{}, err
@@ -150,9 +150,16 @@ func (s *Service) TriageInputItem(ctx context.Context, actor Actor, id string, i
 			return domain.InputItem{}, err
 		}
 		if value.ProjectID != "" && task.ProjectID != value.ProjectID {
-			return domain.InputItem{}, domain.Policy("INPUT_ITEM_PROJECT_MISMATCH", "输入和目标任务不属于同一 Project", "选择同一 Project 下的任务")
+			return domain.InputItem{}, domain.Policy("INPUT_ITEM_PROJECT_MISMATCH", "输入和目标任务不属于同一项目", "选择同一项目下的任务")
 		}
-		task.InputRefs = appendUnique(task.InputRefs, "input:"+value.ID)
+		inputRef := "input:" + value.ID
+		if !containsStringPrefix(task.InputRefs, inputRef+"@") {
+			task.InputRefs = appendUnique(task.InputRefs, inputRef)
+		}
+		if task.Status == domain.TaskStatusNeedsInput {
+			task.Status = domain.TaskStatusReady
+			task.NextAction = "开始第一个流程阶段"
+		}
 		task.UpdatedAt = s.now().UTC()
 		if err := s.store.SaveWorkTask(ctx, task); err != nil {
 			return domain.InputItem{}, err
@@ -163,14 +170,14 @@ func (s *Service) TriageInputItem(ctx context.Context, actor Actor, id string, i
 	case "create_task":
 		projectID := defaultString(strings.TrimSpace(input.ProjectID), value.ProjectID)
 		if projectID == "" {
-			return domain.InputItem{}, domain.Invalid("INPUT_ITEM_PROJECT_REQUIRED", "从输入创建任务时必须指定 Project")
+			return domain.InputItem{}, domain.Invalid("INPUT_ITEM_PROJECT_REQUIRED", "从输入创建任务时必须指定项目")
 		}
 		project, err := s.store.Project(ctx, actor.TenantID, projectID)
 		if err != nil {
 			return domain.InputItem{}, err
 		}
 		if value.ProjectID != "" && value.ProjectID != projectID {
-			return domain.InputItem{}, domain.Policy("INPUT_ITEM_PROJECT_MISMATCH", "输入和目标任务不属于同一 Project", "选择输入所属 Project 下的任务")
+			return domain.InputItem{}, domain.Policy("INPUT_ITEM_PROJECT_MISMATCH", "输入和目标任务不属于同一项目", "选择输入所属项目下的任务")
 		}
 		if value.Status == domain.InputItemTaskCreated && value.TargetTaskID != "" {
 			return s.store.InputItem(ctx, actor.TenantID, value.ID)

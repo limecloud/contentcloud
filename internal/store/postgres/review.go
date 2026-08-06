@@ -14,7 +14,7 @@ func (s *Store) CreateReviewCycle(ctx context.Context, cycle domain.ReviewCycle)
 	err := s.withTenant(ctx, cycle.TenantID, func(tx pgx.Tx) error {
 		var locked bool
 		if cycle.SubjectType != "submission_revision" {
-			return domain.Invalid("REVIEW_SUBJECT_TYPE_INVALID", "审核周期不支持该 subject_type")
+			return domain.Invalid("REVIEW_SUBJECT_TYPE_INVALID", "审核周期不支持该主题类型（subject_type）")
 		}
 		if err := tx.QueryRow(ctx, `SELECT true FROM submission_revisions WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, cycle.TenantID, cycle.SubjectID).Scan(&locked); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -233,11 +233,11 @@ func (s *Store) CreateArtifact(ctx context.Context, v domain.Artifact) error {
 
 func insertArtifact(ctx context.Context, tx pgx.Tx, value domain.Artifact) error {
 	if value.ApprovedSnapshotID == "" {
-		return domain.Invalid("ARTIFACT_SNAPSHOT_REQUIRED", "Artifact 必须绑定 ApprovedSnapshot")
+		return domain.Invalid("ARTIFACT_SNAPSHOT_REQUIRED", "成果文件必须绑定批准快照")
 	}
 	var snapshotExists bool
 	if err := tx.QueryRow(ctx, `SELECT true FROM approved_snapshots WHERE tenant_id=$1 AND project_id=$2 AND id=$3`, value.TenantID, value.ProjectID, value.ApprovedSnapshotID).Scan(&snapshotExists); errors.Is(err, pgx.ErrNoRows) {
-		return domain.NotFound("ApprovedSnapshot")
+		return domain.NotFound("批准快照")
 	} else if err != nil {
 		return err
 	}

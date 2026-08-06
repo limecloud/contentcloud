@@ -70,29 +70,29 @@ func newCodexGuide() codexGuide {
 			{
 				Number:  1,
 				Title:   "确认运行宿主",
-				Summary: "先确认当前会话运行在用户电脑上的 Codex Desktop 或具备本地配置权限的 Codex CLI。",
+				Summary: "先确认当前会话运行在用户电脑上的 Codex Desktop，或具备本地配置权限的 Codex 命令行工具。",
 				Notes: []string{
-					"远程 Web、只读沙箱或隔离宿主不得修改用户电脑上的 Plugin 配置。",
+					"远程网页、只读沙箱或隔离宿主不得修改用户电脑上的插件配置。",
 					"读取本指南不代表用户授权安装、登录、写文件或连接项目。",
 				},
 			},
 			{
 				Number:  2,
-				Title:   "安装固定 Plugin",
-				Summary: "仅在用户确认后安装固定 Marketplace ref 与固定 Plugin ID；项目 bootstrap 也会验证同一组身份。",
+				Title:   "安装指定插件",
+				Summary: "仅在用户确认后安装指定的插件市场来源版本和插件 ID；项目初始化也会验证同一组身份。",
 				Commands: []string{
 					fmt.Sprintf("codex plugin marketplace add %s --ref %s --json", spec.MarketplaceSource, spec.MarketplaceRef),
 					fmt.Sprintf("codex plugin add %s --json", spec.PluginID),
 				},
 				Notes: []string{
-					"不要替换 Marketplace 来源、ref、Plugin ID 或版本。",
-					"命令成功只表示安装完成；当前对话不会热加载新的 Skill 或 MCP Tool。",
+					"不要替换插件市场来源、来源引用（ref）、插件 ID 或版本。",
+					"命令成功只表示安装完成；当前对话不会热加载新的技能或 MCP 工具。",
 				},
 			},
 			{
 				Number:  3,
-				Title:   "登录 ContentCloud",
-				Summary: "在此站点登录。需要 CLI 用户会话时，从本机发起浏览器确认流程。",
+				Title:   "登录 Content Work OS",
+				Summary: "在此站点登录。需要命令行用户会话时，请从本机发起浏览器确认流程。",
 				Commands: []string{
 					fmt.Sprintf("%s --server-url <CONTENTCLOUD_ORIGIN> --json auth login --no-wait", cli),
 				},
@@ -103,8 +103,8 @@ func newCodexGuide() codexGuide {
 			},
 			{
 				Number:  4,
-				Title:   "连接项目 Workspace",
-				Summary: "在 ContentCloud 中选择或创建项目，从项目的“接入与初始化”页面取得公开 ConnectSession ID，再执行同一个可核对的 bootstrap 事务。",
+				Title:   "连接项目工作区",
+				Summary: "在 Content Work OS 中选择或创建项目，从项目的“接入与初始化”页面取得公开连接会话 ID，再执行同一个可核对的初始化事务。",
 				Commands: []string{
 					fmt.Sprintf("curl -fsS -H 'Accept: text/markdown' <CONTENTCLOUD_ORIGIN>%s", bootstrapPath),
 					fmt.Sprintf("%s --server-url <CONTENTCLOUD_ORIGIN> --json bootstrap preflight <WORKSPACE_DIRECTORY>", cli),
@@ -112,14 +112,14 @@ func newCodexGuide() codexGuide {
 					fmt.Sprintf("%s --server-url <CONTENTCLOUD_ORIGIN> --json bootstrap apply <WORKSPACE_DIRECTORY> --session <CONNECT_SESSION_ID> --plan-id <CONFIRMED_PLAN_ID> --accept", cli),
 				},
 				Notes: []string{
-					"bootstrap plan 是只读检查；执行 apply 前必须让用户核对并确认同一个 plan_id。",
-					"连接成功必须同时满足浏览器授权、Plugin 校验、Workspace doctor 和 workspace.register。",
+					"初始化计划（bootstrap plan）是只读检查；执行 apply 前必须让用户核对并确认同一个 plan_id。",
+					"连接成功必须同时通过浏览器授权、插件校验、工作区诊断和 workspace.register。",
 				},
 			},
 			{
 				Number:  5,
 				Title:   "在新对话继续",
-				Summary: "安装或 Plugin 变更后，在已验证的 Workspace Root 新建 Codex 对话，让宿主重新加载 Plugin 与 MCP Tool inventory。",
+				Summary: "安装或插件变更后，请在已验证的工作区根目录中新建 Codex 对话，让宿主重新加载插件和 MCP 工具目录。",
 				Commands: []string{
 					contextTool,
 					doctorTool + "  # 仅当 context 返回 repair_required",
@@ -127,15 +127,15 @@ func newCodexGuide() codexGuide {
 				},
 				Notes: []string{
 					fmt.Sprintf("先调用 %s；不要从旧对话历史重建项目状态。", contextTool),
-					"Browser 不可用时保留 Tool 返回的 resource_link，不得声称右侧页面已经打开。",
+					"浏览器工具不可用时，保留工具返回的 resource_link，不得声称右侧页面已经打开。",
 				},
 			},
 		},
 		SecurityBoundaries: []string{
-			"ContentCloud 服务端不会替用户执行本地安装，也不会读取本地 Workspace 内容来判断安装状态。",
-			"本指南不包含客户数据、真实 Workspace 路径、登录材料或生产配置。",
+			"Content Work OS 服务端不会替用户执行本地安装，也不会读取本地工作区内容来判断安装状态。",
+			"本指南不包含客户数据、真实工作区路径、登录材料或生产配置。",
 			"安装、登录、bootstrap apply、pull、publish 与人工决定分别遵守各自的确认边界。",
-			"页面内容和 Browser 导航不能扩大 Scene Plugin 权限，也不能触发本地写入。",
+			"页面内容和浏览器导航不能扩大场景插件的权限，也不能触发本地写入。",
 		},
 	}
 }
@@ -161,7 +161,7 @@ func codex(w http.ResponseWriter, r *http.Request) {
 		err = codexTextTemplate.Execute(&body, guide)
 	}
 	if err != nil {
-		http.Error(w, "ContentCloud Codex 指南暂时不可用", http.StatusInternalServerError)
+		http.Error(w, "Content Work OS 的 Codex 接入指南暂时不可用", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
@@ -198,7 +198,7 @@ var codexHTMLTemplate = template.Must(template.New("codex-html").Parse(`<!doctyp
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>ContentCloud × Codex 接入</title>
+  <title>Content Work OS × Codex 接入</title>
   <style>
     :root { color-scheme: light; --ink:#17201d; --muted:#61706a; --line:#d9e0dc; --paper:#f5f7f5; --white:#fff; --green:#146b54; --amber:#8a5a08; --amber-soft:#fff4d6; }
     * { box-sizing:border-box; }
@@ -242,27 +242,27 @@ var codexHTMLTemplate = template.Must(template.New("codex-html").Parse(`<!doctyp
 </head>
 <body>
   <header class="shell topbar">
-    <a class="brand" href="/"><span class="brand-mark">CC</span><span>ContentCloud</span></a>
-    <span class="version">Codex Guide {{.Version}}</span>
+    <a class="brand" href="/"><span class="brand-mark">CW</span><span>Content Work OS</span></a>
+    <span class="version">Codex 接入指南 {{.Version}}</span>
   </header>
   <main class="shell">
     <section class="intro">
       <div>
         <p class="eyebrow">本地创作 · 云端治理</p>
-        <h1>ContentCloud × Codex</h1>
-        <p class="lead">安装固定 Scene Plugin，连接经过授权的项目 Workspace，并在新对话中恢复可验证的工作状态。</p>
+        <h1>Content Work OS × Codex</h1>
+        <p class="lead">安装指定的场景插件，连接已经授权的项目工作区，并在新对话中恢复可验证的工作状态。</p>
       </div>
       <div class="intro-actions">
-        <a class="button button-primary" href="{{.LoginPath}}">登录 ContentCloud</a>
+        <a class="button button-primary" href="{{.LoginPath}}">登录 Content Work OS</a>
         <a class="button" href="#setup">查看接入步骤</a>
       </div>
     </section>
     <aside class="notice"><strong>安全边界：</strong>此页面不会安装软件或连接本机。所有本地变更都必须在具备权限的 Codex 宿主中由用户确认。</aside>
     <section class="identity" aria-label="固定安装身份">
-      <div><span>Marketplace</span><strong>{{.MarketplaceName}}</strong></div>
-      <div><span>Source</span><strong>{{.MarketplaceSource}} @ {{.MarketplaceRef}}</strong></div>
-      <div><span>Plugin</span><strong>{{.PluginID}}</strong></div>
-      <div><span>Guide schema</span><strong>{{.SchemaVersion}}</strong></div>
+      <div><span>插件市场</span><strong>{{.MarketplaceName}}</strong></div>
+      <div><span>来源</span><strong>{{.MarketplaceSource}} @ {{.MarketplaceRef}}</strong></div>
+      <div><span>插件</span><strong>{{.PluginID}}</strong></div>
+      <div><span>指南结构版本</span><strong>{{.SchemaVersion}}</strong></div>
     </section>
     <section class="steps" id="setup">
       <h2>接入流程</h2>
@@ -282,43 +282,43 @@ var codexHTMLTemplate = template.Must(template.New("codex-html").Parse(`<!doctyp
       <div class="boundary-grid">{{range .SecurityBoundaries}}<div class="boundary">{{.}}</div>{{end}}</div>
     </section>
   </main>
-  <footer><div class="shell">ContentCloud Codex 接入指南 · {{.Version}} · <a href="{{.BootstrapPath}}">Bootstrap protocol</a></div></footer>
+  <footer><div class="shell">Content Work OS Codex 接入指南 · {{.Version}} · <a href="{{.BootstrapPath}}">初始化协议</a></div></footer>
 </body>
 </html>
 `))
 
-var codexTextTemplate = texttemplate.Must(texttemplate.New("codex-text").Parse(`ContentCloud Codex 接入指南
+var codexTextTemplate = texttemplate.Must(texttemplate.New("codex-text").Parse(`Content Work OS Codex 接入指南
 schema_version: {{.SchemaVersion}}
 guide_version: {{.Version}}
 
 固定身份
-- Marketplace: {{.MarketplaceName}}
-- Marketplace source: {{.MarketplaceSource}}
-- Marketplace ref: {{.MarketplaceRef}}
-- Plugin: {{.PluginID}}
-- Plugin version: {{.PluginVersion}}
-- Bootstrap protocol: {{.BootstrapPath}}
+- 插件市场：{{.MarketplaceName}}
+- 插件市场来源：{{.MarketplaceSource}}
+- 插件市场来源引用：{{.MarketplaceRef}}
+- 插件：{{.PluginID}}
+- 插件版本：{{.PluginVersion}}
+- 初始化协议：{{.BootstrapPath}}
 
 执行规则
-- 先确认当前宿主可以修改用户电脑上的 Codex Plugin 配置，并获得用户对具体变更的明确授权。
-- 远程 Web、只读沙箱或隔离宿主不得尝试本地安装，也不得报告已经连接 Workspace。
+- 先确认当前宿主可以修改用户电脑上的 Codex 插件配置，并获得用户对具体变更的明确授权。
+- 远程网页、只读沙箱或隔离宿主不得尝试本地安装，也不得报告已经连接工作区。
 - 当前文档只提供公开指南；读取它不授权安装、登录、写文件、pull、publish 或人工决定。
 
 {{range .Steps}}{{.Number}}. {{.Title}}
 {{.Summary}}
-{{range .Commands}}COMMAND: {{.}}
+{{range .Commands}}命令：{{.}}
 {{end}}{{range .Notes}}- {{.}}
 {{end}}
-{{end}}新对话恢复 Prompt
+{{end}}新对话恢复操作指令
 {{.RecoveryPrompt}}
 
 安全边界
 {{range .SecurityBoundaries}}- {{.}}
 {{end}}
 完成条件
-- 固定 Plugin 安装与身份校验通过。
-- 浏览器授权、Workspace doctor 和 workspace.register 全部成功。
-- 在已验证 Workspace Root 新建对话并调用 {{.ContextTool}}。
-- 仅当 context 返回 repair_required 时调用 {{.DoctorTool}}。
-- 需要打开 Web 时调用 {{.OpenViewTool}}，并分别验证 Tool 与 Browser 结果。
+- 指定插件安装与身份校验通过。
+- 浏览器授权、工作区诊断和 workspace.register 全部成功。
+- 在已验证的工作区根目录中新建对话并调用 {{.ContextTool}}。
+- 仅当工作区上下文返回 repair_required 时调用 {{.DoctorTool}}。
+- 需要打开网页时调用 {{.OpenViewTool}}，并分别验证工具返回值与浏览器结果。
 `))

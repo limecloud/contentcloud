@@ -65,7 +65,7 @@ func (s *Store) CreateSubmissionRevision(_ context.Context, submission domain.Su
 	}
 	if existing, ok := s.submissions[submission.ID]; ok {
 		if existing.TenantID != submission.TenantID || existing.ProjectID != submission.ProjectID {
-			return domain.NotFound("Submission")
+			return domain.NotFound("提交")
 		}
 	}
 	for index := range disclosures {
@@ -97,7 +97,7 @@ func (s *Store) SubmissionByWorkspaceType(_ context.Context, tenantID, projectID
 			return value, nil
 		}
 	}
-	return domain.Submission{}, domain.NotFound("Submission")
+	return domain.Submission{}, domain.NotFound("提交")
 }
 
 func (s *Store) Submissions(_ context.Context, tenantID, projectID string) ([]domain.Submission, error) {
@@ -118,7 +118,7 @@ func (s *Store) Submission(_ context.Context, tenantID, id string) (domain.Submi
 	defer s.mu.RUnlock()
 	value, ok := s.submissions[id]
 	if !ok || value.TenantID != tenantID {
-		return value, domain.NotFound("Submission")
+		return value, domain.NotFound("提交")
 	}
 	return value, nil
 }
@@ -128,7 +128,7 @@ func (s *Store) SubmissionRevision(_ context.Context, tenantID, id string) (doma
 	defer s.mu.RUnlock()
 	value, ok := s.submissionRevisions[id]
 	if !ok || value.TenantID != tenantID {
-		return value, domain.NotFound("SubmissionRevision")
+		return value, domain.NotFound("提交修订版本")
 	}
 	return value, nil
 }
@@ -164,7 +164,7 @@ func (s *Store) ApprovedSnapshot(_ context.Context, tenantID, id string) (domain
 	defer s.mu.RUnlock()
 	value, ok := s.approvedSnapshots[id]
 	if !ok || value.TenantID != tenantID {
-		return value, domain.NotFound("ApprovedSnapshot")
+		return value, domain.NotFound("批准快照")
 	}
 	return value, nil
 }
@@ -174,10 +174,10 @@ func (s *Store) RecordSubmissionApproval(_ context.Context, submission domain.Su
 	defer s.mu.Unlock()
 	existing, ok := s.submissions[submission.ID]
 	if !ok || existing.TenantID != submission.TenantID {
-		return domain.NotFound("Submission")
+		return domain.NotFound("提交")
 	}
 	if !submissionTransitionMatches(existing, submission, decision.PreviousState) {
-		return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本或状态已变化")
+		return domain.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
 	}
 	s.submissions[submission.ID] = submission
 	s.approvals[decision.ID] = decision
@@ -189,13 +189,13 @@ func (s *Store) ApproveSubmissionRevision(_ context.Context, submission domain.S
 	defer s.mu.Unlock()
 	existing, ok := s.submissions[submission.ID]
 	if !ok || existing.TenantID != submission.TenantID {
-		return domain.NotFound("Submission")
+		return domain.NotFound("提交")
 	}
 	if !submissionTransitionMatches(existing, submission, decision.PreviousState) {
-		return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本或状态已变化")
+		return domain.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
 	}
 	if _, ok := s.submissionRevisions[snapshot.SubmissionRevisionID]; !ok {
-		return domain.NotFound("SubmissionRevision")
+		return domain.NotFound("提交修订版本")
 	}
 	s.submissions[submission.ID] = submission
 	s.approvedSnapshots[snapshot.ID] = snapshot
@@ -208,10 +208,10 @@ func (s *Store) RequestSubmissionChanges(_ context.Context, submission domain.Su
 	defer s.mu.Unlock()
 	existing, ok := s.submissions[submission.ID]
 	if !ok || existing.TenantID != submission.TenantID {
-		return domain.NotFound("Submission")
+		return domain.NotFound("提交")
 	}
 	if !submissionTransitionMatches(existing, submission, decision.PreviousState) {
-		return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本或状态已变化")
+		return domain.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
 	}
 	s.submissions[submission.ID] = submission
 	s.approvals[decision.ID] = decision
@@ -231,13 +231,13 @@ func (s *Store) CreateSubmissionReviewGrant(_ context.Context, submission domain
 	defer s.mu.Unlock()
 	existing, ok := s.submissions[submission.ID]
 	if !ok || existing.TenantID != submission.TenantID {
-		return domain.NotFound("Submission")
+		return domain.NotFound("提交")
 	}
 	if existing.CurrentRevisionID != submission.CurrentRevisionID || (existing.Status != "internally_approved" && existing.Status != "client_review") {
-		return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本或状态已变化")
+		return domain.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
 	}
 	if _, ok := s.submissionRevisions[grant.SubjectID]; !ok {
-		return domain.NotFound("SubmissionRevision")
+		return domain.NotFound("提交修订版本")
 	}
 	s.submissions[submission.ID] = submission
 	s.reviewGrants[grant.ID] = grant
@@ -249,7 +249,7 @@ func (s *Store) CompleteSubmissionClientReview(_ context.Context, submission dom
 	defer s.mu.Unlock()
 	existing, ok := s.submissions[submission.ID]
 	if !ok || existing.TenantID != submission.TenantID {
-		return domain.NotFound("Submission")
+		return domain.NotFound("提交")
 	}
 	if !submissionTransitionMatches(existing, submission, decision.PreviousState) {
 		return domain.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效或状态已变化")

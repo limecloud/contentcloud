@@ -403,7 +403,7 @@ func TestLaunchNewChatReportsBothLaunchFailures(t *testing.T) {
 	adapter := mustAdapter(t, DefaultSpec("0.8.0"), runner)
 	adapter.GOOS = "darwin"
 	result := adapter.LaunchNewChat(t.Context(), t.TempDir())
-	if result.Opened || !strings.Contains(result.Error, "open exited with 1") || !strings.Contains(result.Error, "codex app exited with 2") {
+	if result.Opened || !strings.Contains(result.Error, "open 执行结束，退出码为 1") || !strings.Contains(result.Error, "codex app 执行结束，退出码为 2") {
 		t.Fatalf("unexpected launch failure: %#v", result)
 	}
 }

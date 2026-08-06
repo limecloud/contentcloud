@@ -38,11 +38,11 @@ func (s *Store) CompleteStageRun(ctx context.Context, run domain.StageRun, outpu
 			return dbError(err)
 		}
 		if command.RowsAffected() == 0 {
-			return domain.NotFound("StageRun")
+			return domain.NotFound("阶段运行")
 		}
 		for _, output := range outputs {
 			if output.TenantID != run.TenantID || output.TaskID != run.TaskID || output.StageRunID != run.ID || output.StageID != run.StageID {
-				return domain.Invalid("TASK_STAGE_OUTPUT_SCOPE_INVALID", "Stage 输出与 StageRun 作用域不一致")
+				return domain.Invalid("TASK_STAGE_OUTPUT_SCOPE_INVALID", "阶段输出与阶段执行记录的作用域不一致")
 			}
 			if err := insertTaskStageOutput(ctx, tx, output); err != nil {
 				return err
@@ -111,7 +111,7 @@ func scanProviderProfile(row pgx.Row) (domain.ProviderProfile, error) {
 func (s *Store) ProviderProfile(ctx context.Context, providerID, version string) (domain.ProviderProfile, error) {
 	value, err := scanProviderProfile(s.pool.QueryRow(ctx, `SELECT provider_id,version,digest,adapter_version,model,region,modes,input_media_types,output_media_type,limits,data_retention,pricing,status,verified_at,expires_at FROM provider_profiles WHERE provider_id=$1 AND version=$2`, providerID, version))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return value, domain.NotFound("Provider Profile")
+		return value, domain.NotFound("服务商配置")
 	}
 	return value, err
 }
@@ -131,7 +131,7 @@ func (s *Store) ProviderBinding(ctx context.Context, tenantID, providerID string
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `SELECT tenant_id,provider_id,profile_version,state,credential_ref,egress_policy,monthly_budget_minor,max_job_cost_minor,max_concurrency,max_retries,updated_by,updated_at FROM provider_bindings WHERE tenant_id=$1 AND provider_id=$2`, tenantID, providerID).Scan(&result.TenantID, &result.ProviderID, &result.ProfileVersion, &result.State, &result.CredentialRef, &result.EgressPolicy, &result.MonthlyBudgetMinor, &result.MaxJobCostMinor, &result.MaxConcurrency, &result.MaxRetries, &result.UpdatedBy, &result.UpdatedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("Provider Binding")
+			return domain.NotFound("服务商绑定")
 		}
 		return dbError(err)
 	})
@@ -200,7 +200,7 @@ func (s *Store) MediaGenerationJob(ctx context.Context, tenantID, id string) (do
 		value, err := scanMediaGenerationJob(tx.QueryRow(ctx, mediaGenerationJobSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
 		result = value
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("媒体 Job")
+			return domain.NotFound("媒体生成任务")
 		}
 		return err
 	})
@@ -237,16 +237,16 @@ func (s *Store) SaveMediaGenerationJob(ctx context.Context, value domain.MediaGe
 		var currentVersion int
 		err := tx.QueryRow(ctx, `SELECT state,row_version FROM media_generation_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, value.TenantID, value.ID).Scan(&currentState, &currentVersion)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("媒体 Job")
+			return domain.NotFound("媒体生成任务")
 		}
 		if err != nil {
 			return dbError(err)
 		}
 		if currentVersion != expectedVersion {
-			return domain.Conflict("MEDIA_JOB_STALE", "媒体 Job 已被其他操作更新")
+			return domain.Conflict("MEDIA_JOB_STALE", "媒体生成任务已被其他操作更新")
 		}
 		if !domain.CanTransitionMediaJob(currentState, value.State) {
-			return domain.Conflict("MEDIA_JOB_TRANSITION_INVALID", "媒体 Job 状态转换无效")
+			return domain.Conflict("MEDIA_JOB_TRANSITION_INVALID", "媒体生成任务状态转换无效")
 		}
 		value.RowVersion = expectedVersion + 1
 		_, err = tx.Exec(ctx, `UPDATE media_generation_jobs SET state=$3,estimated_cost_minor=$4,actual_cost_minor=$5,attempt_count=$6,lease_owner=$7,lease_expires_at=$8,cancel_requested_at=$9,error_code=$10,error_detail_safe=$11,row_version=$12,updated_at=$13 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.State, value.EstimatedCostMinor, value.ActualCostMinor, value.AttemptCount, value.LeaseOwner, value.LeaseExpiresAt, value.CancelRequestedAt, value.ErrorCode, value.ErrorDetailSafe, value.RowVersion, value.UpdatedAt)
@@ -292,7 +292,7 @@ func (s *Store) SaveProviderAttempt(ctx context.Context, value domain.ProviderAt
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
 		command, err := tx.Exec(ctx, `UPDATE provider_attempts SET external_job_id=$3,provider_state=$4,safe_response_summary=$5,disclosure_manifest=$6,http_status=$7,provider_request_id=$8,actual_cost_minor=$9,last_polled_at=$10,next_poll_at=$11,submitted_at=$12,downloaded_at=$13,completed_at=$14,retry_after_seconds=$15,error_code=$16,error_detail_safe=$17,updated_at=$18 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.ExternalJobID, value.ProviderState, jsonValue(value.SafeResponseSummary), jsonValue(value.DisclosureManifest), value.HTTPStatus, value.ProviderRequestID, value.ActualCostMinor, value.LastPolledAt, value.NextPollAt, value.SubmittedAt, value.DownloadedAt, value.CompletedAt, value.RetryAfterSeconds, value.ErrorCode, value.ErrorDetailSafe, value.UpdatedAt)
 		if err == nil && command.RowsAffected() == 0 {
-			return domain.NotFound("Provider Attempt")
+			return domain.NotFound("服务商执行尝试")
 		}
 		return dbError(err)
 	})

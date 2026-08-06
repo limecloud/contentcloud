@@ -44,7 +44,7 @@ func DefaultRegistryVerifier() (*RegistryVerifier, error) {
 func LoadManifestVerifier(path string) (*Verifier, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read Environment trust store: %w", err)
+		return nil, fmt.Errorf("读取创作环境信任库失败：%w", err)
 	}
 	return ManifestVerifierJSON(body)
 }
@@ -52,7 +52,7 @@ func LoadManifestVerifier(path string) (*Verifier, error) {
 func LoadRegistryVerifier(path string) (*RegistryVerifier, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read Plugin Registry trust store: %w", err)
+		return nil, fmt.Errorf("读取插件注册表信任库失败：%w", err)
 	}
 	return RegistryVerifierJSON(body)
 }
@@ -107,7 +107,7 @@ func decodeTrustedKeySet(body []byte) ([]TrustedKey, error) {
 		}
 	}
 	if active == 0 {
-		return nil, domain.Invalid("TRUST_STORE_ACTIVE_KEY_REQUIRED", "可信公钥文件至少需要一个 active Ed25519 公钥")
+		return nil, domain.Invalid("TRUST_STORE_ACTIVE_KEY_REQUIRED", "可信公钥文件至少需要一个状态为可用（active）的 Ed25519 公钥")
 	}
 	return decoded, nil
 }

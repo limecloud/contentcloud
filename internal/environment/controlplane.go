@@ -18,11 +18,11 @@ type ControlPlane struct {
 
 func NewControlPlane(issuer *Issuer, profile Profile, registry VerifiedRegistry, ttl time.Duration) (*ControlPlane, error) {
 	if issuer == nil || ttl < time.Minute || ttl > 30*24*time.Hour {
-		return nil, domain.Invalid("ENVIRONMENT_CONTROL_PLANE_INVALID", "Environment Control Plane 需要 signer 和 1 分钟至 30 天的有效期")
+		return nil, domain.Invalid("ENVIRONMENT_CONTROL_PLANE_INVALID", "环境控制面需要签发器，以及 1 分钟至 30 天的有效期")
 	}
 	publicKey, ok := issuer.privateKey.Public().(ed25519.PublicKey)
 	if !ok {
-		return nil, domain.Invalid("ENVIRONMENT_SIGNING_KEY_INVALID", "Environment signer 无法导出 Ed25519 公钥")
+		return nil, domain.Invalid("ENVIRONMENT_SIGNING_KEY_INVALID", "环境签发器无法导出 Ed25519 公钥")
 	}
 	verifier, err := NewVerifier([]TrustedKey{{KeyID: issuer.keyID, Status: "active", PublicKey: publicKey}})
 	if err != nil {
@@ -33,7 +33,7 @@ func NewControlPlane(issuer *Issuer, profile Profile, registry VerifiedRegistry,
 
 func NewControlPlaneWithVerifier(issuer *Issuer, verifier *Verifier, profile Profile, registry VerifiedRegistry, ttl time.Duration) (*ControlPlane, error) {
 	if issuer == nil || verifier == nil || ttl < time.Minute || ttl > 30*24*time.Hour {
-		return nil, domain.Invalid("ENVIRONMENT_CONTROL_PLANE_INVALID", "Environment Control Plane 需要 signer、可信 verifier 和 1 分钟至 30 天的有效期")
+		return nil, domain.Invalid("ENVIRONMENT_CONTROL_PLANE_INVALID", "环境控制面需要签发器、可信校验器，以及 1 分钟至 30 天的有效期")
 	}
 	profileCopy, err := clone(profile)
 	if err != nil {
@@ -60,7 +60,7 @@ func NewControlPlaneWithVerifier(issuer *Issuer, verifier *Verifier, profile Pro
 
 func (controlPlane *ControlPlane) Issue(projectID string, contentTypes []string, now time.Time) (Manifest, error) {
 	if controlPlane == nil {
-		return Manifest{}, domain.Conflict("ENVIRONMENT_CONTROL_PLANE_UNAVAILABLE", "Environment Control Plane 未配置")
+		return Manifest{}, domain.Conflict("ENVIRONMENT_CONTROL_PLANE_UNAVAILABLE", "尚未配置环境控制面")
 	}
 	now = now.UTC()
 	if now.IsZero() {
@@ -75,7 +75,7 @@ func (controlPlane *ControlPlane) Issue(projectID string, contentTypes []string,
 
 func (controlPlane *ControlPlane) IssueExecutionBundle(request ExecutionBundleRequest, now time.Time) (CreativeExecutionBundle, error) {
 	if controlPlane == nil {
-		return CreativeExecutionBundle{}, domain.Conflict("ENVIRONMENT_CONTROL_PLANE_UNAVAILABLE", "Environment Control Plane 未配置")
+		return CreativeExecutionBundle{}, domain.Conflict("ENVIRONMENT_CONTROL_PLANE_UNAVAILABLE", "尚未配置环境控制面")
 	}
 	now = now.UTC()
 	if now.IsZero() {
@@ -94,7 +94,7 @@ func (controlPlane *ControlPlane) IssueExecutionBundle(request ExecutionBundleRe
 
 func (controlPlane *ControlPlane) Registry() (Registry, error) {
 	if controlPlane == nil {
-		return Registry{}, domain.Conflict("ENVIRONMENT_CONTROL_PLANE_UNAVAILABLE", "Environment Control Plane 未配置")
+		return Registry{}, domain.Conflict("ENVIRONMENT_CONTROL_PLANE_UNAVAILABLE", "尚未配置环境控制面")
 	}
 	registry, err := clone(controlPlane.registry.raw())
 	if err != nil {
@@ -105,7 +105,7 @@ func (controlPlane *ControlPlane) Registry() (Registry, error) {
 
 func (controlPlane *ControlPlane) ResolveExecutionBundle(bundle CreativeExecutionBundle, manifest Manifest, lock EnvironmentLock, capabilities []domain.Capability, options BundleVerifyOptions) (BundleResolution, error) {
 	if controlPlane == nil || controlPlane.resolver == nil {
-		return BundleResolution{}, domain.Conflict("ENVIRONMENT_CONTROL_PLANE_UNAVAILABLE", "Environment Control Plane 未配置")
+		return BundleResolution{}, domain.Conflict("ENVIRONMENT_CONTROL_PLANE_UNAVAILABLE", "尚未配置环境控制面")
 	}
 	return controlPlane.resolver.ResolveBundle(bundle, manifest, controlPlane.registry, lock, capabilities, options)
 }

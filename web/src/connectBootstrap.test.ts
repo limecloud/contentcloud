@@ -7,7 +7,7 @@ describe('ContentCloud Agent bootstrap',()=>{
   it('builds a stable prompt with a public session ID and no secret',()=>{
     const prompt=buildBootstrapPrompt({serverURL:'https://content.example.com/',sessionID:waitingSession.id,projectName:'金陵古都香 / 古法线香'});
     expect(prompt).toBe(
-      'Fetch https://content.example.com/api/bootstrap and follow it to initialize this ContentCloud project in Codex.\n\nserver-url: https://content.example.com\nsession-id: 11111111-1111-4111-8111-111111111111\ncontentcloud-cli: npx --yes @limecloud/contentcloud@0.17.0\nproject: "金陵古都香 / 古法线香"'
+      '请读取 https://content.example.com/api/bootstrap，并按照其中的步骤在 Codex 中初始化这个 Content Work OS 项目。\n\nserver-url: https://content.example.com\nsession-id: 11111111-1111-4111-8111-111111111111\ncontentcloud-cli: npx --yes @limecloud/contentcloud@0.17.0\nproject: "金陵古都香 / 古法线香"'
     );
     expect(prompt).not.toMatch(/connect[-_]key|cck_|token|secret/i);
   });

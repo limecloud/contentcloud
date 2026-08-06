@@ -35,7 +35,7 @@ func (s *Service) RegisterWorkspace(ctx context.Context, actor Actor, binding do
 		return binding, domain.Policy("WORKSPACE_SCOPE_DENIED", "工作区凭据与绑定不匹配", "重新执行项目初始化")
 	}
 	if strings.TrimSpace(templateID) == "" || strings.TrimSpace(templateVersion) == "" {
-		return binding, domain.Invalid("WORKSPACE_TEMPLATE_REQUIRED", "template_id 和 template_version 必填")
+		return binding, domain.Invalid("WORKSPACE_TEMPLATE_REQUIRED", "工作区模板标识（template_id）和模板版本（template_version）必填")
 	}
 	normalizedTargets := make([]string, 0, len(targets))
 	seenTargets := map[agentadapter.ClientID]struct{}{}
@@ -178,7 +178,7 @@ func (s *Service) SubmissionDetails(ctx context.Context, actor Actor, id string)
 		return SubmissionDetails{}, err
 	}
 	if actor.Type == "workspace" && submission.WorkspaceID != actor.WorkspaceID {
-		return SubmissionDetails{}, domain.NotFound("Submission")
+		return SubmissionDetails{}, domain.NotFound("提交记录")
 	}
 	revisions, err := s.store.SubmissionRevisions(ctx, actor.TenantID, submission.ID)
 	if err != nil {
@@ -202,19 +202,19 @@ func (s *Service) ProjectSubmissionRevision(ctx context.Context, actor Actor, pr
 	revision, err := s.store.SubmissionRevision(ctx, actor.TenantID, revisionID)
 	if err != nil || revision.ProjectID != projectID {
 		if err == nil {
-			err = domain.NotFound("SubmissionRevision")
+			err = domain.NotFound("提交内容版本")
 		}
 		return SubmissionRevisionView{}, err
 	}
 	submission, err := s.store.Submission(ctx, actor.TenantID, revision.SubmissionID)
 	if err != nil || submission.ProjectID != projectID {
 		if err == nil {
-			err = domain.NotFound("Submission")
+			err = domain.NotFound("提交记录")
 		}
 		return SubmissionRevisionView{}, err
 	}
 	if actor.Type == "workspace" && submission.WorkspaceID != actor.WorkspaceID {
-		return SubmissionRevisionView{}, domain.NotFound("SubmissionRevision")
+		return SubmissionRevisionView{}, domain.NotFound("提交内容版本")
 	}
 	comments, err := s.store.ReviewComments(ctx, actor.TenantID, revision.ID)
 	if err != nil {
@@ -239,10 +239,10 @@ func (s *Service) ApproveSubmission(ctx context.Context, actor Actor, revisionID
 		return SubmissionApprovalResult{}, err
 	}
 	if submission.CurrentRevisionID != revision.ID || (submission.Status != "submitted" && submission.Status != "in_review") {
-		return SubmissionApprovalResult{}, domain.Conflict("SUBMISSION_STATE_INVALID", "只能批准当前待审 SubmissionRevision")
+		return SubmissionApprovalResult{}, domain.Conflict("SUBMISSION_STATE_INVALID", "只能批准当前待审核的提交内容版本")
 	}
 	if revision.EvidenceLimited {
-		return SubmissionApprovalResult{}, domain.Policy("EVIDENCE_LEVEL_INSUFFICIENT", "高风险内容的来源披露不足，不能远程批准", "上传 evidence_pack/full_source，或完成受治理的本地核验")
+		return SubmissionApprovalResult{}, domain.Policy("EVIDENCE_LEVEL_INSUFFICIENT", "高风险内容的来源披露不足，不能远程批准", "上传证据包（evidence_pack）或完整来源（full_source），或完成受治理的本地核验")
 	}
 	now := s.now().UTC()
 	if err := s.validateTenantSubmissionContentTypes(ctx, actor.TenantID, submission.SubmissionType, revision.ProjectID, revision.Objects); err != nil {
@@ -298,7 +298,7 @@ func (s *Service) RequestSubmissionChanges(ctx context.Context, actor Actor, rev
 		return domain.Submission{}, domain.Invalid("CHANGE_REASON_REQUIRED", "修改要求必须填写具体原因")
 	}
 	if jsonPointer != "" && !domain.ValidJSONPointer(jsonPointer) {
-		return domain.Submission{}, domain.Invalid("COMMENT_POINTER_INVALID", "批注位置必须使用合法 JSON Pointer")
+		return domain.Submission{}, domain.Invalid("COMMENT_POINTER_INVALID", "批注位置必须使用合法的 JSON 指针")
 	}
 	revision, err := s.store.SubmissionRevision(ctx, actor.TenantID, revisionID)
 	if err != nil {
@@ -309,7 +309,7 @@ func (s *Service) RequestSubmissionChanges(ctx context.Context, actor Actor, rev
 		return submission, err
 	}
 	if submission.CurrentRevisionID != revision.ID || (submission.Status != "submitted" && submission.Status != "in_review" && submission.Status != "internally_approved" && submission.Status != "client_review") {
-		return submission, domain.Conflict("SUBMISSION_STATE_INVALID", "只能退回当前待审 SubmissionRevision")
+		return submission, domain.Conflict("SUBMISSION_STATE_INVALID", "只能退回当前待审核的提交内容版本")
 	}
 	cycles, err := s.store.ReviewCycles(ctx, actor.TenantID, revision.ID)
 	if err != nil {
@@ -365,7 +365,7 @@ func cloneSubmissionObjects(values []domain.SubmissionObjectRef) []domain.Submis
 
 func validateGovernedSubmissionObjects(submissionType, projectID string, baseSnapshotIDs []string, objects []domain.SubmissionObjectRef, now time.Time) error {
 	if submissionType == "storyboard" && len(objects) != 1 {
-		return domain.Invalid("STORYBOARD_SUBMISSION_CARDINALITY_INVALID", "storyboard SubmissionRevision 必须且只能包含一个 StoryboardPackage")
+		return domain.Invalid("STORYBOARD_SUBMISSION_CARDINALITY_INVALID", "分镜提交内容版本必须且只能包含一个分镜包")
 	}
 	for _, object := range objects {
 		if submissionType == "strategy" || submissionType == "offer" || submissionType == "storyboard" {
@@ -374,7 +374,7 @@ func validateGovernedSubmissionObjects(submissionType, projectID string, baseSna
 				Type string `json:"type"`
 			}
 			if err := json.Unmarshal(object.Content, &identity); err != nil || identity.ID != object.ID || identity.Type != object.Type {
-				return domain.Invalid("SUBMISSION_OBJECT_IDENTITY_MISMATCH", "V5 object ref 的 id/type 必须与结构化正文一致")
+				return domain.Invalid("SUBMISSION_OBJECT_IDENTITY_MISMATCH", "V5 对象引用中的标识和类型（id/type）必须与结构化正文一致")
 			}
 		}
 		switch submissionType {
@@ -400,35 +400,35 @@ func validateGovernedSubmissionObjects(submissionType, projectID string, baseSna
 					return err
 				}
 			default:
-				return domain.Invalid("STRATEGY_OBJECT_TYPE_INVALID", "strategy 只接受 AudienceTaxonomySnapshot 或 AudienceStrategyVersion")
+				return domain.Invalid("STRATEGY_OBJECT_TYPE_INVALID", "策略提交（strategy）只接受人群目录快照（AudienceTaxonomySnapshot）或人群策略版本（AudienceStrategyVersion）")
 			}
 		case "offer":
 			if object.Type != "commerce_offer_snapshot" {
-				return domain.Invalid("OFFER_OBJECT_TYPE_INVALID", "offer 只接受 CommerceOfferSnapshot")
+				return domain.Invalid("OFFER_OBJECT_TYPE_INVALID", "商品方案提交（offer）只接受商品方案快照（CommerceOfferSnapshot）")
 			}
 			var value domain.CommerceOfferSnapshot
 			if err := json.Unmarshal(object.Content, &value); err != nil {
-				return domain.Invalid("COMMERCE_OFFER_JSON_INVALID", "Offer 不是有效 JSON")
+				return domain.Invalid("COMMERCE_OFFER_JSON_INVALID", "商品方案不是有效 JSON")
 			}
 			if value.ProjectID != projectID {
-				return domain.Conflict("COMMERCE_OFFER_PROJECT_MISMATCH", "Offer 不属于当前项目")
+				return domain.Conflict("COMMERCE_OFFER_PROJECT_MISMATCH", "商品方案不属于当前项目")
 			}
 			if err := value.Validate(now, true); err != nil {
 				return err
 			}
 		case "storyboard":
 			if object.Type != "storyboard_package" {
-				return domain.Invalid("STORYBOARD_OBJECT_TYPE_INVALID", "storyboard 只接受 StoryboardPackage")
+				return domain.Invalid("STORYBOARD_OBJECT_TYPE_INVALID", "分镜提交（storyboard）只接受分镜包（StoryboardPackage）")
 			}
 			var value domain.StoryboardPackage
 			if err := json.Unmarshal(object.Content, &value); err != nil {
-				return domain.Invalid("STORYBOARD_JSON_INVALID", "StoryboardPackage 不是有效 JSON")
+				return domain.Invalid("STORYBOARD_JSON_INVALID", "分镜包不是有效 JSON")
 			}
 			if value.ProjectID != projectID {
-				return domain.Conflict("STORYBOARD_PROJECT_MISMATCH", "StoryboardPackage 不属于当前项目")
+				return domain.Conflict("STORYBOARD_PROJECT_MISMATCH", "分镜包不属于当前项目")
 			}
 			if !containsSubmissionString(baseSnapshotIDs, value.ApprovedSnapshotID) {
-				return domain.Invalid("STORYBOARD_BASE_SNAPSHOT_REQUIRED", "StoryboardPackage approved_snapshot_id 必须出现在 SubmissionRevision base_snapshot_ids 中")
+				return domain.Invalid("STORYBOARD_BASE_SNAPSHOT_REQUIRED", "分镜包的已批准快照标识（approved_snapshot_id）必须出现在提交内容版本的基线快照列表（base_snapshot_ids）中")
 			}
 			if err := value.Validate(true); err != nil {
 				return err
@@ -438,7 +438,7 @@ func validateGovernedSubmissionObjects(submissionType, projectID string, baseSna
 				return err
 			}
 			if lockedDigest != value.LockedDigest {
-				return domain.Conflict("STORYBOARD_LOCKED_DIGEST_MISMATCH", "StoryboardPackage locked_digest 与服务端复算结果不一致")
+				return domain.Conflict("STORYBOARD_LOCKED_DIGEST_MISMATCH", "分镜包的锁定摘要（locked_digest）与服务端复算结果不一致")
 			}
 		}
 	}
@@ -452,7 +452,7 @@ func (s *Service) validateTenantSubmissionContentTypes(ctx context.Context, tena
 			SchemaVersion string `json:"schema_version"`
 		}
 		if err := json.Unmarshal(object.Content, &identity); err != nil {
-			return domain.Invalid("SUBMISSION_OBJECT_JSON_INVALID", "Submission object 不是有效 JSON")
+			return domain.Invalid("SUBMISSION_OBJECT_JSON_INVALID", "提交对象不是有效 JSON")
 		}
 		objectContentType := ""
 		switch submissionType {
@@ -470,14 +470,14 @@ func (s *Service) validateTenantSubmissionContentTypes(ctx context.Context, tena
 					ContentKind string `json:"content_kind"`
 				}
 				if err := json.Unmarshal(object.Content, &itemIdentity); err != nil {
-					return domain.Invalid("CONTENT_ITEM_KIND_INVALID", "ContentItem content_kind 无效")
+					return domain.Invalid("CONTENT_ITEM_KIND_INVALID", "内容项的内容类型（content_kind）无效")
 				}
 				objectContentType = itemIdentity.ContentKind
 				if objectContentType == "" {
 					objectContentType = domain.ContentTypeVideoScript
 				}
 				if !domain.ValidTenantContentType(objectContentType) {
-					return domain.Invalid("CONTENT_ITEM_KIND_INVALID", "ContentItem content_kind 不受支持")
+					return domain.Invalid("CONTENT_ITEM_KIND_INVALID", "内容项的内容类型（content_kind）不受支持")
 				}
 			case localworkspace.ArticleSchema:
 				if _, err := localworkspace.ValidateArticleItemForSubmission(object.Content, projectID); err != nil {
@@ -489,18 +489,18 @@ func (s *Service) validateTenantSubmissionContentTypes(ctx context.Context, tena
 					ContentKind string `json:"content_kind"`
 				}
 				if err := json.Unmarshal(object.Content, &batchIdentity); err != nil || !domain.ValidTenantContentType(batchIdentity.ContentKind) {
-					return domain.Invalid("CONTENT_BATCH_KIND_INVALID", "ContentBatch manifest 缺少受支持的 content_kind")
+					return domain.Invalid("CONTENT_BATCH_KIND_INVALID", "内容批次清单缺少受支持的内容类型（content_kind）")
 				}
 				objectContentType = batchIdentity.ContentKind
 			default:
-				return domain.Invalid("CONTENT_SCHEMA_UNSUPPORTED", "content_batch 包含不受支持的内容 Schema")
+				return domain.Invalid("CONTENT_SCHEMA_UNSUPPORTED", "内容批次（content_batch）包含不受支持的内容格式")
 			}
 		}
 		if objectContentType == "" {
 			continue
 		}
 		if contentType != "" && contentType != objectContentType {
-			return domain.Invalid("CONTENT_BATCH_KIND_MIXED", "同一 SubmissionRevision 不能混合不同内容类型")
+			return domain.Invalid("CONTENT_BATCH_KIND_MIXED", "同一提交内容版本不能混合不同内容类型")
 		}
 		contentType = objectContentType
 	}
@@ -516,7 +516,7 @@ func (s *Service) validateTenantSubmissionContentTypes(ctx context.Context, tena
 			return nil
 		}
 	}
-	return domain.Policy("CONTENT_TYPE_NOT_ENABLED", "当前租户未开通内容类型 "+contentType, "联系平台管理员开通后刷新 Workspace Environment Manifest")
+	return domain.Policy("CONTENT_TYPE_NOT_ENABLED", "当前租户未开通内容类型（"+contentType+"）", "联系平台管理员开通后刷新本地工作区的执行环境清单")
 }
 
 func validateGovernedBaseSnapshotTypes(submissionType string, objects []domain.SubmissionObjectRef, baseSnapshots map[string]domain.ApprovedSnapshot, now time.Time) error {
@@ -531,7 +531,7 @@ func validateGovernedBaseSnapshotTypes(submissionType string, objects []domain.S
 			}
 			var item localworkspace.ArticleItem
 			if err := json.Unmarshal(object.Content, &item); err != nil {
-				return domain.Invalid("ARTICLE_ITEM_JSON_INVALID", "ArticleItem 不是有效 JSON")
+				return domain.Invalid("ARTICLE_ITEM_JSON_INVALID", "文章内容项不是有效 JSON")
 			}
 			briefFound := false
 			for _, snapshot := range baseSnapshots {
@@ -541,17 +541,17 @@ func validateGovernedBaseSnapshotTypes(submissionType string, objects []domain.S
 				}
 			}
 			if !briefFound {
-				return domain.Policy("ARTICLE_BRIEF_BASE_SNAPSHOT_REQUIRED", "ArticleItem 必须引用当前项目已批准的 ArticleBrief", "发布时包含冻结的 Brief ApprovedSnapshot")
+				return domain.Policy("ARTICLE_BRIEF_BASE_SNAPSHOT_REQUIRED", "文章内容项必须引用当前项目已批准的文章创作简报", "发布时包含已固定的创作简报批准快照")
 			}
 			for _, block := range item.Blocks {
 				for _, assertion := range block.Assertions {
 					for _, reference := range assertion.KnowledgeRefs {
 						kind, found := submissionKnowledgeKind(baseSnapshots, reference)
 						if !found {
-							return domain.Policy("ARTICLE_KNOWLEDGE_BASE_SNAPSHOT_REQUIRED", "ArticleItem assertion 引用未进入 Knowledge ApprovedSnapshot："+reference, "刷新知识快照并重新发布")
+							return domain.Policy("ARTICLE_KNOWLEDGE_BASE_SNAPSHOT_REQUIRED", "文章内容项中的事实陈述引用未进入已批准知识快照："+reference, "刷新知识快照并重新发布")
 						}
 						if assertion.Type == "commercial_claim" && kind != "claim" {
-							return domain.Policy("ARTICLE_CLAIM_BASE_INVALID", "commercial_claim 必须引用已批准 Claim："+reference, "改用已批准 Claim 或调整 assertion 类型")
+							return domain.Policy("ARTICLE_CLAIM_BASE_INVALID", "商业主张（commercial_claim）必须引用已批准的营销主张："+reference, "改用已批准的营销主张，或调整事实陈述类型")
 						}
 					}
 				}
@@ -562,14 +562,14 @@ func validateGovernedBaseSnapshotTypes(submissionType string, objects []domain.S
 			}
 			var strategy domain.AudienceStrategyVersion
 			if err := json.Unmarshal(object.Content, &strategy); err != nil {
-				return domain.Invalid("AUDIENCE_STRATEGY_JSON_INVALID", "AudienceStrategyVersion 不是有效 JSON")
+				return domain.Invalid("AUDIENCE_STRATEGY_JSON_INVALID", "人群策略版本不是有效 JSON")
 			}
 			taxonomy, found, err := audienceTaxonomyFromBaseSnapshots(strategy.TaxonomySnapshotID, baseSnapshots)
 			if err != nil {
 				return err
 			}
 			if !found {
-				return domain.Conflict("AUDIENCE_TAXONOMY_BASE_SNAPSHOT_INVALID", "AudienceStrategyVersion 必须引用当前项目已批准的 taxonomy 基线")
+				return domain.Conflict("AUDIENCE_TAXONOMY_BASE_SNAPSHOT_INVALID", "人群策略版本必须引用当前项目已批准的人群目录基线")
 			}
 			if err := strategy.ValidateAgainstTaxonomy(taxonomy, now); err != nil {
 				return err
@@ -577,16 +577,16 @@ func validateGovernedBaseSnapshotTypes(submissionType string, objects []domain.S
 		case "storyboard":
 			var value domain.StoryboardPackage
 			if err := json.Unmarshal(object.Content, &value); err != nil {
-				return domain.Invalid("STORYBOARD_JSON_INVALID", "StoryboardPackage 不是有效 JSON")
+				return domain.Invalid("STORYBOARD_JSON_INVALID", "分镜包不是有效 JSON")
 			}
 			snapshot, ok := baseSnapshots[value.ApprovedSnapshotID]
 			if !ok || snapshot.SubmissionType != "content_batch" {
-				return domain.Conflict("STORYBOARD_CONTENT_SNAPSHOT_INVALID", "StoryboardPackage 必须引用当前项目的 content_batch ApprovedSnapshot")
+				return domain.Conflict("STORYBOARD_CONTENT_SNAPSHOT_INVALID", "分镜包必须引用当前项目的已批准内容批次快照")
 			}
 			raw, err := approvedSnapshotObject(snapshot, value.ContentItemID)
 			if err != nil {
 				if domain.IsNotFound(err) {
-					return domain.Conflict("STORYBOARD_CONTENT_ITEM_BASE_INVALID", "StoryboardPackage content_item_id 不在所引用 ApprovedSnapshot 的 eligible objects 中")
+					return domain.Conflict("STORYBOARD_CONTENT_ITEM_BASE_INVALID", "分镜包的内容项标识（content_item_id）不在所引用批准快照的可用对象中")
 				}
 				return err
 			}
@@ -595,7 +595,7 @@ func validateGovernedBaseSnapshotTypes(submissionType string, objects []domain.S
 				return err
 			}
 			if value.SourceDigest != "sha256:"+hash {
-				return domain.Conflict("STORYBOARD_SOURCE_DIGEST_MISMATCH", "StoryboardPackage source_digest 与批准 ContentItem 不一致")
+				return domain.Conflict("STORYBOARD_SOURCE_DIGEST_MISMATCH", "分镜包的来源摘要（source_digest）与已批准内容项不一致")
 			}
 		}
 	}
@@ -649,13 +649,13 @@ func audienceTaxonomyFromBaseSnapshots(objectID string, snapshots map[string]dom
 		raw, err := approvedSnapshotObject(snapshot, objectID)
 		if err != nil {
 			if domain.IsNotFound(err) {
-				return domain.AudienceTaxonomySnapshot{}, false, domain.Conflict("AUDIENCE_TAXONOMY_BASE_SNAPSHOT_INVALID", "taxonomy ApprovedSnapshot eligible_ids 与 canonical objects 不一致")
+				return domain.AudienceTaxonomySnapshot{}, false, domain.Conflict("AUDIENCE_TAXONOMY_BASE_SNAPSHOT_INVALID", "人群目录批准快照的可用对象标识（eligible_ids）与规范对象列表不一致")
 			}
 			return domain.AudienceTaxonomySnapshot{}, false, err
 		}
 		var taxonomy domain.AudienceTaxonomySnapshot
 		if err := json.Unmarshal(raw, &taxonomy); err != nil || taxonomy.Type != "audience_taxonomy_snapshot" {
-			return domain.AudienceTaxonomySnapshot{}, false, domain.Conflict("AUDIENCE_TAXONOMY_BASE_SNAPSHOT_INVALID", "taxonomy_snapshot_id 未引用有效 AudienceTaxonomySnapshot")
+			return domain.AudienceTaxonomySnapshot{}, false, domain.Conflict("AUDIENCE_TAXONOMY_BASE_SNAPSHOT_INVALID", "人群目录快照标识（taxonomy_snapshot_id）未引用有效的人群目录快照")
 		}
 		return taxonomy, true, nil
 	}
@@ -689,7 +689,7 @@ func (s *Service) ApprovedSnapshot(ctx context.Context, actor Actor, id string) 
 		return snapshot, err
 	}
 	if actor.Type == "workspace" && snapshot.WorkspaceID != actor.WorkspaceID {
-		return domain.ApprovedSnapshot{}, domain.NotFound("ApprovedSnapshot")
+		return domain.ApprovedSnapshot{}, domain.NotFound("已批准快照")
 	}
 	return snapshot, nil
 }

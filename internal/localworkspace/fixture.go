@@ -48,7 +48,7 @@ func MaterializeFixture(fixture fixturev3.Fixture, options MaterializeFixtureOpt
 		return FixtureMaterialization{}, domain.Invalid("FIXTURE_V3_INVALID", err.Error())
 	}
 	if fixture.Scenario == nil {
-		return FixtureMaterialization{}, domain.Invalid("FIXTURE_SCENARIO_REQUIRED", "本地 Workspace Fixture 必须包含 scenario")
+		return FixtureMaterialization{}, domain.Invalid("FIXTURE_SCENARIO_REQUIRED", "本地工作区测试数据必须包含场景定义（scenario）")
 	}
 	if strings.TrimSpace(options.Root) == "" || strings.TrimSpace(options.ProjectID) == "" || strings.TrimSpace(options.WorkspaceID) == "" {
 		return FixtureMaterialization{}, domain.Invalid("FIXTURE_WORKSPACE_CONTEXT_REQUIRED", "fixture apply 需要 directory、project ID 和 workspace ID")
@@ -62,7 +62,7 @@ func MaterializeFixture(fixture fixturev3.Fixture, options MaterializeFixtureOpt
 		return FixtureMaterialization{}, err
 	}
 	if plan.State != "missing" && plan.State != "empty" {
-		return FixtureMaterialization{}, domain.Conflict("FIXTURE_DIRECTORY_NOT_EMPTY", "Fixture 只能物化到空目录，拒绝修改已有 Workspace 或文件")
+		return FixtureMaterialization{}, domain.Conflict("FIXTURE_DIRECTORY_NOT_EMPTY", "测试数据只能写入空目录，拒绝修改已有工作区或文件")
 	}
 	cliVersion := strings.TrimSpace(options.CLIVersion)
 	if cliVersion == "" {
@@ -169,7 +169,7 @@ func materializeFixtureSources(root string, sources []fixturev3.SourceSpec, now 
 			return nil, err
 		}
 		if bundle.Status != "ready" || len(bundle.Evidence) == 0 {
-			return nil, domain.Invalid("FIXTURE_SOURCE_INGEST_FAILED", "Fixture 来源未生成可接受 Evidence："+source.ID)
+			return nil, domain.Invalid("FIXTURE_SOURCE_INGEST_FAILED", "Fixture 来源未生成可接受的证据："+source.ID)
 		}
 		result[source.ID] = bundle
 	}
@@ -240,7 +240,7 @@ func materializeFixtureContent(root string, fixture fixturev3.Fixture, knowledge
 		if err != nil {
 			return FinalizeContentBatchResult{}, nil, err
 		}
-		lintErr := domain.Invalid("FIXTURE_BRIEF_LINT_FAILED", "Fixture Brief 未通过确定性校验")
+		lintErr := domain.Invalid("FIXTURE_BRIEF_LINT_FAILED", "Fixture 简报未通过确定性校验")
 		lintErr.Details = briefLint
 		return FinalizeContentBatchResult{}, nil, lintErr
 	}

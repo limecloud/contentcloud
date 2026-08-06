@@ -50,7 +50,7 @@ func (s *Store) CreateKnowledgeObjectDecision(_ context.Context, object domain.K
 	}
 	previous, exists := s.knowledgeObjects[knowledgeObjectKey(object.TenantID, object.ID, decision.PreviousVersion)]
 	if !exists || previous.Digest != decision.SubjectDigest {
-		return domain.Conflict("KNOWLEDGE_DECISION_SUBJECT_CHANGED", "知识对象版本或 digest 已变化")
+		return domain.Conflict("KNOWLEDGE_DECISION_SUBJECT_CHANGED", "知识对象版本或摘要（digest）已变化")
 	}
 	s.knowledgeObjects[objectKey] = cloneKnowledgeObject(object)
 	s.knowledgeDecisions[decision.ID] = decision

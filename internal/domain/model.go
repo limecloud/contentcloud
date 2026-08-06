@@ -350,7 +350,7 @@ func CanonicalHash(value any) (string, error) {
 
 func CompileKnowledgeSnapshot(project Project, sources []ContractSource, now time.Time) (ContextSnapshot, error) {
 	if len(sources) == 0 {
-		return ContextSnapshot{}, fmt.Errorf("knowledge extraction requires at least one source revision")
+		return ContextSnapshot{}, fmt.Errorf("知识提取至少需要一个来源修订版本")
 	}
 	ordered := append([]ContractSource(nil), sources...)
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].RevisionID < ordered[j].RevisionID })

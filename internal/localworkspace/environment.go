@@ -45,7 +45,7 @@ func ReadEnvironmentClaim(root string) (EnvironmentState, error) {
 		return EnvironmentState{}, err
 	}
 	if manifest.ProjectID != binding.ProjectID || lock.ProjectID != binding.ProjectID {
-		return EnvironmentState{}, domain.Conflict("AUTOMATION_ENVIRONMENT_PROJECT_MISMATCH", "本地 Environment Claim 与 Workspace 项目不一致")
+		return EnvironmentState{}, domain.Conflict("AUTOMATION_ENVIRONMENT_PROJECT_MISMATCH", "本地环境声明与工作区项目不一致")
 	}
 	if err := environment.ValidateLock(manifest, lock); err != nil {
 		return EnvironmentState{}, err
@@ -63,7 +63,7 @@ func StoreEnvironment(root string, manifest environment.Manifest, installed []en
 		return EnvironmentState{}, err
 	}
 	if verifier == nil {
-		return EnvironmentState{}, domain.Invalid("ENVIRONMENT_VERIFIER_REQUIRED", "保存 Environment Manifest 前必须提供可信 verifier")
+		return EnvironmentState{}, domain.Invalid("ENVIRONMENT_VERIFIER_REQUIRED", "保存环境清单前必须提供可信校验器")
 	}
 	now = now.UTC()
 	if now.IsZero() {
@@ -96,7 +96,7 @@ func StoreEnvironmentRegistry(root string, registry environment.Registry, verifi
 		return environment.VerifiedRegistry{}, err
 	}
 	if verifier == nil {
-		return environment.VerifiedRegistry{}, domain.Invalid("REGISTRY_VERIFIER_REQUIRED", "保存 Environment Registry 前必须提供可信 verifier")
+		return environment.VerifiedRegistry{}, domain.Invalid("REGISTRY_VERIFIER_REQUIRED", "保存环境能力目录前必须提供可信校验器")
 	}
 	verified, err := verifier.Verify(registry)
 	if err != nil {
@@ -114,7 +114,7 @@ func LoadEnvironmentRegistry(root string, verifier *environment.RegistryVerifier
 		return environment.VerifiedRegistry{}, err
 	}
 	if verifier == nil {
-		return environment.VerifiedRegistry{}, domain.Invalid("REGISTRY_VERIFIER_REQUIRED", "读取 Environment Registry 前必须提供可信 verifier")
+		return environment.VerifiedRegistry{}, domain.Invalid("REGISTRY_VERIFIER_REQUIRED", "读取环境能力目录前必须提供可信校验器")
 	}
 	var registry environment.Registry
 	if err := readStrictJSON(filepath.Join(resolved, ".contentcloud", environmentRegistryFile), &registry); err != nil {
@@ -129,7 +129,7 @@ func LoadEnvironment(root string, verifier *environment.Verifier, now time.Time)
 		return EnvironmentState{}, err
 	}
 	if verifier == nil {
-		return EnvironmentState{}, domain.Invalid("ENVIRONMENT_VERIFIER_REQUIRED", "读取 Environment Manifest 前必须提供可信 verifier")
+		return EnvironmentState{}, domain.Invalid("ENVIRONMENT_VERIFIER_REQUIRED", "读取环境清单前必须提供可信校验器")
 	}
 	var manifest environment.Manifest
 	if err := readStrictJSON(filepath.Join(resolved, ".contentcloud", environmentManifestFile), &manifest); err != nil {
@@ -165,7 +165,7 @@ func RequireContentType(root, contentType string, verifier *environment.Verifier
 			return state, nil
 		}
 	}
-	return EnvironmentState{}, domain.Policy("CONTENT_TYPE_NOT_ENABLED", "当前租户未开通内容类型 "+contentType, "由平台管理员在租户后台开通后刷新 Workspace Environment Manifest")
+	return EnvironmentState{}, domain.Policy("CONTENT_TYPE_NOT_ENABLED", "当前租户未开通内容类型 "+contentType, "由平台管理员在租户后台开通后，刷新工作区环境清单")
 }
 
 // CompareAndSwapEnvironmentLock commits one verified environment transition without overwriting concurrent state.

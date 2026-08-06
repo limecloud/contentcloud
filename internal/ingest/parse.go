@@ -86,7 +86,7 @@ func Parse(fileName, mimeType string, data []byte) Result {
 	case "image/png", "image/jpeg":
 		evidence, err = parseImageOCR(fileName, data)
 	default:
-		err = fmt.Errorf("unsupported mime %s", mimeType)
+		err = fmt.Errorf("不支持的 MIME 类型 %s", mimeType)
 	}
 	if err != nil {
 		return Result{Status: "needs_review", ErrorCode: classifyError(err), Evidence: evidence}
@@ -129,7 +129,7 @@ func zipFiles(data []byte) (map[string][]byte, error) {
 	for _, file := range reader.File {
 		total += file.UncompressedSize64
 		if total > 250*1024*1024 || file.UncompressedSize64 > 100*1024*1024 {
-			return nil, fmt.Errorf("archive expansion limit exceeded")
+			return nil, fmt.Errorf("压缩包解压后超过大小限制")
 		}
 		stream, err := file.Open()
 		if err != nil {
@@ -152,7 +152,7 @@ func parseDOCX(data []byte) ([]Evidence, error) {
 	}
 	body, ok := files["word/document.xml"]
 	if !ok {
-		return nil, fmt.Errorf("word/document.xml missing")
+		return nil, fmt.Errorf("DOCX 文件缺少 word/document.xml")
 	}
 	paragraphs, err := xmlParagraphs(body, "p", "t")
 	if err != nil {
@@ -313,7 +313,7 @@ func parsePDF(data []byte) ([]Evidence, error) {
 
 func parseImageOCR(fileName string, data []byte) ([]Evidence, error) {
 	if _, err := exec.LookPath("tesseract"); err != nil {
-		return nil, fmt.Errorf("tesseract unavailable")
+		return nil, fmt.Errorf("Tesseract 不可用")
 	}
 	dir, err := os.MkdirTemp("", "contentcloud-ocr-*")
 	if err != nil {
@@ -328,7 +328,7 @@ func parseImageOCR(fileName string, data []byte) ([]Evidence, error) {
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "LANG=" + os.Getenv("LANG")}
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("tesseract failed: %w", err)
+		return nil, fmt.Errorf("Tesseract 执行失败：%w", err)
 	}
 	reader := csv.NewReader(bytes.NewReader(output))
 	reader.Comma = '\t'

@@ -35,7 +35,7 @@ type PreparationPlan struct {
 
 func BuildPreparationPlan(projectID string, execution LocalExecutionPlan, verifiedRegistry VerifiedRegistry) (PreparationPlan, error) {
 	if projectID == "" || execution.PlanID == "" || execution.EnvironmentDigest == "" || (execution.State != "ready" && execution.State != "environment_prepare") {
-		return PreparationPlan{}, domain.Invalid("ENVIRONMENT_PREPARATION_INPUT_INVALID", "Environment Preparation 需要有效的 LocalExecutionPlan 和项目")
+		return PreparationPlan{}, domain.Invalid("ENVIRONMENT_PREPARATION_INPUT_INVALID", "环境准备需要有效的本地执行计划和项目")
 	}
 	registry := verifiedRegistry.raw()
 	plan := PreparationPlan{
@@ -77,10 +77,10 @@ func BuildPreparationPlan(projectID string, execution LocalExecutionPlan, verifi
 // PreparedLock derives the exact lock that may be committed after every plan action is installed.
 func PreparedLock(manifest Manifest, current EnvironmentLock, plan PreparationPlan, verifiedRegistry VerifiedRegistry, now time.Time) (EnvironmentLock, error) {
 	if plan.SchemaVersion != PreparationPlanSchemaVersion || plan.State != "ready" || !plan.RequiresConfirmation || !plan.RequiresNewChat || len(plan.Actions) == 0 {
-		return EnvironmentLock{}, domain.Invalid("ENVIRONMENT_PREPARATION_PLAN_INVALID", "Environment Preparation plan 不是可执行的确认计划")
+		return EnvironmentLock{}, domain.Invalid("ENVIRONMENT_PREPARATION_PLAN_INVALID", "环境准备计划不是可执行的已确认计划")
 	}
 	if plan.ProjectID != manifest.ProjectID || plan.EnvironmentDigest != manifest.Digest {
-		return EnvironmentLock{}, domain.Conflict("ENVIRONMENT_PREPARATION_ENVIRONMENT_MISMATCH", "Environment Preparation plan 与当前 Manifest 不一致")
+		return EnvironmentLock{}, domain.Conflict("ENVIRONMENT_PREPARATION_ENVIRONMENT_MISMATCH", "环境准备计划与当前环境清单不一致")
 	}
 	if err := ValidateLock(manifest, current); err != nil {
 		return EnvironmentLock{}, err
@@ -99,15 +99,15 @@ func PreparedLock(manifest Manifest, current EnvironmentLock, plan PreparationPl
 	seen := map[string]struct{}{}
 	for _, action := range plan.Actions {
 		if action.Reason != "not_installed" || action.Plugin.Scope != "task" {
-			return EnvironmentLock{}, domain.Policy("ENVIRONMENT_PREPARATION_REPAIR_REQUIRED", "只允许安装尚未安装的任务级 Pack", "版本或 digest 漂移必须通过独立修复流程处理")
+			return EnvironmentLock{}, domain.Policy("ENVIRONMENT_PREPARATION_REPAIR_REQUIRED", "只允许安装尚未安装的任务级能力包", "版本或摘要变化必须通过独立修复流程处理")
 		}
 		if _, duplicated := seen[action.Plugin.ID]; duplicated {
-			return EnvironmentLock{}, domain.Conflict("ENVIRONMENT_PREPARATION_ACTION_DUPLICATED", "Environment Preparation plan 包含重复 Pack")
+			return EnvironmentLock{}, domain.Conflict("ENVIRONMENT_PREPARATION_ACTION_DUPLICATED", "环境准备计划包含重复能力包")
 		}
 		seen[action.Plugin.ID] = struct{}{}
 		plugin, exists := allowed[action.Plugin.ID]
 		if !exists || !reflect.DeepEqual(plugin, action.Plugin) {
-			return EnvironmentLock{}, domain.Policy("ENVIRONMENT_PREPARATION_PLUGIN_DENIED", "Environment Preparation Pack 不在当前 Manifest 精确 allowlist 中", "重新生成 Environment Preparation plan")
+			return EnvironmentLock{}, domain.Policy("ENVIRONMENT_PREPARATION_PLUGIN_DENIED", "环境准备能力包不在当前环境清单的准确允许列表中", "重新生成环境准备计划")
 		}
 		entry, exactErr := registry.Exact(plugin.ID, plugin.Version, plugin.Digest)
 		if exactErr != nil {
@@ -118,7 +118,7 @@ func PreparedLock(manifest Manifest, current EnvironmentLock, plan PreparationPl
 		}
 		if installed, exists := locked[plugin.ID]; exists {
 			if installed.Installed {
-				return EnvironmentLock{}, domain.Conflict("ENVIRONMENT_PREPARATION_ALREADY_INSTALLED", "Environment Preparation Pack 已记录为安装，计划已经失效")
+				return EnvironmentLock{}, domain.Conflict("ENVIRONMENT_PREPARATION_ALREADY_INSTALLED", "环境准备能力包已记录为安装，当前计划已经失效")
 			}
 			replaced := false
 			for index := range next.Plugins {
@@ -129,7 +129,7 @@ func PreparedLock(manifest Manifest, current EnvironmentLock, plan PreparationPl
 				}
 			}
 			if !replaced {
-				return EnvironmentLock{}, domain.Conflict("ENVIRONMENT_PREPARATION_LOCK_INVALID", "environment.lock 的 Pack 索引与内容不一致")
+				return EnvironmentLock{}, domain.Conflict("ENVIRONMENT_PREPARATION_LOCK_INVALID", "environment.lock 中的能力包索引与实际内容不一致")
 			}
 		} else {
 			next.Plugins = append(next.Plugins, LockedPlugin{ID: plugin.ID, Kind: plugin.Kind, Version: plugin.Version, Digest: plugin.Digest, Installed: true})

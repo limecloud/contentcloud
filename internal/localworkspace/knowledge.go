@@ -467,10 +467,10 @@ func PackKnowledge(options PackKnowledgeOptions) (KnowledgePackResult, error) {
 		packID = "knowledge-pack-" + strings.TrimPrefix(contentHash, "sha256:")[:12]
 	}
 	if !localSourceIDPattern.MatchString(packID) {
-		return KnowledgePackResult{}, domain.Invalid("KNOWLEDGE_PACK_ID_INVALID", "pack ID 无效")
+		return KnowledgePackResult{}, domain.Invalid("KNOWLEDGE_PACK_ID_INVALID", "知识包 ID 无效")
 	}
 	now := localNow(options.Now)
-	manifest := KnowledgePackManifest{ID: packID, Status: "candidate", SchemaVersion: KnowledgePackSchemaVersion, Name: defaultLocalValue(options.Name, "ContentCloud 客户知识包"), Layers: layers, Quality: map[string]any{"item_count": len(items)}, ItemCount: len(items), ContentHash: contentHash, CreatedAt: now}
+	manifest := KnowledgePackManifest{ID: packID, Status: "candidate", SchemaVersion: KnowledgePackSchemaVersion, Name: defaultLocalValue(options.Name, "客户知识包"), Layers: layers, Quality: map[string]any{"item_count": len(items)}, ItemCount: len(items), ContentHash: contentHash, CreatedAt: now}
 	objects := make([]any, 0, len(items)+1)
 	objects = append(objects, manifest)
 	for _, item := range items {
@@ -504,33 +504,33 @@ func validateKnowledgeCandidates(pkg domain.KnowledgeExtractionPackage) error {
 	}
 	for index, candidate := range pkg.Candidates {
 		if !validKnowledgeKind(candidate.Kind) || strings.TrimSpace(candidate.Title) == "" || strings.TrimSpace(candidate.Statement) == "" || strings.TrimSpace(candidate.Subject) == "" || strings.TrimSpace(candidate.Predicate) == "" {
-			return domain.Invalid("KNOWLEDGE_CANDIDATE_INVALID", fmt.Sprintf("candidate %d 的 kind/title/statement/subject/predicate 无效", index+1))
+			return domain.Invalid("KNOWLEDGE_CANDIDATE_INVALID", fmt.Sprintf("第 %d 个知识候选的类型、标题、陈述、主体或谓词无效", index+1))
 		}
 		if candidate.RiskLevel != "low" && candidate.RiskLevel != "medium" && candidate.RiskLevel != "high" {
-			return domain.Invalid("KNOWLEDGE_RISK_INVALID", fmt.Sprintf("candidate %d risk_level 无效", index+1))
+			return domain.Invalid("KNOWLEDGE_RISK_INVALID", fmt.Sprintf("第 %d 个知识候选的风险级别（risk_level）无效", index+1))
 		}
 		if candidate.Value.Type != "text" && candidate.Value.Type != "number" && candidate.Value.Type != "boolean" && candidate.Value.Type != "date" && candidate.Value.Type != "enum" {
-			return domain.Invalid("KNOWLEDGE_VALUE_INVALID", fmt.Sprintf("candidate %d value.type 无效", index+1))
+			return domain.Invalid("KNOWLEDGE_VALUE_INVALID", fmt.Sprintf("第 %d 个知识候选的 value.type 无效", index+1))
 		}
 		if len(candidate.Evidence) == 0 {
-			return domain.Invalid("KNOWLEDGE_EVIDENCE_REQUIRED", fmt.Sprintf("candidate %d 必须包含 evidence", index+1))
+			return domain.Invalid("KNOWLEDGE_EVIDENCE_REQUIRED", fmt.Sprintf("第 %d 个知识候选必须包含证据（evidence）", index+1))
 		}
 		if !allUnique(candidate.AllowedChannels) || !allUnique(candidate.ForbiddenExtensions) || !allUnique(candidate.DependsOnFactIDs) {
-			return domain.Invalid("KNOWLEDGE_ARRAY_DUPLICATE", fmt.Sprintf("candidate %d 的数组字段不能重复", index+1))
+			return domain.Invalid("KNOWLEDGE_ARRAY_DUPLICATE", fmt.Sprintf("第 %d 个知识候选的数组字段不能包含重复项", index+1))
 		}
 		if candidate.AllowedChannels == nil || candidate.ForbiddenExtensions == nil || candidate.DependsOnFactIDs == nil || candidate.Scope.Regions == nil || candidate.Scope.Channels == nil || candidate.Scope.Audiences == nil || candidate.Scope.ProductVariants == nil {
-			return domain.Invalid("KNOWLEDGE_ARRAY_REQUIRED", fmt.Sprintf("candidate %d 必须显式返回所有数组字段", index+1))
+			return domain.Invalid("KNOWLEDGE_ARRAY_REQUIRED", fmt.Sprintf("第 %d 个知识候选必须明确返回所有数组字段", index+1))
 		}
 		if (candidate.Value.Type == "number" && candidate.Value.Number == nil) ||
 			(candidate.Value.Type == "boolean" && candidate.Value.Boolean == nil) ||
 			((candidate.Value.Type == "text" || candidate.Value.Type == "date" || candidate.Value.Type == "enum") && strings.TrimSpace(candidate.Value.Text) == "") {
-			return domain.Invalid("KNOWLEDGE_VALUE_REQUIRED", fmt.Sprintf("candidate %d 的 value 与 type 不匹配", index+1))
+			return domain.Invalid("KNOWLEDGE_VALUE_REQUIRED", fmt.Sprintf("第 %d 个知识候选的值与类型不匹配", index+1))
 		}
 		evidenceKeys := map[string]bool{}
 		for _, ref := range candidate.Evidence {
 			key := ref.SourceRevisionID + "\x00" + ref.LocatorKind + "\x00" + ref.Locator + "\x00" + ref.Quote
 			if evidenceKeys[key] {
-				return domain.Invalid("KNOWLEDGE_EVIDENCE_DUPLICATE", fmt.Sprintf("candidate %d 的 evidence 不能重复", index+1))
+				return domain.Invalid("KNOWLEDGE_EVIDENCE_DUPLICATE", fmt.Sprintf("第 %d 个知识候选的证据不能重复", index+1))
 			}
 			evidenceKeys[key] = true
 		}
@@ -554,7 +554,7 @@ func loadEvidenceIndex(root string) (map[string][]LocalEvidence, error) {
 			return nil, err
 		}
 		if bundle.SourceID != source.ID || bundle.SourceSHA256 != source.SHA256 {
-			return nil, domain.Conflict("LOCAL_EVIDENCE_SOURCE_MISMATCH", "EvidenceBundle 与 SourceRegistry 不一致："+source.ID)
+			return nil, domain.Conflict("LOCAL_EVIDENCE_SOURCE_MISMATCH", "证据包（EvidenceBundle）与来源目录（SourceRegistry）不一致："+source.ID)
 		}
 		index[source.ID] = bundle.Evidence
 	}
@@ -566,7 +566,7 @@ func validateKnowledgeEvidence(item LocalKnowledgeItem, index map[string][]Local
 		return nil
 	}
 	if len(item.EvidenceIDs) == 0 {
-		return domain.Invalid("KNOWLEDGE_EVIDENCE_REQUIRED", "FactAssertion 和 Claim 必须引用至少一个 Evidence")
+		return domain.Invalid("KNOWLEDGE_EVIDENCE_REQUIRED", "事实陈述和主张必须引用至少一条证据")
 	}
 	known := map[string]LocalEvidence{}
 	for _, spans := range index {
@@ -577,7 +577,7 @@ func validateKnowledgeEvidence(item LocalKnowledgeItem, index map[string][]Local
 	for _, id := range item.EvidenceIDs {
 		span, ok := known[id]
 		if !ok {
-			return domain.Invalid("KNOWLEDGE_EVIDENCE_REF_MISSING", "evidence_refs 引用不存在："+id)
+			return domain.Invalid("KNOWLEDGE_EVIDENCE_REF_MISSING", "证据引用（evidence_refs）不存在："+id)
 		}
 		if span.ReviewStatus != "accepted" {
 			return domain.Policy("KNOWLEDGE_EVIDENCE_REVIEW_REQUIRED", "证据尚未通过本地人工复核："+id, "先复核 OCR/视觉证据，再生成候选")
@@ -591,7 +591,7 @@ func validateKnowledgeEvidence(item LocalKnowledgeItem, index map[string][]Local
 		return err
 	}
 	if strings.Join(uniqueStrings(matched), "\x00") != strings.Join(uniqueStrings(item.EvidenceIDs), "\x00") {
-		return domain.Invalid("KNOWLEDGE_EVIDENCE_ID_MISMATCH", "evidence 与 evidence_refs 不是同一组证据")
+		return domain.Invalid("KNOWLEDGE_EVIDENCE_ID_MISMATCH", "证据内容与证据引用（evidence_refs）不是同一组证据")
 	}
 	return nil
 }
@@ -601,11 +601,11 @@ func matchCandidateEvidence(refs []domain.EvidenceRef, index map[string][]LocalE
 	for _, ref := range refs {
 		spans := index[ref.SourceRevisionID]
 		if len(spans) == 0 {
-			return nil, domain.Invalid("KNOWLEDGE_SOURCE_EVIDENCE_MISSING", "来源尚未 ingest，或 source_revision_id 不是本地不可变 source ID："+ref.SourceRevisionID)
+			return nil, domain.Invalid("KNOWLEDGE_SOURCE_EVIDENCE_MISSING", "来源尚未导入，或 source_revision_id 不是本地不可变来源 ID："+ref.SourceRevisionID)
 		}
 		locator, err := canonicalLocatorString(ref.Locator)
 		if err != nil {
-			return nil, domain.Invalid("KNOWLEDGE_LOCATOR_INVALID", "evidence.locator 必须是 JSON object 字符串")
+			return nil, domain.Invalid("KNOWLEDGE_LOCATOR_INVALID", "证据定位信息（evidence.locator）必须是 JSON 对象字符串")
 		}
 		found := false
 		for _, span := range spans {
@@ -621,7 +621,7 @@ func matchCandidateEvidence(refs []domain.EvidenceRef, index map[string][]LocalE
 			}
 		}
 		if !found {
-			return nil, domain.Invalid("KNOWLEDGE_EVIDENCE_NOT_EXACT", "候选 evidence 未与 EvidenceBundle 的 locator 和 quote 精确匹配")
+			return nil, domain.Invalid("KNOWLEDGE_EVIDENCE_NOT_EXACT", "候选证据未与证据包中的定位信息和引文精确匹配")
 		}
 	}
 	return matched, nil
@@ -630,7 +630,7 @@ func matchCandidateEvidence(refs []domain.EvidenceRef, index map[string][]LocalE
 func canonicalLocatorString(value string) (string, error) {
 	var locator map[string]any
 	if err := json.Unmarshal([]byte(value), &locator); err != nil || locator == nil {
-		return "", errors.New("invalid locator")
+		return "", errors.New("证据位置无效")
 	}
 	body, err := json.Marshal(locator)
 	return string(body), err
@@ -771,11 +771,11 @@ func latestKnowledgeSnapshot(root string) (domain.ApprovedSnapshot, []LocalKnowl
 		Objects json.RawMessage `json:"objects"`
 	}
 	if err := json.Unmarshal(latest.CanonicalContent, &canonical); err != nil {
-		return latest, nil, false, domain.Invalid("APPROVED_SNAPSHOT_CONTENT_INVALID", "ApprovedSnapshot canonical_content 无效")
+		return latest, nil, false, domain.Invalid("APPROVED_SNAPSHOT_CONTENT_INVALID", "批准快照中的规范内容（canonical_content）无效")
 	}
 	var raws []json.RawMessage
 	if err := json.Unmarshal(canonical.Objects, &raws); err != nil {
-		return latest, nil, false, domain.Invalid("APPROVED_SNAPSHOT_OBJECTS_INVALID", "ApprovedSnapshot objects 无效")
+		return latest, nil, false, domain.Invalid("APPROVED_SNAPSHOT_OBJECTS_INVALID", "批准快照中的对象列表无效")
 	}
 	items := []LocalKnowledgeItem{}
 	for _, raw := range raws {
@@ -911,7 +911,7 @@ func ResolveWorkspaceFile(root, value string) (string, error) {
 	}
 	relative, err := filepath.Rel(resolvedRoot, resolvedPath)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", domain.Policy("LOCAL_FILE_OUTSIDE_WORKSPACE", "文件必须位于当前工作区", "将 Agent 输出写入工作区后再导入")
+		return "", domain.Policy("LOCAL_FILE_OUTSIDE_WORKSPACE", "文件必须位于当前工作区", "将智能体输出写入工作区后再导入")
 	}
 	return filepath.Clean(resolvedPath), nil
 }

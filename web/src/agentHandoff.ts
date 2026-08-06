@@ -43,11 +43,11 @@ const expectedHandoffKeys = new Set([
 export async function loadAgentClients(): Promise<AgentClient[]> {
   const value = await api<unknown>('/api/bff/agent-clients');
   if (!isRecord(value) || value.schema_version !== 'contentcloud.agent-client-catalog/1.0' || !Array.isArray(value.clients)) {
-    throw new Error('Agent 客户端目录结构不受支持');
+    throw new Error('智能体客户端目录结构不受支持');
   }
   const clients = value.clients.map(validateAgentClient);
   if (clients.length !== clientIDs.length || new Set(clients.map(client => client.id)).size !== clientIDs.length || clientIDs.some(id => !clients.some(client => client.id === id))) {
-    throw new Error('Agent 客户端目录不完整');
+    throw new Error('智能体客户端目录不完整');
   }
   return clients;
 }
@@ -64,27 +64,27 @@ export async function loadReviewFeedbackAgentHandoff(projectID: string, revision
 
 export function validateAgentHandoff(value: unknown, expectation: AgentHandoffExpectation): AgentHandoff {
   if (!isRecord(value) || Object.keys(value).some(key => !expectedHandoffKeys.has(key))) {
-    throw new Error('Agent 恢复响应结构不受支持');
+    throw new Error('智能体恢复响应结构不受支持');
   }
   const client = validateAgentClient(value.client);
   const target = value.target;
   const integration = value.integration;
   const launch = value.launch;
   if (!sameClient(client, expectation.client) || !isRecord(target) || !isSafeID(value.project_id) || !isSafeID(target.id) || !isRecord(integration) || !isRecord(launch)) {
-    throw new Error('Agent 恢复目标无效');
+    throw new Error('智能体恢复目标无效');
   }
   const expectedKind = expectation.targetKind === 'project' ? 'project' : 'review_feedback';
   if (value.schema_version !== 'contentcloud.agent-handoff/1.0' || value.project_id !== expectation.projectID || value.kind !== expectedKind || target.kind !== expectation.targetKind || target.id !== expectation.targetID) {
-    throw new Error('Agent 恢复目标与当前页面不一致');
+    throw new Error('智能体恢复目标与当前页面不一致');
   }
   if (expectation.digest && target.digest !== normalizeDigest(expectation.digest)) {
-    throw new Error('Agent 恢复摘要与当前页面不一致');
+    throw new Error('智能体恢复摘要与当前页面不一致');
   }
   if (target.digest !== undefined && !isDigest(target.digest)) {
-    throw new Error('Agent 恢复摘要无效');
+    throw new Error('智能体恢复摘要无效');
   }
   if (value.requires_new_session !== true || value.requires_workspace_selection !== true || typeof value.prompt !== 'string' || !Array.isArray(value.steps) || value.steps.some(step => typeof step !== 'string' || step.length === 0) || typeof value.fallback_url !== 'string') {
-    throw new Error('Agent 恢复门禁无效');
+    throw new Error('智能体恢复条件无效');
   }
   validateClientHandoff(client.id, integration, launch, value.prompt, value.fallback_url, expectation);
   return value as unknown as AgentHandoff;
@@ -101,15 +101,15 @@ export function normalizeDigest(value: string): string {
 
 function validateAgentClient(value: unknown): AgentClient {
   if (!isRecord(value) || Object.keys(value).some(key => !['id', 'display_name', 'capabilities'].includes(key)) || !clientIDs.includes(value.id) || typeof value.display_name !== 'string' || !value.display_name.trim() || !Array.isArray(value.capabilities)) {
-    throw new Error('Agent 客户端定义无效');
+    throw new Error('智能体客户端定义无效');
   }
   const capabilities = value.capabilities;
   if (capabilities.length !== capabilityIDs.length || new Set(capabilities.map(item => isRecord(item) ? item.id : '')).size !== capabilityIDs.length) {
-    throw new Error('Agent 客户端能力目录不完整');
+    throw new Error('智能体客户端能力目录不完整');
   }
   for (const capability of capabilities) {
     if (!isRecord(capability) || Object.keys(capability).some(key => !['id', 'status'].includes(key)) || !capabilityIDs.includes(capability.id) || (capability.status !== 'available' && capability.status !== 'planned')) {
-      throw new Error('Agent 客户端能力定义无效');
+      throw new Error('智能体客户端能力定义无效');
     }
   }
   return value as unknown as AgentClient;

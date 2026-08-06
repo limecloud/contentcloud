@@ -124,7 +124,7 @@ func InitLocalRun(options InitLocalRunOptions) (LocalRunContext, error) {
 	}
 	intent := strings.TrimSpace(options.Intent)
 	if !strings.HasPrefix(intent, "intent:") || !localSourceIDPattern.MatchString(intent) {
-		return LocalRunContext{}, domain.Invalid("LOCAL_RUN_INTENT_INVALID", "intent_id 必须使用 intent:<name> 稳定 ID")
+		return LocalRunContext{}, domain.Invalid("LOCAL_RUN_INTENT_INVALID", "intent_id 必须使用 intent:<name> 格式的稳定 ID")
 	}
 	inputRefs, err := resolveLocalRunInputRefs(root, options.InputIDs)
 	if err != nil {
@@ -136,7 +136,7 @@ func InitLocalRun(options InitLocalRunOptions) (LocalRunContext, error) {
 		runID = "run_" + now.Format("20060102T150405Z") + "_" + strings.ReplaceAll(domain.NewID()[:8], "-", "")
 	}
 	if !localSourceIDPattern.MatchString(runID) {
-		return LocalRunContext{}, domain.Invalid("LOCAL_RUN_ID_INVALID", "run ID 只能包含字母、数字、冒号、点、下划线和连字符")
+		return LocalRunContext{}, domain.Invalid("LOCAL_RUN_ID_INVALID", "运行 ID 只能包含字母、数字、冒号、点、下划线和连字符")
 	}
 	stage := "knowledge-lint"
 	if options.WithIngest {
@@ -198,7 +198,7 @@ func recordLocalRun(options RecordLocalRunOptions, requireClaim bool) (LocalRunC
 		return LocalRunContext{}, err
 	}
 	if context.Status == "completed" {
-		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_COMPLETED", "已完成的 LocalRun 不可再修改")
+		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_COMPLETED", "已完成的本地运行不可再修改")
 	}
 	if requireClaim {
 		if err := validateClaimedRunWrite(root, context, options.ClaimToken, options.ExpectedRevision, options.Now); err != nil {
@@ -245,14 +245,14 @@ func checkLocalRun(options CheckLocalRunOptions, requireClaim bool) (LocalRunCon
 	name := strings.TrimSpace(options.Name)
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	if name == "" || (status != "passed" && status != "failed") {
-		return LocalRunContext{}, domain.Invalid("LOCAL_RUN_CHECK_INVALID", "check 需要 name，status 只允许 passed 或 failed")
+		return LocalRunContext{}, domain.Invalid("LOCAL_RUN_CHECK_INVALID", "检查项需要 name，status 只允许 passed 或 failed")
 	}
 	context, err := loadLocalRun(root, options.RunID)
 	if err != nil {
 		return LocalRunContext{}, err
 	}
 	if context.Status == "completed" {
-		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_COMPLETED", "已完成的 LocalRun 不可再修改")
+		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_COMPLETED", "已完成的本地运行不可再修改")
 	}
 	if requireClaim {
 		if err := validateClaimedRunWrite(root, context, options.ClaimToken, options.ExpectedRevision, options.Now); err != nil {
@@ -297,7 +297,7 @@ func advanceLocalRun(root, runID, target string, additions RecordLocalRunOptions
 	}
 	target = strings.ToLower(strings.TrimSpace(target))
 	if context.Status != "active" {
-		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_STATUS_INVALID", "只有 active LocalRun 可以推进")
+		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_STATUS_INVALID", "只有运行中的本地任务可以推进")
 	}
 	if requireClaim {
 		if err := validateClaimedRunWrite(resolved, context, additions.ClaimToken, additions.ExpectedRevision, now); err != nil {
@@ -305,7 +305,7 @@ func advanceLocalRun(root, runID, target string, additions RecordLocalRunOptions
 		}
 	}
 	if !localRunTransitions[context.Stage][target] || !localRunStages["content"][target] {
-		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_TRANSITION_INVALID", "LocalRun 阶段转换不允许："+context.Stage+" -> "+target)
+		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_TRANSITION_INVALID", "不允许执行该本地运行阶段转换："+context.Stage+" -> "+target)
 	}
 	inputRefs, err := resolveLocalRunInputRefs(resolved, additions.InputIDs)
 	if err != nil {
@@ -318,16 +318,16 @@ func advanceLocalRun(root, runID, target string, additions RecordLocalRunOptions
 	context.Findings = mergeStrings(context.Findings, additions.Findings)
 	context.OutputPaths = mergeStrings(context.OutputPaths, additions.OutputPaths)
 	if context.Stage == "knowledge-lint" && !latestPassedLocalRunCheck(context, "kb-lint", "knowledge-lint") {
-		return LocalRunContext{}, domain.Policy("LOCAL_RUN_KNOWLEDGE_LINT_REQUIRED", "knowledge-lint 阶段需要通过 kb-lint", "先运行 contentcloud local knowledge lint 并记录检查结果")
+		return LocalRunContext{}, domain.Policy("LOCAL_RUN_KNOWLEDGE_LINT_REQUIRED", "知识校验阶段必须通过 kb-lint", "先运行 contentcloud local knowledge lint 并记录检查结果")
 	}
 	if context.Stage == "query" && target == "compile" && len(context.EligibleIDs) == 0 && len(context.BlockedIDs) == 0 {
-		return LocalRunContext{}, domain.Policy("LOCAL_RUN_QUERY_RESULT_REQUIRED", "query 阶段必须记录 eligible_ids 或 blocked_ids", "先运行 contentcloud local knowledge query")
+		return LocalRunContext{}, domain.Policy("LOCAL_RUN_QUERY_RESULT_REQUIRED", "查询阶段必须记录 eligible_ids 或 blocked_ids", "先运行 contentcloud local knowledge query")
 	}
 	if context.Stage == "compile" && len(context.OutputPaths) == 0 {
-		return LocalRunContext{}, domain.Policy("LOCAL_RUN_OUTPUT_REQUIRED", "compile 阶段必须记录 output_paths", "记录本地输出文件后再进入 output-lint")
+		return LocalRunContext{}, domain.Policy("LOCAL_RUN_OUTPUT_REQUIRED", "编译阶段必须记录 output_paths", "记录本地输出文件后再进入 output-lint")
 	}
 	if context.Stage == "output-lint" && !latestPassedLocalRunCheck(context, "content-lint", "output-lint") {
-		return LocalRunContext{}, domain.Policy("LOCAL_RUN_CONTENT_LINT_REQUIRED", "output-lint 阶段需要通过 content-lint", "先完成确定性内容校验")
+		return LocalRunContext{}, domain.Policy("LOCAL_RUN_CONTENT_LINT_REQUIRED", "输出校验阶段必须通过 content-lint", "先完成确定性内容校验")
 	}
 	at := localNow(now)
 	context.History = append(context.History,
@@ -368,7 +368,7 @@ func resumeLocalRun(root, runID, claimToken string, expectedRevision uint64, now
 		return LocalRunContext{}, err
 	}
 	if context.Status != "failed" {
-		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_NOT_FAILED", "只有 failed LocalRun 可以恢复")
+		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_NOT_FAILED", "只有失败的本地运行可以恢复")
 	}
 	if requireClaim {
 		if err := validateClaimedRunWrite(resolved, context, claimToken, expectedRevision, now); err != nil {
@@ -408,7 +408,7 @@ func failLocalRun(root, runID string, findings []string, claimToken string, expe
 		return LocalRunContext{}, err
 	}
 	if context.Status == "completed" {
-		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_COMPLETED", "已完成的 LocalRun 不可标记失败")
+		return LocalRunContext{}, domain.Conflict("LOCAL_RUN_COMPLETED", "已完成的本地运行不能再标记为失败")
 	}
 	if requireClaim {
 		if err := validateClaimedRunWrite(resolved, context, claimToken, expectedRevision, now); err != nil {
@@ -477,7 +477,7 @@ func loadLocalRun(root, runID string) (LocalRunContext, error) {
 			}
 		}
 		if len(active) == 0 {
-			return LocalRunContext{}, domain.NotFound("活动 LocalRun")
+			return LocalRunContext{}, domain.NotFound("运行中的本地任务")
 		}
 		if len(active) != 1 {
 			conflict := domain.Conflict("LOCAL_RUN_SELECTION_REQUIRED", "存在多个活动 Run，必须显式指定 run_id")
@@ -487,18 +487,18 @@ func loadLocalRun(root, runID string) (LocalRunContext, error) {
 		runID = active[0]
 	}
 	if !localSourceIDPattern.MatchString(runID) {
-		return LocalRunContext{}, domain.Invalid("LOCAL_RUN_ID_INVALID", "run ID 无效")
+		return LocalRunContext{}, domain.Invalid("LOCAL_RUN_ID_INVALID", "运行 ID 无效")
 	}
 	var context LocalRunContext
 	if err := readJSON(localRunPath(root, runID), &context); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return LocalRunContext{}, domain.NotFound("LocalRun")
+			return LocalRunContext{}, domain.NotFound("本地运行")
 		}
 		return LocalRunContext{}, err
 	}
 	normalizeLocalRunContext(&context)
 	if problems := validateLocalRun(context); len(problems) > 0 {
-		err := domain.Invalid("LOCAL_RUN_CONTEXT_INVALID", "LocalRunContext 校验失败")
+		err := domain.Invalid("LOCAL_RUN_CONTEXT_INVALID", "本地运行上下文校验失败")
 		err.Details = map[string]any{"errors": problems}
 		return LocalRunContext{}, err
 	}
@@ -516,7 +516,7 @@ func saveLocalRun(root string, context LocalRunContext, now time.Time) (LocalRun
 	if err := readJSON(path, &current); err == nil {
 		normalizeLocalRunContext(&current)
 		if context.ContextRevision != current.ContextRevision {
-			conflict := domain.Conflict("LOCAL_RUN_REVISION_CONFLICT", "LocalRunContext revision 已变化")
+			conflict := domain.Conflict("LOCAL_RUN_REVISION_CONFLICT", "本地运行上下文的版本已经变化")
 			conflict.Details = map[string]any{"expected_revision": context.ContextRevision, "current_revision": current.ContextRevision, "run_id": context.RunID}
 			return LocalRunContext{}, conflict
 		}
@@ -595,7 +595,7 @@ func resolveLocalRunInputRefs(root string, ids []string) ([]LocalRunInputRef, er
 		source, err := LocalSourceByID(root, id)
 		if err != nil {
 			invalid := domain.Invalid("LOCAL_RUN_INPUT_REF_INVALID", "input_ref 必须引用已登记的不可变来源："+id)
-			invalid.Hint = "先执行 contentcloud local source register，再用返回的 source ID 初始化 Run"
+			invalid.Hint = "先执行 contentcloud local source register，再用返回的来源 ID 初始化运行"
 			return nil, invalid
 		}
 		refs = append(refs, LocalRunInputRef{ID: source.ID, Digest: "sha256:" + source.SHA256})
@@ -665,13 +665,13 @@ func acquireLocalRunMutationLock(root, runID string, now time.Time) (func(), err
 		}
 		info, statErr := os.Stat(path)
 		if statErr != nil || localNow(now).Sub(info.ModTime()) <= time.Minute {
-			return nil, domain.Conflict("LOCAL_RUN_MUTATION_IN_PROGRESS", "另一个进程正在更新 LocalRunContext")
+			return nil, domain.Conflict("LOCAL_RUN_MUTATION_IN_PROGRESS", "另一个进程正在更新本地运行上下文")
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
 		if err := acquire(); err != nil {
-			return nil, domain.Conflict("LOCAL_RUN_MUTATION_IN_PROGRESS", "另一个进程正在更新 LocalRunContext")
+			return nil, domain.Conflict("LOCAL_RUN_MUTATION_IN_PROGRESS", "另一个进程正在更新本地运行上下文")
 		}
 	}
 	return func() { _ = os.Remove(path) }, nil

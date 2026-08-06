@@ -24,7 +24,7 @@ var rules = []string{
 	"开始创作 Run 前调用 environment_execution_plan，只有签名 Manifest、Registry、Lock 和所需 Pack 均 ready 才继续。",
 	"缺少任务 Pack 时先调用 environment_prepare_plan 展示精确权限、数据流、费用和新会话影响；仅在用户确认同一 epp_ 计划后调用 environment_prepare_apply。",
 	"修改受管业务状态前必须取得所选 Run 的写 claim，并携带最新 context revision；存在多个活动 Run 时必须显式选择，冲突时停止。",
-	"所有 ContentCloud 服务端通信都通过 contentcloud CLI 或 contentcloud-local MCP；pull、publish 和 Provider 副作用必须由用户明确发起。",
+	"所有 Content Work OS 服务端通信都通过 contentcloud CLI 或 contentcloud-local MCP；pull、publish 和服务商副作用必须由用户明确发起。",
 	"批准输入先通过 approved_snapshot_inbox/show 从已验证本地缓存读取；只有用户明确要求刷新时才调用 approved_snapshot_pull。",
 	"Plugin、Skill、MCP 或路由发生变化后，在验证过的 Workspace Root 中开启新 Codex 对话恢复，不假设当前会话热加载。",
 }
@@ -45,12 +45,12 @@ func SHA256() string {
 }
 
 func MCPInstructions() string {
-	return "ContentCloud 创作路由（version " + Version + "，sha256 " + SHA256() + "）：\n- " + strings.Join(rules, "\n- ") + "\n- 首次进入且 onboarding.state 为 needs_project_brief 时，只收集并确认项目简报；确认后重新读取 workspace_context，只展示 onboarding.next_step。"
+	return "Content Work OS 创作路由（版本 " + Version + "，sha256 " + SHA256() + "）：\n- " + strings.Join(rules, "\n- ") + "\n- 首次进入且 onboarding.state 为 needs_project_brief 时，只收集并确认项目简报；确认后重新读取 workspace_context，只展示 onboarding.next_step。"
 }
 
 func ManagedBlock() string {
 	return fmt.Sprintf(
-		"%sversion=%s sha256=%s -->\n## ContentCloud 创作路由\n\n- %s\n%s\n",
+		"%sversion=%s sha256=%s -->\n## Content Work OS 创作路由\n\n- %s\n%s\n",
 		startPrefix,
 		Version,
 		SHA256(),
@@ -99,7 +99,7 @@ func UpdateManagedBlock(document string) (string, error) {
 	}
 	endRelative := strings.Index(document[start:], endMarker)
 	if endRelative < 0 {
-		return "", errors.New("ContentCloud routing 受管块缺少结束 marker")
+		return "", errors.New("Content Work OS 创作路由受管块缺少结束标记")
 	}
 	end := start + endRelative + len(endMarker)
 	updated := document[:start] + strings.TrimRight(ManagedBlock(), "\n") + document[end:]

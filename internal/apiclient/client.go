@@ -57,17 +57,17 @@ func (c *Client) Dispatch(ctx context.Context, command string, params any, out a
 	}
 	var env Envelope
 	if err := json.Unmarshal(body, &env); err != nil {
-		return fmt.Errorf("invalid server response (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return fmt.Errorf("服务端响应无效（%d）：%s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if !env.OK {
 		if env.Error == nil {
-			return fmt.Errorf("server returned error")
+			return fmt.Errorf("服务端返回错误")
 		}
 		return env.Error
 	}
 	if out != nil && len(env.Data) > 0 {
 		if err := json.Unmarshal(env.Data, out); err != nil {
-			return fmt.Errorf("decode %s result: %w", command, err)
+			return fmt.Errorf("解析 %s 结果失败：%w", command, err)
 		}
 	}
 	return nil
@@ -83,7 +83,7 @@ func (c *Client) Health(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health returned %d", resp.StatusCode)
+		return fmt.Errorf("健康检查返回状态码 %d", resp.StatusCode)
 	}
 	return nil
 }

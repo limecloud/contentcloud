@@ -161,7 +161,7 @@ func projectionStatus(count, pending, blocked int) string {
 
 func (s *Service) projectionNextActions(ctx context.Context, tenantID string, project domain.Project, sections map[string]domain.ProjectionSection, governance domain.ProjectionGovernance, submissions []domain.ProjectionSubmission) ([]domain.ProjectionAction, error) {
 	if project.Status == "archived" {
-		return projectionActions(domain.ProjectionAction{ID: "project-archived", Kind: "project", Label: "项目已归档", Enabled: false, Reason: "恢复项目后才能创建新的 Assignment 或 Submission", Navigation: navigation("overview", "next_action", "project-archived", "")})
+		return projectionActions(domain.ProjectionAction{ID: "project-archived", Kind: "project", Label: "项目已归档", Enabled: false, Reason: "恢复项目后才能创建新的任务或内容提交", Navigation: navigation("overview", "next_action", "project-archived", "")})
 	}
 	if sections["onboarding"].Count == 0 {
 		return projectionActions(domain.ProjectionAction{ID: "initialize-workspace", Kind: "onboarding", Label: "初始化创作环境", Enabled: true, Navigation: navigation("setup", "", "", "")})
@@ -179,11 +179,11 @@ func (s *Service) projectionNextActions(ctx context.Context, tenantID string, pr
 				return nil, err
 			}
 			if revision.ProjectID != project.ID || revision.SubmissionID != submission.ID {
-				return nil, domain.Conflict("PROJECTION_REVISION_MISMATCH", "ProjectProjection 的当前 Revision 不属于目标项目或 Submission")
+				return nil, domain.Conflict("PROJECTION_REVISION_MISMATCH", "项目投影中的当前内容版本不属于目标项目或内容提交")
 			}
-			return projectionActions(domain.ProjectionAction{ID: "review-submission-" + revision.ID, Kind: "review", Label: "处理待审核 Revision", Enabled: true, Navigation: navigation("review", "submission_revision", revision.ID, projectNavigationDigest(revision.ContentHash))})
+			return projectionActions(domain.ProjectionAction{ID: "review-submission-" + revision.ID, Kind: "review", Label: "处理待审核内容版本", Enabled: true, Navigation: navigation("review", "submission_revision", revision.ID, projectNavigationDigest(revision.ContentHash))})
 		}
-		return nil, domain.Conflict("PROJECTION_REVIEW_TARGET_MISSING", "ProjectProjection 存在待审核计数，但没有可定位的当前 Revision")
+		return nil, domain.Conflict("PROJECTION_REVIEW_TARGET_MISSING", "项目投影存在待审核计数，但没有可定位的当前内容版本")
 	}
 	return projectionActions(domain.ProjectionAction{ID: "create-assignment", Kind: "assignment", Label: "创建下一项创作任务", Enabled: true, Navigation: navigation("planning", "", "", "")})
 }

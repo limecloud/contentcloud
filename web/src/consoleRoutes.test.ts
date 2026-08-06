@@ -4,6 +4,7 @@ import { consolePath } from './consoleRoutes';
 describe('console paths',()=>{
   it('reserves the public root for the Content Work OS website',()=>{
     expect(consolePath.dashboard).toBe('/workspace');
+    expect(consolePath.studio).toBe('/studio');
     expect(consolePath.team).toBe('/team');
     expect(consolePath.project('project-1')).toBe('/projects/project-1/setup');
   });

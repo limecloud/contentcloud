@@ -114,9 +114,9 @@ function focusError(code:ProjectPageFocusError['code'],message:string):{error:Pr
 
 function validateProjectFocus(view:ProjectView,focus:ProjectPageFocus):ProjectPageFocusError|undefined {
   const candidate=rawRegistry.views[view].focus_kinds.find(value=>value.kind===focus.kind);
-  if(!candidate||!focusIDPattern.test(focus.id))return {code:'PROJECT_FOCUS_INVALID',message:'页面焦点与当前视图不匹配或 ID 无效'};
-  if(focus.digest&&!focusDigestPattern.test(focus.digest))return {code:'PROJECT_FOCUS_DIGEST_INVALID',message:'页面焦点 digest 必须是完整 sha256 摘要'};
-  if('digest_required' in candidate&&candidate.digest_required&&!focus.digest)return {code:'PROJECT_FOCUS_DIGEST_REQUIRED',message:'该页面焦点需要不可变 revision digest'};
+  if(!candidate||!focusIDPattern.test(focus.id))return {code:'PROJECT_FOCUS_INVALID',message:'页面焦点与当前视图不匹配，或焦点标识（ID）无效'};
+  if(focus.digest&&!focusDigestPattern.test(focus.digest))return {code:'PROJECT_FOCUS_DIGEST_INVALID',message:'页面焦点摘要（digest）必须是完整的 sha256 摘要'};
+  if('digest_required' in candidate&&candidate.digest_required&&!focus.digest)return {code:'PROJECT_FOCUS_DIGEST_REQUIRED',message:'该页面焦点需要不可变的内容版本摘要（revision digest）'};
   return undefined;
 }
 

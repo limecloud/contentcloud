@@ -51,13 +51,13 @@ func (s *Service) ProjectLineage(ctx context.Context, actor Actor, projectID str
 	query.FocusID = strings.TrimSpace(query.FocusID)
 	query.Direction = strings.TrimSpace(query.Direction)
 	if (query.FocusType == "") != (query.FocusID == "") {
-		return domain.LineageGraph{}, domain.Invalid("LINEAGE_FOCUS_INVALID", "focus_type 和 focus_id 必须同时提供")
+		return domain.LineageGraph{}, domain.Invalid("LINEAGE_FOCUS_INVALID", "追踪对象类型（focus_type）和标识（focus_id）必须同时提供")
 	}
 	if query.Direction == "" {
 		query.Direction = "both"
 	}
 	if query.Direction != "both" && query.Direction != "upstream" && query.Direction != "downstream" {
-		return domain.LineageGraph{}, domain.Invalid("LINEAGE_DIRECTION_INVALID", "direction 必须是 upstream、downstream 或 both")
+		return domain.LineageGraph{}, domain.Invalid("LINEAGE_DIRECTION_INVALID", "追踪方向（direction）必须是“上游（upstream）”“下游（downstream）”或“双向（both）”")
 	}
 
 	builder, err := s.buildProjectLineage(ctx, actor.TenantID, projectID)
@@ -172,7 +172,7 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 		for _, evidenceID := range object.EvidenceRefs {
 			span, spanErr := s.store.EvidenceSpan(ctx, tenantID, evidenceID)
 			if spanErr == nil {
-				b.edge("source_revision", span.RevisionID, "knowledge_object", object.ID, "supports", "Evidence 支持知识对象")
+				b.edge("source_revision", span.RevisionID, "knowledge_object", object.ID, "supports", "证据支持知识对象")
 			}
 		}
 		switch dependencies := object.Payload["depends_on_fact_ids"].(type) {
@@ -197,7 +197,7 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 		b.node("task_run", run.ID, runLabel(run), run.State, "automation", run.CreatedAt, map[string]any{"task_type": run.TaskType, "capability_id": run.CapabilityID, "error_code": run.ErrorCode})
 		if snapshot, loadErr := s.store.Snapshot(ctx, tenantID, run.InputSnapshotID); loadErr == nil {
 			for _, source := range snapshot.Sources {
-				b.edge("source_revision", source.RevisionID, "task_run", run.ID, "frozen_into", "来源修订被冻结到 Automation Contract")
+				b.edge("source_revision", source.RevisionID, "task_run", run.ID, "frozen_into", "来源版本已固定到自动化执行契约")
 			}
 		}
 	}
@@ -206,8 +206,8 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 		return nil, err
 	}
 	for _, snapshot := range approvedSnapshots {
-		b.node("approved_snapshot", snapshot.ID, fmt.Sprintf("%s snapshot", snapshot.SubmissionType), "approved", "approval", snapshot.CreatedAt, map[string]any{"content_hash": snapshot.ContentHash})
-		b.edge("submission_revision", snapshot.SubmissionRevisionID, "approved_snapshot", snapshot.ID, "approved_as", "客户批准将不可变 revision 固化为快照")
+		b.node("approved_snapshot", snapshot.ID, fmt.Sprintf("%s · 已批准快照", snapshot.SubmissionType), "approved", "approval", snapshot.CreatedAt, map[string]any{"content_hash": snapshot.ContentHash})
+		b.edge("submission_revision", snapshot.SubmissionRevisionID, "approved_snapshot", snapshot.ID, "approved_as", "客户批准后，将不可变内容版本固化为快照")
 	}
 
 	for _, snapshot := range approvedSnapshots {
@@ -225,7 +225,7 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 		return nil, err
 	}
 	for _, delivery := range deliveryPackages {
-		b.node("delivery_package", delivery.ID, "DeliveryPackage · "+delivery.ContentItemID, delivery.Status, "delivery", delivery.CreatedAt, map[string]any{"content_item_id": delivery.ContentItemID, "artifact_count": len(delivery.Manifest)})
+		b.node("delivery_package", delivery.ID, "交付包 · "+delivery.ContentItemID, delivery.Status, "delivery", delivery.CreatedAt, map[string]any{"content_item_id": delivery.ContentItemID, "artifact_count": len(delivery.Manifest)})
 		for _, snapshotID := range delivery.ApprovedSnapshotIDs {
 			b.edge("approved_snapshot", snapshotID, "delivery_package", delivery.ID, "delivered_as", "客户批准快照组成正式交付包")
 		}
@@ -389,7 +389,7 @@ func lineageReviewAction(objectType string) string {
 	case "knowledge_item":
 		return "重新审核知识项及其证据"
 	case "submission_revision":
-		return "创建新的 SubmissionRevision 并重新提交审核"
+		return "创建新的提交内容版本并重新提交审核"
 	case "approved_snapshot":
 		return "基于新的批准决策创建 ApprovedSnapshot"
 	case "task_run":

@@ -27,15 +27,15 @@ import (
 )
 
 func (r *Root) workspaceCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "workspace", Short: "Inspect the local-first ContentCloud workspace"}
-	conversationContext := &cobra.Command{Use: "conversation-context [directory]", Args: cobra.MaximumNArgs(1), Short: "Read the offline cross-conversation workspace context", RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "workspace", Short: "查看本地优先的 Content Work OS 工作区"}
+	conversationContext := &cobra.Command{Use: "conversation-context [directory]", Args: cobra.MaximumNArgs(1), Short: "离线读取跨对话的工作区上下文", RunE: func(cmd *cobra.Command, args []string) error {
 		context, err := r.workspaceConversationContext(optionalDirectory(args))
 		if err != nil {
 			return err
 		}
 		return r.writeOK("workspace.conversation-context", context)
 	}}
-	conversationContext.Flags().Bool("offline", true, "read only persisted local state without cloud access")
+	conversationContext.Flags().Bool("offline", true, "只读取已保存的本地状态，不访问云端")
 	projectBrief := &cobra.Command{Use: "project-brief", Short: "建立并保存项目简报"}
 	var briefDirectory, briefClient, briefBrand, briefProduct, briefObjective, briefAudience, briefNotes string
 	var briefChannels, briefMaterialRefs []string
@@ -54,7 +54,7 @@ func (r *Root) workspaceCommand() *cobra.Command {
 		}
 		return r.writeOK("workspace.project-brief.save", map[string]any{"brief": brief, "onboarding": context.Onboarding, "business_files_modified": true, "offline": true})
 	}}
-	saveBrief.Flags().StringVar(&briefDirectory, "directory", "", "ContentCloud 工作区路径")
+	saveBrief.Flags().StringVar(&briefDirectory, "directory", "", "Content Work OS 工作区路径")
 	saveBrief.Flags().StringVar(&briefClient, "client", "", "客户或组织名称")
 	saveBrief.Flags().StringVar(&briefBrand, "brand", "", "品牌名称")
 	saveBrief.Flags().StringVar(&briefProduct, "product-or-service", "", "产品或服务")
@@ -68,7 +68,7 @@ func (r *Root) workspaceCommand() *cobra.Command {
 	}
 	projectBrief.AddCommand(saveBrief)
 	cmd.AddCommand(
-		&cobra.Command{Use: "status [directory]", Args: cobra.MaximumNArgs(1), Short: "Show binding, template, local changes, and pull state", RunE: func(cmd *cobra.Command, args []string) error {
+		&cobra.Command{Use: "status [directory]", Args: cobra.MaximumNArgs(1), Short: "显示绑定、模板、本地改动和拉取状态", RunE: func(cmd *cobra.Command, args []string) error {
 			status, err := localworkspace.LoadStatus(optionalDirectory(args))
 			if err != nil {
 				return err
@@ -87,12 +87,12 @@ func (r *Root) workspaceCommand() *cobra.Command {
 }
 
 func (r *Root) workspaceFixtureCommand() *cobra.Command {
-	command := &cobra.Command{Use: "fixture", Short: "Materialize versioned V3 acceptance data into a new workspace"}
+	command := &cobra.Command{Use: "fixture", Short: "在新工作区中生成带版本的 V3 验收数据"}
 	var directory, projectID, workspaceID, deviceID, serverURL, target string
 	apply := &cobra.Command{
 		Use:   "apply <fixture.json>",
 		Args:  cobra.ExactArgs(1),
-		Short: "Create a complete V3 workspace from an external fixture package",
+		Short: "根据外部测试数据包创建完整的 V3 工作区",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			file, err := os.Open(args[0])
 			if err != nil {
@@ -112,12 +112,12 @@ func (r *Root) workspaceFixtureCommand() *cobra.Command {
 			return r.writeOK("workspace.fixture.apply", result)
 		},
 	}
-	apply.Flags().StringVar(&directory, "directory", "", "empty destination directory")
-	apply.Flags().StringVar(&projectID, "project-id", "", "project ID to bind into the local workspace")
-	apply.Flags().StringVar(&workspaceID, "workspace-id", "", "workspace ID to bind into the local workspace")
-	apply.Flags().StringVar(&deviceID, "device-id", "", "optional device ID")
-	apply.Flags().StringVar(&serverURL, "server-url", "", "optional ContentCloud server URL")
-	apply.Flags().StringVar(&target, "target", "codex", "workspace target: codex, codex-plugin, or none")
+	apply.Flags().StringVar(&directory, "directory", "", "空的目标目录")
+	apply.Flags().StringVar(&projectID, "project-id", "", "要绑定到本地工作区的项目 ID")
+	apply.Flags().StringVar(&workspaceID, "workspace-id", "", "要绑定到本地工作区的工作区 ID")
+	apply.Flags().StringVar(&deviceID, "device-id", "", "可选的设备 ID")
+	apply.Flags().StringVar(&serverURL, "server-url", "", "可选的 Content Work OS 服务端地址")
+	apply.Flags().StringVar(&target, "target", "codex", "工作区目标：codex、codex-plugin 或 none")
 	_ = apply.MarkFlagRequired("directory")
 	_ = apply.MarkFlagRequired("project-id")
 	_ = apply.MarkFlagRequired("workspace-id")
@@ -134,20 +134,20 @@ type environmentPreparationInput struct {
 }
 
 func (input *environmentPreparationInput) bindFlags(command *cobra.Command) {
-	command.Flags().StringVar(&input.Directory, "directory", "", "ContentCloud workspace path")
-	command.Flags().StringVar(&input.RunID, "run", "", "local run ID")
-	command.Flags().StringVar(&input.Intent, "intent", "", "stable execution intent")
-	command.Flags().StringSliceVar(&input.Capabilities, "capability", nil, "required capability ID; repeat for multiple capabilities")
-	command.Flags().StringSliceVar(&input.InputRefs, "input", nil, "workspace input reference; repeat for multiple inputs")
+	command.Flags().StringVar(&input.Directory, "directory", "", "Content Work OS 工作区路径")
+	command.Flags().StringVar(&input.RunID, "run", "", "本地任务 ID")
+	command.Flags().StringVar(&input.Intent, "intent", "", "稳定的执行意图")
+	command.Flags().StringSliceVar(&input.Capabilities, "capability", nil, "必需的能力 ID；需要多个能力时可重复传入")
+	command.Flags().StringSliceVar(&input.InputRefs, "input", nil, "工作区输入引用；需要多个输入时可重复传入")
 	_ = command.MarkFlagRequired("run")
 	_ = command.MarkFlagRequired("intent")
 	_ = command.MarkFlagRequired("capability")
 }
 
 func (r *Root) workspaceEnvironmentPrepareCommand() *cobra.Command {
-	command := &cobra.Command{Use: "prepare", Short: "Prepare exact task Packs for a verified local execution plan"}
+	command := &cobra.Command{Use: "prepare", Short: "为已验证的本地执行计划准备任务所需能力包"}
 	var planInput environmentPreparationInput
-	plan := &cobra.Command{Use: "plan", Short: "Disclose the exact Pack permissions, data flow, and cost without installing", RunE: func(command *cobra.Command, args []string) error {
+	plan := &cobra.Command{Use: "plan", Short: "展示能力包的确切权限、数据流和成本，但不安装", RunE: func(command *cobra.Command, args []string) error {
 		_, _, preparation, err := r.resolveEnvironmentPreparation(planInput)
 		if err != nil {
 			return err
@@ -159,7 +159,7 @@ func (r *Root) workspaceEnvironmentPrepareCommand() *cobra.Command {
 	var applyInput environmentPreparationInput
 	var preparationID string
 	var accept bool
-	apply := &cobra.Command{Use: "apply", Short: "Install only the exact confirmed task Packs and update the verified environment lock", RunE: func(command *cobra.Command, args []string) error {
+	apply := &cobra.Command{Use: "apply", Short: "只安装已确认的任务能力包，并更新已验证的环境锁", RunE: func(command *cobra.Command, args []string) error {
 		result, err := r.applyEnvironmentPreparation(command.Context(), applyInput, preparationID, accept)
 		if err != nil {
 			return err
@@ -167,8 +167,8 @@ func (r *Root) workspaceEnvironmentPrepareCommand() *cobra.Command {
 		return r.writeOK("workspace.prepare.apply", result)
 	}}
 	applyInput.bindFlags(apply)
-	apply.Flags().StringVar(&preparationID, "preparation-id", "", "exact epp_ plan ID returned by workspace prepare plan")
-	apply.Flags().BoolVar(&accept, "accept", false, "confirm the disclosed Pack installation, local lock update, and new-chat handoff")
+	apply.Flags().StringVar(&preparationID, "preparation-id", "", "workspace prepare plan 返回的确切 epp_ 计划 ID")
+	apply.Flags().BoolVar(&accept, "accept", false, "确认所展示的能力包安装、本地锁更新和新对话交接")
 	_ = apply.MarkFlagRequired("preparation-id")
 	command.AddCommand(plan, apply)
 	return command
@@ -179,7 +179,7 @@ func (r *Root) workspaceExecutionPlanCommand() *cobra.Command {
 	var capabilities, inputRefs []string
 	command := &cobra.Command{
 		Use:   "execution-plan",
-		Short: "Resolve a verified offline LocalExecutionPlan for one run",
+		Short: "为一次任务解析已验证的离线本地执行计划（LocalExecutionPlan）",
 		RunE: func(command *cobra.Command, args []string) error {
 			plan, err := r.resolveLocalExecutionPlan(directory, runID, intent, capabilities, inputRefs)
 			if err != nil {
@@ -188,11 +188,11 @@ func (r *Root) workspaceExecutionPlanCommand() *cobra.Command {
 			return r.writeOK("workspace.execution-plan", plan)
 		},
 	}
-	command.Flags().StringVar(&directory, "directory", "", "ContentCloud workspace path")
-	command.Flags().StringVar(&runID, "run", "", "local run ID")
-	command.Flags().StringVar(&intent, "intent", "", "stable execution intent")
-	command.Flags().StringSliceVar(&capabilities, "capability", nil, "required capability ID; repeat for multiple capabilities")
-	command.Flags().StringSliceVar(&inputRefs, "input", nil, "workspace input reference; repeat for multiple inputs")
+	command.Flags().StringVar(&directory, "directory", "", "Content Work OS 工作区路径")
+	command.Flags().StringVar(&runID, "run", "", "本地任务 ID")
+	command.Flags().StringVar(&intent, "intent", "", "稳定的执行意图")
+	command.Flags().StringSliceVar(&capabilities, "capability", nil, "必需的能力 ID；需要多个能力时可重复传入")
+	command.Flags().StringSliceVar(&inputRefs, "input", nil, "工作区输入引用；需要多个输入时可重复传入")
 	_ = command.MarkFlagRequired("run")
 	_ = command.MarkFlagRequired("intent")
 	_ = command.MarkFlagRequired("capability")
@@ -200,33 +200,33 @@ func (r *Root) workspaceExecutionPlanCommand() *cobra.Command {
 }
 
 func (r *Root) workspaceApprovedCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "approved", Short: "Read verified ApprovedSnapshots from the local immutable cache"}
+	cmd := &cobra.Command{Use: "approved", Short: "从本地不可变缓存读取已验证的批准快照（ApprovedSnapshot）"}
 	var listDirectory, submissionType string
-	list := &cobra.Command{Use: "list", Short: "List locally cached ApprovedSnapshots without cloud access", RunE: func(cmd *cobra.Command, args []string) error {
+	list := &cobra.Command{Use: "list", Short: "列出本地缓存的批准快照，不访问云端", RunE: func(cmd *cobra.Command, args []string) error {
 		items, err := localworkspace.ApprovedSnapshotInbox(listDirectory, submissionType)
 		if err != nil {
 			return err
 		}
 		return r.writeOK("workspace.approved.list", map[string]any{"count": len(items), "snapshots": items, "offline": true})
 	}}
-	list.Flags().StringVar(&listDirectory, "directory", "", "ContentCloud workspace path")
-	list.Flags().StringVar(&submissionType, "type", "", "optional submission type filter")
+	list.Flags().StringVar(&listDirectory, "directory", "", "Content Work OS 工作区路径")
+	list.Flags().StringVar(&submissionType, "type", "", "可选的提交类型筛选条件")
 	var showDirectory string
-	show := &cobra.Command{Use: "show <snapshot-id>", Args: cobra.ExactArgs(1), Short: "Read one verified local ApprovedSnapshot without cloud access", RunE: func(cmd *cobra.Command, args []string) error {
+	show := &cobra.Command{Use: "show <snapshot-id>", Args: cobra.ExactArgs(1), Short: "读取一个已验证的本地批准快照，不访问云端", RunE: func(cmd *cobra.Command, args []string) error {
 		record, err := localworkspace.ShowApprovedSnapshot(showDirectory, args[0])
 		if err != nil {
 			return err
 		}
 		return r.writeOK("workspace.approved.show", map[string]any{"record": record, "offline": true})
 	}}
-	show.Flags().StringVar(&showDirectory, "directory", "", "ContentCloud workspace path")
+	show.Flags().StringVar(&showDirectory, "directory", "", "Content Work OS 工作区路径")
 	cmd.AddCommand(list, show)
 	return cmd
 }
 
 func (r *Root) workspaceDoctorCommand() *cobra.Command {
 	var offline bool
-	cmd := &cobra.Command{Use: "doctor [directory]", Args: cobra.MaximumNArgs(1), Short: "Check workspace structure, Skills, MCP, and cloud reachability", RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "doctor [directory]", Args: cobra.MaximumNArgs(1), Short: "检查工作区结构、技能、MCP 和云端连接", RunE: func(cmd *cobra.Command, args []string) error {
 		report, err := r.workspaceDoctor(optionalDirectory(args))
 		if err != nil {
 			return err
@@ -245,14 +245,14 @@ func (r *Root) workspaceDoctorCommand() *cobra.Command {
 		report.Checks["cloud"] = serverCheck
 		return r.writeOK("workspace.doctor", report)
 	}}
-	cmd.Flags().BoolVar(&offline, "offline", false, "skip cloud reachability check")
+	cmd.Flags().BoolVar(&offline, "offline", false, "跳过云端连接检查")
 	return cmd
 }
 
 func (r *Root) mcpCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "mcp", Short: "Run and inspect the project-local ContentCloud MCP server"}
+	cmd := &cobra.Command{Use: "mcp", Short: "运行和查看项目本地的 Content Work OS MCP 服务"}
 	cmd.AddCommand(
-		&cobra.Command{Use: "status [directory]", Args: cobra.MaximumNArgs(1), Short: "Show the project MCP installation state", RunE: func(cmd *cobra.Command, args []string) error {
+		&cobra.Command{Use: "status [directory]", Args: cobra.MaximumNArgs(1), Short: "显示项目 MCP 的安装状态", RunE: func(cmd *cobra.Command, args []string) error {
 			root, err := localworkspace.FindRoot(optionalDirectory(args))
 			if err != nil {
 				return err
@@ -269,7 +269,7 @@ func (r *Root) mcpCommand() *cobra.Command {
 			}
 			return r.writeOK("mcp.status", map[string]any{"name": "contentcloud-local", "root": root, "installed": installed, "transport": "stdio"})
 		}},
-		&cobra.Command{Use: "serve", Args: cobra.NoArgs, Short: "Serve project-local MCP tools over stdio", RunE: func(cmd *cobra.Command, args []string) error {
+		&cobra.Command{Use: "serve", Args: cobra.NoArgs, Short: "通过标准输入输出提供项目本地 MCP 工具", RunE: func(cmd *cobra.Command, args []string) error {
 			return r.serveMCP(cmd.Context(), cmd.InOrStdin())
 		}},
 	)
@@ -340,7 +340,7 @@ func (r *Root) serveMCP(ctx context.Context, input io.Reader) error {
 		}
 		var request mcpRequest
 		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
-			if encodeErr := encoder.Encode(mcpResponse{JSONRPC: "2.0", Error: &mcpError{Code: -32700, Message: "invalid JSON-RPC request"}}); encodeErr != nil {
+			if encodeErr := encoder.Encode(mcpResponse{JSONRPC: "2.0", Error: &mcpError{Code: -32700, Message: "JSON-RPC 请求无效"}}); encodeErr != nil {
 				return encodeErr
 			}
 			continue
@@ -390,7 +390,7 @@ func (r *Root) handleMCPRequest(ctx context.Context, request mcpRequest) mcpResp
 			response.Result = result
 		}
 	default:
-		response.Error = &mcpError{Code: -32601, Message: "method not found"}
+		response.Error = &mcpError{Code: -32601, Message: "未找到对应方法"}
 	}
 	return response
 }
@@ -398,7 +398,7 @@ func (r *Root) handleMCPRequest(ctx context.Context, request mcpRequest) mcpResp
 func mcpTools() []map[string]any {
 	directory := map[string]any{
 		"type":                 "object",
-		"properties":           map[string]any{"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"}},
+		"properties":           map[string]any{"directory": map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"}},
 		"additionalProperties": false,
 	}
 	readOnlyAnnotations := map[string]any{
@@ -445,7 +445,7 @@ func mcpTools() []map[string]any {
 	openProjectView := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"directory": map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"view":      map[string]any{"type": "string", "enum": projectview.IDs()},
 			"focus": map[string]any{
 				"type": "object",
@@ -470,12 +470,12 @@ func mcpTools() []map[string]any {
 	preflight := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":        map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"directory":        map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
 			"submission_type":  map[string]any{"type": "string", "enum": []string{"context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"}},
-			"files":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Workspace-relative JSON checkpoint files; defaults to the type output directory"},
-			"disclosures_file": map[string]any{"type": "string", "description": "Workspace-relative source disclosure JSON file"},
-			"message":          map[string]any{"type": "string", "description": "Review note included in the computed hash"},
-			"idempotency_key":  map[string]any{"type": "string", "description": "Stable retry key included in the publish plan"},
+			"files":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "相对于工作区的 JSON 检查点文件；默认使用该类型的输出目录"},
+			"disclosures_file": map[string]any{"type": "string", "description": "相对于工作区的来源披露 JSON 文件"},
+			"message":          map[string]any{"type": "string", "description": "会纳入计算摘要的审核说明"},
+			"idempotency_key":  map[string]any{"type": "string", "description": "会纳入发布计划的稳定重试键"},
 		},
 		"required":             []string{"submission_type"},
 		"additionalProperties": false,
@@ -483,7 +483,7 @@ func mcpTools() []map[string]any {
 	publishApply := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":        map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"directory":        map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
 			"submission_type":  map[string]any{"type": "string", "enum": []string{"context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"}},
 			"files":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"disclosures_file": map[string]any{"type": "string"},
@@ -498,7 +498,7 @@ func mcpTools() []map[string]any {
 	submissionStatus := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":     map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"directory":     map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
 			"submission_id": map[string]any{"type": "string"},
 		},
 		"required":             []string{"submission_id"},
@@ -507,7 +507,7 @@ func mcpTools() []map[string]any {
 	snapshots := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":       map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"directory":       map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
 			"submission_type": map[string]any{"type": "string", "enum": []string{"context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"}},
 		},
 		"additionalProperties": false,
@@ -515,16 +515,16 @@ func mcpTools() []map[string]any {
 	snapshotPull := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":       map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"directory":       map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"submission_type": map[string]any{"type": "string", "enum": []string{"context", "knowledge", "brief", "content_batch", "asset_batch", "delivery", "result"}},
-			"snapshot_id":     map[string]any{"type": "string", "description": "Pull one exact snapshot; omit to pull the filtered workspace list"},
+			"snapshot_id":     map[string]any{"type": "string", "description": "拉取一个指定快照；省略时拉取筛选后的工作区列表"},
 		},
 		"additionalProperties": false,
 	}
 	snapshotShow := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":   map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"directory":   map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"snapshot_id": map[string]any{"type": "string"},
 		},
 		"required":             []string{"snapshot_id"},
@@ -533,7 +533,7 @@ func mcpTools() []map[string]any {
 	localExecutionPlan := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":             map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"directory":             map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"run_id":                map[string]any{"type": "string"},
 			"intent":                map[string]any{"type": "string"},
 			"required_capabilities": map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string"}},
@@ -545,7 +545,7 @@ func mcpTools() []map[string]any {
 	environmentPreparationApply := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":             map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"directory":             map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"run_id":                map[string]any{"type": "string"},
 			"intent":                map[string]any{"type": "string"},
 			"required_capabilities": map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string"}},
@@ -559,9 +559,9 @@ func mcpTools() []map[string]any {
 	sourceRegister := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":    map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
-			"file":         map[string]any{"type": "string", "description": "Source file path"},
-			"id":           map[string]any{"type": "string", "description": "Stable source ID"},
+			"directory":    map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
+			"file":         map[string]any{"type": "string", "description": "来源文件路径"},
+			"id":           map[string]any{"type": "string", "description": "稳定的来源 ID"},
 			"title":        map[string]any{"type": "string"},
 			"source_kind":  map[string]any{"type": "string"},
 			"storage_mode": map[string]any{"type": "string", "enum": []string{"copy", "reference"}},
@@ -572,7 +572,7 @@ func mcpTools() []map[string]any {
 	sourceID := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"directory": map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
 			"source_id": map[string]any{"type": "string"},
 		},
 		"required":             []string{"source_id"},
@@ -581,7 +581,7 @@ func mcpTools() []map[string]any {
 	localRunInit := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":   map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"directory":   map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
 			"run_id":      map[string]any{"type": "string"},
 			"intent":      map[string]any{"type": "string", "pattern": "^intent:[A-Za-z0-9._-]+$"},
 			"input_ids":   map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
@@ -593,17 +593,17 @@ func mcpTools() []map[string]any {
 	localRunShow := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
-			"run_id":    map[string]any{"type": "string", "description": "Defaults to current run"},
+			"directory": map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
+			"run_id":    map[string]any{"type": "string", "description": "默认使用当前任务"},
 		},
 		"additionalProperties": false,
 	}
 	localRunClaim := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":         map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"directory":         map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"run_id":            map[string]any{"type": "string"},
-			"owner":             map[string]any{"type": "string", "description": "Stable conversation or worker owner ID"},
+			"owner":             map[string]any{"type": "string", "description": "稳定的对话或工作进程持有者 ID"},
 			"expected_revision": map[string]any{"type": "integer", "minimum": 1},
 			"ttl_seconds":       map[string]any{"type": "integer", "minimum": 1, "maximum": 14400},
 			"takeover_expired":  map[string]any{"type": "boolean"},
@@ -614,7 +614,7 @@ func mcpTools() []map[string]any {
 	localRunClaimControl := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":   map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"directory":   map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"run_id":      map[string]any{"type": "string"},
 			"claim_token": map[string]any{"type": "string"},
 			"ttl_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 14400},
@@ -625,7 +625,7 @@ func mcpTools() []map[string]any {
 	handoffCreate := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":          map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"directory":          map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"handoff_id":         map[string]any{"type": "string"},
 			"run_id":             map[string]any{"type": "string"},
 			"claim_token":        map[string]any{"type": "string"},
@@ -642,7 +642,7 @@ func mcpTools() []map[string]any {
 	handoffAccept := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":        map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"directory":        map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"handoff_id":       map[string]any{"type": "string"},
 			"owner":            map[string]any{"type": "string"},
 			"ttl_seconds":      map[string]any{"type": "integer", "minimum": 1, "maximum": 14400},
@@ -654,7 +654,7 @@ func mcpTools() []map[string]any {
 	handoffControl := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":   map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"directory":   map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"handoff_id":  map[string]any{"type": "string"},
 			"claim_token": map[string]any{"type": "string"},
 		},
@@ -664,8 +664,8 @@ func mcpTools() []map[string]any {
 	knowledgeImport := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":  map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
-			"file":       map[string]any{"type": "string", "description": "Workspace-relative extracted knowledge candidate file"},
+			"directory":  map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
+			"file":       map[string]any{"type": "string", "description": "相对于工作区的知识候选文件"},
 			"origin_run": map[string]any{"type": "string"},
 		},
 		"required":             []string{"file"},
@@ -674,7 +674,7 @@ func mcpTools() []map[string]any {
 	knowledgeQuery := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"directory": map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
 			"channel":   map[string]any{"type": "string"},
 			"at":        map[string]any{"type": "string", "format": "date-time"},
 		},
@@ -683,7 +683,7 @@ func mcpTools() []map[string]any {
 	knowledgePack := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"directory": map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
 			"pack_id":   map[string]any{"type": "string"},
 			"name":      map[string]any{"type": "string"},
 		},
@@ -692,8 +692,8 @@ func mcpTools() []map[string]any {
 	localFile := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory": map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
-			"file":      map[string]any{"type": "string", "description": "Workspace-relative JSON file"},
+			"directory": map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
+			"file":      map[string]any{"type": "string", "description": "相对于工作区的 JSON 文件"},
 		},
 		"required":             []string{"file"},
 		"additionalProperties": false,
@@ -701,7 +701,7 @@ func mcpTools() []map[string]any {
 	creativeBatchInit := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":             map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"directory":             map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
 			"brief_id":              map[string]any{"type": "string"},
 			"directions_file":       map[string]any{"type": "string"},
 			"requested_count":       map[string]any{"type": "integer", "minimum": 1, "maximum": 10},
@@ -715,7 +715,7 @@ func mcpTools() []map[string]any {
 	articleBatchCreate := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":       map[string]any{"type": "string", "description": "Workspace path; defaults to MCP process cwd"},
+			"directory":       map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"brief_id":        map[string]any{"type": "string"},
 			"requested_count": map[string]any{"type": "integer", "minimum": 1, "maximum": 10},
 			"batch_id":        map[string]any{"type": "string"},
@@ -726,9 +726,9 @@ func mcpTools() []map[string]any {
 	contentItemLint := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":  map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
-			"file":       map[string]any{"type": "string", "description": "Workspace-relative content candidate file"},
-			"batch_file": map[string]any{"type": "string", "description": "Workspace-relative content batch manifest"},
+			"directory":  map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
+			"file":       map[string]any{"type": "string", "description": "相对于工作区的内容候选文件"},
+			"batch_file": map[string]any{"type": "string", "description": "相对于工作区的内容批次清单"},
 		},
 		"required":             []string{"file"},
 		"additionalProperties": false,
@@ -736,7 +736,7 @@ func mcpTools() []map[string]any {
 	contentBatchFiles := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":     map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"directory":     map[string]any{"type": "string", "description": "工作区路径；默认为当前目录"},
 			"batch_file":    map[string]any{"type": "string"},
 			"content_files": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		},
@@ -746,7 +746,7 @@ func mcpTools() []map[string]any {
 	contentItemDiff := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":      map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"directory":      map[string]any{"type": "string", "description": "工作区路径；默认为当前目录"},
 			"baseline_file":  map[string]any{"type": "string"},
 			"candidate_file": map[string]any{"type": "string"},
 			"allowed_paths":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -757,7 +757,7 @@ func mcpTools() []map[string]any {
 	contentDeliveryExport := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"directory":        map[string]any{"type": "string", "description": "Workspace path; defaults to current directory"},
+			"directory":        map[string]any{"type": "string", "description": "工作区路径；默认为当前目录"},
 			"content_item_id":  map[string]any{"type": "string"},
 			"output_directory": map[string]any{"type": "string"},
 		},
@@ -767,64 +767,64 @@ func mcpTools() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "contentcloud_open_project_view",
-			"description": "Build a trusted ContentCloud Web deep link for the current project without opening Browser or changing local/cloud state",
+			"description": "为当前项目生成可信的 Content Work OS 工作台链接，不打开浏览器，也不修改本地或云端状态",
 			"inputSchema": openProjectView,
 			"annotations": cloudReadAnnotations,
 			"_meta": map[string]any{"contentcloud/effect": map[string]any{
 				"effect_scope": "cloud_read_navigation", "requires_confirmation": false, "writes_workspace": false, "writes_cloud": false,
 			}},
 		},
-		{"name": "workspace_context", "description": "Read persisted cross-conversation ContentCloud workspace state without cloud access or write claims", "inputSchema": directory, "annotations": readOnlyAnnotations},
+		{"name": "workspace_context", "description": "读取跨对话保存的 Content Work OS 工作区状态，不访问云端，也不声明任何写入", "inputSchema": directory, "annotations": readOnlyAnnotations},
 		{"name": "workspace_project_brief", "description": "确认并保存项目简报，建立素材、知识和内容生产共用的本地业务上下文", "inputSchema": projectBrief, "annotations": workspaceWriteAnnotations},
-		{"name": "environment_execution_plan", "description": "Resolve a signed, offline LocalExecutionPlan and report exact missing task Packs without installing anything", "inputSchema": localExecutionPlan, "annotations": readOnlyAnnotations},
-		{"name": "environment_prepare_plan", "description": "Disclose exact missing Pack permissions, data flow, cost, and session impact without installing anything", "inputSchema": localExecutionPlan, "annotations": readOnlyAnnotations},
-		{"name": "environment_prepare_apply", "description": "Install only the exact user-confirmed Pack plan, atomically update the environment lock, re-run doctor, and return a new-chat handoff", "inputSchema": environmentPreparationApply, "annotations": environmentWriteAnnotations},
-		{"name": "local_run_claim", "description": "Acquire the single-writer claim for one exact LocalRun context revision", "inputSchema": localRunClaim},
-		{"name": "local_run_renew", "description": "Renew an active LocalRun claim", "inputSchema": localRunClaimControl},
-		{"name": "local_run_release", "description": "Release an active LocalRun claim", "inputSchema": localRunClaimControl},
-		{"name": "handoff_create_ready", "description": "Create a digest-verified ready Handoff from a claimed Run and release the claim", "inputSchema": handoffCreate},
-		{"name": "handoff_list_ready", "description": "List ready cross-conversation Handoffs without claiming them", "inputSchema": directory, "annotations": readOnlyAnnotations},
-		{"name": "handoff_accept", "description": "Atomically verify a ready Handoff and acquire its Run claim", "inputSchema": handoffAccept},
-		{"name": "handoff_complete", "description": "Mark a claimed Handoff completed", "inputSchema": handoffControl},
-		{"name": "handoff_supersede", "description": "Supersede a ready Handoff", "inputSchema": handoffControl},
-		{"name": "workspace_status", "description": "Read local workspace binding, template and synchronization state without contacting the cloud", "inputSchema": directory},
-		{"name": "workspace_doctor", "description": "Validate local workspace structure, managed files, Skills and MCP configuration", "inputSchema": directory},
-		{"name": "source_register", "description": "Register an immutable local customer source without uploading it", "inputSchema": sourceRegister},
-		{"name": "source_list", "description": "List local source registry records without contacting the cloud", "inputSchema": directory},
-		{"name": "source_ingest", "description": "Parse a registered source into exact local evidence spans", "inputSchema": sourceID},
-		{"name": "source_verify", "description": "Verify local source hashes and MIME types", "inputSchema": directory},
-		{"name": "local_run_init", "description": "Initialize a resumable local ingest, query, or content workflow", "inputSchema": localRunInit},
-		{"name": "local_run_show", "description": "Read a LocalRunContext without cloud communication", "inputSchema": localRunShow},
-		{"name": "knowledge_import", "description": "Import evidence-grounded candidates into the Markdown knowledge source of truth", "inputSchema": knowledgeImport},
-		{"name": "knowledge_lint", "description": "Run deterministic local knowledge governance checks", "inputSchema": directory},
-		{"name": "knowledge_query", "description": "Classify knowledge as eligible, blocked, or informational", "inputSchema": knowledgeQuery},
-		{"name": "knowledge_diagnose", "description": "Produce the 15-dimension customer material diagnosis", "inputSchema": knowledgeQuery},
-		{"name": "knowledge_pack", "description": "Build a seven-layer knowledge review pack and evidence disclosures", "inputSchema": knowledgePack},
-		{"name": "brief_lint", "description": "Validate a local content brief against current eligible knowledge", "inputSchema": localFile},
-		{"name": "content_batch_init", "description": "Freeze an approved Brief and Knowledge snapshots into a local ContentBatch", "inputSchema": creativeBatchInit},
-		{"name": "content_item_lint", "description": "Validate one content candidate against its frozen ContentBatch context", "inputSchema": contentItemLint},
-		{"name": "content_batch_lint", "description": "Validate every candidate in a ContentBatch", "inputSchema": contentBatchFiles},
-		{"name": "content_batch_finalize", "description": "Finalize a validated local ContentBatch without creating a cloud TaskRun", "inputSchema": contentBatchFiles},
-		{"name": "content_item_diff", "description": "Detect undeclared JSON Pointer drift in a content revision or variant", "inputSchema": contentItemDiff},
-		{"name": "delivery_export", "description": "Export a pulled approved content item as JSON, Markdown, and XLSX", "inputSchema": contentDeliveryExport},
-		{"name": "article_brief_lint", "description": "Validate a WeChat ArticleBrief against eligible knowledge and tenant capability", "inputSchema": localFile},
-		{"name": "article_batch_create", "description": "Freeze an approved ArticleBrief and Knowledge snapshot into a WeChat ContentBatch", "inputSchema": articleBatchCreate},
-		{"name": "article_item_lint", "description": "Validate ArticleItem blocks, assertions, evidence, rights, and channel constraints", "inputSchema": contentItemLint},
-		{"name": "article_batch_lint", "description": "Validate every ArticleItem in a WeChat ContentBatch", "inputSchema": contentBatchFiles},
-		{"name": "article_batch_finalize", "description": "Finalize a validated WeChat article batch", "inputSchema": contentBatchFiles},
-		{"name": "article_item_diff", "description": "Detect undeclared JSON Pointer drift in an ArticleItem revision", "inputSchema": contentItemDiff},
-		{"name": "wechat_package_export", "description": "Export an approved ArticleItem to a local operator-ready WeChat package", "inputSchema": contentDeliveryExport},
-		{"name": "wechat_package_lint", "description": "Verify WeChat package files and digests without external publishing", "inputSchema": localFile},
-		{"name": "publish_preflight", "description": "Validate a local immutable checkpoint and return the exact plan_id, environment digest, disclosure scope, and cloud effects without publishing", "inputSchema": preflight, "annotations": readOnlyAnnotations},
-		{"name": "publish_apply", "description": "Publish only the exact user-confirmed preflight plan as an immutable SubmissionRevision", "inputSchema": publishApply, "annotations": cloudWriteAnnotations},
-		{"name": "submission_status", "description": "Read the current cloud governance status for a workspace submission", "inputSchema": submissionStatus, "annotations": cloudReadAnnotations},
-		{"name": "review_feedback_list", "description": "Read current cloud review feedback without changing local files", "inputSchema": directory, "annotations": cloudReadAnnotations},
-		{"name": "review_feedback_pull", "description": "Pull current cloud review feedback into the immutable local inbox", "inputSchema": directory, "annotations": cloudWriteAnnotations},
-		{"name": "review_feedback_inbox", "description": "Read persisted review feedback from the local inbox without cloud access", "inputSchema": directory, "annotations": readOnlyAnnotations},
-		{"name": "approved_snapshot_list", "description": "Read the current cloud ApprovedSnapshot list without changing local files", "inputSchema": snapshots, "annotations": cloudReadAnnotations},
-		{"name": "approved_snapshot_pull", "description": "Pull cloud ApprovedSnapshots into the verified immutable local cache", "inputSchema": snapshotPull, "annotations": cloudWriteAnnotations},
-		{"name": "approved_snapshot_inbox", "description": "List verified locally cached ApprovedSnapshots without cloud access", "inputSchema": snapshots, "annotations": readOnlyAnnotations},
-		{"name": "approved_snapshot_show", "description": "Read one verified local ApprovedSnapshot without cloud access", "inputSchema": snapshotShow, "annotations": readOnlyAnnotations},
+		{"name": "environment_execution_plan", "description": "离线解析已签名的本地执行计划并准确报告缺少的任务能力包，不执行安装", "inputSchema": localExecutionPlan, "annotations": readOnlyAnnotations},
+		{"name": "environment_prepare_plan", "description": "披露缺少能力包的准确权限、数据流、费用和会话影响，不执行安装", "inputSchema": localExecutionPlan, "annotations": readOnlyAnnotations},
+		{"name": "environment_prepare_apply", "description": "只安装用户准确确认的能力包计划，原子更新环境锁，重新执行诊断并返回新对话交接", "inputSchema": environmentPreparationApply, "annotations": environmentWriteAnnotations},
+		{"name": "local_run_claim", "description": "取得指定本地运行上下文版本的单写入者锁", "inputSchema": localRunClaim},
+		{"name": "local_run_renew", "description": "续期有效的本地运行锁", "inputSchema": localRunClaimControl},
+		{"name": "local_run_release", "description": "释放有效的本地运行锁", "inputSchema": localRunClaimControl},
+		{"name": "handoff_create_ready", "description": "根据已锁定运行创建经过摘要校验的待接手交接，并释放运行锁", "inputSchema": handoffCreate},
+		{"name": "handoff_list_ready", "description": "列出待接手的跨对话交接记录，但不锁定", "inputSchema": directory, "annotations": readOnlyAnnotations},
+		{"name": "handoff_accept", "description": "原子校验待接手交接并取得对应运行锁", "inputSchema": handoffAccept},
+		{"name": "handoff_complete", "description": "将已接手交接记录标记为完成", "inputSchema": handoffControl},
+		{"name": "handoff_supersede", "description": "取代一条待接手交接记录", "inputSchema": handoffControl},
+		{"name": "workspace_status", "description": "读取本地工作区绑定、模板和同步状态，不访问云端", "inputSchema": directory},
+		{"name": "workspace_doctor", "description": "校验本地工作区结构、受管文件、技能和 MCP 配置", "inputSchema": directory},
+		{"name": "source_register", "description": "登记不可变的本地客户来源，不上传文件", "inputSchema": sourceRegister},
+		{"name": "source_list", "description": "列出本地来源目录记录，不访问云端", "inputSchema": directory},
+		{"name": "source_ingest", "description": "把已登记来源解析为可精确定位的本地证据片段", "inputSchema": sourceID},
+		{"name": "source_verify", "description": "校验本地来源摘要和 MIME 类型", "inputSchema": directory},
+		{"name": "local_run_init", "description": "初始化可恢复的本地导入、查询或内容工作流", "inputSchema": localRunInit},
+		{"name": "local_run_show", "description": "读取本地运行上下文，不访问云端", "inputSchema": localRunShow},
+		{"name": "knowledge_import", "description": "把有证据依据的候选导入作为事实源的 Markdown 知识页", "inputSchema": knowledgeImport},
+		{"name": "knowledge_lint", "description": "运行确定性的本地知识治理检查", "inputSchema": directory},
+		{"name": "knowledge_query", "description": "把知识查询结果分为可用、已阻断和仅供参考", "inputSchema": knowledgeQuery},
+		{"name": "knowledge_diagnose", "description": "生成 15 个维度的客户素材诊断", "inputSchema": knowledgeQuery},
+		{"name": "knowledge_pack", "description": "构建七层知识审核包和证据披露", "inputSchema": knowledgePack},
+		{"name": "brief_lint", "description": "根据当前可用知识校验本地创作简报", "inputSchema": localFile},
+		{"name": "content_batch_init", "description": "把已批准的创作简报和知识快照冻结到本地内容批次中", "inputSchema": creativeBatchInit},
+		{"name": "content_item_lint", "description": "根据已冻结的内容批次上下文校验一个内容候选", "inputSchema": contentItemLint},
+		{"name": "content_batch_lint", "description": "校验内容批次中的每个候选项", "inputSchema": contentBatchFiles},
+		{"name": "content_batch_finalize", "description": "定稿已经通过校验的本地内容批次，不创建云端任务运行", "inputSchema": contentBatchFiles},
+		{"name": "content_item_diff", "description": "检查内容版本或变量中未声明的 JSON Pointer 变化", "inputSchema": contentItemDiff},
+		{"name": "delivery_export", "description": "把已经拉取的批准内容项导出为 JSON、Markdown 和 XLSX", "inputSchema": contentDeliveryExport},
+		{"name": "article_brief_lint", "description": "根据可用知识和租户能力校验微信公众号文章简报", "inputSchema": localFile},
+		{"name": "article_batch_create", "description": "把已批准的文章简报和知识快照冻结到微信公众号内容批次中", "inputSchema": articleBatchCreate},
+		{"name": "article_item_lint", "description": "校验文章内容块、陈述、证据、权利和渠道限制", "inputSchema": contentItemLint},
+		{"name": "article_batch_lint", "description": "校验微信公众号内容批次中的每个文章内容项", "inputSchema": contentBatchFiles},
+		{"name": "article_batch_finalize", "description": "定稿已经通过校验的微信公众号文章批次", "inputSchema": contentBatchFiles},
+		{"name": "article_item_diff", "description": "检查文章内容项版本中未声明的 JSON Pointer 变化", "inputSchema": contentItemDiff},
+		{"name": "wechat_package_export", "description": "把已批准文章内容项导出为可直接交给运营人员使用的微信公众号交付包", "inputSchema": contentDeliveryExport},
+		{"name": "wechat_package_lint", "description": "校验微信公众号交付包文件和摘要，不向外部平台发布", "inputSchema": localFile},
+		{"name": "publish_preflight", "description": "校验本地不可变检查点，返回准确的 plan_id、环境摘要、披露范围和云端影响，但不发布", "inputSchema": preflight, "annotations": readOnlyAnnotations},
+		{"name": "publish_apply", "description": "仅把用户准确确认的预检计划发布为不可变提交版本", "inputSchema": publishApply, "annotations": cloudWriteAnnotations},
+		{"name": "submission_status", "description": "读取工作区提交记录的当前云端治理状态", "inputSchema": submissionStatus, "annotations": cloudReadAnnotations},
+		{"name": "review_feedback_list", "description": "读取当前云端审核反馈，不修改本地文件", "inputSchema": directory, "annotations": cloudReadAnnotations},
+		{"name": "review_feedback_pull", "description": "把当前云端审核反馈拉取到不可变本地收件箱", "inputSchema": directory, "annotations": cloudWriteAnnotations},
+		{"name": "review_feedback_inbox", "description": "读取本地收件箱中已保存的审核反馈，不访问云端", "inputSchema": directory, "annotations": readOnlyAnnotations},
+		{"name": "approved_snapshot_list", "description": "读取当前云端批准快照列表，不修改本地文件", "inputSchema": snapshots, "annotations": cloudReadAnnotations},
+		{"name": "approved_snapshot_pull", "description": "把云端批准快照拉取到经过校验的不可变本地缓存", "inputSchema": snapshotPull, "annotations": cloudWriteAnnotations},
+		{"name": "approved_snapshot_inbox", "description": "列出经过校验的本地缓存批准快照，不访问云端", "inputSchema": snapshots, "annotations": readOnlyAnnotations},
+		{"name": "approved_snapshot_show", "description": "读取一份经过校验的本地批准快照，不访问云端", "inputSchema": snapshotShow, "annotations": readOnlyAnnotations},
 	}
 }
 
@@ -898,7 +898,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		} `json:"arguments"`
 	}
 	if err := json.Unmarshal(raw, &params); err != nil {
-		return nil, domain.Invalid("MCP_PARAMS_INVALID", "MCP tool 参数无效")
+		return nil, domain.Invalid("MCP_PARAMS_INVALID", "MCP 工具参数无效")
 	}
 	var value any
 	var err error
@@ -912,8 +912,8 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		}
 		root, resolveErr := r.resolveMCPWorkspace(arguments.Directory)
 		if resolveErr != nil {
-			workspaceErr := domain.Conflict("WORKSPACE_NOT_BOUND", "无法从 directory 或 MCP cwd 解析 ContentCloud WorkspaceBinding")
-			workspaceErr.Hint = "在 ContentCloud Workspace 中打开新对话，或显式传入 workspace directory"
+			workspaceErr := domain.Conflict("WORKSPACE_NOT_BOUND", "无法根据 directory 或 MCP 当前工作目录解析 Content Work OS 工作区绑定")
+			workspaceErr.Hint = "在 Content Work OS 工作区中打开新对话，或显式传入工作区路径"
 			return nil, workspaceErr
 		}
 		status, loadErr := localworkspace.LoadStatus(root)
@@ -982,7 +982,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		}
 	case "source_register":
 		if strings.TrimSpace(params.Arguments.File) == "" {
-			return nil, domain.Invalid("LOCAL_SOURCE_FILE_REQUIRED", "file 必填")
+			return nil, domain.Invalid("LOCAL_SOURCE_FILE_REQUIRED", "file 参数必填")
 		}
 		value, err = localworkspace.RegisterLocalSource(localworkspace.RegisterLocalSourceOptions{Root: params.Arguments.Directory, File: params.Arguments.File, ID: params.Arguments.ID, Title: params.Arguments.Title, SourceKind: params.Arguments.SourceKind, StorageMode: params.Arguments.StorageMode, Now: time.Now()})
 	case "source_list":
@@ -991,7 +991,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		value = map[string]any{"count": len(sources), "sources": sources}
 	case "source_ingest":
 		if strings.TrimSpace(params.Arguments.SourceID) == "" {
-			return nil, domain.Invalid("LOCAL_SOURCE_ID_REQUIRED", "source_id 必填")
+			return nil, domain.Invalid("LOCAL_SOURCE_ID_REQUIRED", "source_id 参数必填")
 		}
 		value, err = localworkspace.IngestLocalSource(params.Arguments.Directory, params.Arguments.SourceID, time.Now())
 	case "source_verify":
@@ -1061,7 +1061,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		value, err = localworkspace.SupersedeReadyHandoff(root, params.Arguments.HandoffID, r.currentTime())
 	case "knowledge_import":
 		if strings.TrimSpace(params.Arguments.File) == "" {
-			return nil, domain.Invalid("LOCAL_FILE_REQUIRED", "file 必填")
+			return nil, domain.Invalid("LOCAL_FILE_REQUIRED", "file 参数必填")
 		}
 		value, err = localworkspace.ImportKnowledgeCandidates(localworkspace.ImportKnowledgeOptions{Root: params.Arguments.Directory, PackageFile: params.Arguments.File, OriginRunID: params.Arguments.OriginRun, Now: time.Now()})
 	case "knowledge_lint":
@@ -1092,7 +1092,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		report, brief, err = localworkspace.LintBrief(params.Arguments.Directory, params.Arguments.File)
 		value = map[string]any{"brief": brief, "report": report}
 		if err == nil && !report.Valid {
-			lintErr := domain.Invalid("BRIEF_LINT_FAILED", "Brief V3 确定性校验失败")
+			lintErr := domain.Invalid("BRIEF_LINT_FAILED", "V3 创作简报确定性校验失败")
 			lintErr.Details = report
 			err = lintErr
 		}
@@ -1103,7 +1103,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		report, _, err = localworkspace.LintContentItem(params.Arguments.Directory, params.Arguments.File, params.Arguments.BatchFile)
 		value = report
 		if err == nil && !report.Valid {
-			lintErr := domain.Invalid("CONTENT_ITEM_LINT_FAILED", "ContentItem 确定性校验失败")
+			lintErr := domain.Invalid("CONTENT_ITEM_LINT_FAILED", "内容项确定性校验失败")
 			lintErr.Details = report
 			err = lintErr
 		}
@@ -1112,7 +1112,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		report, err = localworkspace.LintContentBatch(params.Arguments.Directory, params.Arguments.BatchFile, params.Arguments.ContentFiles)
 		value = report
 		if err == nil && !report.Valid {
-			lintErr := domain.Invalid("CONTENT_BATCH_LINT_FAILED", "ContentBatch 确定性校验失败")
+			lintErr := domain.Invalid("CONTENT_BATCH_LINT_FAILED", "内容批次确定性校验失败")
 			lintErr.Details = report
 			err = lintErr
 		}
@@ -1123,7 +1123,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		diff, err = localworkspace.DiffContentItems(params.Arguments.Directory, params.Arguments.BaselineFile, params.Arguments.CandidateFile, params.Arguments.AllowedPaths)
 		value = diff
 		if err == nil && !diff.Valid {
-			diffErr := domain.Invalid("CONTENT_ITEM_REVISION_DRIFT", "ContentItem 修订包含未声明字段变化")
+			diffErr := domain.Invalid("CONTENT_ITEM_REVISION_DRIFT", "内容项修订包含未声明字段变化")
 			diffErr.Details = diff
 			err = diffErr
 		}
@@ -1140,7 +1140,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		report, brief, err = localworkspace.LintArticleBrief(root, params.Arguments.File)
 		value = map[string]any{"brief": brief, "report": report}
 		if err == nil && !report.Valid {
-			lintErr := domain.Invalid("ARTICLE_BRIEF_LINT_FAILED", "ArticleBrief 确定性校验失败")
+			lintErr := domain.Invalid("ARTICLE_BRIEF_LINT_FAILED", "文章简报确定性校验失败")
 			lintErr.Details = report
 			err = lintErr
 		}
@@ -1160,7 +1160,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		report, _, err = localworkspace.LintArticleItem(root, params.Arguments.File, params.Arguments.BatchFile)
 		value = report
 		if err == nil && !report.Valid {
-			lintErr := domain.Invalid("ARTICLE_ITEM_LINT_FAILED", "ArticleItem 确定性校验失败")
+			lintErr := domain.Invalid("ARTICLE_ITEM_LINT_FAILED", "文章内容项确定性校验失败")
 			lintErr.Details = report
 			err = lintErr
 		}
@@ -1198,7 +1198,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		diff, err = localworkspace.DiffArticleItems(root, params.Arguments.BaselineFile, params.Arguments.CandidateFile, params.Arguments.AllowedPaths)
 		value = diff
 		if err == nil && !diff.Valid {
-			diffErr := domain.Invalid("ARTICLE_ITEM_REVISION_DRIFT", "ArticleItem 修订包含未声明字段变化")
+			diffErr := domain.Invalid("ARTICLE_ITEM_REVISION_DRIFT", "文章内容项修订包含未声明字段变化")
 			diffErr.Details = diff
 			err = diffErr
 		}
@@ -1372,7 +1372,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		record, err = localworkspace.ShowApprovedSnapshot(root, params.Arguments.SnapshotID)
 		value = map[string]any{"record": record, "offline": true, "business_files_modified": false}
 	default:
-		return nil, domain.NotFound("MCP tool")
+		return nil, domain.NotFound("MCP 工具")
 	}
 	if err != nil {
 		return nil, err
@@ -1508,7 +1508,7 @@ func openProjectViewEnvelope(link projectview.Link) map[string]any {
 	}
 	return map[string]any{
 		"content": []map[string]any{
-			{"type": "text", "text": "ContentCloud 项目页面链接已准备。请在 Browser 中打开并验证项目与焦点后再报告完成。"},
+			{"type": "text", "text": "Content Work OS 项目页面链接已准备。请在浏览器中打开并核对项目和焦点对象后再报告完成。"},
 			mcpProjectViewResourceLink(link),
 		},
 		"structuredContent": result,
@@ -1532,8 +1532,8 @@ func requestedMCPProtocolVersion(raw json.RawMessage) string {
 
 func contentCloudMCPResources() []map[string]any {
 	return []map[string]any{
-		{"uri": "contentcloud://workspace/conversation-context", "name": "ContentCloud workspace conversation context", "description": "Offline persisted state for starting or resuming a conversation", "mimeType": "application/json"},
-		{"uri": "contentcloud://workspace/status", "name": "ContentCloud workspace status", "description": "Offline workspace binding, environment, and synchronization status", "mimeType": "application/json"},
+		{"uri": "contentcloud://workspace/conversation-context", "name": "Content Work OS 工作区对话上下文", "description": "用于开始或继续对话的离线持久化状态", "mimeType": "application/json"},
+		{"uri": "contentcloud://workspace/status", "name": "Content Work OS 工作区状态", "description": "离线工作区绑定、环境和同步状态", "mimeType": "application/json"},
 	}
 }
 
@@ -1542,7 +1542,7 @@ func (r *Root) readContentCloudMCPResource(raw json.RawMessage) (map[string]any,
 		URI string `json:"uri"`
 	}
 	if err := json.Unmarshal(raw, &params); err != nil {
-		return nil, domain.Invalid("MCP_RESOURCE_PARAMS_INVALID", "MCP resource 参数无效")
+		return nil, domain.Invalid("MCP_RESOURCE_PARAMS_INVALID", "MCP 资源参数无效")
 	}
 	var value any
 	var err error
@@ -1552,7 +1552,7 @@ func (r *Root) readContentCloudMCPResource(raw json.RawMessage) (map[string]any,
 	case "contentcloud://workspace/status":
 		value, err = r.contentCloudWorkspaceStatus("")
 	default:
-		return nil, domain.NotFound("MCP resource")
+		return nil, domain.NotFound("MCP 资源")
 	}
 	if err != nil {
 		return nil, err
@@ -1623,7 +1623,7 @@ func (r *Root) workspaceDoctor(directory string) (localworkspace.DoctorReport, e
 	manifestVerifier, manifestErr := r.environmentManifestVerifier()
 	registryVerifier, registryErr := r.environmentRegistryVerifier()
 	if manifestErr != nil || registryErr != nil {
-		message := "Environment trust store 不可用"
+		message := "环境信任库不可用"
 		if manifestErr != nil {
 			message = manifestErr.Error()
 		} else if registryErr != nil {
@@ -1742,18 +1742,18 @@ func (r *Root) applyEnvironmentPreparation(ctx context.Context, input environmen
 		return environmentPreparationApplyResult{}, err
 	}
 	if strings.TrimSpace(expectedPreparationID) == "" || expectedPreparationID != preparation.PreparationID {
-		stale := domain.Conflict("ENVIRONMENT_PREPARATION_PLAN_STALE", "Environment Preparation plan 与当前环境或执行输入不一致，请重新生成计划")
+		stale := domain.Conflict("ENVIRONMENT_PREPARATION_PLAN_STALE", "环境准备计划与当前环境或执行输入不一致，请重新生成计划")
 		stale.Details = map[string]any{"expected_preparation_id": expectedPreparationID, "current_preparation_id": preparation.PreparationID}
 		return environmentPreparationApplyResult{}, stale
 	}
 	if preparation.State == "repair_required" {
-		return environmentPreparationApplyResult{}, domain.Policy("ENVIRONMENT_PREPARATION_REPAIR_REQUIRED", "当前 Pack 存在版本、kind 或 digest 漂移，禁止原地覆盖", "运行独立环境修复流程后重新生成执行计划")
+		return environmentPreparationApplyResult{}, domain.Policy("ENVIRONMENT_PREPARATION_REPAIR_REQUIRED", "当前能力包存在版本、类型或摘要漂移，禁止原地覆盖", "运行独立环境修复流程后重新生成执行计划")
 	}
 	if preparation.State != "ready" || len(preparation.Actions) == 0 {
-		return environmentPreparationApplyResult{}, domain.Conflict("ENVIRONMENT_PREPARATION_NOT_REQUIRED", "当前执行计划不需要安装任务 Pack")
+		return environmentPreparationApplyResult{}, domain.Conflict("ENVIRONMENT_PREPARATION_NOT_REQUIRED", "当前执行计划不需要安装任务能力包")
 	}
 	if !accepted {
-		confirmation := domain.Policy("ENVIRONMENT_PREPARATION_CONFIRMATION_REQUIRED", "安装任务 Pack、更新 environment.lock 并切换新会话需要明确确认", "展示 preparation plan 的权限、数据流和费用后，使用相同 preparation_id 并传入 accept=true")
+		confirmation := domain.Policy("ENVIRONMENT_PREPARATION_CONFIRMATION_REQUIRED", "安装任务能力包、更新环境锁并切换新会话需要明确确认", "展示准备计划的权限、数据流和费用后，使用相同 preparation_id 并传入 accept=true")
 		confirmation.ExitCode = 2
 		return environmentPreparationApplyResult{}, confirmation
 	}
@@ -1797,7 +1797,7 @@ func (r *Root) applyEnvironmentPreparation(ctx context.Context, input environmen
 		if len(rollbackErrors) == 0 {
 			return cause
 		}
-		rollbackFailure := domain.E("runtime", "environment_preparation", "ENVIRONMENT_PREPARATION_ROLLBACK_FAILED", "Environment Preparation 失败且局部回滚不完整", 5)
+		rollbackFailure := domain.E("runtime", "environment_preparation", "ENVIRONMENT_PREPARATION_ROLLBACK_FAILED", "环境准备失败且局部回滚不完整", 5)
 		rollbackFailure.Details = map[string]any{"cause": cause.Error(), "rollback_errors": rollbackErrors}
 		return rollbackFailure
 	}
@@ -1822,13 +1822,13 @@ func (r *Root) applyEnvironmentPreparation(ctx context.Context, input environmen
 			return environmentPreparationApplyResult{}, rollback(planErr)
 		}
 		if adapterPlan.State == "blocked" {
-			blocked := domain.Conflict("ENVIRONMENT_PREPARATION_CODEX_STATE_BLOCKED", "Codex 中现有 Marketplace 或 Pack 与签名计划冲突")
+			blocked := domain.Conflict("ENVIRONMENT_PREPARATION_CODEX_STATE_BLOCKED", "Codex 中现有插件市场或能力包与签名计划冲突")
 			blocked.Details = adapterPlan.BlockingReasons
 			return environmentPreparationApplyResult{}, rollback(blocked)
 		}
 		for _, adapterAction := range adapterPlan.Actions {
 			if adapterAction.Kind != "plugin.add" {
-				return environmentPreparationApplyResult{}, rollback(domain.Conflict("ENVIRONMENT_PREPARATION_MARKETPLACE_NOT_READY", "任务 Pack 安装要求已存在且版本正确的 ContentCloud Marketplace"))
+				return environmentPreparationApplyResult{}, rollback(domain.Conflict("ENVIRONMENT_PREPARATION_MARKETPLACE_NOT_READY", "任务能力包安装要求已存在且版本正确的 Content Work OS 插件市场"))
 			}
 		}
 		applyResult, applyErr := adapter.Apply(ctx, adapterPlan, true)
@@ -1853,7 +1853,7 @@ func (r *Root) applyEnvironmentPreparation(ctx context.Context, input environmen
 		return environmentPreparationApplyResult{}, rollback(err)
 	}
 	if readyExecution.State != "ready" || len(readyExecution.Preparation) != 0 {
-		return environmentPreparationApplyResult{}, rollback(domain.Conflict("ENVIRONMENT_PREPARATION_NOT_READY", "任务 Pack 安装后 LocalExecutionPlan 仍未 ready"))
+		return environmentPreparationApplyResult{}, rollback(domain.Conflict("ENVIRONMENT_PREPARATION_NOT_READY", "任务能力包安装后，本地执行计划仍未 ready"))
 	}
 	afterDoctor, err := r.workspaceDoctor(verified.Root)
 	if err != nil {
@@ -1896,7 +1896,7 @@ func environmentPreparationHandoff(verified verifiedLocalEnvironment, registry e
 		}
 		return environmentNewChatHandoff{RequiresNewChat: true, WorkspacePath: verified.Root, DeepLink: deepLink, RecoveryPrompt: prompt}, nil
 	}
-	return environmentNewChatHandoff{}, domain.Conflict("ENVIRONMENT_SCENE_PLUGIN_REQUIRED", "当前 Environment 缺少新会话恢复所需的必装 Scene Plugin")
+	return environmentNewChatHandoff{}, domain.Conflict("ENVIRONMENT_SCENE_PLUGIN_REQUIRED", "当前环境缺少恢复新会话所需的必装场景插件")
 }
 
 func (r *Root) resolveMCPWorkspace(directory string) (string, error) {
@@ -1933,7 +1933,7 @@ func workspaceConflict(paths []string) error {
 	if len(shown) > 8 {
 		shown = shown[:8]
 	}
-	err := domain.Conflict("WORKSPACE_DIRECTORY_NOT_EMPTY", "目标目录非空且不是 ContentCloud 工作区")
+	err := domain.Conflict("WORKSPACE_DIRECTORY_NOT_EMPTY", "目标目录非空且不是 Content Work OS 工作区")
 	err.Hint = "请选择空目录，或先确认并整理冲突文件：" + strings.Join(shown, ", ")
 	err.Details = map[string]any{"conflicts": paths}
 	return err

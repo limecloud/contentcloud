@@ -58,4 +58,21 @@ func TestInputItemTriageCreatesTaskAndUsesRowVersion(t *testing.T) {
 	if err != nil || len(task.Task.InputRefs) != 1 || task.Task.InputRefs[0] != "input:"+item.ID {
 		t.Fatalf("created task did not retain input reference: task=%#v err=%v", task, err)
 	}
+
+	manual, err := service.CreateWorkTask(ctx, actor, app.CreateWorkTaskInput{ProjectID: project.ID, Title: "先创建再补充灵感", ContentType: domain.ContentTypeVideoScript}, "")
+	if err != nil || manual.Task.Status != domain.TaskStatusNeedsInput {
+		t.Fatalf("task without input should wait for input: task=%#v err=%v", manual.Task, err)
+	}
+	inspiration, err := service.CreateInputItem(ctx, actor, app.CreateInputItemInput{ProjectID: project.ID, SourceType: "manual_inspiration", Title: "人物灵感", Summary: "真实主理人的一天"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := service.TriageInputItem(ctx, actor, inspiration.ID, app.TriageInputItemInput{Action: "merge_task", ExpectedVersion: inspiration.RowVersion, TaskID: manual.Task.ID}, "")
+	if err != nil || merged.Status != domain.InputItemTaskMerged {
+		t.Fatalf("input was not merged into task: input=%#v err=%v", merged, err)
+	}
+	ready, err := service.WorkTask(ctx, actor, manual.Task.ID)
+	if err != nil || ready.Task.Status != domain.TaskStatusReady || ready.Task.NextAction != "开始第一个流程阶段" || len(ready.Task.InputRefs) != 1 {
+		t.Fatalf("merged input should make task ready: task=%#v err=%v", ready.Task, err)
+	}
 }

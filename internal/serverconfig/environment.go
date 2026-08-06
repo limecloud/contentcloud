@@ -46,13 +46,13 @@ func EnvironmentFromEnv() (EnvironmentRuntime, error) {
 	if raw := strings.TrimSpace(os.Getenv("CONTENTCLOUD_ENVIRONMENT_MANIFEST_TTL")); raw != "" {
 		parsed, err := time.ParseDuration(raw)
 		if err != nil {
-			return EnvironmentRuntime{}, fmt.Errorf("parse CONTENTCLOUD_ENVIRONMENT_MANIFEST_TTL: %w", err)
+			return EnvironmentRuntime{}, fmt.Errorf("解析 CONTENTCLOUD_ENVIRONMENT_MANIFEST_TTL 失败：%w", err)
 		}
 		ttl = parsed
 	}
 	repositoryRoot, err := os.Getwd()
 	if err != nil {
-		return EnvironmentRuntime{}, fmt.Errorf("resolve server working directory: %w", err)
+		return EnvironmentRuntime{}, fmt.Errorf("解析服务端工作目录失败：%w", err)
 	}
 	return LoadEnvironment(EnvironmentConfig{
 		ProfilePath:              strings.TrimSpace(os.Getenv("CONTENTCLOUD_ENVIRONMENT_PROFILE_FILE")),
@@ -79,10 +79,10 @@ func LoadEnvironment(config EnvironmentConfig) (EnvironmentRuntime, error) {
 		return EnvironmentRuntime{AutomationPackIDs: map[string][]string{}}, nil
 	}
 	if configured != len(values) {
-		return EnvironmentRuntime{}, domain.Invalid("ENVIRONMENT_CONFIG_INCOMPLETE", "Environment Control Plane 配置必须同时提供 Profile、Registry、两类 trust store、signer 文件/key_id 和 capability release version")
+		return EnvironmentRuntime{}, domain.Invalid("ENVIRONMENT_CONFIG_INCOMPLETE", "环境控制平面配置必须同时提供环境配置、插件注册表、两类信任库、签名文件、key_id 和能力发布版本")
 	}
 	if !releaseVersionPattern.MatchString(config.CapabilityReleaseVersion) {
-		return EnvironmentRuntime{}, domain.Invalid("CAPABILITY_RELEASE_VERSION_INVALID", "capability release version 必须是不可变语义版本")
+		return EnvironmentRuntime{}, domain.Invalid("CAPABILITY_RELEASE_VERSION_INVALID", "能力发布版本必须是不可变的语义化版本")
 	}
 	if config.ManifestTTL == 0 {
 		config.ManifestTTL = defaultManifestTTL
@@ -90,11 +90,11 @@ func LoadEnvironment(config EnvironmentConfig) (EnvironmentRuntime, error) {
 
 	var profile environment.Profile
 	if err := readStrictJSONFile(config.ProfilePath, &profile); err != nil {
-		return EnvironmentRuntime{}, fmt.Errorf("load Creative Environment Profile: %w", err)
+		return EnvironmentRuntime{}, fmt.Errorf("加载创作环境配置失败：%w", err)
 	}
 	var registry environment.Registry
 	if err := readStrictJSONFile(config.RegistryPath, &registry); err != nil {
-		return EnvironmentRuntime{}, fmt.Errorf("load Plugin Registry: %w", err)
+		return EnvironmentRuntime{}, fmt.Errorf("加载插件注册表失败：%w", err)
 	}
 	registryVerifier, err := environment.LoadRegistryVerifier(config.RegistryTrustPath)
 	if err != nil {
@@ -102,7 +102,7 @@ func LoadEnvironment(config EnvironmentConfig) (EnvironmentRuntime, error) {
 	}
 	verifiedRegistry, err := registryVerifier.Verify(registry)
 	if err != nil {
-		return EnvironmentRuntime{}, fmt.Errorf("verify Plugin Registry: %w", err)
+		return EnvironmentRuntime{}, fmt.Errorf("验证插件注册表失败：%w", err)
 	}
 	manifestVerifier, err := environment.LoadManifestVerifier(config.EnvironmentTrustPath)
 	if err != nil {
@@ -118,7 +118,7 @@ func LoadEnvironment(config EnvironmentConfig) (EnvironmentRuntime, error) {
 	}
 	controlPlane, err := environment.NewControlPlaneWithVerifier(issuer, manifestVerifier, profile, verifiedRegistry, config.ManifestTTL)
 	if err != nil {
-		return EnvironmentRuntime{}, fmt.Errorf("initialize Environment Control Plane: %w", err)
+		return EnvironmentRuntime{}, fmt.Errorf("初始化环境控制平面失败：%w", err)
 	}
 
 	requirements, packIDs, err := automationPolicy(profile, config.CapabilityReleaseVersion)
@@ -138,7 +138,7 @@ func automationPolicy(profile environment.Profile, releaseVersion string) ([]env
 	for _, capabilityID := range profile.Capabilities {
 		capability, exists := capabilitycatalog.Exact(capabilityID, releaseVersion)
 		if !exists {
-			return nil, nil, domain.Policy("AUTOMATION_CAPABILITY_UNSUPPORTED", "Creative Environment Profile 包含服务端 catalog 未实现的 capability", "使用当前 release 支持的确定性 capability")
+			return nil, nil, domain.Policy("AUTOMATION_CAPABILITY_UNSUPPORTED", "创作环境配置包含服务端能力目录尚未实现的能力", "使用当前发布版本支持的确定性能力")
 		}
 		requirements = append(requirements, environment.CapabilityRequirement{ID: capability.ID, SchemaVersion: capability.Version, Digest: capability.Digest})
 	}
@@ -160,13 +160,13 @@ func automationPolicy(profile environment.Profile, releaseVersion string) ([]env
 func loadPrivateKey(path, repositoryRoot string) (ed25519.PrivateKey, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return nil, fmt.Errorf("inspect Environment signing key: %w", err)
+		return nil, fmt.Errorf("检查环境签名私钥失败：%w", err)
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, domain.Invalid("ENVIRONMENT_SIGNING_KEY_FILE_INVALID", "Environment signing key 必须是普通文件，不能是符号链接")
+		return nil, domain.Invalid("ENVIRONMENT_SIGNING_KEY_FILE_INVALID", "环境签名私钥必须是普通文件，不能是符号链接")
 	}
 	if info.Mode().Perm()&0o077 != 0 {
-		return nil, domain.Policy("ENVIRONMENT_SIGNING_KEY_PERMISSIONS", "Environment signing key 不能允许 group/other 访问", "将私钥权限收紧为 0400 或 0600")
+		return nil, domain.Policy("ENVIRONMENT_SIGNING_KEY_PERMISSIONS", "环境签名私钥不能允许用户组或其他用户访问", "将私钥权限收紧为 0400 或 0600")
 	}
 	if repositoryRoot != "" {
 		inside, err := pathWithin(repositoryRoot, path)
@@ -174,15 +174,15 @@ func loadPrivateKey(path, repositoryRoot string) (ed25519.PrivateKey, error) {
 			return nil, err
 		}
 		if inside {
-			return nil, domain.Policy("ENVIRONMENT_SIGNING_KEY_IN_REPOSITORY", "Environment signing key 必须位于代码仓库之外", "将私钥移动到受限 secrets 目录")
+			return nil, domain.Policy("ENVIRONMENT_SIGNING_KEY_IN_REPOSITORY", "环境签名私钥必须位于代码仓库之外", "将私钥移动到访问受限的密钥目录")
 		}
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read Environment signing key: %w", err)
+		return nil, fmt.Errorf("读取环境签名私钥失败：%w", err)
 	}
 	if len(body) != ed25519.PrivateKeySize {
-		return nil, domain.Invalid("ENVIRONMENT_SIGNING_KEY_FORMAT", "Environment signing key 必须是 64 字节 Ed25519 私钥二进制文件")
+		return nil, domain.Invalid("ENVIRONMENT_SIGNING_KEY_FORMAT", "环境签名私钥必须是 64 字节的 Ed25519 私钥二进制文件")
 	}
 	return append(ed25519.PrivateKey(nil), body...), nil
 }
@@ -190,15 +190,15 @@ func loadPrivateKey(path, repositoryRoot string) (ed25519.PrivateKey, error) {
 func pathWithin(root, target string) (bool, error) {
 	rootPath, err := filepath.Abs(root)
 	if err != nil {
-		return false, fmt.Errorf("resolve repository root: %w", err)
+		return false, fmt.Errorf("解析代码仓库根目录失败：%w", err)
 	}
 	targetPath, err := filepath.Abs(target)
 	if err != nil {
-		return false, fmt.Errorf("resolve signing key path: %w", err)
+		return false, fmt.Errorf("解析签名私钥路径失败：%w", err)
 	}
 	relative, err := filepath.Rel(rootPath, targetPath)
 	if err != nil {
-		return false, fmt.Errorf("compare signing key path: %w", err)
+		return false, fmt.Errorf("比较签名私钥路径失败：%w", err)
 	}
 	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)), nil
 }
@@ -216,7 +216,7 @@ func readStrictJSONFile(path string, target any) error {
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return fmt.Errorf("multiple JSON documents are not allowed")
+			return fmt.Errorf("不允许在一个文件中包含多个 JSON 文档")
 		}
 		return err
 	}

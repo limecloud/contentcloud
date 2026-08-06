@@ -35,7 +35,7 @@ func (s *Store) RunAttempt(ctx context.Context, tenantID, id string) (domain.Run
 		attempt, err := scanRunAttempt(tx.QueryRow(ctx, runAttemptSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
 		result = attempt
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("任务 Attempt")
+			return domain.NotFound("任务执行尝试")
 		}
 		return err
 	})
@@ -70,7 +70,7 @@ func (s *Store) SaveRunAttempt(ctx context.Context, attempt domain.RunAttempt) e
 			return dbError(err)
 		}
 		if result.RowsAffected() == 0 {
-			return domain.NotFound("任务 Attempt")
+			return domain.NotFound("任务执行尝试")
 		}
 		return nil
 	})

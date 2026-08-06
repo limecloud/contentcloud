@@ -21,7 +21,7 @@ func configureAgentProcess(cmd *exec.Cmd) {
 		}
 		output, err := exec.Command("taskkill", "/PID", strconv.Itoa(cmd.Process.Pid), "/T", "/F").CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("terminate agent process tree: %w: %s", err, output)
+			return fmt.Errorf("终止智能体进程树失败：%w：%s", err, output)
 		}
 		return nil
 	}

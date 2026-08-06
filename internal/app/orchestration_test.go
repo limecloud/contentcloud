@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -106,9 +107,8 @@ func TestOrchestrationDraftPublishAndTenantIsolation(t *testing.T) {
 	if published.Status != "published" || !strings.HasPrefix(published.Digest, "sha256:") || len(published.Digest) != len("sha256:")+64 {
 		t.Fatalf("unexpected published SOP: %#v", published)
 	}
-	if _, err := service.SaveSOPVersion(ctx, actor, sopID, draft.Version, app.SaveSOPVersionInput{Name: "非法修改", Stages: published.Stages, Gates: published.Gates}, ""); err == nil || !domain.IsNotFound(err) && !strings.Contains(err.Error(), "不可") {
-		t.Fatalf("published SOP should be immutable, got %v", err)
-	}
+	_, err = service.SaveSOPVersion(ctx, actor, sopID, draft.Version, app.SaveSOPVersionInput{Name: "非法修改", Stages: published.Stages, Gates: published.Gates}, "")
+	assertDomainErrorCode(t, err, "SOP_VERSION_IMMUTABLE")
 
 	foreignSession, err := service.Register(ctx, "orchestration-foreign@example.com", "long-enough-password", "外部用户", "租户 B")
 	if err != nil {
@@ -506,9 +506,8 @@ func TestOrchestrationAdminCanCreateEnvironmentAndLintSOP(t *testing.T) {
 	if createdEnvironment.Slug != "review" || createdEnvironment.Status != "paused" || createdEnvironment.DefaultSOPID == "" {
 		t.Fatalf("unexpected environment: %#v", createdEnvironment)
 	}
-	if _, err := service.CreateEnvironment(ctx, actor, app.SaveEnvironmentInput{Name: "无流程环境", Slug: "missing-sop", Status: "active"}, ""); err == nil || !strings.Contains(err.Error(), "必须绑定已发布 SOP") {
-		t.Fatalf("environment without SOP should be rejected, got %v", err)
-	}
+	_, err = service.CreateEnvironment(ctx, actor, app.SaveEnvironmentInput{Name: "无流程环境", Slug: "missing-sop", Status: "active"}, "")
+	assertDomainErrorCode(t, err, "ENVIRONMENT_DEFAULT_SOP_REQUIRED")
 
 	createdSOP, err := service.CreateSOP(ctx, actor, app.CreateSOPInput{
 		Name:         "文章交付",
@@ -631,9 +630,8 @@ func TestTaskSOPOverrideCannotBypassEnvironmentConfiguration(t *testing.T) {
 	if research.ID == "" {
 		t.Fatal("research built-in SOP was not provisioned")
 	}
-	if _, err := service.CreateWorkTask(ctx, actor, app.CreateWorkTaskInput{ProjectID: project.ID, SOPID: research.SOPID, SOPVersion: research.Version, Title: "绕过环境的任务", ContentType: domain.ContentTypeVideoScript, InputRefs: []string{"brief:blocked"}}, ""); err == nil || !strings.Contains(err.Error(), "只能使用 Project 绑定或 Environment 配置") {
-		t.Fatalf("arbitrary SOP override should be rejected: %v", err)
-	}
+	_, err = service.CreateWorkTask(ctx, actor, app.CreateWorkTaskInput{ProjectID: project.ID, SOPID: research.SOPID, SOPVersion: research.Version, Title: "绕过环境的任务", ContentType: domain.ContentTypeVideoScript, InputRefs: []string{"brief:blocked"}}, "")
+	assertDomainErrorCode(t, err, "TASK_SOP_NOT_ALLOWED")
 	if defaultEnvironment.DefaultSOPID == research.SOPID && defaultEnvironment.DefaultSOPVersion == research.Version {
 		t.Fatal("test setup accidentally selected research as default")
 	}
@@ -667,7 +665,14 @@ func TestCreateWorkTaskIdempotencyReturnsOriginalOrConflicts(t *testing.T) {
 		t.Fatalf("idempotent retry created a second task: first=%s second=%s", first.Task.ID, second.Task.ID)
 	}
 	input.Title = "不同参数"
-	if _, err := service.CreateWorkTask(ctx, actor, input, ""); err == nil || !strings.Contains(err.Error(), "相同 Idempotency-Key 已用于不同任务参数") {
-		t.Fatalf("idempotency key reuse with different parameters should conflict: %v", err)
+	_, err = service.CreateWorkTask(ctx, actor, input, "")
+	assertDomainErrorCode(t, err, "IDEMPOTENCY_KEY_REUSE")
+}
+
+func assertDomainErrorCode(t *testing.T, err error, code string) {
+	t.Helper()
+	var domainErr *domain.Error
+	if !errors.As(err, &domainErr) || domainErr.Code != code {
+		t.Fatalf("expected domain error %s, got %v", code, err)
 	}
 }

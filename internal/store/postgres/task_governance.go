@@ -83,7 +83,7 @@ func (s *Store) GateEvaluation(ctx context.Context, tenantID, id string) (domain
 		value, err := scanGateEvaluation(tx.QueryRow(ctx, gateEvaluationSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
 		result = value
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("Gate 评估")
+			return domain.NotFound("审核门评估")
 		}
 		return err
 	})
@@ -98,7 +98,7 @@ func (s *Store) SaveGateEvaluation(ctx context.Context, value domain.GateEvaluat
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
 		command, err := tx.Exec(ctx, `UPDATE task_gate_evaluations SET status=$3,revision_id=$4,input_refs=$5,checks=$6,decision=$7,reason=$8,decided_by=$9,decided_at=$10,expires_at=$11,updated_at=$12 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.Status, value.RevisionID, jsonArrayValue(value.InputRefs), jsonValue(value.Checks), value.Decision, value.Reason, value.DecidedBy, value.DecidedAt, value.ExpiresAt, value.UpdatedAt)
 		if err == nil && command.RowsAffected() == 0 {
-			return domain.NotFound("Gate 评估")
+			return domain.NotFound("审核门评估")
 		}
 		return dbError(err)
 	})
@@ -161,7 +161,7 @@ func (s *Store) TaskRevision(ctx context.Context, tenantID, id string) (domain.T
 		value, err := scanTaskRevision(tx.QueryRow(ctx, taskRevisionSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
 		result = value
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("Task Revision")
+			return domain.NotFound("任务修订版本")
 		}
 		return err
 	})
@@ -218,7 +218,7 @@ func (s *Store) TaskDelivery(ctx context.Context, tenantID, id string) (domain.T
 		value, err := scanTaskDelivery(tx.QueryRow(ctx, taskDeliverySelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
 		result = value
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("Task 交付")
+			return domain.NotFound("任务交付")
 		}
 		return err
 	})
@@ -233,7 +233,7 @@ func (s *Store) SaveTaskDelivery(ctx context.Context, value domain.TaskDelivery)
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
 		command, err := tx.Exec(ctx, `UPDATE task_deliveries SET status=$3,manifest=$4,delivery_package_id=$5,integrity_status=$6,delivery_digest=$7,delivered_by=$8,delivered_at=$9,error_code=$10,updated_at=$11 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.Status, jsonArrayValue(value.Manifest), nullable(value.DeliveryPackageID), value.IntegrityStatus, value.DeliveryDigest, value.DeliveredBy, value.DeliveredAt, value.ErrorCode, value.UpdatedAt)
 		if err == nil && command.RowsAffected() == 0 {
-			return domain.NotFound("Task 交付")
+			return domain.NotFound("任务交付")
 		}
 		return dbError(err)
 	})

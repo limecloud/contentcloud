@@ -1,4 +1,4 @@
-export type AdminRoute = 'dashboard'|'tenants'|'users'|'environments'|'sops'|'gates'|'capabilities'|'audit'|'usage';
+export type AdminRoute = 'dashboard'|'tenants'|'users'|'environments'|'sops'|'gates'|'capabilities'|'runtime'|'audit'|'usage';
 
 const adminPaths: Record<AdminRoute,string> = {
   dashboard: '/admin/dashboard',
@@ -8,6 +8,7 @@ const adminPaths: Record<AdminRoute,string> = {
   sops: '/admin/sops',
   gates: '/admin/gates',
   capabilities: '/admin/capabilities',
+  runtime: '/admin/runtime',
   audit: '/admin/audit',
   usage: '/admin/usage'
 };

@@ -51,7 +51,7 @@ func ReviewFeedbackInbox(root string) ([]ReviewFeedbackInboxItem, error) {
 		}
 		var feedback domain.ReviewFeedbackBundle
 		if err := json.Unmarshal(body, &feedback); err != nil {
-			return nil, domain.Invalid("REVIEW_FEEDBACK_INVALID", "本地审核反馈不是有效 JSON Bundle")
+			return nil, domain.Invalid("REVIEW_FEEDBACK_INVALID", "本地审核反馈不是有效的 JSON 数据包")
 		}
 		id, hash, err := reviewFeedbackIdentity(feedback)
 		if err != nil {
@@ -73,7 +73,7 @@ func ReviewFeedbackInbox(root string) ([]ReviewFeedbackInboxItem, error) {
 
 func reviewFeedbackIdentity(feedback domain.ReviewFeedbackBundle) (string, string, error) {
 	if feedback.BundleVersion != "1.0" || strings.TrimSpace(feedback.SubmissionID) == "" || strings.TrimSpace(feedback.SubmissionRevisionID) == "" || strings.TrimSpace(feedback.SubjectHash) == "" || feedback.CreatedAt.IsZero() {
-		return "", "", domain.Invalid("REVIEW_FEEDBACK_INVALID", "审核反馈 Bundle 缺少固定版本、Submission、subject hash 或创建时间")
+		return "", "", domain.Invalid("REVIEW_FEEDBACK_INVALID", "审核反馈数据包缺少固定版本、提交记录、审核对象摘要或创建时间")
 	}
 	for _, comment := range feedback.Comments {
 		if strings.TrimSpace(comment.ID) == "" || strings.TrimSpace(comment.Body) == "" || comment.CreatedAt.IsZero() {

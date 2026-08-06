@@ -44,7 +44,7 @@ func CreateStoryboardPackage(options CreateStoryboardPackageOptions) (CreateStor
 		return CreateStoryboardPackageResult{}, err
 	}
 	if record.Snapshot.SubmissionType != "content_batch" {
-		return CreateStoryboardPackageResult{}, domain.Invalid("CONTENT_SNAPSHOT_TYPE_INVALID", "分镜输入必须是 content_batch ApprovedSnapshot")
+		return CreateStoryboardPackageResult{}, domain.Invalid("CONTENT_SNAPSHOT_TYPE_INVALID", "分镜输入必须是 content_batch 类型的批准快照")
 	}
 	raw, err := approvedObjectContent(record.Snapshot, options.ContentItemID)
 	if err != nil {
@@ -192,23 +192,23 @@ func validateStoryboardSource(root string, value domain.StoryboardPackage) error
 	record, err := ShowApprovedSnapshot(root, value.ApprovedSnapshotID)
 	if err != nil {
 		if domain.IsNotFound(err) {
-			return domain.Policy("STORYBOARD_CONTENT_SNAPSHOT_PULL_REQUIRED", "本机没有 StoryboardPackage 引用的 content_batch ApprovedSnapshot", "先执行 contentcloud pull approved --id <snapshot-id>")
+			return domain.Policy("STORYBOARD_CONTENT_SNAPSHOT_PULL_REQUIRED", "本机没有分镜包引用的内容批次批准快照", "先执行 contentcloud pull approved --id <snapshot-id>")
 		}
 		return err
 	}
 	if record.Snapshot.SubmissionType != "content_batch" {
-		return domain.Conflict("STORYBOARD_CONTENT_SNAPSHOT_INVALID", "StoryboardPackage 必须引用 content_batch ApprovedSnapshot")
+		return domain.Conflict("STORYBOARD_CONTENT_SNAPSHOT_INVALID", "分镜包必须引用内容批次批准快照")
 	}
 	raw, err := approvedObjectContent(record.Snapshot, value.ContentItemID)
 	if err != nil {
-		return domain.Conflict("STORYBOARD_CONTENT_ITEM_BASE_INVALID", "StoryboardPackage content_item_id 不在所引用 ApprovedSnapshot 的 eligible objects 中")
+		return domain.Conflict("STORYBOARD_CONTENT_ITEM_BASE_INVALID", "分镜包的 content_item_id 不在所引用批准快照的可用对象中")
 	}
 	hash, err := domain.CanonicalHash(json.RawMessage(raw))
 	if err != nil {
 		return err
 	}
 	if value.SourceDigest != "sha256:"+hash {
-		return domain.Conflict("STORYBOARD_SOURCE_DIGEST_MISMATCH", "StoryboardPackage source_digest 与批准 ContentItem 不一致")
+		return domain.Conflict("STORYBOARD_SOURCE_DIGEST_MISMATCH", "分镜包的来源摘要与已批准内容项不一致")
 	}
 	return nil
 }
@@ -217,12 +217,12 @@ func LoadLockedStoryboardSnapshot(root, snapshotID, packageID string) (domain.St
 	record, err := ShowApprovedSnapshot(root, snapshotID)
 	if err != nil {
 		if domain.IsNotFound(err) {
-			return domain.StoryboardPackage{}, domain.Policy("STORYBOARD_SNAPSHOT_PULL_REQUIRED", "本机没有可信的 storyboard ApprovedSnapshot", "先执行 contentcloud pull approved --id <snapshot-id>")
+			return domain.StoryboardPackage{}, domain.Policy("STORYBOARD_SNAPSHOT_PULL_REQUIRED", "本机没有可信的分镜批准快照", "先执行 contentcloud pull approved --id <snapshot-id>")
 		}
 		return domain.StoryboardPackage{}, err
 	}
 	if record.Snapshot.SubmissionType != "storyboard" {
-		return domain.StoryboardPackage{}, domain.Invalid("STORYBOARD_SNAPSHOT_TYPE_INVALID", "Seedance 导出只能使用 storyboard ApprovedSnapshot")
+		return domain.StoryboardPackage{}, domain.Invalid("STORYBOARD_SNAPSHOT_TYPE_INVALID", "Seedance 导出只能使用分镜批准快照")
 	}
 	raw, err := approvedObjectContent(record.Snapshot, packageID)
 	if err != nil {
@@ -230,7 +230,7 @@ func LoadLockedStoryboardSnapshot(root, snapshotID, packageID string) (domain.St
 	}
 	var value domain.StoryboardPackage
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return domain.StoryboardPackage{}, domain.Invalid("STORYBOARD_SNAPSHOT_OBJECT_INVALID", "storyboard ApprovedSnapshot 中的对象无效")
+		return domain.StoryboardPackage{}, domain.Invalid("STORYBOARD_SNAPSHOT_OBJECT_INVALID", "分镜批准快照中的对象无效")
 	}
 	if err := value.Validate(true); err != nil {
 		return domain.StoryboardPackage{}, err
@@ -240,7 +240,7 @@ func LoadLockedStoryboardSnapshot(root, snapshotID, packageID string) (domain.St
 		return domain.StoryboardPackage{}, err
 	}
 	if computed != value.LockedDigest {
-		return domain.StoryboardPackage{}, domain.Conflict("STORYBOARD_LOCKED_DIGEST_MISMATCH", "服务端批准的 StoryboardPackage locked_digest 无法复算")
+		return domain.StoryboardPackage{}, domain.Conflict("STORYBOARD_LOCKED_DIGEST_MISMATCH", "无法重新计算服务端已批准分镜包的锁定摘要（locked_digest）")
 	}
 	for _, asset := range value.Assets {
 		absolute, err := ResolveWorkspaceFile(root, asset.Path)
@@ -381,7 +381,7 @@ func approvedObjectContent(snapshot domain.ApprovedSnapshot, objectID string) (j
 		Objects []json.RawMessage `json:"objects"`
 	}
 	if err := json.Unmarshal(snapshot.CanonicalContent, &canonical); err != nil {
-		return nil, domain.Invalid("APPROVED_SNAPSHOT_CANONICAL_INVALID", "ApprovedSnapshot canonical content 无效")
+		return nil, domain.Invalid("APPROVED_SNAPSHOT_CANONICAL_INVALID", "批准快照的规范内容无效")
 	}
 	for _, raw := range canonical.Objects {
 		var identity struct {
@@ -391,7 +391,7 @@ func approvedObjectContent(snapshot domain.ApprovedSnapshot, objectID string) (j
 			return raw, nil
 		}
 	}
-	return nil, domain.NotFound("ApprovedSnapshot 中的 eligible 对象")
+	return nil, domain.NotFound("批准快照中的可用对象")
 }
 
 func fileDigest(path string) (string, int64, error) {

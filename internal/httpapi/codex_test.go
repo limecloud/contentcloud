@@ -102,7 +102,7 @@ func TestCodexHTMLAndTextSharePinnedGuideFacts(t *testing.T) {
 			t.Errorf("shared guide fact %q is missing from HTML or text", fact)
 		}
 	}
-	if !strings.Contains(htmlBody, "ContentCloud") {
+	if !strings.Contains(htmlBody, "Content Work OS") {
 		t.Fatal("HTML guide did not render")
 	}
 

@@ -282,7 +282,7 @@ func FindRoot(start string) (string, error) {
 			break
 		}
 	}
-	return "", domain.NotFound("ContentCloud 工作区")
+	return "", domain.NotFound("Content Work OS 工作区")
 }
 
 func LoadStatus(root string) (Status, error) {
@@ -292,18 +292,18 @@ func LoadStatus(root string) (Status, error) {
 	}
 	var binding Binding
 	if err := readYAML(filepath.Join(resolved, ".contentcloud", "workspace.yaml"), &binding); err != nil {
-		return Status{}, fmt.Errorf("read workspace binding: %w", err)
+		return Status{}, fmt.Errorf("读取工作区绑定失败：%w", err)
 	}
 	if binding.SchemaVersion != WorkspaceSchemaVersion || binding.LayoutVersion != LayoutVersion || binding.WorkspaceID == "" || binding.ProjectID == "" {
-		return Status{}, domain.Conflict("WORKSPACE_LAYOUT_UNSUPPORTED", "工作区不是 ContentCloud V3 布局")
+		return Status{}, domain.Conflict("WORKSPACE_LAYOUT_UNSUPPORTED", "工作区不是受支持的 Content Work OS V3 布局")
 	}
 	var lock TemplateLock
 	if err := readJSON(filepath.Join(resolved, ".contentcloud", "template.lock"), &lock); err != nil {
-		return Status{}, fmt.Errorf("read template lock: %w", err)
+		return Status{}, fmt.Errorf("读取模板锁定信息失败：%w", err)
 	}
 	var syncState SyncState
 	if err := readJSON(filepath.Join(resolved, ".contentcloud", "sync-state.json"), &syncState); err != nil {
-		return Status{}, fmt.Errorf("read sync state: %w", err)
+		return Status{}, fmt.Errorf("读取同步状态失败：%w", err)
 	}
 	modified, missing := verifyManagedFiles(resolved, lock.Files, lock.CLIVersion)
 	automationEnabled := false
@@ -333,9 +333,9 @@ func Doctor(root string) (DoctorReport, error) {
 	skillsOK, skillsMessage := installedSkillsCheck(status.Root, status.Template)
 	mcpOK, mcpMessage := installedMCPCheck(status.Root, status.Template)
 	routingInspection, _ := InspectCapabilityRouting(status.Root)
-	automationMessage := "签名 Environment Manifest 未启用后台 Automation"
+	automationMessage := "已签名的环境清单未启用后台自动化"
 	if status.AutomationEnabled {
-		automationMessage = "签名 Environment Manifest 已启用后台 Automation"
+		automationMessage = "已签名的环境清单已启用后台自动化"
 	}
 	checks := map[string]Check{
 		"workspace_binding":  {OK: status.Binding.SchemaVersion == WorkspaceSchemaVersion && status.Binding.LayoutVersion == LayoutVersion && status.Binding.ProjectID != "" && status.Binding.WorkspaceID != "", Required: true, Message: "V3 项目与工作区绑定可读"},
@@ -344,7 +344,7 @@ func Doctor(root string) (DoctorReport, error) {
 		"managed_files":      {OK: len(status.ModifiedManagedFiles) == 0 && len(status.MissingManagedFiles) == 0, Required: true, Message: managedMessage(status)},
 		"skills":             {OK: skillsOK, Required: true, Message: skillsMessage},
 		"mcp":                {OK: mcpOK, Required: true, Message: mcpMessage},
-		"capability_routing": {OK: routingInspection.Status == "current", Required: true, Message: "ContentCloud 路由受管块状态：" + routingInspection.Status},
+		"capability_routing": {OK: routingInspection.Status == "current", Required: true, Message: "Content Work OS 能力路由受管块状态：" + routingInspection.Status},
 		"automation":         {OK: true, Required: false, Message: automationMessage},
 	}
 	ok := true
@@ -403,7 +403,7 @@ func RecordPublished(root, submissionType, revisionID, contentHash string, now t
 
 func StorePulledBundle(root, kind, id string, value any, now time.Time) (string, error) {
 	if id == "" || filepath.Base(id) != id || strings.ContainsAny(id, `/\\`) {
-		return "", domain.Invalid("PULL_BUNDLE_ID_INVALID", "pull bundle ID 无效")
+		return "", domain.Invalid("PULL_BUNDLE_ID_INVALID", "拉取包 ID 无效")
 	}
 	resolved, state, err := loadSyncState(root)
 	if err != nil {
@@ -431,7 +431,7 @@ func StorePulledBundle(root, kind, id string, value any, now time.Time) (string,
 	body = append(body, '\n')
 	if existing, err := os.ReadFile(destination); err == nil {
 		if !bytes.Equal(existing, body) {
-			return "", domain.Conflict("PULL_IMMUTABLE_CONFLICT", "本地已有同 ID 但内容不同的 pull bundle")
+			return "", domain.Conflict("PULL_IMMUTABLE_CONFLICT", "本地已有相同 ID 但内容不同的拉取包")
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
@@ -603,7 +603,7 @@ func conflictError(paths []string) error {
 	if len(shown) > 8 {
 		shown = shown[:8]
 	}
-	err := domain.Conflict("WORKSPACE_DIRECTORY_NOT_EMPTY", "目标目录非空且不是 ContentCloud 工作区")
+	err := domain.Conflict("WORKSPACE_DIRECTORY_NOT_EMPTY", "目标目录非空，且不是 Content Work OS 工作区")
 	err.Hint = "请选择空目录，或先确认并整理冲突文件：" + strings.Join(shown, ", ")
 	err.Details = map[string]any{"conflicts": paths}
 	return err
@@ -646,7 +646,7 @@ func readYAML(path string, value any) error {
 	decoder := yaml.NewDecoder(bytes.NewReader(body))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(value); err != nil {
-		return fmt.Errorf("parse %s: %w", path, err)
+		return fmt.Errorf("解析 %s 失败：%w", path, err)
 	}
 	return nil
 }
@@ -657,7 +657,7 @@ func readJSON(path string, value any) error {
 		return err
 	}
 	if err := json.Unmarshal(body, value); err != nil {
-		return fmt.Errorf("parse %s: %w", path, err)
+		return fmt.Errorf("解析 %s 失败：%w", path, err)
 	}
 	return nil
 }
@@ -771,24 +771,24 @@ func installedSkillsCheck(root string, lock TemplateLock) (bool, string) {
 		body, err := builtinskills.Read(name, "SKILL.md")
 		component, ok := locked[name]
 		if err != nil || !ok || component.SHA256 != digest(body) {
-			return false, "模板锁中的 Plugin Skill 摘要不完整或不一致"
+			return false, "模板锁中的插件技能摘要不完整或不一致"
 		}
 	}
 	if hasTarget(lock.Targets, "codex-plugin") {
-		return true, "Skills 由 Codex Plugin 提供，Workspace 不复制 Skill 源码"
+		return true, "技能由 Codex 插件提供，工作区不复制技能源码"
 	}
-	return true, "Plugin Skill 版本摘要完整；宿主安装状态由 Bootstrap 检查"
+	return true, "插件技能的版本摘要完整；宿主安装状态由初始化检查确认"
 }
 
 func installedMCPCheck(root string, lock TemplateLock) (bool, string) {
 	if !fileExists(filepath.Join(root, ".contentcloud", "mcp", "contentcloud-local.json")) {
-		return false, "ContentCloud MCP 审计描述缺失"
+		return false, "Content Work OS MCP 审计描述缺失"
 	}
 	if hasTarget(lock.Targets, "codex") && !fileExists(filepath.Join(root, ".codex", "config.toml")) {
 		return false, "Codex 项目级 MCP 配置缺失"
 	}
 	if hasTarget(lock.Targets, "codex-plugin") {
-		return true, "contentcloud-local MCP 由 Codex Plugin 提供，Workspace 审计描述完整"
+		return true, "contentcloud-local MCP 由 Codex 插件提供，工作区审计描述完整"
 	}
 	return true, "contentcloud-local 项目级 MCP 配置完整"
 }
@@ -796,7 +796,7 @@ func installedMCPCheck(root string, lock TemplateLock) (bool, string) {
 func bindingWriteProbe(root string) Check {
 	directory := filepath.Join(root, ".contentcloud", "tmp")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return Check{OK: false, Required: true, Message: "无法创建 ContentCloud 临时目录：" + err.Error()}
+		return Check{OK: false, Required: true, Message: "无法创建 Content Work OS 临时目录：" + err.Error()}
 	}
 	file, err := os.CreateTemp(directory, "doctor-write-*.tmp")
 	if err != nil {

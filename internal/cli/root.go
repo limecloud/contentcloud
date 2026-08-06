@@ -79,12 +79,12 @@ func Execute() int {
 }
 
 func (r *Root) command() *cobra.Command {
-	cmd := &cobra.Command{Use: "contentcloud", Short: "ContentCloud CLI-first creative runtime", Long: "Manage ContentCloud projects and run local creative capabilities without exposing private service APIs.", SilenceErrors: true, SilenceUsage: true}
+	cmd := &cobra.Command{Use: "contentcloud", Short: "Content Work OS 本地创作运行工具", Long: "管理 Content Work OS 项目并运行本地创作能力，无需暴露服务端私有接口。", SilenceErrors: true, SilenceUsage: true}
 	cmd.SetOut(r.stdout)
 	cmd.SetErr(r.stderr)
-	cmd.PersistentFlags().BoolVar(&r.json, "json", false, "emit a stable JSON envelope on stdout")
-	cmd.PersistentFlags().StringVar(&r.serverURL, "server-url", "", "ContentCloud server URL")
-	cmd.PersistentFlags().StringVar(&r.projectID, "project", "", "explicit project ID")
+	cmd.PersistentFlags().BoolVar(&r.json, "json", false, "在标准输出中返回稳定的 JSON 响应结构")
+	cmd.PersistentFlags().StringVar(&r.serverURL, "server-url", "", "Content Work OS 服务地址")
+	cmd.PersistentFlags().StringVar(&r.projectID, "project", "", "明确指定项目 ID")
 	cmd.AddCommand(r.authCommand(), r.doctor(), r.bootstrapCommand(), r.workspaceCommand(), r.localCommand(), r.mcpCommand(), r.publishCommand(), r.pullCommand(), r.submissionCommand(), r.down(), r.updateCommand(), r.status(), r.contextCommand(), r.skillsCommand(), r.daemonCommand(), r.schemaCommand(), r.tenantCommand(), r.teamCommand(), r.fullProjectCommand(), r.deviceCommand(), r.sourceCommand(), r.assetCommand(), r.knowledgeCommand(), r.runCommand(), r.artifactCommand(), r.deliveryCommand(), r.reviewCommand(), r.resultCommand(), r.lineageCommand(), r.auditCommand(), r.requestCommand())
 	cmd.Version = Version
 	return cmd
@@ -92,7 +92,7 @@ func (r *Root) command() *cobra.Command {
 
 func (r *Root) doctor() *cobra.Command {
 	var offline bool
-	cmd := &cobra.Command{Use: "doctor", Short: "Check installation, config, credential storage, server, and local capabilities", RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "doctor", Short: "检查安装、配置、凭据存储、服务连接和本地能力", RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := localconfig.Load()
 		if err != nil {
 			return err
@@ -113,13 +113,13 @@ func (r *Root) doctor() *cobra.Command {
 		}
 		return r.writeOK("doctor", map[string]any{"checks": checks, "offline": offline})
 	}}
-	cmd.Flags().BoolVar(&offline, "offline", false, "skip server reachability check")
+	cmd.Flags().BoolVar(&offline, "offline", false, "跳过服务端连通性检查")
 	return cmd
 }
 
 func (r *Root) down() *cobra.Command {
 	var yes, dryRun bool
-	cmd := &cobra.Command{Use: "down", Short: "Revoke this creative runtime and clear its local device binding", RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "down", Short: "撤销当前创作运行环境并清除本机设备绑定", RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := localconfig.Load()
 		if err != nil {
 			return err
@@ -152,19 +152,19 @@ func (r *Root) down() *cobra.Command {
 		}
 		return r.writeOK("down", map[string]any{"disconnected": true})
 	}}
-	cmd.Flags().BoolVar(&yes, "yes", false, "confirm this high-risk write")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate without changing server or local state")
+	cmd.Flags().BoolVar(&yes, "yes", false, "确认执行此高风险写入操作")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "只验证，不修改服务端或本地状态")
 	return cmd
 }
 
 func (r *Root) updateCommand() *cobra.Command {
-	return &cobra.Command{Use: "update", Short: "Show the verified installer command for updating this binary", RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "update", Short: "显示用于更新当前程序的已验证安装命令", RunE: func(cmd *cobra.Command, args []string) error {
 		return r.writeOK("update", map[string]any{"current_version": Version, "installer": "npx --yes @limecloud/contentcloud@latest update", "automatic_update": false, "installer_owned": true, "daemon_restart_after_update": true, "reason": "the verified npm installer owns checksum validation, binary replacement, and restart of an installed daemon"})
 	}}
 }
 
 func (r *Root) status() *cobra.Command {
-	return &cobra.Command{Use: "status", Short: "Show local runtime and project connection state", RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "status", Short: "显示本地运行环境和项目连接状态", RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := localconfig.Load()
 		if err != nil {
 			return err
@@ -185,8 +185,8 @@ func (r *Root) status() *cobra.Command {
 }
 
 func (r *Root) contextCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "context", Short: "Manage explicit project context"}
-	cmd.AddCommand(&cobra.Command{Use: "show", Short: "Show resolved project context", RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "context", Short: "管理明确指定的项目上下文"}
+	cmd.AddCommand(&cobra.Command{Use: "show", Short: "显示当前解析到的项目上下文", RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := localconfig.Load()
 		if err != nil {
 			return err
@@ -196,7 +196,7 @@ func (r *Root) contextCommand() *cobra.Command {
 			return domain.Invalid("PROJECT_CONTEXT_REQUIRED", "未解析到唯一项目上下文")
 		}
 		return r.writeOK("context.show", map[string]any{"project_id": id})
-	}}, &cobra.Command{Use: "use <project-id>", Args: cobra.ExactArgs(1), Short: "Write project context in the current directory", RunE: func(cmd *cobra.Command, args []string) error {
+	}}, &cobra.Command{Use: "use <project-id>", Args: cobra.ExactArgs(1), Short: "在当前目录写入项目上下文", RunE: func(cmd *cobra.Command, args []string) error {
 		dir := filepath.Join(".contentcloud")
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return err
@@ -206,7 +206,7 @@ func (r *Root) contextCommand() *cobra.Command {
 			return err
 		}
 		return r.writeOK("context.use", map[string]any{"project_id": args[0], "path": filepath.Join(dir, "project.json")})
-	}}, &cobra.Command{Use: "clear", Short: "Remove project context from the current directory", RunE: func(cmd *cobra.Command, args []string) error {
+	}}, &cobra.Command{Use: "clear", Short: "移除当前目录中的项目上下文", RunE: func(cmd *cobra.Command, args []string) error {
 		path := filepath.Join(".contentcloud", "project.json")
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -217,8 +217,8 @@ func (r *Root) contextCommand() *cobra.Command {
 }
 
 func (r *Root) skillsCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "skills", Short: "Inspect and install CLI-versioned local ContentCloud skills"}
-	cmd.AddCommand(&cobra.Command{Use: "list", Short: "List embedded skills", RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "skills", Short: "查看并安装与命令行版本匹配的 Content Work OS 本地技能"}
+	cmd.AddCommand(&cobra.Command{Use: "list", Short: "列出内置技能", RunE: func(cmd *cobra.Command, args []string) error {
 		items := []map[string]any{}
 		for _, name := range builtinskills.Names() {
 			files, _ := builtinskills.Files(name)
@@ -229,10 +229,10 @@ func (r *Root) skillsCommand() *cobra.Command {
 		return r.writeOK("skills.list", items)
 	}})
 	var path string
-	read := &cobra.Command{Use: "read <name>", Args: cobra.ExactArgs(1), Short: "Read an embedded skill instruction or reference", RunE: func(cmd *cobra.Command, args []string) error {
+	read := &cobra.Command{Use: "read <name>", Args: cobra.ExactArgs(1), Short: "读取内置技能说明或参考资料", RunE: func(cmd *cobra.Command, args []string) error {
 		body, err := builtinskills.Read(args[0], path)
 		if err != nil {
-			return domain.NotFound("Skill")
+			return domain.NotFound("技能")
 		}
 		if r.json {
 			return r.writeOK("skills.read", map[string]any{"name": args[0], "path": defaultValue(path, "SKILL.md"), "content": string(body)})
@@ -240,10 +240,10 @@ func (r *Root) skillsCommand() *cobra.Command {
 		_, err = fmt.Fprint(r.stdout, string(body))
 		return err
 	}}
-	read.Flags().StringVar(&path, "path", "SKILL.md", "relative skill file")
+	read.Flags().StringVar(&path, "path", "SKILL.md", "技能目录内的相对文件路径")
 	cmd.AddCommand(read)
 	var target string
-	install := &cobra.Command{Use: "install <name>", Args: cobra.ExactArgs(1), Short: "Install the embedded skill into a local Agent skill directory", RunE: func(cmd *cobra.Command, args []string) error {
+	install := &cobra.Command{Use: "install <name>", Args: cobra.ExactArgs(1), Short: "把内置技能安装到本地智能体技能目录", RunE: func(cmd *cobra.Command, args []string) error {
 		dest, err := skillDestination(target, args[0])
 		if err != nil {
 			return err
@@ -267,16 +267,16 @@ func (r *Root) skillsCommand() *cobra.Command {
 		}
 		return r.writeOK("skills.install", map[string]any{"name": args[0], "target": target, "path": dest, "version": Version})
 	}}
-	install.Flags().StringVar(&target, "target", "codex", "agent target: codex or claude")
-	cmd.AddCommand(install, &cobra.Command{Use: "status", Short: "Check embedded skill availability", RunE: func(cmd *cobra.Command, args []string) error {
+	install.Flags().StringVar(&target, "target", "codex", "目标智能体：codex 或 claude")
+	cmd.AddCommand(install, &cobra.Command{Use: "status", Short: "检查内置技能是否可用", RunE: func(cmd *cobra.Command, args []string) error {
 		return r.writeOK("skills.status", map[string]any{"binary_version": Version, "embedded": builtinskills.Names(), "in_sync": true})
 	}})
 	return cmd
 }
 
 func (r *Root) daemonCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "daemon", Short: "Run the local outbound-only creative runtime"}
-	start := &cobra.Command{Use: "start", Short: "Install and start the user-level Automation daemon", RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "daemon", Short: "运行仅主动连接服务端的本地创作后台服务"}
+	start := &cobra.Command{Use: "start", Short: "安装并启动当前用户的自动化后台服务", RunE: func(cmd *cobra.Command, args []string) error {
 		if err := daemonStartPrerequisites(); err != nil {
 			return err
 		}
@@ -290,7 +290,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 		}
 		return r.writeOK("daemon.start", state)
 	}}
-	stop := &cobra.Command{Use: "stop", Short: "Stop the user-level Automation daemon without removing it", RunE: func(cmd *cobra.Command, args []string) error {
+	stop := &cobra.Command{Use: "stop", Short: "停止当前用户的自动化后台服务，但不卸载", RunE: func(cmd *cobra.Command, args []string) error {
 		service, err := r.localDaemonService()
 		if err != nil {
 			return err
@@ -301,7 +301,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 		}
 		return r.writeOK("daemon.stop", state)
 	}}
-	status := &cobra.Command{Use: "status", Short: "Show daemon installation, process, logs, and version", RunE: func(cmd *cobra.Command, args []string) error {
+	status := &cobra.Command{Use: "status", Short: "显示后台服务的安装、进程、日志和版本状态", RunE: func(cmd *cobra.Command, args []string) error {
 		service, err := r.localDaemonService()
 		if err != nil {
 			return err
@@ -313,7 +313,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 		return r.writeOK("daemon.status", state)
 	}}
 	var ifInstalled bool
-	restart := &cobra.Command{Use: "restart", Short: "Reload the daemon with the current ContentCloud binary", RunE: func(cmd *cobra.Command, args []string) error {
+	restart := &cobra.Command{Use: "restart", Short: "使用当前 Content Work OS 程序重新加载后台服务", RunE: func(cmd *cobra.Command, args []string) error {
 		service, err := r.localDaemonService()
 		if err != nil {
 			return err
@@ -334,11 +334,11 @@ func (r *Root) daemonCommand() *cobra.Command {
 		}
 		return r.writeOK("daemon.restart", state)
 	}}
-	restart.Flags().BoolVar(&ifInstalled, "if-installed", false, "skip successfully when the daemon is not installed")
+	restart.Flags().BoolVar(&ifInstalled, "if-installed", false, "后台服务未安装时直接跳过并返回成功")
 	var once, fixture bool
 	var adapterKind string
 	var logFile string
-	run := &cobra.Command{Use: "run", Short: "Poll for leased work and execute a local capability", RunE: func(cmd *cobra.Command, args []string) error {
+	run := &cobra.Command{Use: "run", Short: "轮询已分配任务并执行本地能力", RunE: func(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(logFile) != "" {
 			managedLog, logErr := newRotatingLogWriter(logFile)
 			if logErr != nil {
@@ -356,7 +356,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 			bindings = []localconfig.DaemonBinding{{ServerURL: r.resolveServer(cfg), DeviceID: cfg.DeviceID, Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: cfg.WorkspaceID, ProjectID: cfg.ProjectID, Root: cfg.WorkspaceRoot}}}}
 		}
 		if len(bindings) == 0 {
-			return domain.Conflict("DEVICE_BINDING_MISSING", "启动 Automation Daemon 前必须先完成设备注册")
+			return domain.Conflict("DEVICE_BINDING_MISSING", "启动自动化后台服务前必须先完成设备注册")
 		}
 		journal, err := newDaemonJournal()
 		if err != nil {
@@ -406,7 +406,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 				return err
 			}
 			if err := adapter.Detect(); err != nil {
-				return domain.Policy("AGENT_ADAPTER_UNAVAILABLE", "指定的本地 Agent 不可用", "检查安装与登录状态")
+				return domain.Policy("AGENT_ADAPTER_UNAVAILABLE", "指定的本地智能体不可用", "检查安装与登录状态")
 			}
 		}
 		provider := "fixture"
@@ -500,7 +500,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 				case "knowledge_extract":
 					output, _ = json.Marshal(GenerateFixtureKnowledge(lease.Contract, lease.Run.OutputCount))
 				default:
-					runErr := domain.Invalid("TASK_TYPE_UNSUPPORTED", "fixture 不支持该任务类型")
+					runErr := domain.Invalid("TASK_TYPE_UNSUPPORTED", "测试适配器不支持该任务类型")
 					return finishAttemptError(journal, client, lease, "runtime_resources", "本地开发 Fixture 不支持该任务类型", runErr)
 				}
 			} else {
@@ -629,10 +629,10 @@ func (r *Root) daemonCommand() *cobra.Command {
 			}
 		}
 	}}
-	run.Flags().BoolVar(&once, "once", false, "poll at most once")
-	run.Flags().BoolVar(&fixture, "fixture", false, "use deterministic local fixture adapter for development")
-	run.Flags().StringVar(&adapterKind, "adapter", "auto", "local Agent adapter: auto, codex, or claude-code; other registered clients are planned")
-	run.Flags().StringVar(&logFile, "log-file", "", "managed daemon log path")
+	run.Flags().BoolVar(&once, "once", false, "最多轮询一次")
+	run.Flags().BoolVar(&fixture, "fixture", false, "开发时使用结果固定的本地测试适配器")
+	run.Flags().StringVar(&adapterKind, "adapter", "auto", "本地智能体适配器：auto、codex 或 claude-code；其他已登记客户端仍在规划中")
+	run.Flags().StringVar(&logFile, "log-file", "", "受管后台服务日志路径")
 	cmd.AddCommand(start, stop, status, restart, run)
 	return cmd
 }
@@ -643,7 +643,7 @@ func daemonStartPrerequisites() error {
 		return err
 	}
 	if len(cfg.RuntimeBindings()) == 0 && cfg.DeviceID == "" {
-		return domain.Conflict("DEVICE_BINDING_MISSING", "启动 Automation Daemon 前必须先完成设备注册")
+		return domain.Conflict("DEVICE_BINDING_MISSING", "启动自动化后台服务前必须先完成设备注册")
 	}
 	for _, binding := range cfg.RuntimeBindings() {
 		if _, err := localconfig.DeviceToken(binding.DeviceID); err != nil {
@@ -655,7 +655,7 @@ func daemonStartPrerequisites() error {
 		return err
 	}
 	if err := adapter.Detect(); err != nil {
-		return domain.Policy("AGENT_ADAPTER_UNAVAILABLE", "未检测到可用于 Automation 的 Codex 或 Claude Code", "安装并登录本机 Agent 后重试")
+		return domain.Policy("AGENT_ADAPTER_UNAVAILABLE", "未检测到可用于自动化任务的 Codex 或 Claude Code", "安装并登录本机智能体客户端后重试")
 	}
 	return nil
 }
@@ -684,8 +684,8 @@ func daemonEnvironmentClaims(config localconfig.Config) ([]app.AutomationEnviron
 	for _, root := range roots {
 		state, err := localworkspace.ReadEnvironmentClaim(root)
 		if err != nil {
-			wrapped := domain.Conflict("AUTOMATION_ENVIRONMENT_CLAIM_UNAVAILABLE", "无法读取完整的本地 Environment Manifest/Lock")
-			wrapped.Hint = "完成 Environment doctor 后重试 daemon poll"
+			wrapped := domain.Conflict("AUTOMATION_ENVIRONMENT_CLAIM_UNAVAILABLE", "无法读取完整的本地环境清单和锁文件")
+			wrapped.Hint = "完成创作环境检查后重试后台服务轮询"
 			wrapped.Details = map[string]any{"workspace_root": root, "cause": err.Error()}
 			return nil, wrapped
 		}
@@ -778,12 +778,12 @@ func classifyAttemptFailure(err error) (string, string, *int) {
 }
 
 func (r *Root) schemaCommand() *cobra.Command {
-	return &cobra.Command{Use: "schema [command]", Args: cobra.MaximumNArgs(1), Short: "Show stable CLI command contracts and risk levels", RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "schema [command]", Args: cobra.MaximumNArgs(1), Short: "显示稳定的命令契约和风险等级", RunE: func(cmd *cobra.Command, args []string) error {
 		schemas := commandSchemas()
 		if len(args) == 1 {
 			value, ok := schemas[args[0]]
 			if !ok {
-				return domain.NotFound("命令 Schema")
+				return domain.NotFound("命令结构定义")
 			}
 			return r.writeOK("schema", value)
 		}
@@ -791,8 +791,8 @@ func (r *Root) schemaCommand() *cobra.Command {
 	}}
 }
 func (r *Root) projectCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "project", Short: "Discover and inspect projects"}
-	cmd.AddCommand(&cobra.Command{Use: "show", Short: "Show the configured project identity", RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "project", Short: "发现并查看项目"}
+	cmd.AddCommand(&cobra.Command{Use: "show", Short: "显示当前配置的项目身份", RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := localconfig.Load()
 		if err != nil {
 			return err
@@ -861,11 +861,11 @@ func taskRuntimeResources(run domain.TaskRun) ([]byte, string, error) {
 	switch run.TaskType {
 	case "knowledge_extract":
 		if run.OutputSchema != domain.KnowledgeCandidatesSchema {
-			return nil, "", domain.Conflict("OUTPUT_SCHEMA_MISMATCH", "知识提取任务输出 Schema 与本机能力不匹配")
+			return nil, "", domain.Conflict("OUTPUT_SCHEMA_MISMATCH", "知识提取任务的输出结构定义与本机能力不匹配")
 		}
 		return contracts.KnowledgeCandidatesSchema, builtinskills.KnowledgeExtraction, nil
 	default:
-		return nil, "", domain.Invalid("TASK_TYPE_UNSUPPORTED", "本机 Runtime 不支持该任务类型")
+		return nil, "", domain.Invalid("TASK_TYPE_UNSUPPORTED", "本机运行环境不支持该任务类型")
 	}
 }
 func binaryStatus(name string) map[string]any {
@@ -927,49 +927,49 @@ func commandSchemas() map[string]any {
 		return schemaEntry("high-risk-write", "user", append(args, "--yes", "--dry-run"), output)
 	}
 	return map[string]any{
-		"doctor": read([]string{"--offline"}, "diagnostic checks"), "status": read(nil, "local runtime and daemon status"), "update": read(nil, "verified installer guidance"),
-		"bootstrap.preflight": read([]string{"directory", "--offline"}, "stable prerequisite check IDs and managed next actions"), "bootstrap.plan": schemaEntry("read", "browser-device", []string{"directory", "--session"}, "read-only pinned Codex Plugin and Workspace plan"), "bootstrap.apply": write("browser-device", []string{"directory", "--session", "--plan-id", "--accept", "--open-codex"}, "authorized plugin, registered Workspace, and new-chat handoff"), "bootstrap.resume": write("workspace", []string{"directory", "--accept", "--open-codex"}, "revalidated and registered existing bootstrap Workspace"), "bootstrap.diagnostics": schemaEntry("read", "workspace-for-upload", []string{"directory", "--attempt", "--upload", "--accept-upload"}, "redacted diagnostic preview or confirmed upload"),
-		"workspace.status": read([]string{"directory"}, "local workspace binding, template, and synchronization state"), "workspace.doctor": read([]string{"directory", "--offline"}, "workspace, Skill, MCP, and cloud checks"), "workspace.fixture.apply": write("none", []string{"fixture.json", "--directory", "--project-id", "--workspace-id", "--device-id", "--server-url", "--target"}, "complete deterministic V3 acceptance workspace"), "workspace.execution-plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "verified offline LocalExecutionPlan and exact Pack preparation"), "workspace.prepare.plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "signed Pack permissions, data flow, cost, and new-chat impact"), "workspace.prepare.apply": write("none", []string{"--directory", "--run", "--intent", "--capability", "--input", "--preparation-id", "--accept"}, "installed task Packs, verified environment lock, doctor, and new-chat handoff"), "workspace.conversation-context": read([]string{"directory", "--offline"}, "offline cross-conversation workspace context"), "workspace.project-brief.save": write("none", []string{"--directory", "--client", "--brand", "--product-or-service", "--objective", "--channel", "--audience", "--material-ref", "--notes"}, "confirmed local project brief and next business step"), "workspace.approved.list": read([]string{"--directory", "--type"}, "verified local ApprovedSnapshot summaries"), "workspace.approved.show": read([]string{"snapshot-id", "--directory"}, "verified local ApprovedSnapshot"),
-		"local.source.register": write("none", []string{"file", "--directory", "--id", "--title", "--kind", "--storage"}, "immutable local source record"), "local.source.list": read([]string{"--directory"}, "local source registry"), "local.source.show": read([]string{"source-id", "--directory"}, "local source record"), "local.source.ingest": write("none", []string{"source-id", "--directory"}, "local evidence bundle"), "local.source.verify": read([]string{"--directory"}, "source integrity report"),
-		"local.run.init": write("none", []string{"--directory", "--id", "--intent", "--source-ref", "--with-ingest"}, "LocalRunContext"), "local.run.show": read([]string{"run-id", "--directory"}, "LocalRunContext"), "local.run.record": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--source-ref", "--changed-id", "--eligible-id", "--blocked-id", "--finding", "--output-path"}, "updated LocalRunContext"), "local.run.check": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--name", "--status", "--command", "--detail"}, "recorded local check"), "local.run.advance": write("none", []string{"stage", "--directory", "--run", "--claim-token", "--revision", "--eligible-id", "--blocked-id", "--output-path"}, "advanced LocalRunContext"), "local.run.resume": write("none", []string{"--directory", "--run", "--claim-token", "--revision"}, "resumed LocalRunContext"), "local.run.fail": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--finding"}, "failed LocalRunContext"), "local.run.validate": read([]string{"--directory"}, "LocalRun validation report"),
-		"local.run.claim": write("none", []string{"--directory", "--run", "--owner", "--revision", "--ttl", "--takeover-expired"}, "single-writer RunClaim"), "local.run.renew": write("none", []string{"--directory", "--run", "--claim-token", "--ttl"}, "renewed RunClaim"), "local.run.release": write("none", []string{"--directory", "--run", "--claim-token"}, "released RunClaim"), "local.run.claim-status": read([]string{"--directory", "--run"}, "non-secret RunClaim status"),
-		"local.handoff.create-ready": write("none", []string{"--directory", "--id", "--run", "--claim-token", "--revision", "--next-capability", "--next-action", "--input", "--blocker", "--pending-decision"}, "ready digest-verified HandoffRecord"), "local.handoff.list-ready": read([]string{"--directory"}, "ready HandoffRecords"), "local.handoff.accept": write("none", []string{"--directory", "--id", "--owner", "--ttl", "--takeover-expired"}, "claimed HandoffRecord and RunClaim"), "local.handoff.complete": write("none", []string{"--directory", "--id", "--claim-token"}, "completed HandoffRecord"), "local.handoff.supersede": write("none", []string{"--directory", "--id"}, "superseded HandoffRecord"),
-		"local.knowledge.import": write("none", []string{"knowledge-candidates.json", "--directory", "--run"}, "candidate knowledge objects"), "local.knowledge.lint": read([]string{"--directory"}, "deterministic knowledge lint report"), "local.knowledge.query": read([]string{"--directory", "--channel", "--at"}, "eligible, blocked, and informational knowledge"), "local.knowledge.diagnose": read([]string{"--directory", "--channel", "--at"}, "15-dimension diagnosis"), "local.knowledge.pack": write("none", []string{"--directory", "--id", "--name"}, "seven-layer knowledge pack and source disclosures"),
-		"local.audience.taxonomy.lint": read([]string{"taxonomy.json", "--directory"}, "pulled audience taxonomy validation"), "local.audience.strategy.scaffold": write("none", []string{"--taxonomy", "--mode", "--audience", "--objective", "--test-type", "--primary-variable", "--directory"}, "local audience strategy candidates"), "local.audience.strategy.lint": read([]string{"strategy.json", "--directory"}, "audience strategy validation"), "local.offer.lint": read([]string{"offer.json", "--directory", "--at"}, "CommerceOfferSnapshot validation"),
-		"local.brief.lint":         read([]string{"brief.json", "--directory"}, "V3 Brief governance report"),
-		"local.content.batch.init": write("none", []string{"--directory", "--brief", "--directions", "--count", "--variant", "--control", "--id"}, "ContentBatch and frozen local context"), "local.content.batch.lint": read([]string{"--directory", "--batch", "--file"}, "ContentBatch candidate validation"), "local.content.batch.finalize": write("none", []string{"--directory", "--batch", "--file"}, "finalized ContentBatch"), "local.content.item.lint": read([]string{"content-item.json", "--directory", "--batch"}, "ContentItem validation"), "local.content.item.diff": read([]string{"--directory", "--baseline", "--candidate", "--allow"}, "declared ContentItem revision diff"), "local.content.delivery.export": write("none", []string{"approved-content-item-id", "--directory", "--out"}, "approved JSON, Markdown, and XLSX delivery package"),
-		"local.storyboard.create": write("none", []string{"--snapshot", "--content-item", "--capability-id", "--capability-version", "--capability-digest", "--id", "--directory"}, "local storyboard candidate"), "local.storyboard.prepare": write("none", []string{"manifest.json", "--directory"}, "review-ready local storyboard package"), "local.storyboard.lint": read([]string{"manifest.json", "--directory"}, "storyboard digest and media validation"),
-		"local.seedance.export": write("none", []string{"--snapshot", "--storyboard", "--profile-version", "--adapter-id", "--adapter-version", "--adapter-digest", "--mode", "--aspect-ratio", "--sound", "--min-duration", "--max-duration", "--max-images", "--max-videos", "--max-audios", "--id", "--directory"}, "copy-ready local Seedance package"),
-		"local.seedance.lint":   read([]string{"package.json", "--directory"}, "Seedance package, prompt, media, and locked-input validation"),
-		"mcp.status":            read([]string{"directory"}, "project-local MCP installation"), "mcp.serve": read(nil, "stdio MCP server"),
-		"publish.knowledge": write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "immutable knowledge SubmissionRevision"),
-		"publish.research":  write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "immutable research SubmissionRevision"),
-		"publish.strategy":  write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "immutable strategy SubmissionRevision"), "publish.offer": write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "immutable offer SubmissionRevision"), "publish.storyboard": write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "immutable storyboard SubmissionRevision"),
-		"publish.brief":       write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "immutable brief SubmissionRevision"),
-		"publish.script":      write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "immutable script SubmissionRevision"),
-		"publish.delivery":    write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "immutable delivery SubmissionRevision"),
-		"publish.performance": write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "immutable performance SubmissionRevision"),
-		"pull.feedback":       workspaceRead([]string{"--dry-run"}, "review feedback bundles in local inbox"), "pull.decisions": workspaceRead([]string{"--dry-run"}, "decision delta in local inbox"), "pull.approved": workspaceRead([]string{"--type", "--id", "--dry-run"}, "read-only ApprovedSnapshot cache"),
-		"submission.list": workspaceRead(nil, "workspace submission list"), "submission.show": workspaceRead([]string{"submission-id"}, "submission with immutable revisions"), "submission.status": workspaceRead([]string{"submission-id"}, "submission governance status"), "submission.approve": high([]string{"revision-id", "--reason"}, "immutable ApprovedSnapshot"),
-		"submission.request_changes": high([]string{"revision-id", "--reason", "--json-pointer"}, "immutable change request and review feedback"),
-		"down":                       high(nil, "revoked device and cleared local binding"),
-		"auth.login":                 write("none", []string{"--no-wait", "--device-code"}, "device login state"), "auth.status": read(nil, "user session state"), "auth.logout": write("user", nil, "revoked user session"),
-		"context.show": read(nil, "resolved project ID"), "context.use": write("none", []string{"project-id"}, "local context path"), "context.clear": write("none", nil, "cleared local context"),
-		"tenant.list": userRead(nil, "tenant list"), "tenant.switch": write("user", []string{"tenant-id", "--dry-run"}, "rotated tenant credential"),
-		"membership.list": userRead(nil, "tenant member list"), "membership.invite.list": userRead(nil, "tenant invitation list"), "membership.invite.create": write("user", []string{"email", "--role", "--dry-run"}, "one-time tenant invitation"), "membership.invite.accept": write("user", []string{"invite-token", "--dry-run"}, "accepted membership"), "membership.invite.revoke": high([]string{"invite-id"}, "revoked tenant invitation"), "membership.update": write("user", []string{"user-id", "role", "--dry-run"}, "updated fixed membership role"), "membership.revoke": high([]string{"user-id"}, "revoked membership and tenant sessions"),
-		"project.list": userRead(nil, "project list"), "project.show": userRead([]string{"project-id"}, "project"), "project.resolve": userRead([]string{"name-or-slug"}, "stable project ID"), "project.create": write("user", []string{"--brand", "--product", "--channel", "--objective", "--owner", "--reviewer", "--client-approver", "--template", "--dry-run"}, "single-product project"), "project.update": write("user", []string{"project-id", "--row-version", "--brand", "--product", "--channel", "--objective", "--owner", "--reviewer", "--client-approver", "--dry-run"}, "optimistically updated project"), "project.archive": high([]string{"project-id", "--row-version"}, "archived read-only project"), "project.restore": high([]string{"project-id", "--row-version"}, "restored active project"), "project_template.list": userRead(nil, "sanitized project template list"), "project_template.create": write("user", []string{"--name", "--channel", "--objective", "--dry-run"}, "sanitized project template"),
-		"device.connect_session.create": write("user", []string{"project-id", "--project", "--dry-run"}, "one-time project connection session"), "device.connect_session.show": userRead([]string{"session-id"}, "project connection session"), "device.connect_session.cancel": high([]string{"session-id"}, "canceled project connection session"),
-		"device.list": userRead([]string{"--project"}, "device list"), "device.show": userRead([]string{"device-id"}, "device"), "device.attach": write("user", []string{"device-id", "--project", "--dry-run"}, "project device grant"), "device.detach": high([]string{"device-id", "--project"}, "revoked project device grant"), "device.revoke": high([]string{"device-id"}, "revoked device"),
-		"source.list": userRead([]string{"--project"}, "source list"), "source.upload": write("user", []string{"file", "--project", "--name", "--type", "--mime", "--dry-run"}, "source revision"), "source.status": userRead([]string{"revision-id"}, "source revision status"),
-		"source.revisions": userRead([]string{"source-id"}, "immutable source revision list"), "source.revise": write("user", []string{"source-id", "file", "--mime", "--dry-run"}, "new immutable source revision"), "source.impact": userRead([]string{"source-id"}, "affected object list"), "evidence.review": write("user", []string{"evidence-id", "decision", "--dry-run"}, "reviewed evidence span"),
-		"asset.list": userRead([]string{"--project"}, "governed asset list"), "asset.create": write("user", []string{"--project", "--name", "--type", "--source-revision", "--usage", "--dry-run"}, "governed asset"), "rights.list": userRead([]string{"asset-id"}, "asset rights records"), "rights.create": write("user", []string{"asset-id", "--holder", "--type", "--territory", "--channel", "--proof-source-revision", "--valid-from", "--valid-until", "--restriction", "--dry-run"}, "rights record"), "rights.review": write("user", []string{"rights-id", "decision", "--dry-run"}, "reviewed rights record"),
-		"knowledge.list": userRead([]string{"--project"}, "knowledge object list"), "knowledge.show": userRead([]string{"knowledge-id"}, "knowledge object"), "knowledge.extract": write("user", []string{"--project", "--source-revision", "--count", "--idempotency-key", "--dry-run"}, "queued local knowledge extraction run"), "knowledge.review": write("user", []string{"id", "decision", "--reason", "--dry-run"}, "reviewed knowledge object"),
-		"run.list": userRead([]string{"--project"}, "run list"), "run.show": userRead([]string{"run-id"}, "task run"), "run.attempts": userRead([]string{"run-id"}, "immutable execution attempt list"), "run.events": userRead([]string{"run-id", "--after"}, "immutable incremental progress events"), "run.log": userRead([]string{"run-id"}, "sanitized persisted progress"), "run.cancel": high([]string{"run-id"}, "canceled task run"),
-		"artifact.export": write("user", []string{"approved-snapshot-id", "--content-item", "--format"}, "snapshot-derived artifact"), "delivery.create": write("user", []string{"approved-snapshot-id", "--content-item"}, "three-format delivery package"), "delivery.list": userRead([]string{"--project"}, "delivery package list"), "delivery.show": userRead([]string{"delivery-package-id"}, "delivery package"), "artifact.download": userRead([]string{"artifact-id", "--out"}, "hosted artifact path"),
-		"review.create": write("user", []string{"submission-revision-id", "--email", "--dry-run"}, "one-time customer review link"), "review.list": userRead([]string{"submission-revision-id"}, "customer review grants"), "review.revoke": high([]string{"grant-id", "--dry-run"}, "revoked customer review grant"), "review.status": userRead([]string{"submission-revision-id"}, "customer review state"),
-		"result.list": userRead([]string{"--project"}, "observation list"), "result.import": write("user", []string{"json-or-csv-or-xlsx-file", "--project", "--dry-run"}, "atomic performance import batch"), "result.batches": userRead([]string{"--project"}, "immutable import batch list"), "result.batch-show": userRead([]string{"batch-id"}, "import batch and observations"), "result.rate": write("user", []string{"subject-type", "subject-id", "--project", "--observation", "--rating", "--reason", "--next-action", "--dry-run"}, "manual rating decision"), "result.ratings": userRead([]string{"--project"}, "manual rating decision list"),
-		"lineage.show": userRead([]string{"--project", "--type", "--id", "--direction"}, "bidirectional project lineage graph"), "lineage.impact": userRead([]string{"--project", "--type", "--id"}, "affected objects with reasons and actions"), "audit.list": userRead([]string{"--project", "--limit"}, "immutable audit event list"),
-		"daemon.start": write("device", nil, "installed and running user daemon"), "daemon.stop": write("none", nil, "stopped installed daemon"), "daemon.status": read(nil, "daemon process, logs, version, and last runtime health"), "daemon.restart": write("device", []string{"--if-installed"}, "daemon reloaded with current binary"), "daemon.run": write("device", []string{"--once", "--fixture", "--adapter", "--log-file"}, "leased run result"), "skills.list": read(nil, "embedded skills"), "skills.read": read([]string{"name", "--path"}, "skill content"), "skills.status": read(nil, "skill version state"), "skills.install": write("none", []string{"name", "--target"}, "local install path"), "schema": read([]string{"command"}, "CLI contract"), "request.get": userRead([]string{"projects|tenants|runs"}, "allowlisted resource"),
+		"doctor": read([]string{"--offline"}, "诊断检查"), "status": read(nil, "本地运行环境和后台服务状态"), "update": read(nil, "已验证安装程序的更新指引"),
+		"bootstrap.preflight": read([]string{"directory", "--offline"}, "稳定的前置检查 ID 和受管下一步"), "bootstrap.plan": schemaEntry("read", "browser-device", []string{"directory", "--session"}, "固定版本且只读的 Codex 插件和工作区计划"), "bootstrap.apply": write("browser-device", []string{"directory", "--session", "--plan-id", "--accept", "--open-codex"}, "已授权插件、已注册工作区和新对话交接信息"), "bootstrap.resume": write("workspace", []string{"directory", "--accept", "--open-codex"}, "重新验证并注册现有初始化工作区"), "bootstrap.diagnostics": schemaEntry("read", "workspace-for-upload", []string{"directory", "--attempt", "--upload", "--accept-upload"}, "脱敏诊断预览或已确认上传结果"),
+		"workspace.status": read([]string{"directory"}, "本地工作区绑定、模板和同步状态"), "workspace.doctor": read([]string{"directory", "--offline"}, "工作区、技能、MCP 和云端检查"), "workspace.fixture.apply": write("none", []string{"fixture.json", "--directory", "--project-id", "--workspace-id", "--device-id", "--server-url", "--target"}, "完整且确定性的 V3 验收工作区"), "workspace.execution-plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "已验证的离线 LocalExecutionPlan 和精确能力包准备信息"), "workspace.prepare.plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "已签名能力包的权限、数据流、费用和新对话影响"), "workspace.prepare.apply": write("none", []string{"--directory", "--run", "--intent", "--capability", "--input", "--preparation-id", "--accept"}, "已安装任务能力包、已验证环境锁、检查结果和新对话交接信息"), "workspace.conversation-context": read([]string{"directory", "--offline"}, "离线跨对话工作区上下文"), "workspace.project-brief.save": write("none", []string{"--directory", "--client", "--brand", "--product-or-service", "--objective", "--channel", "--audience", "--material-ref", "--notes"}, "已确认的本地项目简报和下一业务步骤"), "workspace.approved.list": read([]string{"--directory", "--type"}, "已验证的本地批准快照摘要"), "workspace.approved.show": read([]string{"snapshot-id", "--directory"}, "已验证的本地批准快照"),
+		"local.source.register": write("none", []string{"file", "--directory", "--id", "--title", "--kind", "--storage"}, "不可变的本地来源记录"), "local.source.list": read([]string{"--directory"}, "本地来源目录"), "local.source.show": read([]string{"source-id", "--directory"}, "本地来源记录"), "local.source.ingest": write("none", []string{"source-id", "--directory"}, "本地证据包"), "local.source.verify": read([]string{"--directory"}, "来源完整性报告"),
+		"local.run.init": write("none", []string{"--directory", "--id", "--intent", "--source-ref", "--with-ingest"}, "本地运行上下文"), "local.run.show": read([]string{"run-id", "--directory"}, "本地运行上下文"), "local.run.record": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--source-ref", "--changed-id", "--eligible-id", "--blocked-id", "--finding", "--output-path"}, "已更新的本地运行上下文"), "local.run.check": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--name", "--status", "--command", "--detail"}, "已记录的本地检查"), "local.run.advance": write("none", []string{"stage", "--directory", "--run", "--claim-token", "--revision", "--eligible-id", "--blocked-id", "--output-path"}, "已推进的本地运行上下文"), "local.run.resume": write("none", []string{"--directory", "--run", "--claim-token", "--revision"}, "已恢复的本地运行上下文"), "local.run.fail": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--finding"}, "失败的本地运行上下文"), "local.run.validate": read([]string{"--directory"}, "本地运行校验报告"),
+		"local.run.claim": write("none", []string{"--directory", "--run", "--owner", "--revision", "--ttl", "--takeover-expired"}, "单写入方运行占用"), "local.run.renew": write("none", []string{"--directory", "--run", "--claim-token", "--ttl"}, "已续期的运行占用"), "local.run.release": write("none", []string{"--directory", "--run", "--claim-token"}, "已释放的运行占用"), "local.run.claim-status": read([]string{"--directory", "--run"}, "不含敏感信息的运行占用状态"),
+		"local.handoff.create-ready": write("none", []string{"--directory", "--id", "--run", "--claim-token", "--revision", "--next-capability", "--next-action", "--input", "--blocker", "--pending-decision"}, "已就绪且摘要验证通过的交接记录"), "local.handoff.list-ready": read([]string{"--directory"}, "已就绪的交接记录"), "local.handoff.accept": write("none", []string{"--directory", "--id", "--owner", "--ttl", "--takeover-expired"}, "已领取的交接记录和运行占用"), "local.handoff.complete": write("none", []string{"--directory", "--id", "--claim-token"}, "已完成的交接记录"), "local.handoff.supersede": write("none", []string{"--directory", "--id"}, "已被新版本替代的交接记录"),
+		"local.knowledge.import": write("none", []string{"knowledge-candidates.json", "--directory", "--run"}, "候选知识对象"), "local.knowledge.lint": read([]string{"--directory"}, "确定性知识校验报告"), "local.knowledge.query": read([]string{"--directory", "--channel", "--at"}, "可用、已阻断和参考知识"), "local.knowledge.diagnose": read([]string{"--directory", "--channel", "--at"}, "15 维诊断结果"), "local.knowledge.pack": write("none", []string{"--directory", "--id", "--name"}, "七层知识包和来源披露"),
+		"local.audience.taxonomy.lint": read([]string{"taxonomy.json", "--directory"}, "已拉取人群分类的校验结果"), "local.audience.strategy.scaffold": write("none", []string{"--taxonomy", "--mode", "--audience", "--objective", "--test-type", "--primary-variable", "--directory"}, "本地受众策略候选"), "local.audience.strategy.lint": read([]string{"strategy.json", "--directory"}, "受众策略校验结果"), "local.offer.lint": read([]string{"offer.json", "--directory", "--at"}, "商业报价快照校验结果"),
+		"local.brief.lint":         read([]string{"brief.json", "--directory"}, "V3 简报治理报告"),
+		"local.content.batch.init": write("none", []string{"--directory", "--brief", "--directions", "--count", "--variant", "--control", "--id"}, "内容批次和冻结的本地上下文"), "local.content.batch.lint": read([]string{"--directory", "--batch", "--file"}, "内容批次候选校验结果"), "local.content.batch.finalize": write("none", []string{"--directory", "--batch", "--file"}, "已定稿的内容批次"), "local.content.item.lint": read([]string{"content-item.json", "--directory", "--batch"}, "内容对象校验结果"), "local.content.item.diff": read([]string{"--directory", "--baseline", "--candidate", "--allow"}, "声明范围内的内容对象修订差异"), "local.content.delivery.export": write("none", []string{"approved-content-item-id", "--directory", "--out"}, "已批准的 JSON、Markdown 和 XLSX 交付包"),
+		"local.storyboard.create": write("none", []string{"--snapshot", "--content-item", "--capability-id", "--capability-version", "--capability-digest", "--id", "--directory"}, "本地分镜候选"), "local.storyboard.prepare": write("none", []string{"manifest.json", "--directory"}, "已达到审核条件的本地分镜包"), "local.storyboard.lint": read([]string{"manifest.json", "--directory"}, "分镜摘要和媒体校验结果"),
+		"local.seedance.export": write("none", []string{"--snapshot", "--storyboard", "--profile-version", "--adapter-id", "--adapter-version", "--adapter-digest", "--mode", "--aspect-ratio", "--sound", "--min-duration", "--max-duration", "--max-images", "--max-videos", "--max-audios", "--id", "--directory"}, "可直接复制的本地 Seedance 包"),
+		"local.seedance.lint":   read([]string{"package.json", "--directory"}, "Seedance 包、提示词、媒体和锁定输入校验结果"),
+		"mcp.status":            read([]string{"directory"}, "项目本地 MCP 安装状态"), "mcp.serve": read(nil, "stdio MCP 服务"),
+		"publish.knowledge": write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "不可变的知识提交修订版本"),
+		"publish.research":  write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "不可变的调研提交修订版本"),
+		"publish.strategy":  write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "不可变的策略提交修订版本"), "publish.offer": write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "不可变的商业报价提交修订版本"), "publish.storyboard": write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "不可变的分镜提交修订版本"),
+		"publish.brief":       write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "不可变的简报提交修订版本"),
+		"publish.script":      write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "不可变的剧本提交修订版本"),
+		"publish.delivery":    write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "不可变的交付提交修订版本"),
+		"publish.performance": write("workspace", []string{"--file", "--disclosures", "--message", "--idempotency-key", "--review", "--yes", "--dry-run"}, "不可变的效果提交修订版本"),
+		"pull.feedback":       workspaceRead([]string{"--dry-run"}, "本地收件箱中的审核反馈包"), "pull.decisions": workspaceRead([]string{"--dry-run"}, "本地收件箱中的决定增量"), "pull.approved": workspaceRead([]string{"--type", "--id", "--dry-run"}, "只读的批准快照缓存"),
+		"submission.list": workspaceRead(nil, "工作区提交列表"), "submission.show": workspaceRead([]string{"submission-id"}, "包含不可变修订版本的提交"), "submission.status": workspaceRead([]string{"submission-id"}, "提交治理状态"), "submission.approve": high([]string{"revision-id", "--reason"}, "不可变的批准快照"),
+		"submission.request_changes": high([]string{"revision-id", "--reason", "--json-pointer"}, "不可变的修改要求和审核反馈"),
+		"down":                       high(nil, "已撤销设备并清除本地绑定"),
+		"auth.login":                 write("none", []string{"--no-wait", "--device-code"}, "设备登录状态"), "auth.status": read(nil, "用户会话状态"), "auth.logout": write("user", nil, "已撤销的用户会话"),
+		"context.show": read(nil, "已解析的项目 ID"), "context.use": write("none", []string{"project-id"}, "本地上下文路径"), "context.clear": write("none", nil, "已清除的本地上下文"),
+		"tenant.list": userRead(nil, "租户列表"), "tenant.switch": write("user", []string{"tenant-id", "--dry-run"}, "已轮换的租户凭据"),
+		"membership.list": userRead(nil, "租户成员列表"), "membership.invite.list": userRead(nil, "租户邀请列表"), "membership.invite.create": write("user", []string{"email", "--role", "--dry-run"}, "一次性租户邀请"), "membership.invite.accept": write("user", []string{"invite-token", "--dry-run"}, "已接受的成员资格"), "membership.invite.revoke": high([]string{"invite-id"}, "已撤销的租户邀请"), "membership.update": write("user", []string{"user-id", "role", "--dry-run"}, "已更新的固定成员角色"), "membership.revoke": high([]string{"user-id"}, "已撤销的成员资格和租户会话"),
+		"project.list": userRead(nil, "项目列表"), "project.show": userRead([]string{"project-id"}, "项目"), "project.resolve": userRead([]string{"name-or-slug"}, "稳定的项目 ID"), "project.create": write("user", []string{"--brand", "--product", "--channel", "--objective", "--owner", "--reviewer", "--client-approver", "--template", "--dry-run"}, "单一产品项目"), "project.update": write("user", []string{"project-id", "--row-version", "--brand", "--product", "--channel", "--objective", "--owner", "--reviewer", "--client-approver", "--dry-run"}, "通过乐观并发控制更新的项目"), "project.archive": high([]string{"project-id", "--row-version"}, "已归档的只读项目"), "project.restore": high([]string{"project-id", "--row-version"}, "已恢复的活跃项目"), "project_template.list": userRead(nil, "已脱敏的项目模板列表"), "project_template.create": write("user", []string{"--name", "--channel", "--objective", "--dry-run"}, "已脱敏的项目模板"),
+		"device.connect_session.create": write("user", []string{"project-id", "--project", "--dry-run"}, "一次性项目连接会话"), "device.connect_session.show": userRead([]string{"session-id"}, "项目连接会话"), "device.connect_session.cancel": high([]string{"session-id"}, "已取消的项目连接会话"),
+		"device.list": userRead([]string{"--project"}, "设备列表"), "device.show": userRead([]string{"device-id"}, "设备"), "device.attach": write("user", []string{"device-id", "--project", "--dry-run"}, "项目设备授权"), "device.detach": high([]string{"device-id", "--project"}, "已撤销的项目设备授权"), "device.revoke": high([]string{"device-id"}, "已撤销的设备"),
+		"source.list": userRead([]string{"--project"}, "来源列表"), "source.upload": write("user", []string{"file", "--project", "--name", "--type", "--mime", "--dry-run"}, "来源修订版本"), "source.status": userRead([]string{"revision-id"}, "来源修订版本状态"),
+		"source.revisions": userRead([]string{"source-id"}, "不可变的来源修订版本列表"), "source.revise": write("user", []string{"source-id", "file", "--mime", "--dry-run"}, "新的不可变来源修订版本"), "source.impact": userRead([]string{"source-id"}, "受影响对象列表"), "evidence.review": write("user", []string{"evidence-id", "decision", "--dry-run"}, "已审核的证据片段"),
+		"asset.list": userRead([]string{"--project"}, "受治理素材列表"), "asset.create": write("user", []string{"--project", "--name", "--type", "--source-revision", "--usage", "--dry-run"}, "受治理素材"), "rights.list": userRead([]string{"asset-id"}, "素材权利记录"), "rights.create": write("user", []string{"asset-id", "--holder", "--type", "--territory", "--channel", "--proof-source-revision", "--valid-from", "--valid-until", "--restriction", "--dry-run"}, "权利记录"), "rights.review": write("user", []string{"rights-id", "decision", "--dry-run"}, "已审核的权利记录"),
+		"knowledge.list": userRead([]string{"--project"}, "知识对象列表"), "knowledge.show": userRead([]string{"knowledge-id"}, "知识对象"), "knowledge.extract": write("user", []string{"--project", "--source-revision", "--count", "--idempotency-key", "--dry-run"}, "已排队的本地知识提取运行"), "knowledge.review": write("user", []string{"id", "decision", "--reason", "--dry-run"}, "已审核的知识对象"),
+		"run.list": userRead([]string{"--project"}, "运行列表"), "run.show": userRead([]string{"run-id"}, "任务运行"), "run.attempts": userRead([]string{"run-id"}, "不可变的执行尝试列表"), "run.events": userRead([]string{"run-id", "--after"}, "不可变的增量进度事件"), "run.log": userRead([]string{"run-id"}, "已脱敏的持久化进度"), "run.cancel": high([]string{"run-id"}, "已取消的任务运行"),
+		"artifact.export": write("user", []string{"approved-snapshot-id", "--content-item", "--format"}, "由快照派生的成果文件"), "delivery.create": write("user", []string{"approved-snapshot-id", "--content-item"}, "包含三种格式的交付包"), "delivery.list": userRead([]string{"--project"}, "交付包列表"), "delivery.show": userRead([]string{"delivery-package-id"}, "交付包"), "artifact.download": userRead([]string{"artifact-id", "--out"}, "托管成果文件路径"),
+		"review.create": write("user", []string{"submission-revision-id", "--email", "--dry-run"}, "一次性客户审核链接"), "review.list": userRead([]string{"submission-revision-id"}, "客户审核授权列表"), "review.revoke": high([]string{"grant-id", "--dry-run"}, "已撤销的客户审核授权"), "review.status": userRead([]string{"submission-revision-id"}, "客户审核状态"),
+		"result.list": userRead([]string{"--project"}, "观察数据列表"), "result.import": write("user", []string{"json-or-csv-or-xlsx-file", "--project", "--dry-run"}, "原子化效果数据导入批次"), "result.batches": userRead([]string{"--project"}, "不可变的导入批次列表"), "result.batch-show": userRead([]string{"batch-id"}, "导入批次及其观察数据"), "result.rate": write("user", []string{"subject-type", "subject-id", "--project", "--observation", "--rating", "--reason", "--next-action", "--dry-run"}, "人工评分决定"), "result.ratings": userRead([]string{"--project"}, "人工评分决定列表"),
+		"lineage.show": userRead([]string{"--project", "--type", "--id", "--direction"}, "双向项目血缘图"), "lineage.impact": userRead([]string{"--project", "--type", "--id"}, "包含原因和动作的受影响对象"), "audit.list": userRead([]string{"--project", "--limit"}, "不可变的审计事件列表"),
+		"daemon.start": write("device", nil, "已安装并运行的用户级后台服务"), "daemon.stop": write("none", nil, "已停止的后台服务"), "daemon.status": read(nil, "后台服务进程、日志、版本和最近运行健康状态"), "daemon.restart": write("device", []string{"--if-installed"}, "已使用当前二进制文件重新加载的后台服务"), "daemon.run": write("device", []string{"--once", "--fixture", "--adapter", "--log-file"}, "租约任务运行结果"), "skills.list": read(nil, "内置技能列表"), "skills.read": read([]string{"name", "--path"}, "技能内容"), "skills.status": read(nil, "技能版本状态"), "skills.install": write("none", []string{"name", "--target"}, "本地安装路径"), "schema": read([]string{"command"}, "CLI 契约"), "request.get": userRead([]string{"projects|tenants|runs"}, "允许列表中的资源"),
 	}
 }
 

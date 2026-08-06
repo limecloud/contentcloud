@@ -64,7 +64,7 @@ func (s *Store) Environment(ctx context.Context, tenantID, id string) (domain.En
 		value, err := scanEnvironment(tx.QueryRow(ctx, environmentSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
 		result = value
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("Environment")
+			return domain.NotFound("执行环境")
 		}
 		return err
 	})
@@ -78,7 +78,7 @@ func (s *Store) SaveEnvironment(ctx context.Context, value domain.Environment) e
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
 		command, err := tx.Exec(ctx, `UPDATE environments SET name=$3,slug=$4,status=$5,manifest_digest=$6,default_sop_id=$7,default_sop_version=$8,capabilities=$9,updated_at=$10 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.Name, value.Slug, value.Status, value.ManifestDigest, value.DefaultSOPID, value.DefaultSOPVersion, jsonArrayValue(value.Capabilities), value.UpdatedAt)
 		if err == nil && command.RowsAffected() == 0 {
-			return domain.NotFound("Environment")
+			return domain.NotFound("执行环境")
 		}
 		return dbError(err)
 	})
@@ -127,12 +127,12 @@ func (s *Store) CreateSOP(ctx context.Context, definition domain.SOPDefinition, 
 
 func (s *Store) SaveSOPDefinition(ctx context.Context, value domain.SOPDefinition) error {
 	if value.ID == "" || value.TenantID == "" || value.Name == "" {
-		return domain.Invalid("SOP_INVALID", "SOP 定义缺少 ID、租户或名称")
+		return domain.Invalid("SOP_INVALID", "流程规范定义缺少 ID、租户或名称")
 	}
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
 		command, err := tx.Exec(ctx, `UPDATE sop_definitions SET name=$3,description=$4,content_types=$5,current_version=$6,template_key=$7,built_in=$8,source_ref=$9,updated_at=$10 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.Name, value.Description, jsonArrayValue(value.ContentTypes), value.CurrentVersion, value.TemplateKey, value.BuiltIn, value.SourceRef, value.UpdatedAt)
 		if err == nil && command.RowsAffected() == 0 {
-			return domain.NotFound("SOP")
+			return domain.NotFound("流程规范")
 		}
 		return dbError(err)
 	})
@@ -225,7 +225,7 @@ func (s *Store) SaveSOPVersion(ctx context.Context, value domain.SOPVersion) err
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
 		command, err := tx.Exec(ctx, `UPDATE sop_versions SET name=$4,description=$5,content_types=$6,stages=$7,gates=$8,default_execution_mode=$9,digest=$10 WHERE tenant_id=$1 AND sop_id=$2 AND version=$3 AND status='draft'`, value.TenantID, value.SOPID, value.Version, value.Name, value.Description, jsonArrayValue(value.ContentTypes), jsonArrayValue(value.Stages), jsonArrayValue(value.Gates), value.DefaultExecutionMode, value.Digest)
 		if err == nil && command.RowsAffected() == 0 {
-			return domain.Conflict("SOP_VERSION_IMMUTABLE", "SOP 草稿不存在或版本已发布")
+			return domain.Conflict("SOP_VERSION_IMMUTABLE", "流程规范草稿不存在或版本已发布")
 		}
 		return dbError(err)
 	})
@@ -264,7 +264,7 @@ func (s *Store) RetireSOPVersion(ctx context.Context, tenantID, sopID string, ve
 		var status string
 		if err := tx.QueryRow(ctx, `SELECT status FROM sop_versions WHERE tenant_id=$1 AND sop_id=$2 AND version=$3 FOR UPDATE`, tenantID, sopID, version).Scan(&status); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return domain.NotFound("SOP 版本")
+				return domain.NotFound("流程规范版本")
 			}
 			return dbError(err)
 		}
@@ -274,7 +274,7 @@ func (s *Store) RetireSOPVersion(ctx context.Context, tenantID, sopID string, ve
 		var current int
 		if err := tx.QueryRow(ctx, `SELECT current_version FROM sop_definitions WHERE tenant_id=$1 AND id=$2`, tenantID, sopID).Scan(&current); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return domain.NotFound("SOP")
+				return domain.NotFound("流程规范")
 			}
 			return dbError(err)
 		}
@@ -283,7 +283,7 @@ func (s *Store) RetireSOPVersion(ctx context.Context, tenantID, sopID string, ve
 		}
 		command, err := tx.Exec(ctx, `UPDATE sop_versions SET status='retired' WHERE tenant_id=$1 AND sop_id=$2 AND version=$3 AND status='published'`, tenantID, sopID, version)
 		if err == nil && command.RowsAffected() == 0 {
-			return domain.Conflict("SOP_VERSION_STATE_INVALID", "SOP 版本状态已变化")
+			return domain.Conflict("SOP_VERSION_STATE_INVALID", "流程规范版本状态已变化")
 		}
 		if err != nil {
 			return dbError(err)
@@ -579,7 +579,7 @@ func (s *Store) SaveStageRun(ctx context.Context, value domain.StageRun) error {
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
 		command, err := tx.Exec(ctx, `UPDATE stage_runs SET status=$3,execution_mode=$4,input_refs=$5,output_refs=$6,started_at=$7,completed_at=$8,updated_at=$9 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.Status, value.ExecutionMode, jsonArrayValue(value.InputRefs), jsonArrayValue(value.OutputRefs), value.StartedAt, value.CompletedAt, value.UpdatedAt)
 		if err == nil && command.RowsAffected() == 0 {
-			return domain.NotFound("StageRun")
+			return domain.NotFound("阶段运行")
 		}
 		return dbError(err)
 	})

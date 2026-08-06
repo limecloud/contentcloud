@@ -2,6 +2,7 @@ import { projectNavigationSuffix, projectRoute, type ProjectNavigationTarget, ty
 
 export const consolePath = {
   dashboard: '/workspace',
+  studio: '/studio',
   team: '/team',
   project: (projectID:string,view:ProjectView='setup')=>`/projects/${encodeURIComponent(projectID)}/${projectRoute(view)}`,
   projectNavigation: (projectID:string,target:ProjectNavigationTarget|undefined)=>{

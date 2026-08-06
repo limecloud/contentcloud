@@ -50,7 +50,7 @@ func (s *Store) withTenant(ctx context.Context, tenantID string, fn func(pgx.Tx)
 	}
 	defer tx.Rollback(ctx)
 	if _, err := tx.Exec(ctx, `SET LOCAL ROLE contentcloud_runtime`); err != nil {
-		return fmt.Errorf("activate RLS runtime role: %w", err)
+		return fmt.Errorf("启用 RLS 运行角色失败：%w", err)
 	}
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id',$1,true)`, tenantID); err != nil {
 		return err

@@ -16,10 +16,10 @@ func BuildManifest(projectID string, contentTypes []string, profile Profile, ver
 	registry := verifiedRegistry.raw()
 	_, harnessErr := agentadapter.RequireCapability(profile.Harness, agentadapter.CapabilityCreativeEnvironment)
 	if strings.TrimSpace(projectID) == "" || !dottedIDPattern.MatchString(profile.ID) || !versionPattern.MatchString(profile.Version) || !versionPattern.MatchString(profile.EnvironmentVersion) || harnessErr != nil || !pluginIDPattern.MatchString(profile.Marketplace) {
-		return Manifest{}, domain.Invalid("ENVIRONMENT_PROFILE_INVALID", "Creative Environment Profile 缺少有效项目、版本、Harness 或 Marketplace")
+		return Manifest{}, domain.Invalid("ENVIRONMENT_PROFILE_INVALID", "创作环境配置缺少有效的项目、版本、智能体宿主或插件市场")
 	}
 	if issuedAt.IsZero() || expiresAt.IsZero() || !expiresAt.After(issuedAt) {
-		return Manifest{}, domain.Invalid("ENVIRONMENT_PROFILE_TIME_INVALID", "Environment Manifest 有效期无效")
+		return Manifest{}, domain.Invalid("ENVIRONMENT_PROFILE_TIME_INVALID", "环境清单的有效期无效")
 	}
 	if err := validateUniqueStrings(profile.Capabilities, dottedIDPattern, "ENVIRONMENT_PROFILE_CAPABILITIES_INVALID"); err != nil {
 		return Manifest{}, err
@@ -34,11 +34,11 @@ func BuildManifest(projectID string, contentTypes []string, profile Profile, ver
 	seenPlugins := map[string]struct{}{}
 	for _, allowed := range profile.Plugins {
 		if _, exists := seenPlugins[allowed.ID]; exists {
-			return Manifest{}, domain.Conflict("ENVIRONMENT_PROFILE_PLUGIN_DUPLICATED", "Creative Environment Profile 包含重复 Plugin")
+			return Manifest{}, domain.Conflict("ENVIRONMENT_PROFILE_PLUGIN_DUPLICATED", "创作环境配置包含重复插件")
 		}
 		seenPlugins[allowed.ID] = struct{}{}
 		if !pluginIDPattern.MatchString(allowed.ID) || !validPluginKind(allowed.Kind) || !versionPattern.MatchString(allowed.Version) || (allowed.Scope != "environment" && allowed.Scope != "task") {
-			return Manifest{}, domain.Invalid("ENVIRONMENT_PROFILE_PLUGIN_INVALID", "Creative Environment Profile Plugin allowlist 无效")
+			return Manifest{}, domain.Invalid("ENVIRONMENT_PROFILE_PLUGIN_INVALID", "创作环境配置中的插件允许列表无效")
 		}
 		if err := validateUniqueStrings(allowed.Capabilities, dottedIDPattern, "ENVIRONMENT_PROFILE_PLUGIN_CAPABILITIES_INVALID"); err != nil {
 			return Manifest{}, err
@@ -51,7 +51,7 @@ func BuildManifest(projectID string, contentTypes []string, profile Profile, ver
 			return Manifest{}, err
 		}
 		if entry.Kind != allowed.Kind || !contains(entry.CompatibleProfiles, profile.ID) {
-			return Manifest{}, domain.Policy("ENVIRONMENT_PROFILE_REGISTRY_MISMATCH", "Profile allowlist 与 Marketplace Registry kind/compatibility 不匹配", "修正 Profile 或发布兼容的 Registry entry")
+			return Manifest{}, domain.Policy("ENVIRONMENT_PROFILE_REGISTRY_MISMATCH", "环境配置允许列表与插件市场能力目录中的类型或兼容性不匹配", "修正环境配置，或发布兼容的能力目录条目")
 		}
 		plugins = append(plugins, PluginRef{ID: entry.ID, Kind: entry.Kind, Version: entry.Version, SourceRef: entry.Source.Ref, Digest: entry.Digest, Required: allowed.Required, Scope: allowed.Scope, Capabilities: sortedCopy(allowed.Capabilities)})
 		for _, capability := range allowed.Capabilities {
@@ -62,11 +62,11 @@ func BuildManifest(projectID string, contentTypes []string, profile Profile, ver
 		}
 	}
 	if !requiredScene {
-		return Manifest{}, domain.Policy("ENVIRONMENT_SCENE_PLUGIN_REQUIRED", "Creative Environment Profile 必须包含一个环境级必装 Scene Plugin", "配置已发布的 ContentCloud Scene Plugin")
+		return Manifest{}, domain.Policy("ENVIRONMENT_SCENE_PLUGIN_REQUIRED", "创作环境配置必须包含一个环境级必装场景插件", "配置已经发布的 Content Work OS 场景插件")
 	}
 	for _, capability := range profile.Capabilities {
 		if _, provided := providedCapabilities[capability]; !provided {
-			return Manifest{}, domain.Conflict("ENVIRONMENT_CAPABILITY_UNRESOLVED", "Profile capability 没有对应的 allowlisted Plugin")
+			return Manifest{}, domain.Conflict("ENVIRONMENT_CAPABILITY_UNRESOLVED", "环境配置中的能力没有对应的允许插件")
 		}
 	}
 	sort.Slice(plugins, func(i, j int) bool { return plugins[i].ID < plugins[j].ID })
@@ -88,7 +88,7 @@ type Resolver struct {
 
 func NewResolver(verifier *Verifier) (*Resolver, error) {
 	if verifier == nil {
-		return nil, domain.Invalid("ENVIRONMENT_VERIFIER_REQUIRED", "Environment Resolver 需要可信 Manifest verifier")
+		return nil, domain.Invalid("ENVIRONMENT_VERIFIER_REQUIRED", "环境解析器需要可信的环境清单校验器")
 	}
 	return &Resolver{verifier: verifier}, nil
 }
@@ -96,7 +96,7 @@ func NewResolver(verifier *Verifier) (*Resolver, error) {
 func (resolver *Resolver) ResolveLocal(manifest Manifest, verifiedRegistry VerifiedRegistry, lock EnvironmentLock, request LocalPlanRequest, now time.Time) (LocalExecutionPlan, error) {
 	registry := verifiedRegistry.raw()
 	if strings.TrimSpace(request.ProjectID) == "" || strings.TrimSpace(request.RunID) == "" || strings.TrimSpace(request.Intent) == "" {
-		return LocalExecutionPlan{}, domain.Invalid("LOCAL_EXECUTION_REQUEST_INVALID", "LocalExecutionPlan 需要 project_id、run_id 和 intent")
+		return LocalExecutionPlan{}, domain.Invalid("LOCAL_EXECUTION_REQUEST_INVALID", "本地执行计划需要 project_id、run_id 和 intent")
 	}
 	if err := resolver.verifier.Verify(manifest, VerifyOptions{ProjectID: request.ProjectID, Harness: manifest.Harness, Now: now}); err != nil {
 		return LocalExecutionPlan{}, err
@@ -110,7 +110,7 @@ func (resolver *Resolver) ResolveLocal(manifest Manifest, verifiedRegistry Verif
 	allowedCapabilities := stringSet(manifest.Capabilities)
 	for _, capability := range request.RequiredCapabilities {
 		if _, allowed := allowedCapabilities[capability]; !allowed {
-			return LocalExecutionPlan{}, domain.Policy("LOCAL_EXECUTION_CAPABILITY_DENIED", "LocalExecutionPlan 请求超出 Environment Manifest allowlist", "选择当前项目 Profile 允许的 capability")
+			return LocalExecutionPlan{}, domain.Policy("LOCAL_EXECUTION_CAPABILITY_DENIED", "本地执行计划请求的能力超出环境清单允许列表", "选择当前项目环境配置允许的能力")
 		}
 	}
 	if err := validateLockIdentity(lock, manifest); err != nil {
@@ -161,7 +161,7 @@ func (resolver *Resolver) ResolveLocal(manifest Manifest, verifiedRegistry Verif
 	}
 	for capability := range requestedCapabilities {
 		if _, ok := provided[capability]; !ok {
-			return LocalExecutionPlan{}, domain.Conflict("LOCAL_EXECUTION_CAPABILITY_UNRESOLVED", "Manifest allowlist 中没有 Plugin 提供请求的 capability")
+			return LocalExecutionPlan{}, domain.Conflict("LOCAL_EXECUTION_CAPABILITY_UNRESOLVED", "环境清单允许列表中没有插件提供所需能力")
 		}
 	}
 	sort.Slice(selected, func(i, j int) bool { return selected[i].ID < selected[j].ID })
@@ -188,10 +188,10 @@ func exactRegistryVersion(registry Registry, id, version string) (RegistryEntry,
 		}
 	}
 	if len(matches) == 0 {
-		return RegistryEntry{}, domain.NotFound("Profile allowlist 对应的 Marketplace Registry entry")
+		return RegistryEntry{}, domain.NotFound("环境配置允许列表对应的插件市场能力目录条目")
 	}
 	if len(matches) > 1 {
-		return RegistryEntry{}, domain.Conflict("REGISTRY_VERSION_AMBIGUOUS", "Marketplace Registry 同一 ID/version 存在多个 entry")
+		return RegistryEntry{}, domain.Conflict("REGISTRY_VERSION_AMBIGUOUS", "插件市场能力目录中，同一 ID 和版本对应多个条目")
 	}
 	return matches[0], nil
 }
@@ -201,14 +201,14 @@ func validateLockIdentity(lock EnvironmentLock, manifest Manifest) error {
 		return nil
 	}
 	if lock.ProjectID != manifest.ProjectID || lock.ProfileID != manifest.ProfileID || lock.ProfileVersion != manifest.ProfileVersion || lock.EnvironmentVersion != manifest.EnvironmentVersion || lock.Harness != manifest.Harness || lock.ManifestDigest != manifest.Digest {
-		return domain.Conflict("ENVIRONMENT_LOCK_MISMATCH", "本地 environment.lock 与已验证 Manifest 不一致")
+		return domain.Conflict("ENVIRONMENT_LOCK_MISMATCH", "本地 environment.lock 与已验证的环境清单不一致")
 	}
 	return nil
 }
 
 func ValidateLock(manifest Manifest, lock EnvironmentLock) error {
 	if lock.SchemaVersion != "1.0" || lock.VerifiedAt.IsZero() {
-		return domain.Invalid("ENVIRONMENT_LOCK_INVALID", "environment.lock 缺少有效 schema_version 或 verified_at")
+		return domain.Invalid("ENVIRONMENT_LOCK_INVALID", "environment.lock 缺少有效的 schema_version 或 verified_at")
 	}
 	if err := validateLockIdentity(lock, manifest); err != nil {
 		return err
@@ -223,14 +223,14 @@ func ValidateLock(manifest Manifest, lock EnvironmentLock) error {
 		if plugin.Required && plugin.Scope == "environment" {
 			installed, exists := locked[plugin.ID]
 			if !exists || !installed.Installed || installed.Kind != plugin.Kind || installed.Version != plugin.Version || installed.Digest != plugin.Digest {
-				return domain.Conflict("ENVIRONMENT_REQUIRED_PLUGIN_MISSING", "environment.lock 未证明必装环境 Plugin 的精确版本和 digest")
+				return domain.Conflict("ENVIRONMENT_REQUIRED_PLUGIN_MISSING", "environment.lock 未记录必装环境插件的准确版本和摘要")
 			}
 		}
 	}
 	for id, installed := range locked {
 		plugin, exists := allowed[id]
 		if !exists || installed.Kind != plugin.Kind || installed.Version != plugin.Version || installed.Digest != plugin.Digest {
-			return domain.Policy("ENVIRONMENT_LOCK_PLUGIN_DENIED", "environment.lock 包含 Manifest allowlist 之外或版本不匹配的 Plugin", "重新执行受控环境准备")
+			return domain.Policy("ENVIRONMENT_LOCK_PLUGIN_DENIED", "environment.lock 包含环境清单允许列表之外或版本不匹配的插件", "重新执行受控环境准备")
 		}
 	}
 	return nil
@@ -247,7 +247,7 @@ func ValidateManifestRegistry(manifest Manifest, verifiedRegistry VerifiedRegist
 			return err
 		}
 		if entry.Kind != plugin.Kind || entry.Source.Ref != plugin.SourceRef || !contains(entry.CompatibleProfiles, manifest.ProfileID) {
-			return domain.Conflict("ENVIRONMENT_MANIFEST_REGISTRY_MISMATCH", "Environment Manifest 与签名 Marketplace Registry 不一致")
+			return domain.Conflict("ENVIRONMENT_MANIFEST_REGISTRY_MISMATCH", "环境清单与已签名的插件市场能力目录不一致")
 		}
 	}
 	return nil
@@ -257,10 +257,10 @@ func lockedPlugins(plugins []LockedPlugin) (map[string]LockedPlugin, error) {
 	result := make(map[string]LockedPlugin, len(plugins))
 	for _, plugin := range plugins {
 		if !pluginIDPattern.MatchString(plugin.ID) || !validPluginKind(plugin.Kind) || !versionPattern.MatchString(plugin.Version) || !digestPattern.MatchString(plugin.Digest) {
-			return nil, domain.Invalid("ENVIRONMENT_LOCK_PLUGIN_INVALID", "environment.lock 包含无效 Plugin")
+			return nil, domain.Invalid("ENVIRONMENT_LOCK_PLUGIN_INVALID", "environment.lock 包含无效插件")
 		}
 		if _, exists := result[plugin.ID]; exists {
-			return nil, domain.Conflict("ENVIRONMENT_LOCK_PLUGIN_DUPLICATED", "environment.lock 包含重复 Plugin")
+			return nil, domain.Conflict("ENVIRONMENT_LOCK_PLUGIN_DUPLICATED", "environment.lock 包含重复插件")
 		}
 		result[plugin.ID] = plugin
 	}
@@ -294,10 +294,10 @@ func validateInputRefs(values []string) error {
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		if strings.TrimSpace(value) == "" {
-			return domain.Invalid("LOCAL_EXECUTION_INPUT_REF_INVALID", "LocalExecutionPlan input_refs 包含空值")
+			return domain.Invalid("LOCAL_EXECUTION_INPUT_REF_INVALID", "本地执行计划的 input_refs 包含空值")
 		}
 		if _, exists := seen[value]; exists {
-			return domain.Conflict("LOCAL_EXECUTION_INPUT_REF_DUPLICATED", "LocalExecutionPlan input_refs 包含重复值")
+			return domain.Conflict("LOCAL_EXECUTION_INPUT_REF_DUPLICATED", "本地执行计划的 input_refs 包含重复值")
 		}
 		seen[value] = struct{}{}
 	}

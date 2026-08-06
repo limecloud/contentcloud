@@ -20,7 +20,7 @@ type FixtureImportResult struct {
 
 func (s *Service) ImportFixtureV3(ctx context.Context, actor Actor, fixture fixturev3.Fixture, requestID string) (FixtureImportResult, error) {
 	if actor.Role != "tenant_admin" {
-		return FixtureImportResult{}, domain.Policy("ROLE_DENIED", "只有租户管理员可以导入开发 Fixture", "切换到租户管理员账号")
+		return FixtureImportResult{}, domain.Policy("ROLE_DENIED", "只有租户管理员可以导入开发演示数据", "切换到租户管理员账号")
 	}
 	if err := fixture.Validate(); err != nil {
 		return FixtureImportResult{}, domain.Invalid("FIXTURE_V3_INVALID", err.Error())
@@ -70,7 +70,7 @@ func (s *Service) ImportFixtureV3(ctx context.Context, actor Actor, fixture fixt
 		switch spec.Outcome {
 		case "approved":
 			if submission.Status == "submitted" || submission.Status == "in_review" {
-				approval, approveErr := s.ApproveSubmission(ctx, actor, revision.ID, "Fixture V3 基线批准", requestID)
+				approval, approveErr := s.ApproveSubmission(ctx, actor, revision.ID, "V3 开发演示基线批准", requestID)
 				if approveErr != nil {
 					return FixtureImportResult{}, approveErr
 				}
@@ -80,14 +80,14 @@ func (s *Service) ImportFixtureV3(ctx context.Context, actor Actor, fixture fixt
 				}
 			}
 			if submission.Status != "approved" {
-				return FixtureImportResult{}, domain.Conflict("FIXTURE_SUBMISSION_STATE_INVALID", fmt.Sprintf("%s Submission 当前状态为 %s，无法收敛为 approved", spec.SubmissionType, submission.Status))
+				return FixtureImportResult{}, domain.Conflict("FIXTURE_SUBMISSION_STATE_INVALID", fmt.Sprintf("%s 提交记录当前状态为 %s，无法收敛为已批准（approved）", spec.SubmissionType, submission.Status))
 			}
 			if _, exists := snapshotByType[spec.SubmissionType]; !exists {
-				return FixtureImportResult{}, domain.Conflict("FIXTURE_SNAPSHOT_MISSING", spec.SubmissionType+" 已批准但缺少 ApprovedSnapshot")
+				return FixtureImportResult{}, domain.Conflict("FIXTURE_SNAPSHOT_MISSING", spec.SubmissionType+" 已批准但缺少已批准快照")
 			}
 		case "submitted":
 			if submission.Status != "submitted" && submission.Status != "in_review" {
-				return FixtureImportResult{}, domain.Conflict("FIXTURE_SUBMISSION_STATE_INVALID", fmt.Sprintf("%s Submission 当前状态为 %s，无法收敛为 submitted", spec.SubmissionType, submission.Status))
+				return FixtureImportResult{}, domain.Conflict("FIXTURE_SUBMISSION_STATE_INVALID", fmt.Sprintf("%s 提交记录当前状态为 %s，无法收敛为已提交（submitted）", spec.SubmissionType, submission.Status))
 			}
 		case "changes_requested":
 			if submission.Status != "changes_requested" {
@@ -155,7 +155,7 @@ func (s *Service) ensureFixtureWorkspace(ctx context.Context, actor Actor, proje
 		return domain.Device{}, domain.WorkspaceBinding{}, err
 	}
 	if binding.ProjectID != project.ID || binding.DeviceID != device.ID {
-		return domain.Device{}, domain.WorkspaceBinding{}, domain.Conflict("FIXTURE_WORKSPACE_MISMATCH", "Fixture Workspace 已绑定到其他项目或设备")
+		return domain.Device{}, domain.WorkspaceBinding{}, domain.Conflict("FIXTURE_WORKSPACE_MISMATCH", "开发演示的本地工作区已绑定到其他项目或设备")
 	}
 	workspaceActor := Actor{UserID: actor.UserID, TenantID: actor.TenantID, Role: actor.Role, Type: "workspace", DeviceID: device.ID, WorkspaceID: binding.ID}
 	binding, err = s.RegisterWorkspace(ctx, workspaceActor, binding, workspace.TemplateID, workspace.TemplateVersion, workspace.Targets, requestID)
@@ -190,7 +190,7 @@ func buildFixtureBundle(projectID, workspaceID string, fixture fixturev3.Fixture
 	for _, submissionType := range spec.BaseSnapshotTypes {
 		snapshot, exists := snapshotByType[submissionType]
 		if !exists {
-			return domain.SubmissionBundle{}, domain.Conflict("FIXTURE_BASE_SNAPSHOT_MISSING", "Fixture 缺少 "+submissionType+" ApprovedSnapshot")
+			return domain.SubmissionBundle{}, domain.Conflict("FIXTURE_BASE_SNAPSHOT_MISSING", "开发演示数据缺少 "+submissionType+" 已批准快照")
 		}
 		baseSnapshotIDs = append(baseSnapshotIDs, snapshot.ID)
 	}

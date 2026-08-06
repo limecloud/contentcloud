@@ -97,11 +97,11 @@ func (s *Store) CreateEnvironment(_ context.Context, value domain.Environment) e
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.environments[value.ID]; exists {
-		return domain.Conflict("ENVIRONMENT_EXISTS", "Environment 已存在")
+		return domain.Conflict("ENVIRONMENT_EXISTS", "环境已存在")
 	}
 	for _, existing := range s.environments {
 		if existing.TenantID == value.TenantID && existing.Slug == value.Slug {
-			return domain.Conflict("ENVIRONMENT_SLUG_EXISTS", "Environment 标识已存在")
+			return domain.Conflict("ENVIRONMENT_SLUG_EXISTS", "环境标识已存在")
 		}
 	}
 	s.environments[value.ID] = cloneEnvironment(value)
@@ -126,7 +126,7 @@ func (s *Store) Environment(_ context.Context, tenantID, id string) (domain.Envi
 	defer s.mu.RUnlock()
 	value, ok := s.environments[id]
 	if !ok || value.TenantID != tenantID {
-		return value, domain.NotFound("Environment")
+		return value, domain.NotFound("环境")
 	}
 	return cloneEnvironment(value), nil
 }
@@ -139,11 +139,11 @@ func (s *Store) SaveEnvironment(_ context.Context, value domain.Environment) err
 	defer s.mu.Unlock()
 	current, ok := s.environments[value.ID]
 	if !ok || current.TenantID != value.TenantID {
-		return domain.NotFound("Environment")
+		return domain.NotFound("环境")
 	}
 	for id, existing := range s.environments {
 		if id != value.ID && existing.TenantID == value.TenantID && existing.Slug == value.Slug {
-			return domain.Conflict("ENVIRONMENT_SLUG_EXISTS", "Environment 标识已存在")
+			return domain.Conflict("ENVIRONMENT_SLUG_EXISTS", "环境标识已存在")
 		}
 	}
 	s.environments[value.ID] = cloneEnvironment(value)
@@ -182,7 +182,7 @@ func (s *Store) SaveSOPDefinition(_ context.Context, value domain.SOPDefinition)
 	definitionKey := sopDefinitionKey(value.TenantID, value.ID)
 	current, ok := s.sopDefinitions[definitionKey]
 	if !ok || current.TenantID != value.TenantID {
-		return domain.NotFound("SOP")
+		return domain.NotFound("流程规范")
 	}
 	if value.BuiltIn && value.TemplateKey != "" {
 		for id, existing := range s.sopDefinitions {
@@ -204,7 +204,7 @@ func (s *Store) CreateSOPVersion(_ context.Context, version domain.SOPVersion) e
 	defer s.mu.Unlock()
 	definition, ok := s.sopDefinitions[sopDefinitionKey(version.TenantID, version.SOPID)]
 	if !ok || definition.TenantID != version.TenantID {
-		return domain.NotFound("SOP")
+		return domain.NotFound("流程规范")
 	}
 	key := sopVersionKey(version.TenantID, version.SOPID, version.Version)
 	if _, exists := s.sopVersions[key]; exists {
@@ -248,7 +248,7 @@ func (s *Store) SOP(_ context.Context, tenantID, id string) (domain.SOPSummary, 
 	defer s.mu.RUnlock()
 	definition, ok := s.sopDefinitions[sopDefinitionKey(tenantID, id)]
 	if !ok || definition.TenantID != tenantID {
-		return domain.SOPSummary{}, domain.NotFound("SOP")
+		return domain.SOPSummary{}, domain.NotFound("流程规范")
 	}
 	result := domain.SOPSummary{Definition: definition, Versions: []domain.SOPVersion{}}
 	for _, version := range s.sopVersions {
@@ -269,7 +269,7 @@ func (s *Store) SaveSOPVersion(_ context.Context, value domain.SOPVersion) error
 	key := sopVersionKey(value.TenantID, value.SOPID, value.Version)
 	current, ok := s.sopVersions[key]
 	if !ok {
-		return domain.NotFound("SOP 版本")
+		return domain.NotFound("流程规范版本")
 	}
 	if current.Status != "draft" {
 		return domain.Conflict("SOP_VERSION_IMMUTABLE", "已发布或已退休的 SOP 版本不可修改")
@@ -284,7 +284,7 @@ func (s *Store) PublishSOPVersion(_ context.Context, tenantID, sopID string, ver
 	key := sopVersionKey(tenantID, sopID, version)
 	value, ok := s.sopVersions[key]
 	if !ok {
-		return value, domain.NotFound("SOP 版本")
+		return value, domain.NotFound("流程规范版本")
 	}
 	if err := value.Validate(); err != nil {
 		return value, err
@@ -312,14 +312,14 @@ func (s *Store) RetireSOPVersion(_ context.Context, tenantID, sopID string, vers
 	key := sopVersionKey(tenantID, sopID, version)
 	value, ok := s.sopVersions[key]
 	if !ok {
-		return domain.NotFound("SOP 版本")
+		return domain.NotFound("流程规范版本")
 	}
 	if value.Status != "published" {
 		return domain.Conflict("SOP_VERSION_STATE_INVALID", "只有已发布 SOP 版本可以退休")
 	}
 	definition, ok := s.sopDefinitions[sopDefinitionKey(tenantID, sopID)]
 	if !ok {
-		return domain.NotFound("SOP")
+		return domain.NotFound("流程规范")
 	}
 	if definition.CurrentVersion == version {
 		return domain.Policy("SOP_CURRENT_VERSION_CANNOT_RETIRE", "当前生效版本不能直接退休", "先发布另一个版本或执行回滚")
@@ -338,7 +338,7 @@ func (s *Store) SaveProjectSOPBinding(_ context.Context, value domain.ProjectSOP
 		return domain.NotFound("项目")
 	}
 	if _, ok := s.sopVersions[sopVersionKey(value.TenantID, value.SOPID, value.SOPVersion)]; !ok {
-		return domain.NotFound("SOP 版本")
+		return domain.NotFound("流程规范版本")
 	}
 	s.projectSOPBindings[value.ProjectID] = value
 	return nil
@@ -538,7 +538,7 @@ func (s *Store) CreateStageRun(_ context.Context, value domain.StageRun) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.stageRuns[value.ID]; exists {
-		return domain.Conflict("STAGE_RUN_EXISTS", "StageRun 已存在")
+		return domain.Conflict("STAGE_RUN_EXISTS", "阶段执行记录已存在")
 	}
 	s.stageRuns[value.ID] = value
 	return nil
@@ -548,7 +548,7 @@ func (s *Store) SaveStageRun(_ context.Context, value domain.StageRun) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.stageRuns[value.ID]; !exists {
-		return domain.NotFound("StageRun")
+		return domain.NotFound("阶段执行记录")
 	}
 	s.stageRuns[value.ID] = value
 	return nil
@@ -576,7 +576,7 @@ func (s *Store) CreateGateEvaluation(_ context.Context, value domain.GateEvaluat
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.gateEvaluations[value.ID]; exists {
-		return domain.Conflict("GATE_EVALUATION_EXISTS", "Gate 评估已存在")
+		return domain.Conflict("GATE_EVALUATION_EXISTS", "审核门评估已存在")
 	}
 	s.gateEvaluations[value.ID] = cloneGateEvaluation(value)
 	return nil
@@ -600,7 +600,7 @@ func (s *Store) GateEvaluation(_ context.Context, tenantID, id string) (domain.G
 	defer s.mu.RUnlock()
 	value, ok := s.gateEvaluations[id]
 	if !ok || value.TenantID != tenantID {
-		return value, domain.NotFound("Gate 评估")
+		return value, domain.NotFound("审核门评估")
 	}
 	return cloneGateEvaluation(value), nil
 }
@@ -614,7 +614,7 @@ func (s *Store) SaveGateEvaluation(_ context.Context, value domain.GateEvaluatio
 	defer s.mu.Unlock()
 	current, ok := s.gateEvaluations[value.ID]
 	if !ok || current.TenantID != value.TenantID {
-		return domain.NotFound("Gate 评估")
+		return domain.NotFound("审核门评估")
 	}
 	s.gateEvaluations[value.ID] = cloneGateEvaluation(value)
 	return nil
@@ -628,11 +628,11 @@ func (s *Store) CreateTaskRevision(_ context.Context, value domain.TaskRevision)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.taskRevisions[value.ID]; exists {
-		return domain.Conflict("TASK_REVISION_EXISTS", "Task Revision 已存在")
+		return domain.Conflict("TASK_REVISION_EXISTS", "任务版本已存在")
 	}
 	for _, existing := range s.taskRevisions {
 		if existing.TenantID == value.TenantID && existing.TaskID == value.TaskID && existing.RevisionNo == value.RevisionNo {
-			return domain.Conflict("TASK_REVISION_NUMBER_EXISTS", "Task Revision 编号已存在")
+			return domain.Conflict("TASK_REVISION_NUMBER_EXISTS", "任务版本编号已存在")
 		}
 	}
 	s.taskRevisions[value.ID] = cloneTaskRevision(value)
@@ -657,7 +657,7 @@ func (s *Store) TaskRevision(_ context.Context, tenantID, id string) (domain.Tas
 	defer s.mu.RUnlock()
 	value, ok := s.taskRevisions[id]
 	if !ok || value.TenantID != tenantID {
-		return value, domain.NotFound("Task Revision")
+		return value, domain.NotFound("任务版本")
 	}
 	return cloneTaskRevision(value), nil
 }
@@ -670,7 +670,7 @@ func (s *Store) CreateTaskDelivery(_ context.Context, value domain.TaskDelivery)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.taskDeliveries[value.ID]; exists {
-		return domain.Conflict("TASK_DELIVERY_EXISTS", "Task 交付已存在")
+		return domain.Conflict("TASK_DELIVERY_EXISTS", "任务交付已存在")
 	}
 	s.taskDeliveries[value.ID] = cloneTaskDelivery(value)
 	return nil
@@ -694,7 +694,7 @@ func (s *Store) TaskDelivery(_ context.Context, tenantID, id string) (domain.Tas
 	defer s.mu.RUnlock()
 	value, ok := s.taskDeliveries[id]
 	if !ok || value.TenantID != tenantID {
-		return value, domain.NotFound("Task 交付")
+		return value, domain.NotFound("任务交付")
 	}
 	return cloneTaskDelivery(value), nil
 }
@@ -708,7 +708,7 @@ func (s *Store) SaveTaskDelivery(_ context.Context, value domain.TaskDelivery) e
 	defer s.mu.Unlock()
 	current, ok := s.taskDeliveries[value.ID]
 	if !ok || current.TenantID != value.TenantID {
-		return domain.NotFound("Task 交付")
+		return domain.NotFound("任务交付")
 	}
 	s.taskDeliveries[value.ID] = cloneTaskDelivery(value)
 	return nil

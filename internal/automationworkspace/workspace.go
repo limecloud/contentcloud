@@ -59,13 +59,13 @@ func Begin(options Options) (*Workspace, error) {
 		now = time.Now().UTC()
 	}
 	if strings.TrimSpace(options.AttemptID) == "" || strings.TrimSpace(options.RunID) == "" || strings.TrimSpace(options.ProjectID) == "" || !options.ExpiresAt.After(now) {
-		return nil, domain.Invalid("AUTOMATION_WORKSPACE_LEASE_INVALID", "Automation workspace 需要有效 Attempt、Run、Project 和未过期租约")
+		return nil, domain.Invalid("AUTOMATION_WORKSPACE_LEASE_INVALID", "自动化工作区需要有效的执行尝试、任务运行、项目和未过期租约")
 	}
 	if options.Contract.RunID != options.RunID || options.Contract.Project.ID != options.ProjectID || strings.TrimSpace(options.Contract.Capability.ID) == "" || strings.TrimSpace(options.Contract.Capability.Digest) == "" {
-		return nil, domain.Conflict("AUTOMATION_WORKSPACE_CONTRACT_MISMATCH", "Task Contract 与 Automation lease 身份不一致")
+		return nil, domain.Conflict("AUTOMATION_WORKSPACE_CONTRACT_MISMATCH", "任务契约与自动化租约的身份不一致")
 	}
 	if len(options.OutputSchema) == 0 || len(options.Skill) == 0 {
-		return nil, domain.Invalid("AUTOMATION_WORKSPACE_RESOURCES_REQUIRED", "Automation workspace 缺少输出 Schema 或 Skill")
+		return nil, domain.Invalid("AUTOMATION_WORKSPACE_RESOURCES_REQUIRED", "自动化工作区缺少输出结构定义或技能")
 	}
 	base, err := resolveBase(options.BaseDir)
 	if err != nil {
@@ -94,7 +94,7 @@ func Begin(options Options) (*Workspace, error) {
 	}
 	if options.Bundle != nil {
 		if options.Bundle.ProjectID != options.ProjectID || strings.TrimSpace(options.Bundle.BundleID) == "" || strings.TrimSpace(options.Bundle.Digest) == "" {
-			return nil, domain.Conflict("AUTOMATION_WORKSPACE_BUNDLE_MISMATCH", "CreativeExecutionBundle 与 Automation workspace 身份不一致")
+			return nil, domain.Conflict("AUTOMATION_WORKSPACE_BUNDLE_MISMATCH", "创作执行包（CreativeExecutionBundle）与自动化工作区的身份不一致")
 		}
 		lease.BundleID = options.Bundle.BundleID
 		lease.BundleDigest = options.Bundle.Digest
@@ -147,11 +147,11 @@ func Begin(options Options) (*Workspace, error) {
 
 func (workspace *Workspace) Cleanup() error {
 	if workspace == nil || strings.TrimSpace(workspace.Root) == "" || strings.TrimSpace(workspace.base) == "" || strings.TrimSpace(workspace.Lease.AttemptID) == "" {
-		return domain.Invalid("AUTOMATION_WORKSPACE_INVALID", "Automation workspace cleanup 缺少受管目录身份")
+		return domain.Invalid("AUTOMATION_WORKSPACE_INVALID", "清理自动化工作区时缺少受管目录身份")
 	}
 	expected := filepath.Join(workspace.base, attemptDirectory(workspace.Lease.AttemptID))
 	if filepath.Clean(workspace.Root) != expected || filepath.Dir(expected) != filepath.Clean(workspace.base) {
-		return domain.Policy("AUTOMATION_WORKSPACE_CLEANUP_DENIED", "拒绝清理非受管 Automation workspace", "只允许删除当前 Attempt 的内容寻址目录")
+		return domain.Policy("AUTOMATION_WORKSPACE_CLEANUP_DENIED", "拒绝清理不受管理的自动化工作区", "只允许删除当前执行尝试对应的内容寻址目录")
 	}
 	if err := os.RemoveAll(expected); err != nil {
 		return err
@@ -161,11 +161,11 @@ func (workspace *Workspace) Cleanup() error {
 
 func (workspace *Workspace) Renew(expiresAt time.Time) error {
 	if workspace == nil || strings.TrimSpace(workspace.Root) == "" || strings.TrimSpace(workspace.base) == "" || strings.TrimSpace(workspace.Lease.AttemptID) == "" {
-		return domain.Invalid("AUTOMATION_WORKSPACE_INVALID", "Automation workspace renew 缺少受管目录身份")
+		return domain.Invalid("AUTOMATION_WORKSPACE_INVALID", "自动化工作区续租时缺少受管目录身份")
 	}
 	expected := filepath.Join(workspace.base, attemptDirectory(workspace.Lease.AttemptID))
 	if filepath.Clean(workspace.Root) != expected || filepath.Dir(expected) != filepath.Clean(workspace.base) {
-		return domain.Policy("AUTOMATION_WORKSPACE_RENEW_DENIED", "拒绝续租非受管 Automation workspace", "只允许续租当前 Attempt 的内容寻址目录")
+		return domain.Policy("AUTOMATION_WORKSPACE_RENEW_DENIED", "拒绝为不受管理的自动化工作区续租", "只允许为当前执行尝试对应的内容寻址目录续租")
 	}
 	expiresAt = expiresAt.UTC()
 	leasePath := filepath.Join(expected, "lease.json")
@@ -174,7 +174,7 @@ func (workspace *Workspace) Renew(expiresAt time.Time) error {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
-		return domain.Policy("AUTOMATION_WORKSPACE_LEASE_UNSAFE", "Automation workspace lease 必须是权限为 0600 的普通文件", "停止当前 Attempt 并重新创建隔离工作区")
+		return domain.Policy("AUTOMATION_WORKSPACE_LEASE_UNSAFE", "自动化工作区租约必须是权限为 0600 的普通文件", "停止当前执行尝试并重新创建隔离工作区")
 	}
 	body, err := os.ReadFile(leasePath)
 	if err != nil {
@@ -182,7 +182,7 @@ func (workspace *Workspace) Renew(expiresAt time.Time) error {
 	}
 	var current Lease
 	if json.Unmarshal(body, &current) != nil || !sameLeaseIdentity(current, workspace.Lease) || !current.ExpiresAt.Equal(workspace.Lease.ExpiresAt) {
-		return domain.Conflict("AUTOMATION_WORKSPACE_LEASE_CHANGED", "Automation workspace lease 已被并发修改")
+		return domain.Conflict("AUTOMATION_WORKSPACE_LEASE_CHANGED", "自动化工作区租约已被并发修改")
 	}
 	if !expiresAt.After(current.ExpiresAt) {
 		return nil
@@ -216,7 +216,7 @@ func ensurePrivateDirectory(path string) error {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
-		return domain.Policy("AUTOMATION_WORKSPACE_ROOT_UNSAFE", "Automation workspace root 必须是非 symlink 的私有目录", "使用权限为 0700 的独立缓存目录")
+		return domain.Policy("AUTOMATION_WORKSPACE_ROOT_UNSAFE", "自动化工作区根目录必须是非符号链接的私有目录", "使用权限为 0700 的独立缓存目录")
 	}
 	return nil
 }
@@ -230,7 +230,7 @@ func rejectOverlap(base, forbidden string) error {
 		return err
 	}
 	if within(base, interactive) || within(interactive, base) {
-		return domain.Policy("AUTOMATION_WORKSPACE_OVERLAP", "Automation workspace 不能与交互式 ContentCloud Workspace 重叠", "使用独立的用户缓存目录执行后台 Attempt")
+		return domain.Policy("AUTOMATION_WORKSPACE_OVERLAP", "自动化工作区不能与交互式 Content Work OS 工作区重叠", "使用独立的用户缓存目录执行后台任务")
 	}
 	return nil
 }
@@ -279,20 +279,20 @@ func createAttemptDirectory(root string, wanted Lease, now time.Time) error {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return domain.Policy("AUTOMATION_WORKSPACE_ATTEMPT_UNSAFE", "Automation Attempt 路径不是受管目录", "检查隔离工作区后重试")
+		return domain.Policy("AUTOMATION_WORKSPACE_ATTEMPT_UNSAFE", "自动化执行尝试的路径不是受管目录", "检查隔离工作区后重试")
 	}
 	var existing Lease
 	body, err := os.ReadFile(filepath.Join(root, "lease.json"))
 	if err != nil || json.Unmarshal(body, &existing) != nil || existing.ExpiresAt.IsZero() || !sameLeaseIdentity(existing, wanted) {
-		return domain.Conflict("AUTOMATION_WORKSPACE_LEASE_INVALID", "已存在的 Automation workspace lease 无法安全恢复")
+		return domain.Conflict("AUTOMATION_WORKSPACE_LEASE_INVALID", "无法安全恢复已有的自动化工作区租约")
 	}
 	if existing.ExpiresAt.After(now) {
-		conflict := domain.Conflict("AUTOMATION_WORKSPACE_LEASE_ACTIVE", "同一 Automation Attempt 已在本机执行")
+		conflict := domain.Conflict("AUTOMATION_WORKSPACE_LEASE_ACTIVE", "同一自动化执行尝试已在本机运行")
 		conflict.Details = map[string]any{"attempt_id": existing.AttemptID, "expires_at": existing.ExpiresAt}
 		return conflict
 	}
 	if filepath.Dir(root) == root {
-		return fmt.Errorf("refusing to clean broad automation path %s", root)
+		return fmt.Errorf("拒绝清理范围过大的自动化路径 %s", root)
 	}
 	if err := os.RemoveAll(root); err != nil {
 		return err

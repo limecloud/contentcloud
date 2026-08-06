@@ -23,11 +23,11 @@ func (s *Service) ResolveReviewComment(ctx context.Context, actor Actor, id, req
 		return domain.ReviewComment{}, err
 	}
 	if target.SubjectType != "submission_revision" {
-		return domain.ReviewComment{}, domain.NotFound("SubmissionRevision 批注")
+		return domain.ReviewComment{}, domain.NotFound("提交内容版本批注")
 	}
 	revision, err := s.store.SubmissionRevision(ctx, actor.TenantID, target.SubjectID)
 	if err != nil || revision.ProjectID != target.ProjectID {
-		return domain.ReviewComment{}, domain.NotFound("SubmissionRevision 批注")
+		return domain.ReviewComment{}, domain.NotFound("提交内容版本批注")
 	}
 	if _, err := s.projectForWrite(ctx, actor, target.ProjectID); err != nil {
 		return domain.ReviewComment{}, err
@@ -91,10 +91,10 @@ func (s *Service) CreateReviewGrant(ctx context.Context, actor Actor, revisionID
 		return domain.ReviewGrant{}, err
 	}
 	if submission.SubmissionType != "content_batch" {
-		return domain.ReviewGrant{}, domain.Invalid("REVIEW_SUBJECT_INVALID", "客户审批只接受 content_batch SubmissionRevision")
+		return domain.ReviewGrant{}, domain.Invalid("REVIEW_SUBJECT_INVALID", "客户审批只接受内容批次（content_batch）的提交内容版本")
 	}
 	if submission.CurrentRevisionID != revision.ID || (submission.Status != "internally_approved" && submission.Status != "client_review") {
-		return domain.ReviewGrant{}, domain.Conflict("SUBMISSION_STATE_INVALID", "只有当前已通过内审的 content_batch SubmissionRevision 可发起客户审批")
+		return domain.ReviewGrant{}, domain.Conflict("SUBMISSION_STATE_INVALID", "只有当前已通过内审的内容批次（content_batch）版本可发起客户审批")
 	}
 	if err := s.requireInternalSubmissionApproval(ctx, revision); err != nil {
 		return domain.ReviewGrant{}, err
@@ -321,7 +321,7 @@ func (s *Service) requireInternalSubmissionApproval(ctx context.Context, revisio
 			return nil
 		}
 	}
-	return domain.Policy("INTERNAL_APPROVAL_REQUIRED", "客户审批前必须完成同一 revision 的内部批准", "先完成 SubmissionRevision 内审")
+	return domain.Policy("INTERNAL_APPROVAL_REQUIRED", "客户审批前必须完成同一内容版本的内部批准", "先完成提交内容版本的内部审核")
 }
 
 func (s *Service) submissionReviewCycleID(ctx context.Context, tenantID, revisionID string) string {
@@ -429,7 +429,7 @@ func (s *Service) renderApprovedSnapshotContentItem(ctx context.Context, actor A
 		return snapshot, localworkspace.RenderedContentDelivery{}, err
 	}
 	if snapshot.SubmissionType != "content_batch" || snapshot.SubmissionRevisionID == "" {
-		return snapshot, localworkspace.RenderedContentDelivery{}, domain.Policy("SNAPSHOT_NOT_DELIVERABLE", "只有当前轨道客户批准的 content_batch ApprovedSnapshot 可生成新交付", "非当前 Snapshot 仅用于历史读取和结果归因")
+		return snapshot, localworkspace.RenderedContentDelivery{}, domain.Policy("SNAPSHOT_NOT_DELIVERABLE", "只有当前流程中经客户批准的内容批次快照才能生成新交付", "非当前快照仅用于历史读取和结果归因")
 	}
 	raw, err := approvedSnapshotObject(snapshot, contentItemID)
 	if err != nil {
@@ -444,7 +444,7 @@ func approvedSnapshotObject(snapshot domain.ApprovedSnapshot, objectID string) (
 		Objects []json.RawMessage `json:"objects"`
 	}
 	if err := json.Unmarshal(snapshot.CanonicalContent, &canonical); err != nil || len(canonical.Objects) == 0 {
-		return nil, domain.Invalid("APPROVED_SNAPSHOT_INVALID", "批准快照缺少 canonical objects")
+		return nil, domain.Invalid("APPROVED_SNAPSHOT_INVALID", "批准快照缺少规范对象列表")
 	}
 	eligible := map[string]bool{}
 	for _, id := range snapshot.EligibleIDs {
@@ -460,10 +460,10 @@ func approvedSnapshotObject(snapshot domain.ApprovedSnapshot, objectID string) (
 		}
 	}
 	if len(matches) == 0 {
-		return nil, domain.NotFound("批准快照中的 ContentItem")
+		return nil, domain.NotFound("批准快照中的内容项")
 	}
 	if len(matches) > 1 {
-		return nil, domain.Invalid("DELIVERY_CONTENT_ITEM_REQUIRED", "批准快照包含多个 ContentItem，必须明确 content_item_id")
+		return nil, domain.Invalid("DELIVERY_CONTENT_ITEM_REQUIRED", "批准快照包含多个内容项，必须明确内容项标识（content_item_id）")
 	}
 	return matches[0], nil
 }
@@ -477,7 +477,7 @@ func renderedContentFile(rendered localworkspace.RenderedContentDelivery, format
 			return file, nil
 		}
 	}
-	return localworkspace.RenderedContentFile{}, domain.Invalid("EXPORT_FORMAT_INVALID", "导出格式必须为 markdown、xlsx 或 json")
+	return localworkspace.RenderedContentFile{}, domain.Invalid("EXPORT_FORMAT_INVALID", "导出格式必须为 Markdown、XLSX 或 JSON")
 }
 
 func snapshotArtifact(snapshot domain.ApprovedSnapshot, rendered localworkspace.RenderedContentDelivery, file localworkspace.RenderedContentFile, createdBy string, now time.Time) domain.Artifact {
@@ -496,7 +496,7 @@ func (s *Service) ArtifactBytes(ctx context.Context, actor Actor, id string) (do
 		return artifact, nil, err
 	}
 	if artifact.ObjectKey == "" {
-		return artifact, nil, domain.Policy("ARTIFACT_DOWNLOAD_UNAVAILABLE", "Artifact 字节尚未托管", "重新生成批准快照的交付文件")
+		return artifact, nil, domain.Policy("ARTIFACT_DOWNLOAD_UNAVAILABLE", "成果文件尚未托管", "重新生成批准快照的交付文件")
 	}
 	data, err := s.blobs.Get(ctx, artifact.ObjectKey)
 	return artifact, data, err

@@ -34,11 +34,11 @@ func (s *Service) prepareStageOutputs(ctx context.Context, actor Actor, task dom
 			candidate.Status = domain.StageOutputStatusValidated
 		}
 		if strings.TrimSpace(candidate.ObjectID) == "" {
-			return nil, nil, domain.Invalid("TASK_STAGE_OUTPUT_INVALID", "Stage 输出缺少规范对象标识")
+			return nil, nil, domain.Invalid("TASK_STAGE_OUTPUT_INVALID", "流程阶段输出缺少规范对象标识")
 		}
 		key := candidate.OutputType + ":" + candidate.ObjectID + ":" + candidate.Role
 		if seen[key] {
-			return nil, nil, domain.Conflict("TASK_STAGE_OUTPUT_DUPLICATE", "同一 Stage 不能重复上报相同规范对象")
+			return nil, nil, domain.Conflict("TASK_STAGE_OUTPUT_DUPLICATE", "同一流程阶段不能重复上报相同规范对象")
 		}
 		seen[key] = true
 		actualDigest, actualVersion, actualStatus, err := s.resolveStageObject(ctx, task, candidate)
@@ -46,11 +46,11 @@ func (s *Service) prepareStageOutputs(ctx context.Context, actor Actor, task dom
 			return nil, nil, err
 		}
 		if candidate.ObjectDigest != "" && candidate.ObjectDigest != actualDigest {
-			return nil, nil, domain.Conflict("TASK_STAGE_OUTPUT_DIGEST_MISMATCH", "Stage 输出摘要与服务端规范对象不一致")
+			return nil, nil, domain.Conflict("TASK_STAGE_OUTPUT_DIGEST_MISMATCH", "流程阶段输出摘要与服务端规范对象不一致")
 		}
 		candidate.ObjectDigest = actualDigest
 		if candidate.ObjectVersion > 0 && actualVersion > 0 && candidate.ObjectVersion != actualVersion {
-			return nil, nil, domain.Conflict("TASK_STAGE_OUTPUT_VERSION_MISMATCH", "Stage 输出版本与服务端规范对象不一致")
+			return nil, nil, domain.Conflict("TASK_STAGE_OUTPUT_VERSION_MISMATCH", "流程阶段输出版本与服务端规范对象不一致")
 		}
 		if candidate.ObjectVersion == 0 {
 			candidate.ObjectVersion = actualVersion
@@ -68,7 +68,7 @@ func (s *Service) prepareStageOutputs(ctx context.Context, actor Actor, task dom
 func (s *Service) resolveStageObject(ctx context.Context, task domain.WorkTask, output domain.TaskStageOutput) (string, int, string, error) {
 	requireProject := func(projectID string) error {
 		if projectID != task.ProjectID {
-			return domain.Policy("TASK_STAGE_OUTPUT_PROJECT_MISMATCH", "Stage 输出不属于当前项目", "选择当前任务项目内的规范对象")
+			return domain.Policy("TASK_STAGE_OUTPUT_PROJECT_MISMATCH", "流程阶段输出不属于当前项目", "选择当前任务项目内的规范对象")
 		}
 		return nil
 	}
@@ -143,7 +143,7 @@ func (s *Service) resolveStageObject(ctx context.Context, task domain.WorkTask, 
 			return "", 0, "", taskErr
 		}
 		if taskRevision.TaskID != task.ID || taskRevision.ProjectID != task.ProjectID {
-			return "", 0, "", domain.Policy("TASK_STAGE_OUTPUT_SCOPE_INVALID", "Revision 不属于当前任务", "选择当前任务的 Revision")
+			return "", 0, "", domain.Policy("TASK_STAGE_OUTPUT_SCOPE_INVALID", "内容版本不属于当前任务", "选择当前任务的内容版本")
 		}
 		return taskRevision.ContentHash, taskRevision.RevisionNo, taskRevisionOutputStatus(taskRevision.Status), nil
 	case domain.StageOutputApprovedSnapshot, domain.StageOutputStoryboardPackage:
@@ -170,7 +170,7 @@ func (s *Service) resolveStageObject(ctx context.Context, task domain.WorkTask, 
 			return "", 0, "", err
 		}
 		if value.TaskID != task.ID || value.ProjectID != task.ProjectID {
-			return "", 0, "", domain.Policy("TASK_STAGE_OUTPUT_SCOPE_INVALID", "媒体 Job 不属于当前任务", "选择当前任务的媒体 Job")
+			return "", 0, "", domain.Policy("TASK_STAGE_OUTPUT_SCOPE_INVALID", "视频生成任务不属于当前任务", "选择当前任务的视频生成任务")
 		}
 		digest, err := mediaJobDigest(value)
 		return digest, value.RowVersion, mediaJobOutputStatus(value.State), err
@@ -190,7 +190,7 @@ func (s *Service) resolveStageObject(ctx context.Context, task domain.WorkTask, 
 			return "", 0, "", err
 		}
 		if value.ProjectID != task.ProjectID || value.ContentItemID != task.ID {
-			return "", 0, "", domain.Policy("TASK_STAGE_OUTPUT_SCOPE_INVALID", "DeliveryPackage 不属于当前任务", "选择当前任务的交付包")
+			return "", 0, "", domain.Policy("TASK_STAGE_OUTPUT_SCOPE_INVALID", "交付包不属于当前任务", "选择当前任务的交付包")
 		}
 		digest, err := deliveryPackageDigest(value)
 		status := domain.StageOutputStatusValidated
@@ -199,14 +199,14 @@ func (s *Service) resolveStageObject(ctx context.Context, task domain.WorkTask, 
 		}
 		return digest, 0, status, err
 	default:
-		return "", 0, "", domain.Invalid("TASK_STAGE_OUTPUT_TYPE_INVALID", "Stage 输出类型不受支持")
+		return "", 0, "", domain.Invalid("TASK_STAGE_OUTPUT_TYPE_INVALID", "流程阶段输出类型不受支持")
 	}
 }
 
 func validateStageOutputContract(stage domain.StageDefinition, outputs []domain.TaskStageOutput, strict bool) error {
 	if len(stage.RequiredOutputTypes) == 0 {
 		if strict && stage.CompletionPolicy != domain.StageCompletionControlOnly {
-			return domain.Policy("STAGE_OUTPUT_CONTRACT_REQUIRED", "营销视频 Stage 缺少类型化输出契约", "使用 V7 营销视频 SOP 或补齐 Stage 输出契约")
+			return domain.Policy("STAGE_OUTPUT_CONTRACT_REQUIRED", "营销视频流程阶段缺少类型化输出契约", "使用 V7 营销视频流程规范或补齐流程阶段输出契约")
 		}
 		return nil
 	}
@@ -227,11 +227,11 @@ func validateStageOutputContract(stage domain.StageDefinition, outputs []domain.
 			matchedAny = true
 		}
 		if stage.CompletionPolicy != domain.StageCompletionAtLeastOne && count < minimum {
-			return domain.Policy("STAGE_REQUIRED_OUTPUT_MISSING", "Stage 缺少满足契约的规范输出", fmt.Sprintf("补充 %s 类型、%s 角色的输出", requirement.OutputType, requirement.Role))
+			return domain.Policy("STAGE_REQUIRED_OUTPUT_MISSING", "流程阶段缺少满足契约的规范输出", fmt.Sprintf("补充 %s 类型、%s 角色的输出", requirement.OutputType, requirement.Role))
 		}
 	}
 	if stage.CompletionPolicy == domain.StageCompletionAtLeastOne && !matchedAny {
-		return domain.Policy("STAGE_REQUIRED_OUTPUT_MISSING", "Stage 至少需要一个满足契约的规范输出", "补充当前 Stage 要求的输出")
+		return domain.Policy("STAGE_REQUIRED_OUTPUT_MISSING", "流程阶段至少需要一个满足契约的规范输出", "补充当前流程阶段要求的输出")
 	}
 	return nil
 }

@@ -77,6 +77,22 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/verify", s.publicReviewVerify)
 		r.Post("/decision", s.publicReviewDecision)
 	})
+	r.Route("/api/studio", func(r chi.Router) {
+		r.Use(s.requireSession)
+		r.Get("/bootstrap", s.customerStudioBootstrap)
+		r.Post("/session/switch", s.switchTenant)
+		r.Post("/session/logout", s.logout)
+		r.Get("/tasks", s.customerStudioTasks)
+		r.Post("/tasks", s.createCustomerStudioTask)
+		r.Get("/tasks/{taskID}", s.customerStudioTask)
+		r.Post("/tasks/{taskID}/actions", s.customerStudioTaskAction)
+		r.Post("/tasks/{taskID}/inspirations", s.addCustomerStudioInspiration)
+		r.Post("/tasks/{taskID}/decisions/{decisionID}", s.decideCustomerStudioTask)
+		r.Post("/tasks/{taskID}/assets", s.attachCustomerStudioAssets)
+		r.Get("/assets", s.customerStudioAssets)
+		r.Get("/deliveries", s.customerStudioDeliveries)
+		r.Get("/artifacts/{id}/download", s.downloadArtifact)
+	})
 	r.Route("/api/bff", func(r chi.Router) {
 		r.Use(s.requireSession)
 		r.Get("/session", s.session)
@@ -92,6 +108,28 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/team/invites/{id}/revoke", s.revokeMembershipInvite)
 		r.Get("/dashboard", s.dashboard)
 		r.Get("/admin/work-os", s.adminWorkOS)
+		r.Get("/admin/runtime/jobs", s.runtimeJobs)
+		r.Get("/admin/runtime/jobs/{jobID}", s.runtimeJob)
+		r.Get("/admin/runtime/jobs/{jobID}/nodes", s.runtimeJobNodes)
+		r.Get("/admin/runtime/jobs/{jobID}/events", s.runtimeJobEvents)
+		r.Get("/admin/runtime/jobs/{jobID}/events/stream", s.runtimeJobEventsStream)
+		r.Get("/admin/runtime/jobs/{jobID}/effects", s.runtimeJobEffects)
+		r.Get("/admin/runtime/jobs/{jobID}/checkpoints", s.runtimeJobCheckpoints)
+		r.Post("/admin/runtime/jobs/{jobID}/refresh", s.refreshRuntimeJob)
+		r.Post("/admin/runtime/jobs/{jobID}/cancel", s.cancelRuntimeJob)
+		r.Post("/admin/runtime/jobs/{jobID}/resume", s.resumeRuntimeJob)
+		// Runtime is an operations-only BFF even without the /admin URL prefix;
+		// keep this stable namespace for CLI/support tooling deep links.
+		r.Get("/runtime/jobs", s.runtimeJobs)
+		r.Get("/runtime/jobs/{jobID}", s.runtimeJob)
+		r.Get("/runtime/jobs/{jobID}/nodes", s.runtimeJobNodes)
+		r.Get("/runtime/jobs/{jobID}/events", s.runtimeJobEvents)
+		r.Get("/runtime/jobs/{jobID}/events/stream", s.runtimeJobEventsStream)
+		r.Get("/runtime/jobs/{jobID}/effects", s.runtimeJobEffects)
+		r.Get("/runtime/jobs/{jobID}/checkpoints", s.runtimeJobCheckpoints)
+		r.Post("/runtime/jobs/{jobID}/refresh", s.refreshRuntimeJob)
+		r.Post("/runtime/jobs/{jobID}/cancel", s.cancelRuntimeJob)
+		r.Post("/runtime/jobs/{jobID}/resume", s.resumeRuntimeJob)
 		r.Post("/admin/environments", s.createAdminEnvironment)
 		r.Patch("/admin/environments/{id}", s.updateAdminEnvironment)
 		r.Post("/admin/sops", s.createAdminSOP)
@@ -657,7 +695,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			Bundle   domain.ConversationBundle `json:"bundle"`
 		}
 		if err := strictDecodeParams(req.Params, &in); err != nil {
-			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "ConversationBundle 参数错误"))
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "对话摘要包参数错误"))
 			return
 		}
 		if in.ImportID == "" {
@@ -673,7 +711,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		}
 		var bundle domain.SubmissionBundle
 		if err := strictDecodeParams(req.Params, &bundle); err != nil {
-			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "SubmissionBundle 参数错误"))
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "提交数据包参数错误"))
 			return
 		}
 		value, err := s.service.CreateSubmission(r.Context(), actor, binding, bundle, middleware.GetReqID(r.Context()))
@@ -696,7 +734,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			ID string `json:"id"`
 		}
 		if err := strictDecodeParams(req.Params, &in); err != nil {
-			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Submission 查询参数错误"))
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "提交记录查询参数错误"))
 			return
 		}
 		value, err := s.service.SubmissionDetails(r.Context(), actor, in.ID)
@@ -847,7 +885,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			app.FinishRunAttemptInput
 		}
 		if err := json.Unmarshal(req.Params, &in); err != nil {
-			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Attempt 完成参数错误"))
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "执行尝试完成参数错误"))
 			return
 		}
 		v, err := s.service.FinishRunAttempt(r.Context(), actor, device, in.RunID, in.AttemptID, in.RunToken, in.FinishRunAttemptInput, middleware.GetReqID(r.Context()))
@@ -960,7 +998,7 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	}
 	index := filepath.Join(s.webDist, "index.html")
 	if _, err := os.Stat(index); err != nil {
-		http.Error(w, "ContentCloud Web 尚未构建，请运行 pnpm --dir web build", http.StatusServiceUnavailable)
+		http.Error(w, "Content Work OS 工作台尚未构建，请运行 pnpm --dir web build", http.StatusServiceUnavailable)
 		return
 	}
 	http.ServeFile(w, r, index)

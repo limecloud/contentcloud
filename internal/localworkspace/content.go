@@ -517,16 +517,16 @@ func CreateContentBatch(options CreateContentBatchOptions) (CreateContentBatchRe
 		return CreateContentBatchResult{}, domain.Invalid("CREATIVE_DIRECTIONS_INVALID", err.Error())
 	}
 	if len(directions) == 0 || len(directions) > 20 {
-		return CreateContentBatchResult{}, domain.Invalid("CREATIVE_DIRECTIONS_COUNT_INVALID", "CreativeDirection 数量必须为 1 到 20")
+		return CreateContentBatchResult{}, domain.Invalid("CREATIVE_DIRECTIONS_COUNT_INVALID", "创意方向数量必须为 1 到 20")
 	}
 	selected := []CreativeDirection{}
 	seen := map[string]bool{}
 	for _, direction := range directions {
 		if direction.ID == "" || direction.Title == "" || direction.Angle == "" || direction.HookType == "" || direction.VisualMotif == "" || direction.Tone == "" || direction.TargetEmotion == "" || len(direction.Narrative) == 0 || direction.RiskRefs == nil || !validDirectionStatus(direction.Status) || !allUnique(direction.RiskRefs) {
-			return CreateContentBatchResult{}, domain.Invalid("CREATIVE_DIRECTION_INVALID", "CreativeDirection 缺少必填字段、数组或 status 无效")
+			return CreateContentBatchResult{}, domain.Invalid("CREATIVE_DIRECTION_INVALID", "创意方向缺少必填字段或数组，或 status 无效")
 		}
 		if seen[direction.ID] {
-			return CreateContentBatchResult{}, domain.Invalid("CREATIVE_DIRECTION_DUPLICATE", "CreativeDirection ID 重复："+direction.ID)
+			return CreateContentBatchResult{}, domain.Invalid("CREATIVE_DIRECTION_DUPLICATE", "创意方向 ID 重复："+direction.ID)
 		}
 		seen[direction.ID] = true
 		if direction.Status == "selected" {
@@ -534,7 +534,7 @@ func CreateContentBatch(options CreateContentBatchOptions) (CreateContentBatchRe
 		}
 	}
 	if len(selected) == 0 {
-		return CreateContentBatchResult{}, domain.Invalid("CREATIVE_DIRECTION_SELECTION_REQUIRED", "至少选择一个 CreativeDirection")
+		return CreateContentBatchResult{}, domain.Invalid("CREATIVE_DIRECTION_SELECTION_REQUIRED", "至少选择一个创意方向")
 	}
 	count := options.RequestedCount
 	if count == 0 {
@@ -552,7 +552,7 @@ func CreateContentBatch(options CreateContentBatchOptions) (CreateContentBatchRe
 		return CreateContentBatchResult{}, err
 	}
 	if query.ApprovedSnapshotID == "" {
-		return CreateContentBatchResult{}, domain.Policy("KNOWLEDGE_SNAPSHOT_REQUIRED", "创建正式剧本批次需要已拉取的 Knowledge ApprovedSnapshot", "先执行 contentcloud pull approved --type knowledge")
+		return CreateContentBatchResult{}, domain.Policy("KNOWLEDGE_SNAPSHOT_REQUIRED", "创建正式剧本批次需要已拉取的知识批准快照", "先执行 contentcloud pull approved --type knowledge")
 	}
 	status, err := LoadStatus(root)
 	if err != nil {
@@ -707,7 +707,7 @@ func FinalizeContentBatch(root, batchFile string, contentFiles []string, now tim
 		return FinalizeContentBatchResult{}, err
 	}
 	if !report.Valid {
-		err := domain.Invalid("CONTENT_BATCH_LINT_FAILED", "ContentBatch 校验失败")
+		err := domain.Invalid("CONTENT_BATCH_LINT_FAILED", "内容批次校验失败")
 		err.Details = report
 		return FinalizeContentBatchResult{}, err
 	}
@@ -841,7 +841,7 @@ func RenderContentItem(raw json.RawMessage) (RenderedContentDelivery, error) {
 		return RenderedContentDelivery{}, domain.Invalid("APPROVED_CONTENT_ITEM_INVALID", "批准快照中的 ContentItem V3 无效："+err.Error())
 	}
 	if pkg.SchemaVersion != ContentItemSchema || pkg.Type != "content_item" || pkg.Deliverability != "review_ready" {
-		return RenderedContentDelivery{}, domain.Policy("APPROVED_CONTENT_ITEM_BLOCKED", "只有 review_ready ContentItem 才能生成正式交付包", "修订并批准 ContentItem")
+		return RenderedContentDelivery{}, domain.Policy("APPROVED_CONTENT_ITEM_BLOCKED", "只有处于 review_ready 状态的内容对象才能生成正式交付包", "修订并批准内容对象")
 	}
 	jsonBody, err := json.MarshalIndent(pkg, "", "  ")
 	if err != nil {
@@ -1123,7 +1123,7 @@ func loadContentBatch(root, file, expectedID string) (ContentBatch, error) {
 	path := file
 	if strings.TrimSpace(path) == "" {
 		if expectedID == "" {
-			return ContentBatch{}, domain.Invalid("CONTENT_BATCH_FILE_REQUIRED", "必须指定 ContentBatch manifest")
+			return ContentBatch{}, domain.Invalid("CONTENT_BATCH_FILE_REQUIRED", "必须指定内容批次 manifest")
 		}
 		path = filepath.ToSlash(filepath.Join("50-production", "batches", localSafeName(expectedID), "manifest.yaml"))
 	}
@@ -1136,13 +1136,13 @@ func loadContentBatch(root, file, expectedID string) (ContentBatch, error) {
 		return ContentBatch{}, domain.Invalid("CONTENT_BATCH_INVALID", err.Error())
 	}
 	if batch.SchemaVersion != ContentBatchSchema || batch.ID == "" || batch.IntentID == "" || !domain.ValidTenantContentType(batch.ContentKind) || batch.ContentSchemaRef == "" || len(batch.DeliveryProfiles) == 0 || !allUnique(batch.DeliveryProfiles) || batch.BriefRef == "" || len(batch.KnowledgeSnapshotRefs) == 0 || batch.ContentItemRefs == nil || batch.BlockedReasons == nil || batch.Checks == nil || (expectedID != "" && batch.ID != expectedID) {
-		return ContentBatch{}, domain.Invalid("CONTENT_BATCH_INVALID", "ContentBatch manifest identity 或必填数组无效")
+		return ContentBatch{}, domain.Invalid("CONTENT_BATCH_INVALID", "内容批次 manifest 标识或必填数组无效")
 	}
 	if batch.Publishable && (batch.Status != "review_ready" && batch.Status != "approved" && batch.Status != "delivered" || len(batch.BlockedReasons) > 0) {
-		return ContentBatch{}, domain.Invalid("CONTENT_BATCH_INVALID", "publishable ContentBatch 状态或 blocked_reasons 无效")
+		return ContentBatch{}, domain.Invalid("CONTENT_BATCH_INVALID", "可发布内容批次的状态或 blocked_reasons 无效")
 	}
 	if !batch.Publishable && len(batch.BlockedReasons) == 0 {
-		return ContentBatch{}, domain.Invalid("CONTENT_BATCH_INVALID", "非 publishable ContentBatch 必须说明 blocked_reasons")
+		return ContentBatch{}, domain.Invalid("CONTENT_BATCH_INVALID", "不可发布的内容批次必须说明 blocked_reasons")
 	}
 	contextPath := filepath.Join(filepath.Dir(resolved), "context.json")
 	var frozen LocalContentContext
@@ -1150,7 +1150,7 @@ func loadContentBatch(root, file, expectedID string) (ContentBatch, error) {
 		return ContentBatch{}, domain.Invalid("CONTENT_CONTEXT_INVALID", err.Error())
 	}
 	if frozen.SchemaVersion != ContentContextSchema || frozen.Batch.ID != batch.ID || frozen.ProjectID == "" || frozen.BriefSnapshotID == "" || frozen.ContextSnapshotID == "" || frozen.RequestedCount < 1 || frozen.ContentKind != batch.ContentKind || frozen.ContentSchemaRef != batch.ContentSchemaRef || !slices.Equal(frozen.DeliveryProfiles, batch.DeliveryProfiles) {
-		return ContentBatch{}, domain.Invalid("CONTENT_CONTEXT_INVALID", "ContentBatch 冻结上下文无效")
+		return ContentBatch{}, domain.Invalid("CONTENT_CONTEXT_INVALID", "内容批次冻结上下文无效")
 	}
 	batch.ProjectID = frozen.ProjectID
 	batch.BriefSnapshotID = frozen.BriefSnapshotID

@@ -87,7 +87,7 @@ func (s *Service) CreateKnowledgeObject(ctx context.Context, actor Actor, in Cre
 	version := 1
 	if existing, err := s.store.KnowledgeObject(ctx, actor.TenantID, objectID, 0); err == nil {
 		if existing.ProjectID != in.ProjectID {
-			return domain.KnowledgeObject{}, domain.Conflict("KNOWLEDGE_OBJECT_ID_SCOPE_CONFLICT", "知识对象 ID 已被其他 Project 使用")
+			return domain.KnowledgeObject{}, domain.Conflict("KNOWLEDGE_OBJECT_ID_SCOPE_CONFLICT", "知识对象 ID 已被其他项目使用")
 		}
 		version = existing.Version + 1
 	} else if !isNotFound(err) {
@@ -137,24 +137,24 @@ func (s *Service) validateKnowledgeEvidenceRefs(ctx context.Context, tenantID, p
 	for _, rawID := range evidenceRefs {
 		evidenceID := strings.TrimSpace(rawID)
 		if evidenceID == "" {
-			return domain.Invalid("KNOWLEDGE_EVIDENCE_REF_INVALID", "知识对象的 Evidence 引用不能为空")
+			return domain.Invalid("KNOWLEDGE_EVIDENCE_REF_INVALID", "知识对象的证据引用不能为空")
 		}
 		if _, ok := seen[evidenceID]; ok {
-			return domain.Invalid("KNOWLEDGE_EVIDENCE_REF_DUPLICATE", "知识对象不能重复引用同一个 Evidence")
+			return domain.Invalid("KNOWLEDGE_EVIDENCE_REF_DUPLICATE", "知识对象不能重复引用同一条证据")
 		}
 		seen[evidenceID] = struct{}{}
 		span, err := s.store.EvidenceSpan(ctx, tenantID, evidenceID)
 		if err != nil {
 			if domain.IsNotFound(err) {
-				return domain.Policy("KNOWLEDGE_EVIDENCE_NOT_FOUND", "知识对象引用的 Evidence 不存在或无权访问", "选择当前项目内已验收的 Evidence")
+				return domain.Policy("KNOWLEDGE_EVIDENCE_NOT_FOUND", "知识对象引用的证据不存在或无权访问", "选择当前项目内已接受的证据")
 			}
 			return err
 		}
 		if span.TenantID != tenantID || span.ProjectID != projectID {
-			return domain.Policy("KNOWLEDGE_EVIDENCE_PROJECT_MISMATCH", "知识对象引用的 Evidence 不属于当前项目", "选择当前项目内已验收的 Evidence")
+			return domain.Policy("KNOWLEDGE_EVIDENCE_PROJECT_MISMATCH", "知识对象引用的证据不属于当前项目", "选择当前项目内已接受的证据")
 		}
 		if requireAccepted && span.ReviewStatus != "accepted" {
-			return domain.Policy("KNOWLEDGE_EVIDENCE_NOT_ACCEPTED", "知识对象只能引用已验收的 Evidence", "先完成 Evidence 复核，再提交知识决策")
+			return domain.Policy("KNOWLEDGE_EVIDENCE_NOT_ACCEPTED", "知识对象只能引用已接受的证据", "先完成证据复核，再提交知识决策")
 		}
 	}
 	return nil
@@ -172,11 +172,11 @@ func (s *Service) ReviewKnowledgeObject(ctx context.Context, actor Actor, object
 		return current, domain.KnowledgeDecision{}, err
 	}
 	if current.Version != in.ExpectedVersion || current.Digest != strings.TrimSpace(in.ExpectedDigest) {
-		return current, domain.KnowledgeDecision{}, domain.Conflict("KNOWLEDGE_OBJECT_VERSION_CONFLICT", "知识对象版本或 digest 已变化")
+		return current, domain.KnowledgeDecision{}, domain.Conflict("KNOWLEDGE_OBJECT_VERSION_CONFLICT", "知识对象版本或摘要已变化")
 	}
 	decisionValue := strings.TrimSpace(in.Decision)
 	if decisionValue != "approve" && decisionValue != "reject" {
-		return current, domain.KnowledgeDecision{}, domain.Invalid("KNOWLEDGE_DECISION_INVALID", "知识决策只允许 approve 或 reject")
+		return current, domain.KnowledgeDecision{}, domain.Invalid("KNOWLEDGE_DECISION_INVALID", "知识决策只允许“批准（approve）”或“拒绝（reject）”")
 	}
 	if strings.TrimSpace(in.Reason) == "" {
 		return current, domain.KnowledgeDecision{}, domain.Invalid("KNOWLEDGE_DECISION_REASON_REQUIRED", "知识决策必须填写原因")
@@ -188,7 +188,7 @@ func (s *Service) ReviewKnowledgeObject(ctx context.Context, actor Actor, object
 		return current, domain.KnowledgeDecision{}, domain.Invalid("KNOWLEDGE_OBJECT_DECISION_UNSUPPORTED", "知识缺口和冲突必须使用各自的解决命令")
 	}
 	if decisionValue == "approve" && len(current.EvidenceRefs) == 0 {
-		return current, domain.KnowledgeDecision{}, domain.Policy("KNOWLEDGE_EVIDENCE_REQUIRED", "没有 Evidence 的知识对象不能批准", "先补充可定位 Evidence")
+		return current, domain.KnowledgeDecision{}, domain.Policy("KNOWLEDGE_EVIDENCE_REQUIRED", "没有证据的知识对象不能批准", "先补充可定位的证据")
 	}
 	if decisionValue == "approve" {
 		if err := s.validateKnowledgeEvidenceRefs(ctx, current.TenantID, current.ProjectID, current.EvidenceRefs, true); err != nil {
@@ -300,7 +300,7 @@ func (s *Service) knowledgeObjectView(ctx context.Context, actor Actor, object d
 	view.AllowedActions = append(view.AllowedActions, "reject")
 	if len(object.EvidenceRefs) == 0 || s.validateKnowledgeEvidenceRefs(ctx, object.TenantID, object.ProjectID, object.EvidenceRefs, true) != nil {
 		view.GovernanceState = "evidence_required"
-		view.GovernanceMessage = "批准前需要至少一条已验收 Evidence；当前仍可拒绝或创建补料任务。"
+		view.GovernanceMessage = "批准前需要至少一条已接受的证据；当前仍可拒绝或创建补料任务。"
 		return view
 	}
 	view.AllowedActions = []string{"approve", "reject"}
@@ -370,7 +370,7 @@ func (s *Service) PublishKnowledgePack(ctx context.Context, actor Actor, packID,
 		return pack, domain.KnowledgeSnapshot{}, err
 	}
 	if pack.Status != "draft" {
-		return pack, domain.KnowledgeSnapshot{}, domain.Conflict("KNOWLEDGE_PACK_STATE_INVALID", "只有 draft 知识包可以发布")
+		return pack, domain.KnowledgeSnapshot{}, domain.Conflict("KNOWLEDGE_PACK_STATE_INVALID", "只有草稿状态（draft）的知识包可以发布")
 	}
 	objects := make([]domain.KnowledgeObject, 0, len(pack.ObjectRefs))
 	for _, ref := range pack.ObjectRefs {
@@ -379,7 +379,7 @@ func (s *Service) PublishKnowledgePack(ctx context.Context, actor Actor, packID,
 			return pack, domain.KnowledgeSnapshot{}, err
 		}
 		if object.ProjectID != pack.ProjectID {
-			return pack, domain.KnowledgeSnapshot{}, domain.Conflict("KNOWLEDGE_OBJECT_SCOPE_MISMATCH", "知识包引用了其他 Project 的对象")
+			return pack, domain.KnowledgeSnapshot{}, domain.Conflict("KNOWLEDGE_OBJECT_SCOPE_MISMATCH", "知识包引用了其他项目的对象")
 		}
 		if ref.Version > 0 && object.Version != ref.Version {
 			return pack, domain.KnowledgeSnapshot{}, domain.Conflict("KNOWLEDGE_OBJECT_VERSION_MISSING", "知识包引用的对象版本不存在")
@@ -431,7 +431,7 @@ func (s *Service) KnowledgeSnapshots(ctx context.Context, actor Actor, projectID
 
 func (s *Service) QueryKnowledge(ctx context.Context, actor Actor, in QueryKnowledgeInput) (domain.KnowledgeQueryResult, error) {
 	if strings.TrimSpace(in.SnapshotID) == "" && strings.TrimSpace(in.PackID) == "" {
-		return domain.KnowledgeQueryResult{}, domain.Invalid("KNOWLEDGE_QUERY_TARGET_REQUIRED", "查询必须指定 snapshot_id 或 pack_id")
+		return domain.KnowledgeQueryResult{}, domain.Invalid("KNOWLEDGE_QUERY_TARGET_REQUIRED", "查询必须指定知识快照（snapshot_id）或知识包（pack_id）")
 	}
 	var snapshot domain.KnowledgeSnapshot
 	var pack domain.KnowledgePack
@@ -461,7 +461,7 @@ func (s *Service) QueryKnowledge(ctx context.Context, actor Actor, in QueryKnowl
 		return domain.KnowledgeQueryResult{}, err
 	}
 	if in.ProjectID != "" && snapshot.ProjectID != in.ProjectID {
-		return domain.KnowledgeQueryResult{}, domain.Conflict("KNOWLEDGE_QUERY_SCOPE_MISMATCH", "查询 Project 与快照不一致")
+		return domain.KnowledgeQueryResult{}, domain.Conflict("KNOWLEDGE_QUERY_SCOPE_MISMATCH", "查询项目与知识快照不一致")
 	}
 	if pack.ID == "" {
 		pack, err = s.store.KnowledgePack(ctx, actor.TenantID, snapshot.PackID)

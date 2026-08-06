@@ -55,7 +55,7 @@ export function validateCodexHandoff(value: unknown, expectation: CodexHandoffEx
     throw new Error('Codex 恢复摘要无效');
   }
       if (value.plugin_id !== 'contentcloud-video-production@contentcloud' || value.plugin_version !== '0.17.0' || value.requires_new_chat !== true || value.requires_workspace_selection !== true || value.fallback_url !== '/codex' || typeof value.prompt !== 'string' || !Array.isArray(value.steps) || value.steps.some(step => typeof step !== 'string' || step.length === 0)) {
-    throw new Error('Codex 恢复门禁或 Plugin 版本无效');
+    throw new Error('Codex 恢复条件或插件版本无效');
   }
   const launch = parseCodexLaunchURL(value.launch_url, value.prompt);
   if (!launch) {

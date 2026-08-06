@@ -11,9 +11,11 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
+	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/blob"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
+	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
 	"github.com/limecloud/contentcloud/internal/store"
 )
 
@@ -27,6 +29,8 @@ type Service struct {
 	automationPolicy    map[string]environment.CapabilityRequirement
 	automationPackIDs   map[string][]string
 	daemonVersions      daemonVersionPolicy
+	runtimeService      *contentruntime.Service
+	runtimeHarnesses    *agentadapter.HarnessRegistry
 }
 
 type Actor struct {
@@ -87,6 +91,12 @@ func WithAutomationExecutionPolicy(requirements []environment.CapabilityRequirem
 	}
 }
 
+func WithRuntimeHarnessRegistry(registry *agentadapter.HarnessRegistry) Option {
+	return func(service *Service) {
+		service.runtimeHarnesses = registry
+	}
+}
+
 func New(st store.Store, logger *slog.Logger, options ...Option) *Service {
 	return NewWithBlob(st, logger, blob.NewMemory(), options...)
 }
@@ -98,12 +108,20 @@ func NewWithBlob(st store.Store, logger *slog.Logger, blobs blob.Store, options 
 	if blobs == nil {
 		blobs = blob.NewMemory()
 	}
-	service := &Service{store: st, now: time.Now, log: logger, blobs: blobs, platformAdminEmails: map[string]struct{}{}, automationPolicy: map[string]environment.CapabilityRequirement{}, automationPackIDs: map[string][]string{}}
+	service := &Service{store: st, now: time.Now, log: logger, blobs: blobs, platformAdminEmails: map[string]struct{}{}, automationPolicy: map[string]environment.CapabilityRequirement{}, automationPackIDs: map[string][]string{}, runtimeHarnesses: agentadapter.NewDefaultHarnessRegistry()}
 	for _, option := range options {
 		option(service)
 	}
+	if runtimeRepo, ok := st.(contentruntime.Repository); ok {
+		service.runtimeService = contentruntime.NewWithHarnessRegistry(runtimeRepo, service.now, service.runtimeHarnesses)
+	}
 	return service
 }
+
+// Runtime exposes the platform-owned execution service to the Runtime BFF and
+// to customer task adapters. Business facts still belong to their owning app
+// services; this method only exposes execution metadata and commands.
+func (s *Service) Runtime() *contentruntime.Service { return s.runtimeService }
 
 // newRegistration 校验注册凭据并构造用户记录，不写入存储。
 func newRegistration(email, password, displayName string, now time.Time) (domain.User, error) {
@@ -458,7 +476,7 @@ func (s *Service) HeartbeatRun(ctx context.Context, actor Actor, device domain.D
 		return run, domain.Conflict("HEARTBEAT_SEQUENCE_INVALID", "心跳序号必须单调递增")
 	}
 	if strings.TrimSpace(heartbeat.Phase) == "" || strings.TrimSpace(heartbeat.Label) == "" || heartbeat.Step < 0 {
-		return run, domain.Invalid("HEARTBEAT_PROGRESS_INVALID", "心跳必须包含 phase、非负 step 和可展示 label")
+		return run, domain.Invalid("HEARTBEAT_PROGRESS_INVALID", "心跳必须包含流程阶段（phase）、非负步骤序号（step）和可展示文案（label）")
 	}
 	run.HeartbeatSequence = heartbeat.Sequence
 	run.State = "running"

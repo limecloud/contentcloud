@@ -76,7 +76,7 @@ func (r *Root) localDaemonService() (userDaemonService, error) {
 
 func newUserDaemonService() (userDaemonService, error) {
 	if runtime.GOOS != "darwin" {
-		return nil, domain.Policy("DAEMON_PLATFORM_UNSUPPORTED", "当前平台尚不支持 ContentCloud 用户级常驻服务", "在 macOS 上使用 LaunchAgent，其他平台暂时使用 daemon run 前台模式")
+		return nil, domain.Policy("DAEMON_PLATFORM_UNSUPPORTED", "当前平台尚不支持 Content Work OS 用户级常驻服务", "在 macOS 上使用 LaunchAgent，其他平台暂时使用 daemon run 前台模式")
 	}
 	executable, err := os.Executable()
 	if err != nil {
@@ -132,14 +132,14 @@ func (s *launchdDaemonService) start(force bool) (userDaemonState, error) {
 	domainName := fmt.Sprintf("gui/%d", s.uid)
 	_, _ = s.run("launchctl", "bootout", domainName+"/"+userDaemonLabel)
 	if output, runErr := s.run("launchctl", "bootstrap", domainName, s.plistPath()); runErr != nil {
-		return state, fmt.Errorf("launchctl bootstrap: %w: %s", runErr, strings.TrimSpace(string(output)))
+		return state, fmt.Errorf("执行 launchctl bootstrap 失败：%w：%s", runErr, strings.TrimSpace(string(output)))
 	}
 	if output, runErr := s.run("launchctl", "kickstart", "-k", domainName+"/"+userDaemonLabel); runErr != nil {
-		return state, fmt.Errorf("launchctl kickstart: %w: %s", runErr, strings.TrimSpace(string(output)))
+		return state, fmt.Errorf("执行 launchctl kickstart 失败：%w：%s", runErr, strings.TrimSpace(string(output)))
 	}
 	state, err = s.Status()
 	if err == nil && !state.Running {
-		return state, domain.Conflict("DAEMON_START_INCOMPLETE", "ContentCloud Daemon 已注册但未进入运行状态")
+		return state, domain.Conflict("DAEMON_START_INCOMPLETE", "Content Work OS 后台服务已注册，但尚未进入运行状态")
 	}
 	return state, err
 }
@@ -151,7 +151,7 @@ func (s *launchdDaemonService) Stop() (userDaemonState, error) {
 		if statusErr == nil && !state.Running {
 			return state, nil
 		}
-		return state, fmt.Errorf("launchctl bootout: %w: %s", err, strings.TrimSpace(string(output)))
+		return state, fmt.Errorf("执行 launchctl bootout 失败：%w：%s", err, strings.TrimSpace(string(output)))
 	}
 	return s.Status()
 }

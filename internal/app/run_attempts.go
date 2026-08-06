@@ -47,14 +47,14 @@ func (s *Service) activeRunAttempt(ctx context.Context, actor Actor, device doma
 		attemptID = run.ActiveAttemptID
 	}
 	if run.ActiveAttemptID == "" || attemptID != run.ActiveAttemptID || run.LeaseDeviceID != device.ID || (run.State != "leased" && run.State != "running") {
-		return domain.RunAttempt{}, domain.Conflict("RUN_ATTEMPT_STALE", "Attempt 已失效或不再是任务的活动租约")
+		return domain.RunAttempt{}, domain.Conflict("RUN_ATTEMPT_STALE", "运行尝试已失效或不再是任务的活动租约")
 	}
 	attempt, err := s.store.RunAttempt(ctx, actor.TenantID, attemptID)
 	if err != nil {
 		return attempt, err
 	}
 	if attempt.RunID != run.ID || attempt.DeviceID != device.ID || (attempt.State != "leased" && attempt.State != "running") {
-		return attempt, domain.Conflict("RUN_ATTEMPT_STALE", "Attempt 已失效或不属于当前设备")
+		return attempt, domain.Conflict("RUN_ATTEMPT_STALE", "运行尝试已失效或不属于当前设备")
 	}
 	if attempt.TokenHash == "" || subtle.ConstantTimeCompare([]byte(attempt.TokenHash), []byte(domain.TokenHash(runToken))) != 1 {
 		return attempt, domain.E("authentication", "run_token", "RUN_TOKEN_INVALID", "运行凭据无效", 3)
@@ -77,7 +77,7 @@ func (s *Service) FinishRunAttempt(ctx context.Context, actor Actor, device doma
 	switch input.Outcome {
 	case "failed":
 		if strings.TrimSpace(input.FailureClass) == "" {
-			return run, domain.Invalid("FAILURE_CLASS_REQUIRED", "失败 Attempt 必须提供 failure_class")
+			return run, domain.Invalid("FAILURE_CLASS_REQUIRED", "失败的运行尝试必须提供失败类型（failure_class）")
 		}
 		return s.failRunAttempt(ctx, run, attempt, input.FailureClass, input.ExitCode, input.Usage, input.TranscriptSummary)
 	case "canceled":
@@ -107,7 +107,7 @@ func (s *Service) FinishRunAttempt(ctx context.Context, actor Actor, device doma
 		s.audit(ctx, actor, run.ProjectID, "run.attempt_canceled", "run_attempt", attempt.ID, requestID, map[string]any{"run_id": run.ID})
 		return run, nil
 	default:
-		return run, domain.Invalid("ATTEMPT_OUTCOME_INVALID", "Attempt outcome 只允许 failed 或 canceled")
+		return run, domain.Invalid("ATTEMPT_OUTCOME_INVALID", "运行结果只允许“失败（failed）”或“已取消（canceled）”")
 	}
 }
 

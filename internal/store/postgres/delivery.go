@@ -29,7 +29,7 @@ func (s *Store) CreateDeliveryPackage(ctx context.Context, value domain.Delivery
 			} else if err != nil {
 				return err
 			} else if existingTenantID != artifact.TenantID || existingProjectID != artifact.ProjectID || existingSnapshotID != artifact.ApprovedSnapshotID || existingSHA256 != artifact.SHA256 {
-				return domain.Conflict("ARTIFACT_IDENTITY_MISMATCH", "交付 Artifact 与已存对象不一致")
+				return domain.Conflict("ARTIFACT_IDENTITY_MISMATCH", "交付成果文件与已保存对象不一致")
 			}
 			if _, err := tx.Exec(ctx, `INSERT INTO delivery_package_artifacts(tenant_id,delivery_package_id,artifact_id,position) VALUES($1,$2,$3,$4)`, value.TenantID, value.ID, artifact.ID, position); err != nil {
 				return dbError(err)
@@ -72,7 +72,7 @@ func (s *Store) DeliveryPackage(ctx context.Context, tenantID, id string) (domai
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `SELECT id,tenant_id,project_id,content_item_id,status,created_by,created_at FROM delivery_packages WHERE tenant_id=$1 AND id=$2`, tenantID, id).Scan(&value.ID, &value.TenantID, &value.ProjectID, &value.ContentItemID, &value.Status, &value.CreatedBy, &value.CreatedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("DeliveryPackage")
+			return domain.NotFound("交付包")
 		}
 		if err != nil {
 			return err

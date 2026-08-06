@@ -230,7 +230,7 @@ func (a *Adapter) Validate(ctx context.Context) (State, error) {
 		return State{}, err
 	}
 	if state.Status != "current" {
-		err := domain.Conflict("CODEX_PLUGIN_VALIDATION_FAILED", "Codex Marketplace 或 ContentCloud Plugin 未达到固定版本")
+		err := domain.Conflict("CODEX_PLUGIN_VALIDATION_FAILED", "Codex 插件市场或 Content Work OS 插件未达到固定版本")
 		err.Details = state
 		return state, err
 	}
@@ -239,19 +239,19 @@ func (a *Adapter) Validate(ctx context.Context) (State, error) {
 
 func (a *Adapter) Apply(ctx context.Context, approved Plan, confirmed bool) (result ApplyResult, returnErr error) {
 	if approved.SchemaVersion != PlanSchemaVersion || !reflect.DeepEqual(approved.Spec, a.Spec) {
-		return result, domain.Invalid("CODEX_PLUGIN_PLAN_INVALID", "安装计划与当前 ContentCloud Codex Plugin 规格不一致")
+		return result, domain.Invalid("CODEX_PLUGIN_PLAN_INVALID", "安装计划与当前 Content Work OS Codex 插件固定规格不一致")
 	}
 	fresh, err := a.Plan(ctx)
 	if err != nil {
 		return result, err
 	}
 	if !reflect.DeepEqual(approved, fresh) {
-		err := domain.Conflict("CODEX_PLUGIN_PLAN_STALE", "Codex Plugin 状态在确认后发生变化，请重新生成安装计划")
+		err := domain.Conflict("CODEX_PLUGIN_PLAN_STALE", "Codex 插件状态在确认后发生变化，请重新生成安装计划")
 		err.Details = map[string]any{"approved": approved, "current": fresh}
 		return result, err
 	}
 	if fresh.State == "blocked" {
-		err := domain.Conflict("CODEX_PLUGIN_INSTALL_BLOCKED", "现有 Codex Marketplace 或 Plugin 与固定规格冲突")
+		err := domain.Conflict("CODEX_PLUGIN_INSTALL_BLOCKED", "现有 Codex 插件市场或插件与固定规格冲突")
 		err.Details = fresh.BlockingReasons
 		return result, err
 	}
@@ -260,7 +260,7 @@ func (a *Adapter) Apply(ctx context.Context, approved Plan, confirmed bool) (res
 		return ApplyResult{Applied: false, Idempotent: true, State: state}, validateErr
 	}
 	if !confirmed {
-		err := domain.Policy("CODEX_PLUGIN_INSTALL_CONFIRMATION_REQUIRED", "安装将修改当前用户的 Codex Marketplace 和 Plugin 状态", "检查 bootstrap plan 后传入明确确认参数")
+		err := domain.Policy("CODEX_PLUGIN_INSTALL_CONFIRMATION_REQUIRED", "安装将修改当前用户的 Codex 插件市场和插件状态", "检查初始化计划（bootstrap plan）后传入明确确认参数")
 		err.ExitCode = 2
 		return result, err
 	}
@@ -347,7 +347,7 @@ func (a *Adapter) Rollback(ctx context.Context, receipt Receipt) []string {
 	}
 	if receipt.PluginRemoved && receipt.PreviousPluginVersion != "" {
 		if !marketplaceRestored {
-			errorsFound = append(errorsFound, "cannot restore the previous Plugin without its Marketplace source and ref")
+			errorsFound = append(errorsFound, "缺少插件市场来源和版本引用，无法恢复先前插件")
 		} else if err := a.runMutation(ctx, "plugin.add", "plugin", "add", a.Spec.PluginID, "--json"); err != nil {
 			errorsFound = append(errorsFound, err.Error())
 		}
@@ -396,7 +396,7 @@ func NewChatDeepLink(spec Spec, workspace, prompt string) (string, error) {
 		return "", err
 	}
 	if prompt != RecoveryPrompt(spec) {
-		return "", domain.Invalid("CODEX_PLUGIN_RECOVERY_PROMPT_INVALID", "新 Codex 对话必须使用固定 Plugin mention 和恢复 Prompt")
+		return "", domain.Invalid("CODEX_PLUGIN_RECOVERY_PROMPT_INVALID", "新 Codex 对话必须使用固定的插件引用和恢复提示词")
 	}
 	absolute, err := filepath.Abs(workspace)
 	if err != nil {
@@ -446,7 +446,7 @@ func (a *Adapter) marketplaces(ctx context.Context) ([]marketplaceListItem, erro
 		return nil, err
 	}
 	if response.Marketplaces == nil {
-		return nil, domain.Invalid("CODEX_MARKETPLACE_LIST_INVALID", "Codex marketplace list JSON 缺少 marketplaces")
+		return nil, domain.Invalid("CODEX_MARKETPLACE_LIST_INVALID", "Codex 插件市场列表 JSON 缺少 marketplaces 字段")
 	}
 	return response.Marketplaces, nil
 }
@@ -457,7 +457,7 @@ func (a *Adapter) plugins(ctx context.Context) ([]pluginListItem, error) {
 		return nil, err
 	}
 	if response.Installed == nil || response.Available == nil {
-		return nil, domain.Invalid("CODEX_PLUGIN_LIST_INVALID", "Codex plugin list JSON 缺少 installed 或 available")
+		return nil, domain.Invalid("CODEX_PLUGIN_LIST_INVALID", "Codex 插件列表 JSON 缺少 installed 或 available 字段")
 	}
 	return response.Installed, nil
 }
@@ -473,7 +473,7 @@ func (a *Adapter) addMarketplace(ctx context.Context, action Action) (string, bo
 	}
 	added := !response.AlreadyAdded
 	if response.MarketplaceName != a.Spec.MarketplaceName || strings.TrimSpace(response.InstalledRoot) == "" {
-		return response.MarketplaceName, added, domain.Conflict("CODEX_MARKETPLACE_ADD_MISMATCH", "Codex 返回的 Marketplace 安装结果与固定规格不一致")
+		return response.MarketplaceName, added, domain.Conflict("CODEX_MARKETPLACE_ADD_MISMATCH", "Codex 返回的插件市场安装结果与固定规格不一致")
 	}
 	return response.MarketplaceName, added, nil
 }
@@ -494,7 +494,7 @@ func (a *Adapter) addPlugin(ctx context.Context, action Action) (string, bool, e
 		pluginID = a.Spec.PluginID
 	}
 	if response.PluginID != a.Spec.PluginID || response.Name != a.Spec.PluginName || response.MarketplaceName != a.Spec.MarketplaceName || response.Version != a.Spec.PluginVersion || strings.TrimSpace(response.InstalledPath) == "" {
-		return pluginID, true, domain.Conflict("CODEX_PLUGIN_ADD_MISMATCH", "Codex 返回的 Plugin 安装结果与固定规格不一致")
+		return pluginID, true, domain.Conflict("CODEX_PLUGIN_ADD_MISMATCH", "Codex 返回的插件安装结果与固定规格不一致")
 	}
 	return pluginID, true, nil
 }
@@ -536,14 +536,14 @@ func planForState(spec Spec, detected State) Plan {
 	}
 	if detected.Marketplace.Status == "current" && detected.Plugin.Status == "outdated" {
 		plan.State = "blocked"
-		plan.BlockingReasons = append(plan.BlockingReasons, "ContentCloud Plugin 与已固定的 Marketplace 版本不一致，无法保证失败时恢复旧 Plugin")
+		plan.BlockingReasons = append(plan.BlockingReasons, "Content Work OS 插件与已固定的插件市场版本不一致，无法保证失败时恢复旧插件")
 		return plan
 	}
 	if detected.Marketplace.Status == "outdated" {
 		if detected.Plugin.Status != "absent" {
-			plan.Actions = append(plan.Actions, Action{Kind: "plugin.remove", Command: spec.CodexBinary, Arguments: []string{"plugin", "remove", spec.PluginID, "--json"}, Description: "Remove the previous ContentCloud Plugin before replacing its Marketplace"})
+			plan.Actions = append(plan.Actions, Action{Kind: "plugin.remove", Command: spec.CodexBinary, Arguments: []string{"plugin", "remove", spec.PluginID, "--json"}, Description: "更换插件市场前，移除已有的 Content Work OS 插件"})
 		}
-		plan.Actions = append(plan.Actions, Action{Kind: "marketplace.remove", Command: spec.CodexBinary, Arguments: []string{"plugin", "marketplace", "remove", spec.MarketplaceName, "--json"}, Description: "Remove the previous ContentCloud Marketplace before pinning the requested ref"})
+		plan.Actions = append(plan.Actions, Action{Kind: "marketplace.remove", Command: spec.CodexBinary, Arguments: []string{"plugin", "marketplace", "remove", spec.MarketplaceName, "--json"}, Description: "固定到指定版本前，移除已有的 Content Work OS 插件市场"})
 		plan.Actions = append(plan.Actions, marketplaceAddAction(spec, spec.MarketplaceSource, spec.MarketplaceRef))
 	}
 	if detected.Marketplace.Status == "absent" {
@@ -551,9 +551,9 @@ func planForState(spec Spec, detected State) Plan {
 	}
 	if detected.Plugin.Status == "absent" || detected.Plugin.Status == "outdated" || detected.Marketplace.Status == "outdated" {
 		if detected.Plugin.Status == "outdated" && detected.Marketplace.Status != "outdated" {
-			plan.Actions = append(plan.Actions, Action{Kind: "plugin.remove", Command: spec.CodexBinary, Arguments: []string{"plugin", "remove", spec.PluginID, "--json"}, Description: "Remove the previous ContentCloud Plugin before installing the requested version"})
+			plan.Actions = append(plan.Actions, Action{Kind: "plugin.remove", Command: spec.CodexBinary, Arguments: []string{"plugin", "remove", spec.PluginID, "--json"}, Description: "安装指定版本前，移除已有的 Content Work OS 插件"})
 		}
-		plan.Actions = append(plan.Actions, Action{Kind: "plugin.add", Command: spec.CodexBinary, Arguments: []string{"plugin", "add", spec.PluginID, "--json"}, Description: "Install the pinned ContentCloud video-production plugin"})
+		plan.Actions = append(plan.Actions, Action{Kind: "plugin.add", Command: spec.CodexBinary, Arguments: []string{"plugin", "add", spec.PluginID, "--json"}, Description: "安装固定版本的 Content Work OS 视频生产插件"})
 	}
 	if len(plan.Actions) == 0 {
 		plan.State = "noop"
@@ -576,10 +576,10 @@ func detectMarketplace(ctx context.Context, spec Spec, items []marketplaceListIt
 			expectedSourceType = "local"
 		}
 		if item.MarketplaceSource.SourceType != expectedSourceType {
-			return ComponentState{Status: "broken", Current: current, Wanted: wanted, Reason: "ContentCloud Marketplace 来源类型与固定规格不一致"}
+			return ComponentState{Status: "broken", Current: current, Wanted: wanted, Reason: "Content Work OS 插件市场来源类型与固定规格不一致"}
 		}
 		if !sameSource(spec.MarketplaceSource, item.MarketplaceSource.Source) {
-			return ComponentState{Status: "broken", Current: current, Wanted: wanted, Source: item.MarketplaceSource.Source, Reason: "同名 ContentCloud Marketplace 指向了非受管来源"}
+			return ComponentState{Status: "broken", Current: current, Wanted: wanted, Source: item.MarketplaceSource.Source, Reason: "同名 Content Work OS 插件市场指向了非受管来源"}
 		}
 		currentRef := item.MarketplaceSource.Ref
 		if currentRef == "" {
@@ -591,13 +591,13 @@ func detectMarketplace(ctx context.Context, spec Spec, items []marketplaceListIt
 		}
 		if spec.MarketplaceRef != "" {
 			if !inspection.Matches {
-				return ComponentState{Status: "outdated", Current: current, Wanted: wanted, Source: item.MarketplaceSource.Source, Ref: inspection.Ref, Reason: "ContentCloud Marketplace Git ref 与固定版本不一致"}
+				return ComponentState{Status: "outdated", Current: current, Wanted: wanted, Source: item.MarketplaceSource.Source, Ref: inspection.Ref, Reason: "Content Work OS 插件市场的 Git 引用（ref）与固定版本不一致"}
 			}
 			currentRef = spec.MarketplaceRef
 		}
 		return ComponentState{Status: "current", Current: marketplaceSourceIdentity(marketplaceSource{Source: item.MarketplaceSource.Source, Ref: currentRef}), Wanted: wanted, Source: item.MarketplaceSource.Source, Ref: currentRef}
 	}
-	return ComponentState{Status: "absent", Wanted: wanted, Reason: "ContentCloud Marketplace 尚未安装"}
+	return ComponentState{Status: "absent", Wanted: wanted, Reason: "尚未安装 Content Work OS 插件市场"}
 }
 
 func detectPlugin(spec Spec, items []pluginListItem) ComponentState {
@@ -608,14 +608,14 @@ func detectPlugin(spec Spec, items []pluginListItem) ComponentState {
 		}
 		current := item.PluginID + "@" + item.Version
 		if item.Name != spec.PluginName || item.MarketplaceName != spec.MarketplaceName || !item.Installed || !item.Enabled {
-			return ComponentState{Status: "broken", Current: current, Wanted: wanted, Version: item.Version, Reason: "ContentCloud Plugin 已存在，但身份、安装或启用状态无效"}
+			return ComponentState{Status: "broken", Current: current, Wanted: wanted, Version: item.Version, Reason: "Content Work OS 插件已存在，但身份、安装或启用状态无效"}
 		}
 		if item.Version != spec.PluginVersion {
-			return ComponentState{Status: "outdated", Current: current, Wanted: wanted, Version: item.Version, Reason: "ContentCloud Plugin 版本与固定版本不一致"}
+			return ComponentState{Status: "outdated", Current: current, Wanted: wanted, Version: item.Version, Reason: "Content Work OS 插件版本与固定版本不一致"}
 		}
 		return ComponentState{Status: "current", Current: current, Wanted: wanted, Version: item.Version}
 	}
-	return ComponentState{Status: "absent", Wanted: wanted, Reason: "ContentCloud Plugin 尚未安装"}
+	return ComponentState{Status: "absent", Wanted: wanted, Reason: "尚未安装 Content Work OS 插件"}
 }
 
 func marketplaceAddAction(spec Spec, source, ref string) Action {
@@ -624,7 +624,7 @@ func marketplaceAddAction(spec Spec, source, ref string) Action {
 		arguments = append(arguments, "--ref", ref)
 	}
 	arguments = append(arguments, "--json")
-	return Action{Kind: "marketplace.add", Command: spec.CodexBinary, Arguments: arguments, Description: "Add the pinned ContentCloud Codex marketplace"}
+	return Action{Kind: "marketplace.add", Command: spec.CodexBinary, Arguments: arguments, Description: "添加固定版本的 Content Work OS Codex 插件市场"}
 }
 
 func combinedStatus(values ...string) string {
@@ -646,13 +646,13 @@ func combinedStatus(values ...string) string {
 
 func validateSpec(spec Spec) error {
 	if strings.TrimSpace(spec.CodexBinary) == "" || strings.TrimSpace(spec.MarketplaceName) == "" || strings.TrimSpace(spec.MarketplaceSource) == "" || strings.TrimSpace(spec.PluginName) == "" || strings.TrimSpace(spec.PluginID) == "" || strings.TrimSpace(spec.PluginVersion) == "" {
-		return domain.Invalid("CODEX_PLUGIN_SPEC_INVALID", "Codex Plugin 固定规格字段不完整")
+		return domain.Invalid("CODEX_PLUGIN_SPEC_INVALID", "Codex 插件固定规格字段不完整")
 	}
 	if spec.PluginID != spec.PluginName+"@"+spec.MarketplaceName {
-		return domain.Invalid("CODEX_PLUGIN_SPEC_INVALID", "plugin_id 必须由固定 plugin 和 Marketplace 名称组成")
+		return domain.Invalid("CODEX_PLUGIN_SPEC_INVALID", "plugin_id 必须由固定的插件和插件市场名称组成")
 	}
 	if !filepath.IsAbs(spec.MarketplaceSource) && strings.TrimSpace(spec.MarketplaceRef) == "" {
-		return domain.Invalid("CODEX_PLUGIN_SPEC_INVALID", "远程 Marketplace 必须固定 Git ref")
+		return domain.Invalid("CODEX_PLUGIN_SPEC_INVALID", "远程插件市场必须固定 Git 引用（ref）")
 	}
 	return nil
 }
@@ -700,7 +700,7 @@ func canonicalSource(value string) string {
 }
 
 func commandDomainError(operation string, result CommandResult, err error) *domain.Error {
-	domainErr := domain.E("runtime", "codex", "CODEX_COMMAND_FAILED", "Codex Plugin 命令执行失败", 5)
+	domainErr := domain.E("runtime", "codex", "CODEX_COMMAND_FAILED", "Codex 插件命令执行失败", 5)
 	domainErr.Retryable = true
 	domainErr.Details = map[string]any{"operation": operation, "exit_code": result.ExitCode, "stderr": strings.TrimSpace(string(result.Stderr)), "cause": errorString(err)}
 	return domainErr
@@ -710,7 +710,7 @@ func commandFailure(operation string, result CommandResult, err error) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", operation, err)
 	}
-	return fmt.Errorf("%s exited with %d: %s", operation, result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+	return fmt.Errorf("%s 执行结束，退出码为 %d：%s", operation, result.ExitCode, strings.TrimSpace(string(result.Stderr)))
 }
 
 func errorString(err error) string {

@@ -41,6 +41,7 @@ import type {
   WorkTaskView
 } from '../types';
 import { normalizeWorkTaskView } from './workOSData';
+import { artifactKindLabel, deliveryDestinationLabel, gateModeLabel, mediaModelLabel, mediaProviderLabel, mediaRequestIDLabel, outputRoleLabel, rendererLabel, stageLabel, statusLabel as commonStatusLabel, storyboardAssetRoleLabel, workflowCheckLabel } from '../uiLabels';
 
 type ProductionTab = 'content' | 'storyboard' | 'generation' | 'review' | 'delivery';
 
@@ -52,13 +53,10 @@ const productionTabs: {id: ProductionTab; label: string; icon: typeof FileCheck2
   {id: 'delivery', label: '交付', icon: PackageCheck}
 ];
 
-const statusLabels: Record<string, string> = {
-  needs_input: '待补输入', ready: '可开始', running: '运行中', paused: '已暂停', waiting_gate: '待决定', blocked: '已阻断', accepted: '已接受', delivered: '已交付', cancelled: '已取消',
-  pending: '待处理', approved: '已批准', validated: '已核验', candidate: '候选', changes_requested: '需修改', rejected: '已拒绝', completed: '已完成', succeeded: '已生成', queued: '排队中', submitting: '提交中', submitted: '已提交', generating: '生成中', downloading: '下载中', validating: '校验中', awaiting_cost_approval: '待确认费用', failed: '失败', cancelled_job: '已取消', ready_package: '可交付', complete: '完整', legacy_incomplete: '历史不完整'
-};
-
 const outputLabels: Record<string, string> = {
-  source_revision: '来源 Revision ID', knowledge_snapshot: '知识快照 ID', submission_revision: '剧本 Revision ID', storyboard_package: 'Storyboard ApprovedSnapshot ID', artifact: 'Artifact ID', generation_job: 'Media Job ID', media_review: 'Media Review ID', delivery_package: 'DeliveryPackage ID'
+  source_revision: '来源版本 ID', knowledge_snapshot: '知识快照 ID', submission_revision: '剧本版本 ID',
+  storyboard_package: '已批准分镜快照 ID', artifact: '成果文件 ID', generation_job: '视频生成任务 ID',
+  media_review: '媒体审核记录 ID', delivery_package: '交付包 ID'
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -171,7 +169,7 @@ export function TaskProductionPage({projectID: explicitProjectID}: {projectID?: 
     }
   };
 
-  if (loading) return <div className="workos-page"><div className="workos-loading"><LoaderCircle className="is-spinning" size={17}/>正在读取生产任务...</div></div>;
+  if (loading) return <div className="workos-page"><div className="workos-loading"><LoaderCircle className="is-spinning" size={17}/>正在读取生产任务…</div></div>;
   if (error || !view) return <div className="workos-page"><Empty title="任务不可用" detail={error || '任务不存在或已被移除。'} action={<Button onClick={() => navigate(projectID ? `/projects/${projectID}/tasks` : '/workspace/tasks')}><ArrowLeft size={15}/>返回任务列表</Button>}/></div>;
 
   const task = view.task;
@@ -188,10 +186,10 @@ export function TaskProductionPage({projectID: explicitProjectID}: {projectID?: 
 
   const taskAction = (action: string) => runOperation(`task-${action}`, async () => {
     updateView(await post<WorkTaskView>(`/api/bff/tasks/${encodeURIComponent(task.id)}/actions`, {action}));
-  }, action === 'start' ? '当前 Stage 已开始。' : '任务状态已更新。');
+  }, action === 'start' ? '当前流程阶段已开始。' : '任务状态已更新。');
 
   const reportStage = async (outputs: Partial<TaskStageOutput>[], checks?: Record<string, boolean>) => {
-    if (!activeRun || !currentStage) throw new Error('当前 StageRun 不可用。');
+    if (!activeRun || !currentStage) throw new Error('当前流程阶段的执行记录不可用。');
     const value = await post<WorkTaskView>(`/api/bff/tasks/${encodeURIComponent(task.id)}/stages/${encodeURIComponent(activeRun.stage_id)}/report`, {
       stage_run_id: activeRun.id,
       stage_id: activeRun.stage_id,
@@ -203,15 +201,15 @@ export function TaskProductionPage({projectID: explicitProjectID}: {projectID?: 
   };
 
   const reportGenericStage = () => runOperation('report-stage', async () => {
-    if (!currentStage) throw new Error('当前 Stage 不可用。');
+    if (!currentStage) throw new Error('当前流程阶段不可用。');
     const outputs = currentStage.required_output_types.flatMap((requirement, index) => {
       const objectID = (outputIDs[`${requirement.output_type}:${index}`] || '').trim();
       return objectID ? [{output_type: requirement.output_type, object_id: objectID, role: requirement.role || 'primary'}] : [];
     });
-    if (outputs.length < currentStage.required_output_types.length) throw new Error('请填写当前 Stage 要求的全部规范对象 ID。');
+    if (outputs.length < currentStage.required_output_types.length) throw new Error('请填写当前流程阶段要求的全部对象 ID。');
     await reportStage(outputs);
     setOutputIDs({});
-  }, 'Stage 规范输出已由服务端核验并记录。');
+  }, '本阶段输出已核验并记录。');
 
   const saveScript = () => runOperation('save-script', async () => {
     let content: unknown;
@@ -226,7 +224,7 @@ export function TaskProductionPage({projectID: explicitProjectID}: {projectID?: 
     });
     await reportStage([{output_type: 'submission_revision', object_id: revision.id, object_version: revision.revision_no, role: 'primary'}]);
     await reload();
-  }, '剧本 Revision 已保存并进入审核。');
+  }, '剧本版本已保存并进入审核。');
 
   const uploadStoryboardAsset = (asset: StoryboardAsset, file?: File) => runOperation(`upload-${asset.id}`, async () => {
     if (!file || !storyboardSnapshot) throw new Error('请选择与锁定分镜一致的素材文件。');
@@ -250,7 +248,7 @@ export function TaskProductionPage({projectID: explicitProjectID}: {projectID?: 
       duration_seconds: 15
     });
     await reload();
-  }, '视频 Job 已创建，Worker 将异步处理。');
+  }, '视频生成任务已创建，系统将在后台处理。');
 
   const approveCost = (job: MediaGenerationJob) => runOperation(`cost-${job.id}`, async () => {
     await post(`/api/bff/media-jobs/${encodeURIComponent(job.id)}/approve-cost`, {expected_version: job.row_version});
@@ -260,7 +258,7 @@ export function TaskProductionPage({projectID: explicitProjectID}: {projectID?: 
   const cancelJob = (job: MediaGenerationJob) => runOperation(`cancel-${job.id}`, async () => {
     await post(`/api/bff/media-jobs/${encodeURIComponent(job.id)}/cancel`, {expected_version: job.row_version});
     await reload();
-  }, '视频 Job 已取消。');
+  }, '视频生成任务已取消。');
 
   const finishGeneration = (job: MediaGenerationJob, artifact: Artifact) => runOperation('finish-generation', async () => {
     await reportStage([
@@ -282,10 +280,10 @@ export function TaskProductionPage({projectID: explicitProjectID}: {projectID?: 
 
   const finishTakeReview = (review: MediaReview) => runOperation('finish-take-review', async () => {
     await reportStage([{output_type: 'media_review', object_id: review.id, object_version: review.row_version, role: 'selected_take'}]);
-  }, '选中 Take 已固定，进入 Gate。');
+  }, '选中的候选成片已固定，进入审核环节。');
 
   const createFinalRender = () => runOperation('create-final-render', async () => {
-    if (!activeRun || !selectedReview) throw new Error('没有已批准并选中的 Take。');
+    if (!activeRun || !selectedReview) throw new Error('没有已批准并选中的候选成片。');
     await post(`/api/bff/tasks/${encodeURIComponent(task.id)}/final-render`, {stage_run_id: activeRun.id, selected_review_id: selectedReview.id});
     await reload();
   }, '独立最终成片已生成，等待最终批准。');
@@ -295,29 +293,29 @@ export function TaskProductionPage({projectID: explicitProjectID}: {projectID?: 
       {output_type: 'artifact', object_id: artifact.id, role: 'final'},
       {output_type: 'media_review', object_id: review.id, object_version: review.row_version, role: 'final'}
     ]);
-  }, '最终成片已固定，进入 Gate。');
+  }, '最终成片已固定，进入审核环节。');
 
   const buildDeliveryPackage = () => runOperation('build-package', async () => {
     if (!finalReview || finalReview.status !== 'approved') throw new Error('最终成片尚未批准。');
     await post(`/api/bff/tasks/${encodeURIComponent(task.id)}/delivery-package`, {final_review_id: finalReview.id});
     await reload();
-  }, 'DeliveryPackage 已由服务端构建。');
+  }, '交付包已构建。');
 
   const finishDeliveryStage = (pkg: DeliveryPackage) => runOperation('finish-delivery-stage', async () => {
     await reportStage([{output_type: 'delivery_package', object_id: pkg.id, role: 'final'}]);
-  }, '交付包 Stage 已完成。');
+  }, '交付包阶段已完成。');
 
   const deliverTask = () => runOperation('deliver-task', async () => {
-    if (!latestPackage) throw new Error('当前没有 ready DeliveryPackage。');
+    if (!latestPackage) throw new Error('当前没有可交付的交付包。');
     const revision = [...view.revisions].reverse().find(value => value.status === 'accepted');
-    if (!revision) throw new Error('当前没有已批准的剧本 SubmissionRevision，不能正式交付。');
+    if (!revision) throw new Error('当前没有已批准的剧本版本，不能正式交付。');
     await post(`/api/bff/tasks/${encodeURIComponent(task.id)}/deliveries`, {revision_id: revision.id, delivery_package_id: latestPackage.id, destination: deliveryDestination, deliver: true});
     await reload();
   }, '营销视频已完成完整性交付。');
 
   const decideGate = (gateID: string, decision: 'approved' | 'rejected') => runOperation(`gate-${gateID}-${decision}`, async () => {
     updateView(await post<WorkTaskView>(`/api/bff/tasks/${encodeURIComponent(task.id)}/gates/${encodeURIComponent(gateID)}/decide`, {decision, reason: decision === 'approved' ? '工作台审核通过' : '需要修改后重新提交'}));
-  }, decision === 'approved' ? 'Gate 已通过。' : 'Gate 已退回。');
+  }, decision === 'approved' ? '审核已通过。' : '审核已退回。');
 
   const downloadArtifact = (artifact: Artifact) => runOperation(`download-${artifact.id}`, async () => {
     const result = await download(`/api/bff/artifacts/${encodeURIComponent(artifact.id)}/download`);
@@ -332,6 +330,7 @@ export function TaskProductionPage({projectID: explicitProjectID}: {projectID?: 
   const showTab = (value: ProductionTab) => { setManualTab(true); setTab(value); };
   const pendingGate = view.gates.find(gate => gate.status === 'pending');
   const completedStages = view.stage_runs.filter(run => run.status === 'completed').length;
+  const gateName = (gateID: string) => view.sop.gates.find(gate => gate.gate_id === gateID)?.name || `未命名审核（${gateID}）`;
 
   return <div className="workos-page task-production-page">
     <button className="back-link" onClick={() => navigate(projectID ? `/projects/${projectID}/tasks` : '/workspace/tasks')}><ArrowLeft size={15}/>返回任务列表</button>
@@ -341,14 +340,14 @@ export function TaskProductionPage({projectID: explicitProjectID}: {projectID?: 
         <h1>{task.title}</h1>
         <p>{view.sop.name} v{view.sop.version} · 更新于 {formatDateTime(task.updated_at)}</p>
       </div>
-      <div className="task-header-actions"><StatusText value={task.status}/>{['ready', 'needs_input'].includes(task.status) && <Button disabled={Boolean(busy)} onClick={() => void taskAction('start')}><PlayCircle size={15}/>开始当前 Stage</Button>}{task.status === 'paused' && <Button disabled={Boolean(busy)} onClick={() => void taskAction('resume')}><PlayCircle size={15}/>恢复</Button>}{task.status === 'blocked' && <Button disabled={Boolean(busy)} onClick={() => void taskAction('retry')}><RefreshCw size={15}/>重试</Button>}{task.status === 'waiting_gate' && <Button onClick={() => document.getElementById('production-gate')?.scrollIntoView({behavior: 'smooth'})}><ClipboardCheck size={15}/>处理 Gate</Button>}{task.status === 'accepted' && <Button onClick={() => showTab('delivery')}><PackageCheck size={15}/>完成交付</Button>}</div>
+      <div className="task-header-actions"><StatusText value={task.status}/>{['ready', 'needs_input'].includes(task.status) && <Button disabled={Boolean(busy)} onClick={() => void taskAction('start')}><PlayCircle size={15}/>开始当前阶段</Button>}{task.status === 'paused' && <Button disabled={Boolean(busy)} onClick={() => void taskAction('resume')}><PlayCircle size={15}/>恢复</Button>}{task.status === 'blocked' && <Button disabled={Boolean(busy)} onClick={() => void taskAction('retry')}><RefreshCw size={15}/>重试</Button>}{task.status === 'waiting_gate' && <Button onClick={() => document.getElementById('production-gate')?.scrollIntoView({behavior: 'smooth'})}><ClipboardCheck size={15}/>处理审核</Button>}{task.status === 'accepted' && <Button onClick={() => showTab('delivery')}><PackageCheck size={15}/>完成交付</Button>}</div>
     </header>
 
     {notice && <div className={`workos-notice ${notice.includes('失败') || notice.includes('不一致') ? 'is-error' : 'is-info'}`}><CircleHelp size={16}/><span>{notice}</span><IconButton label="关闭提示" onClick={() => setNotice('')}><X size={15}/></IconButton></div>}
 
     <section className="production-progress" aria-label="生产进度">
-      <div className="production-progress-heading"><div><span>当前 Stage</span><strong>{currentStage?.name || '流程已完成'}</strong></div><b>{completedStages} / {view.sop.stages.length}</b></div>
-      <div className="stage-timeline production-timeline">{view.sop.stages.map((stage, index) => {const run = view.stage_runs.find(value => value.stage_id === stage.stage_id); const done = run?.status === 'completed'; const current = stage.stage_id === task.current_stage_id; return <button key={stage.stage_id} className={`timeline-step ${done ? 'is-done' : current ? 'is-current' : ''}`} onClick={() => showTab(tabForStage(stage.stage_id))}><span>{done ? <Check size={13}/> : index + 1}</span><div><strong>{stage.name}</strong><small>{done ? '已完成' : current ? (statusLabels[run?.status || ''] || run?.status || '当前') : '未开始'}</small></div></button>;})}</div>
+      <div className="production-progress-heading"><div><span>当前阶段</span><strong>{currentStage?.name || '流程已完成'}</strong></div><b>{completedStages} / {view.sop.stages.length}</b></div>
+      <div className="stage-timeline production-timeline">{view.sop.stages.map((stage, index) => {const run = view.stage_runs.find(value => value.stage_id === stage.stage_id); const done = run?.status === 'completed'; const current = stage.stage_id === task.current_stage_id; return <button key={stage.stage_id} className={`timeline-step ${done ? 'is-done' : current ? 'is-current' : ''}`} onClick={() => showTab(tabForStage(stage.stage_id))}><span>{done ? <Check size={13}/> : index + 1}</span><div><strong>{stage.name || stageLabel(stage.stage_id)}</strong><small>{done ? '已完成' : current ? (run?.status ? commonStatusLabel(run.status) : '当前') : '未开始'}</small></div></button>;})}</div>
       <div className="production-next-action"><Workflow size={15}/><span>{task.next_action}</span>{task.status === 'running' && <Button variant="secondary" disabled={Boolean(busy)} onClick={() => void taskAction('pause')}>暂停</Button>}</div>
     </section>
 
@@ -365,25 +364,25 @@ export function TaskProductionPage({projectID: explicitProjectID}: {projectID?: 
         {task.status === 'running' && currentStage && !['script', 'generation', 'review', 'postproduction', 'delivery', 'storyboard'].includes(currentStage.stage_id) && <TypedStageEditor stage={currentStage} outputIDs={outputIDs} setOutputIDs={setOutputIDs} busy={busy} onReport={() => void reportGenericStage()}/>}
 
         <section className="workos-section production-gate" id="production-gate">
-          <SectionHeader kicker="Gate" title="审核决定" action={<span className="section-count">{view.gates.length} 条记录</span>}/>
-          {view.gates.length === 0 ? <Empty title="尚无 Gate 记录" detail="当前 Stage 完成后，SOP 会创建需要的审核决定。"/> : <div className="production-record-list">{view.gates.map(gate => <article key={gate.id}><span className="object-mark is-review"><ClipboardCheck size={15}/></span><div><strong>{gate.gate_id}</strong><small>{gate.gate_mode} · {gate.reason || '等待决定'} · {gate.input_refs.length} 个规范输入</small></div><StatusText value={gate.status}/>{gate.status === 'pending' && <div className="record-actions"><Button variant="secondary" disabled={Boolean(busy)} onClick={() => void decideGate(gate.id, 'rejected')}>退回</Button><Button disabled={Boolean(busy)} onClick={() => void decideGate(gate.id, 'approved')}><Check size={14}/>通过</Button></div>}</article>)}</div>}
+          <SectionHeader kicker="检查与审批" title="审核决定" action={<span className="section-count">{view.gates.length} 条记录</span>}/>
+          {view.gates.length === 0 ? <Empty title="尚无审核记录" detail="当前阶段完成后，流程规范会按配置创建审核记录。"/> : <div className="production-record-list">{view.gates.map(gate => <article key={gate.id}><span className="object-mark is-review"><ClipboardCheck size={15}/></span><div><strong>{gateName(gate.gate_id)}</strong><small>{gateModeLabel(gate.gate_mode)} · {gate.reason || '等待审核'} · {gate.input_refs.length} 个输入</small></div><StatusText value={gate.status}/>{gate.status === 'pending' && <div className="record-actions"><Button variant="secondary" disabled={Boolean(busy)} onClick={() => void decideGate(gate.id, 'rejected')}>退回</Button><Button disabled={Boolean(busy)} onClick={() => void decideGate(gate.id, 'approved')}><Check size={14}/>通过</Button></div>}</article>)}</div>}
         </section>
       </main>
 
       <aside className="task-side-panel production-facts">
-        <SideFact label="任务状态" value={statusLabels[task.status] || task.status}/>
+        <SideFact label="任务状态" value={commonStatusLabel(task.status)}/>
         <SideFact label="当前阶段" value={currentStage?.name || '已完成'} icon={Workflow}/>
-        <SideFact label="来源" value={`${view.source_revisions.length} 个 Revision`} icon={FileInput}/>
+        <SideFact label="来源" value={`${view.source_revisions.length} 个版本`} icon={FileInput}/>
         <SideFact label="知识快照" value={`${view.knowledge_snapshots.length} 个`} icon={ShieldCheck}/>
-        <SideFact label="剧本" value={`${view.revisions.length} 个 Revision`} icon={FileCheck2}/>
+        <SideFact label="剧本" value={`${view.revisions.length} 个版本`} icon={FileCheck2}/>
         <SideFact label="分镜" value={`${storyboard?.shots.length || genericStoryboardShots(storyboardSnapshot).length} 个镜头`} icon={ImageIcon}/>
-        <SideFact label="生成 Job" value={`${view.media_jobs.length} 个`} icon={Video}/>
+        <SideFact label="生成任务" value={`${view.media_jobs.length} 个`} icon={Video}/>
         <SideFact label="媒体审核" value={`${view.media_reviews.length} 条`} icon={ClipboardCheck}/>
         <SideFact label="交付文件" value={`${latestPackage?.manifest.length || 0} 个`} icon={PackageCheck}/>
         <div className="side-divider"></div>
-        <div className="side-block"><span>SOP digest</span><strong>v{task.sop_version}</strong><small>{task.sop_digest}</small></div>
-        <div className="side-block"><span>当前输出契约</span><strong>{currentStage?.completion_policy || '兼容模式'}</strong><small>{currentStage?.required_output_types.map(value => `${value.output_type}:${value.role || 'primary'}`).join(' · ') || '无类型化要求'}</small></div>
-        {pendingGate && <div className="side-block is-warning"><span>待处理 Gate</span><strong>{pendingGate.gate_id}</strong><small>{pendingGate.gate_mode}</small></div>}
+        <div className="side-block"><span>流程规范摘要</span><strong>v{task.sop_version}</strong><small>{task.sop_digest}</small></div>
+        <div className="side-block"><span>当前输出要求</span><strong>{currentStage?.completion_policy === 'all_required' ? '须完成全部必要输出' : '兼容模式'}</strong><small>{currentStage?.required_output_types.map(value => `${outputLabels[value.output_type] || value.output_type}（${outputRoleLabel(value.role || 'primary')}）`).join(' · ') || '无类型化要求'}</small></div>
+        {pendingGate && <div className="side-block is-warning"><span>待处理审核</span><strong>{gateName(pendingGate.gate_id)}</strong><small>{gateModeLabel(pendingGate.gate_mode)}</small></div>}
       </aside>
     </div>
   </div>;
@@ -394,16 +393,16 @@ function ContentPanel({view, scriptJSON, setScriptJSON, onSaveScript, busy, curr
   return <>
     <section className="workos-section production-content-summary">
       <SectionHeader kicker="来源与知识" title="服务端已固定输入" action={<Button variant="secondary" onClick={onNavigateKnowledge}><FileInput size={14}/>打开知识库</Button>}/>
-      <div className="production-input-grid"><div><span>来源 Revision</span><strong>{view.source_revisions.length}</strong><small>{view.source_revisions.map(value => value.file_name).join('、') || '尚未绑定'}</small></div><div><span>知识对象</span><strong>{view.knowledge_snapshots.reduce((sum, value) => sum + value.objects.length, 0)}</strong><small>{view.knowledge_snapshots.map(value => `Pack v${value.pack_version}`).join('、') || '尚未绑定'}</small></div><div><span>权利检查</span><strong>{view.knowledge_snapshots.length ? '已快照' : '待处理'}</strong><small>{view.stage_outputs.filter(value => value.output_type === 'knowledge_snapshot').map(value => value.object_digest.slice(0, 18)).join('、')}</small></div></div>
+      <div className="production-input-grid"><div><span>来源版本</span><strong>{view.source_revisions.length}</strong><small>{view.source_revisions.map(value => value.file_name).join('、') || '尚未绑定'}</small></div><div><span>知识对象</span><strong>{view.knowledge_snapshots.reduce((sum, value) => sum + value.objects.length, 0)}</strong><small>{view.knowledge_snapshots.map(value => `知识包 v${value.pack_version}`).join('、') || '尚未绑定'}</small></div><div><span>权利检查</span><strong>{view.knowledge_snapshots.length ? '已生成快照' : '待处理'}</strong><small>{view.stage_outputs.filter(value => value.output_type === 'knowledge_snapshot').map(value => value.object_digest.slice(0, 18)).join('、')}</small></div></div>
       {view.knowledge_snapshots.flatMap(snapshot => snapshot.objects).length > 0 && <div className="knowledge-fact-strip">{view.knowledge_snapshots.flatMap(snapshot => snapshot.objects).slice(0, 6).map(value => <span key={`${value.id}-${value.version}`}><b>{value.title}</b>{value.statement}</span>)}</div>}
     </section>
 
     <section className="workos-section script-workbench">
-      <SectionHeader kicker="短视频剧本" title={revisions[0] ? `Revision ${revisions[0].revision_no}` : '尚未生成剧本'} action={<span className="section-count">{revisions.length} 个版本</span>}/>
-      {revisions.length === 0 ? <Empty title="没有剧本正文" detail="在剧本 Stage 保存第一个 Revision 后，正文和场景会显示在这里。"/> : <div className="script-revisions">{revisions.map(revision => <ScriptRevision key={revision.id} revision={revision}/>)}</div>}
+      <SectionHeader kicker="短视频剧本" title={revisions[0] ? `第 ${revisions[0].revision_no} 版` : '尚未生成剧本'} action={<span className="section-count">{revisions.length} 个版本</span>}/>
+      {revisions.length === 0 ? <Empty title="没有剧本正文" detail="在剧本阶段保存第一个版本后，正文和场景会显示在这里。"/> : <div className="script-revisions">{revisions.map(revision => <ScriptRevision key={revision.id} revision={revision}/>)}</div>}
     </section>
 
-    {view.task.status === 'running' && currentStage?.stage_id === 'script' && <section className="workos-section script-editor"><SectionHeader kicker="新 Revision" title="编辑结构化剧本"/><Field label="剧本 JSON"><textarea rows={14} value={scriptJSON} onChange={event => setScriptJSON(event.target.value)} spellCheck={false}/></Field><div className="production-editor-actions"><Button disabled={Boolean(busy)} onClick={onSaveScript}><FileCheck2 size={15}/>{busy === 'save-script' ? '保存中...' : '保存并上报剧本'}</Button></div></section>}
+    {view.task.status === 'running' && currentStage?.stage_id === 'script' && <section className="workos-section script-editor"><SectionHeader kicker="新版本" title="编辑结构化剧本"/><Field label="剧本结构数据（JSON）"><textarea rows={14} value={scriptJSON} onChange={event => setScriptJSON(event.target.value)} spellCheck={false}/></Field><div className="production-editor-actions"><Button disabled={Boolean(busy)} onClick={onSaveScript}><FileCheck2 size={15}/>{busy === 'save-script' ? '保存中…' : '保存并上报剧本'}</Button></div></section>}
 
     {view.task.status === 'running' && currentStage && ['sources', 'knowledge'].includes(currentStage.stage_id) && <TypedStageEditor stage={currentStage} outputIDs={outputIDs} setOutputIDs={setOutputIDs} busy={busy} onReport={onReport}/>}
   </>;
@@ -412,7 +411,7 @@ function ContentPanel({view, scriptJSON, setScriptJSON, onSaveScript, busy, curr
 function ScriptRevision({revision}: {revision: WorkTaskView['revisions'][number]}) {
   const content = record(revision.content);
   const scenes = list(content.scenes).map(record);
-  return <article className="script-revision"><header><div><strong>{text(content.title, `Revision ${revision.revision_no}`)}</strong><small>{revision.schema_version} · {formatDateTime(revision.created_at)}</small></div><StatusText value={revision.status}/></header>{scenes.length > 0 ? <ol>{scenes.map((scene, index) => <li key={text(scene.id, String(index))}><span>{String(index + 1).padStart(2, '0')}</span><div><strong>{text(scene.visual, text(scene.scene, `场景 ${index + 1}`))}</strong><p>{text(scene.voiceover, text(scene.narration, '无旁白'))}</p><small>{text(scene.duration_seconds, '?')} 秒 · {text(scene.on_screen_text, '无屏幕文字')}</small></div></li>)}</ol> : <pre>{JSON.stringify(content, null, 2)}</pre>}<footer><code>{revision.content_hash}</code><span>知识快照 {revision.knowledge_snapshot_ids.length}</span></footer></article>;
+  return <article className="script-revision"><header><div><strong>{text(content.title, `剧本第 ${revision.revision_no} 版`)}</strong><small>{revision.schema_version} · {formatDateTime(revision.created_at)}</small></div><StatusText value={revision.status}/></header>{scenes.length > 0 ? <ol>{scenes.map((scene, index) => <li key={text(scene.id, String(index))}><span>{String(index + 1).padStart(2, '0')}</span><div><strong>{text(scene.visual, text(scene.scene, `场景 ${index + 1}`))}</strong><p>{text(scene.voiceover, text(scene.narration, '无旁白'))}</p><small>{text(scene.duration_seconds, '?')} 秒 · {text(scene.on_screen_text, '无屏幕文字')}</small></div></li>)}</ol> : <pre>{JSON.stringify(content, null, 2)}</pre>}<footer><code>{revision.content_hash}</code><span>知识快照 {revision.knowledge_snapshot_ids.length}</span></footer></article>;
 }
 
 function StoryboardPanel({snapshot, storyboard, artifacts, busy, onUpload, currentStage, outputIDs, setOutputIDs, onReport}: {snapshot?: ApprovedSnapshot; storyboard?: StoryboardPackage; artifacts: Artifact[]; busy: string; onUpload: (asset: StoryboardAsset, file?: File) => void; currentStage?: StageDefinition; outputIDs: Record<string,string>; setOutputIDs: (value: Record<string,string>) => void; onReport: () => void}) {
@@ -420,44 +419,44 @@ function StoryboardPanel({snapshot, storyboard, artifacts, busy, onUpload, curre
   const artifactForAsset = (assetID: string) => artifacts.find(artifact => artifact.metadata.storyboard_asset_id === assetID);
   return <>
     <section className="workos-section storyboard-workbench">
-      <SectionHeader kicker="Storyboard" title={storyboard?.id || text(record(snapshot?.canonical_content).title, '尚未锁定分镜')} action={snapshot ? <StatusText value={storyboard?.status || 'approved'}/> : undefined}/>
-      {!snapshot ? <Empty title="没有已批准分镜" detail="本地 StoryboardPackage 通过审核后，在当前 Stage 上报 ApprovedSnapshot ID。"/> : <><div className="storyboard-lock"><span><ShieldCheck size={15}/>Locked digest</span><code>{storyboard?.locked_digest || snapshot.subject_hash}</code><small>{shots.length} 个镜头 · {storyboard?.assets.length || snapshot.artifacts.length} 个素材</small></div>{shots.length === 0 ? <Empty title="分镜快照没有镜头正文" detail="当前 ApprovedSnapshot 只包含摘要。"/> : <div className="shot-grid">{shots.map((shot, index) => {const firstID = shot.first_frame_artifact_id || ''; const asset = storyboard?.assets.find(value => value.id === firstID); const artifact = artifactForAsset(firstID); return <article className="shot-card" key={shot.shot_id || index}><div className="shot-media">{artifact ? <img src={`/api/bff/artifacts/${encodeURIComponent(artifact.id)}/download`} alt={`${shot.shot_id || `镜头 ${index + 1}`} 首帧`} loading="lazy"/> : <div><ImageIcon size={24}/><span>{asset ? '素材字节待登记' : '无首帧 Artifact'}</span></div>}</div><header><span>{shot.shot_id || `SHOT-${index + 1}`}</span><b>{Math.max(0, ((shot.end_ms || 0) - (shot.start_ms || 0)) / 1000).toFixed(1)}s</b></header><strong>{shot.scene || shot.subject || text((shot as unknown as Record<string,unknown>).visual, '未命名画面')}</strong><p>{shot.action || shot.image_prompt_zh || '未提供画面动作'}</p><small>{shot.camera || shot.composition || '机位待定'}</small>{asset && !artifact && <label className={`button secondary storyboard-upload ${busy === `upload-${asset.id}` ? 'is-disabled' : ''}`}><Upload size={14}/>{busy === `upload-${asset.id}` ? '校验中...' : '上传锁定素材'}<input type="file" accept={asset.media_type} disabled={Boolean(busy)} onChange={event => {const file = event.target.files?.[0]; onUpload(asset, file); event.target.value = '';}}/></label>}</article>;})}</div>}</>}
+      <SectionHeader kicker="分镜与素材" title={storyboard?.id || text(record(snapshot?.canonical_content).title, '尚未锁定分镜')} action={snapshot ? <StatusText value={storyboard?.status || 'approved'}/> : undefined}/>
+      {!snapshot ? <Empty title="没有已批准分镜" detail="本地分镜包通过审核后，请在当前阶段上报已批准快照 ID。"/> : <><div className="storyboard-lock"><span><ShieldCheck size={15}/>已锁定内容摘要</span><code>{storyboard?.locked_digest || snapshot.subject_hash}</code><small>{shots.length} 个镜头 · {storyboard?.assets.length || snapshot.artifacts.length} 个素材</small></div>{shots.length === 0 ? <Empty title="分镜快照没有镜头正文" detail="当前已批准快照只包含摘要。"/> : <div className="shot-grid">{shots.map((shot, index) => {const firstID = shot.first_frame_artifact_id || ''; const asset = storyboard?.assets.find(value => value.id === firstID); const artifact = artifactForAsset(firstID); return <article className="shot-card" key={shot.shot_id || index}><div className="shot-media">{artifact ? <img src={`/api/bff/artifacts/${encodeURIComponent(artifact.id)}/download`} alt={`${shot.shot_id || `镜头 ${index + 1}`} 首帧`} loading="lazy"/> : <div><ImageIcon size={24}/><span>{asset ? '素材文件待登记' : '暂无首帧成果文件'}</span></div>}</div><header><span>{shot.shot_id || `镜头 ${index + 1}`}</span><b>{Math.max(0, ((shot.end_ms || 0) - (shot.start_ms || 0)) / 1000).toFixed(1)} 秒</b></header><strong>{shot.scene || shot.subject || text((shot as unknown as Record<string,unknown>).visual, '未命名画面')}</strong><p>{shot.action || shot.image_prompt_zh || '未提供画面动作'}</p><small>{shot.camera || shot.composition || '机位待定'}</small>{asset && !artifact && <label className={`button secondary storyboard-upload ${busy === `upload-${asset.id}` ? 'is-disabled' : ''}`}><Upload size={14}/>{busy === `upload-${asset.id}` ? '校验中…' : '上传锁定素材'}<input type="file" accept={asset.media_type} disabled={Boolean(busy)} onChange={event => {const file = event.target.files?.[0]; onUpload(asset, file); event.target.value = '';}}/></label>}</article>;})}</div>}</>}
     </section>
-    {storyboard?.assets.length ? <section className="workos-section"><SectionHeader kicker="素材清单" title="锁定图片、音视频与权利引用"/><div className="artifact-table">{storyboard.assets.map(asset => {const artifact = artifactForAsset(asset.id); return <div key={asset.id}><span className="object-mark is-production">{asset.media_type.startsWith('image/') ? <ImageIcon size={15}/> : <Film size={15}/>}</span><div><strong>{asset.path}</strong><small>{asset.role} · {asset.shot_id || '公共素材'} · {formatBytes(asset.byte_size)}</small></div><StatusText value={artifact ? 'validated' : 'pending'}/><code>{asset.sha256.slice(0, 14)}...</code></div>;})}</div></section> : null}
+    {storyboard?.assets.length ? <section className="workos-section"><SectionHeader kicker="素材清单" title="锁定图片、音视频与权利引用"/><div className="artifact-table">{storyboard.assets.map(asset => {const artifact = artifactForAsset(asset.id); return <div key={asset.id}><span className="object-mark is-production">{asset.media_type.startsWith('image/') ? <ImageIcon size={15}/> : <Film size={15}/>}</span><div><strong>{asset.path}</strong><small>{storyboardAssetRoleLabel(asset.role)} · {asset.shot_id || '公共素材'} · {formatBytes(asset.byte_size)}</small></div><StatusText value={artifact ? 'validated' : 'pending'}/><code>{asset.sha256.slice(0, 14)}…</code></div>;})}</div></section> : null}
     {currentStage?.stage_id === 'storyboard' && <TypedStageEditor stage={currentStage} outputIDs={outputIDs} setOutputIDs={setOutputIDs} busy={busy} onReport={onReport}/>}
   </>;
 }
 
 function GenerationPanel({jobs, attempts, artifacts, busy, videoErrors, setVideoErrors, canCreate, onCreate, onApproveCost, onCancel, onFinish, onDownload, onReload}: {jobs: MediaGenerationJob[]; attempts: WorkTaskView['provider_attempts']; artifacts: Artifact[]; busy: string; videoErrors: Record<string,boolean>; setVideoErrors: (value: Record<string,boolean>) => void; canCreate: boolean; onCreate: () => void; onApproveCost: (job: MediaGenerationJob) => void; onCancel: (job: MediaGenerationJob) => void; onFinish: (job: MediaGenerationJob, artifact: Artifact) => void; onDownload: (artifact: Artifact) => void; onReload: () => void}) {
-  return <section className="workos-section generation-workbench"><SectionHeader kicker="Media Worker" title="视频生成" action={<div className="section-actions"><IconButton label="刷新 Job 状态" onClick={onReload}><RefreshCw size={15}/></IconButton>{canCreate && <Button onClick={onCreate} disabled={Boolean(busy)}><Play size={14}/>{busy === 'create-media-job' ? '创建中...' : '创建生成 Job'}</Button>}</div>}/>{jobs.length === 0 ? <Empty title="还没有视频 Job" detail="分镜素材完整后，可以创建第一个生成 Job。"/> : <div className="take-grid">{[...jobs].reverse().map(job => {const attempt = [...attempts].reverse().find(value => value.generation_job_id === job.id); const artifact = artifacts.find(value => value.metadata.generation_job_id === job.id && value.kind === 'generated_video'); const cancellable = ['awaiting_cost_approval', 'queued', 'submitting', 'submitted', 'generating', 'retry_wait', 'retryable_failed', 'output_invalid'].includes(job.state); return <article className="take-card" key={job.id}><MediaPreview artifact={artifact} failed={Boolean(artifact && videoErrors[artifact.id])} onError={() => artifact && setVideoErrors({...videoErrors, [artifact.id]: true})}/><header><div><span>Take {job.id.slice(0, 8)}</span><strong>{job.model}</strong></div><StatusText value={job.state}/></header><dl><div><dt>Provider</dt><dd>{job.provider_id} / {job.profile_version}</dd></div><div><dt>规格</dt><dd>{job.aspect_ratio} · {job.duration_seconds}s</dd></div><div><dt>费用</dt><dd>{formatCost(job.actual_cost_minor || job.estimated_cost_minor, job.currency)}</dd></div><div><dt>Attempt</dt><dd>{job.attempt_count} / {job.max_attempts}</dd></div></dl>{attempt && <div className="attempt-line"><Clock3 size={13}/><span>{attempt.provider_state} · {attempt.provider_request_id || '未返回 request id'}</span></div>}{job.error_code && <div className="media-error"><AlertCircle size={14}/><span>{job.error_code} · {job.error_detail_safe}</span></div>}<footer>{job.state === 'awaiting_cost_approval' && <Button disabled={Boolean(busy)} onClick={() => onApproveCost(job)}><Check size={14}/>确认 {formatCost(job.estimated_cost_minor, job.currency)}</Button>}{artifact && <Button variant="secondary" disabled={Boolean(busy)} onClick={() => onDownload(artifact)}><Download size={14}/>下载</Button>}{job.state === 'succeeded' && artifact && <Button disabled={Boolean(busy)} onClick={() => onFinish(job, artifact)}><CheckCircle2 size={14}/>完成生成阶段</Button>}{cancellable && <Button variant="ghost" disabled={Boolean(busy)} onClick={() => onCancel(job)}><X size={14}/>取消</Button>}</footer></article>;})}</div>}</section>;
+  return <section className="workos-section generation-workbench"><SectionHeader kicker="媒体生成" title="视频生成" action={<div className="section-actions"><IconButton label="刷新生成任务状态" onClick={onReload}><RefreshCw size={15}/></IconButton>{canCreate && <Button onClick={onCreate} disabled={Boolean(busy)}><Play size={14}/>{busy === 'create-media-job' ? '创建中…' : '创建生成任务'}</Button>}</div>}/>{jobs.length === 0 ? <Empty title="还没有视频生成任务" detail="分镜素材完整后，可以创建第一个视频生成任务。"/> : <div className="take-grid">{[...jobs].reverse().map(job => {const attempt = [...attempts].reverse().find(value => value.generation_job_id === job.id); const artifact = artifacts.find(value => value.metadata.generation_job_id === job.id && value.kind === 'generated_video'); const cancellable = ['awaiting_cost_approval', 'queued', 'submitting', 'submitted', 'generating', 'retry_wait', 'retryable_failed', 'output_invalid'].includes(job.state); return <article className="take-card" key={job.id}><MediaPreview artifact={artifact} failed={Boolean(artifact && videoErrors[artifact.id])} onError={() => artifact && setVideoErrors({...videoErrors, [artifact.id]: true})}/><header><div><span>候选成片 {job.id.slice(0, 8)}</span><strong>{mediaModelLabel(job.model)}</strong></div><StatusText value={job.state}/></header><dl><div><dt>生成服务</dt><dd>{mediaProviderLabel(job.provider_id)} · 配置 v{job.profile_version}</dd></div><div><dt>规格</dt><dd>{job.aspect_ratio} · {job.duration_seconds} 秒</dd></div><div><dt>费用</dt><dd>{formatCost(job.actual_cost_minor || job.estimated_cost_minor, job.currency)}</dd></div><div><dt>尝试次数</dt><dd>{job.attempt_count} / {job.max_attempts}</dd></div></dl>{attempt && <div className="attempt-line"><Clock3 size={13}/><span>{commonStatusLabel(attempt.provider_state)} · {mediaRequestIDLabel(attempt.provider_id, attempt.provider_request_id)}</span></div>}{job.error_code && <div className="media-error"><AlertCircle size={14}/><span>{job.error_code} · {job.error_detail_safe}</span></div>}<footer>{job.state === 'awaiting_cost_approval' && <Button disabled={Boolean(busy)} onClick={() => onApproveCost(job)}><Check size={14}/>确认 {formatCost(job.estimated_cost_minor, job.currency)}</Button>}{artifact && <Button variant="secondary" disabled={Boolean(busy)} onClick={() => onDownload(artifact)}><Download size={14}/>下载</Button>}{job.state === 'succeeded' && artifact && <Button disabled={Boolean(busy)} onClick={() => onFinish(job, artifact)}><CheckCircle2 size={14}/>完成生成阶段</Button>}{cancellable && <Button variant="ghost" disabled={Boolean(busy)} onClick={() => onCancel(job)}><X size={14}/>取消</Button>}</footer></article>;})}</div>}</section>;
 }
 
 function ReviewPanel({reviews, artifacts, selectedReview, finalReview, finalArtifact, taskStage, taskStatus, busy, videoErrors, setVideoErrors, onDecide, onFinishTake, onCreateFinal, onFinishFinal, onDownload}: {reviews: MediaReview[]; artifacts: Artifact[]; selectedReview?: MediaReview; finalReview?: MediaReview; finalArtifact?: Artifact; taskStage: string; taskStatus: string; busy: string; videoErrors: Record<string,boolean>; setVideoErrors: (value: Record<string,boolean>) => void; onDecide: (review: MediaReview, decision: 'approved'|'changes_requested'|'rejected') => void; onFinishTake: (review: MediaReview) => void; onCreateFinal: () => void; onFinishFinal: (review: MediaReview, artifact: Artifact) => void; onDownload: (artifact: Artifact) => void}) {
   const contentReviews = reviews.filter(value => value.review_kind === 'content');
   const technical = reviews.filter(value => value.review_kind === 'technical');
   return <>
-    <section className="workos-section review-workbench"><SectionHeader kicker="Take Review" title="成片质检与选择" action={<span className="section-count">技术检查 {technical.filter(value => value.status === 'approved').length}/{technical.length}</span>}/>{contentReviews.length === 0 ? <Empty title="没有待审 Take" detail="Media Worker 生成并校验视频后，会创建内容审核。"/> : <div className="take-grid">{contentReviews.map(review => {const artifact = artifacts.find(value => value.id === review.subject_artifact_id); const technicalReview = reviews.find(value => value.review_kind === 'technical' && value.subject_artifact_id === review.subject_artifact_id); return <article className={`take-card ${review.selected ? 'is-selected' : ''}`} key={review.id}><MediaPreview artifact={artifact} failed={Boolean(artifact && videoErrors[artifact.id])} onError={() => artifact && setVideoErrors({...videoErrors, [artifact.id]: true})}/><header><div><span>{review.selected ? 'Selected Take' : 'Candidate Take'}</span><strong>{artifact?.file_name || review.subject_artifact_id}</strong></div><StatusText value={review.status}/></header><div className="review-checks"><span><ShieldCheck size={14}/>技术检查 <b>{technicalReview?.status === 'approved' ? '通过' : '待处理'}</b></span><span><FileCheck2 size={14}/>内容检查 <b>{review.status === 'approved' ? '通过' : '待决定'}</b></span></div>{review.decision_reason && <p className="decision-reason">{review.decision_reason}</p>}<footer>{review.status === 'pending' && <><Button variant="secondary" disabled={Boolean(busy)} onClick={() => onDecide(review, 'changes_requested')}>要求修改</Button><Button disabled={Boolean(busy)} onClick={() => onDecide(review, 'approved')}><Check size={14}/>批准并选中</Button></>}{taskStage === 'review' && taskStatus === 'running' && review.status === 'approved' && review.selected && <Button disabled={Boolean(busy)} onClick={() => onFinishTake(review)}><CheckCircle2 size={14}/>完成 Take 选择</Button>}{artifact && <Button variant="ghost" onClick={() => onDownload(artifact)}><Download size={14}/>下载</Button>}</footer></article>;})}</div>}</section>
+    <section className="workos-section review-workbench"><SectionHeader kicker="候选成片审核" title="成片质检与选择" action={<span className="section-count">技术检查 {technical.filter(value => value.status === 'approved').length}/{technical.length}</span>}/>{contentReviews.length === 0 ? <Empty title="没有待审候选成片" detail="视频生成并校验完成后，系统会创建内容审核。"/> : <div className="take-grid">{contentReviews.map(review => {const artifact = artifacts.find(value => value.id === review.subject_artifact_id); const technicalReview = reviews.find(value => value.review_kind === 'technical' && value.subject_artifact_id === review.subject_artifact_id); return <article className={`take-card ${review.selected ? 'is-selected' : ''}`} key={review.id}><MediaPreview artifact={artifact} failed={Boolean(artifact && videoErrors[artifact.id])} onError={() => artifact && setVideoErrors({...videoErrors, [artifact.id]: true})}/><header><div><span>{review.selected ? '已选成片' : '候选成片'}</span><strong>{artifact?.file_name || review.subject_artifact_id}</strong></div><StatusText value={review.status}/></header><div className="review-checks"><span><ShieldCheck size={14}/>技术检查 <b>{technicalReview?.status === 'approved' ? '通过' : '待处理'}</b></span><span><FileCheck2 size={14}/>内容检查 <b>{review.status === 'approved' ? '通过' : '待审核'}</b></span></div>{review.decision_reason && <p className="decision-reason">{review.decision_reason}</p>}<footer>{review.status === 'pending' && <><Button variant="secondary" disabled={Boolean(busy)} onClick={() => onDecide(review, 'changes_requested')}>要求修改</Button><Button disabled={Boolean(busy)} onClick={() => onDecide(review, 'approved')}><Check size={14}/>批准并选中</Button></>}{taskStage === 'review' && taskStatus === 'running' && review.status === 'approved' && review.selected && <Button disabled={Boolean(busy)} onClick={() => onFinishTake(review)}><CheckCircle2 size={14}/>完成成片选择</Button>}{artifact && <Button variant="ghost" onClick={() => onDownload(artifact)}><Download size={14}/>下载</Button>}</footer></article>;})}</div>}</section>
 
-    <section className="workos-section final-render-workbench"><SectionHeader kicker="Post Production" title="最终成片" action={taskStage === 'postproduction' && taskStatus === 'running' && selectedReview && !finalArtifact ? <Button disabled={Boolean(busy)} onClick={onCreateFinal}><Film size={14}/>{busy === 'create-final-render' ? '渲染中...' : '生成最终成片'}</Button> : undefined}/>{!finalArtifact ? <Empty title="尚未生成最终成片" detail={selectedReview ? '已选 Take 可进入独立最终渲染。' : '先批准并选中一个 Take。'}/> : <div className="final-render-layout"><MediaPreview artifact={finalArtifact} failed={Boolean(videoErrors[finalArtifact.id])} onError={() => setVideoErrors({...videoErrors, [finalArtifact.id]: true})}/><div className="final-render-facts"><span>Artifact</span><strong>{finalArtifact.file_name}</strong><code>{finalArtifact.sha256}</code><dl><div><dt>渲染器</dt><dd>{text(finalArtifact.metadata.renderer, 'deterministic')}</dd></div><div><dt>大小</dt><dd>{formatBytes(finalArtifact.byte_size)}</dd></div><div><dt>最终审核</dt><dd><StatusText value={finalReview?.status || 'pending'}/></dd></div></dl><div className="final-actions">{finalReview?.status === 'pending' && <><Button variant="secondary" disabled={Boolean(busy)} onClick={() => onDecide(finalReview, 'changes_requested')}>要求修改</Button><Button disabled={Boolean(busy)} onClick={() => onDecide(finalReview, 'approved')}><Check size={14}/>批准最终成片</Button></>}{taskStage === 'postproduction' && taskStatus === 'running' && finalReview?.status === 'approved' && <Button disabled={Boolean(busy)} onClick={() => onFinishFinal(finalReview, finalArtifact)}><CheckCircle2 size={14}/>完成后期阶段</Button>}<Button variant="secondary" onClick={() => onDownload(finalArtifact)}><Download size={14}/>下载成片</Button></div></div></div>}</section>
+    <section className="workos-section final-render-workbench"><SectionHeader kicker="后期制作" title="最终成片" action={taskStage === 'postproduction' && taskStatus === 'running' && selectedReview && !finalArtifact ? <Button disabled={Boolean(busy)} onClick={onCreateFinal}><Film size={14}/>{busy === 'create-final-render' ? '渲染中…' : '生成最终成片'}</Button> : undefined}/>{!finalArtifact ? <Empty title="尚未生成最终成片" detail={selectedReview ? '已选候选成片可进入最终渲染。' : '先批准并选中一个候选成片。'}/> : <div className="final-render-layout"><MediaPreview artifact={finalArtifact} failed={Boolean(videoErrors[finalArtifact.id])} onError={() => setVideoErrors({...videoErrors, [finalArtifact.id]: true})}/><div className="final-render-facts"><span>成果文件</span><strong>{finalArtifact.file_name}</strong><code>{finalArtifact.sha256}</code><dl><div><dt>渲染方式</dt><dd>{rendererLabel(text(finalArtifact.metadata.renderer))}</dd></div><div><dt>大小</dt><dd>{formatBytes(finalArtifact.byte_size)}</dd></div><div><dt>最终审核</dt><dd><StatusText value={finalReview?.status || 'pending'}/></dd></div></dl><div className="final-actions">{finalReview?.status === 'pending' && <><Button variant="secondary" disabled={Boolean(busy)} onClick={() => onDecide(finalReview, 'changes_requested')}>要求修改</Button><Button disabled={Boolean(busy)} onClick={() => onDecide(finalReview, 'approved')}><Check size={14}/>批准最终成片</Button></>}{taskStage === 'postproduction' && taskStatus === 'running' && finalReview?.status === 'approved' && <Button disabled={Boolean(busy)} onClick={() => onFinishFinal(finalReview, finalArtifact)}><CheckCircle2 size={14}/>完成后期阶段</Button>}<Button variant="secondary" onClick={() => onDownload(finalArtifact)}><Download size={14}/>下载成片</Button></div></div></div>}</section>
   </>;
 }
 
 function DeliveryPanel({packages, deliveries, finalArtifact, taskStatus, taskStage, busy, destination, setDestination, onBuild, onFinishStage, onDeliver, onDownload}: {packages: DeliveryPackage[]; deliveries: WorkTaskView['deliveries']; finalArtifact?: Artifact; taskStatus: string; taskStage: string; busy: string; destination: string; setDestination: (value:string) => void; onBuild: () => void; onFinishStage: (pkg:DeliveryPackage) => void; onDeliver: () => void; onDownload: (artifact:Artifact) => void}) {
   const latestPackage = [...packages].reverse()[0];
   return <>
-    <section className="workos-section delivery-workbench"><SectionHeader kicker="DeliveryPackage" title="服务端交付清单" action={taskStage === 'delivery' && taskStatus === 'running' && !latestPackage ? <Button disabled={Boolean(busy)} onClick={onBuild}><PackageCheck size={14}/>构建交付包</Button> : undefined}/>{!latestPackage ? <Empty title="还没有 DeliveryPackage" detail="最终成片批准后，服务端会固定 manifest。"/> : <><div className="package-heading"><div><span>Package ID</span><strong>{latestPackage.id}</strong><small>{formatDateTime(latestPackage.created_at)} · {latestPackage.status}</small></div><StatusText value={latestPackage.status}/></div><div className="delivery-manifest">{latestPackage.manifest.map(artifact => <article key={artifact.id}><span className="object-mark is-production"><Film size={15}/></span><div><strong>{artifact.file_name}</strong><small>{artifact.media_type} · {formatBytes(artifact.byte_size)}</small><code>{artifact.sha256}</code></div><StatusText value={artifact.kind === 'final_render' ? 'complete' : artifact.kind}/><IconButton label={`下载 ${artifact.file_name}`} onClick={() => onDownload(artifact)}><Download size={15}/></IconButton></article>)}</div>{taskStage === 'delivery' && taskStatus === 'running' && <div className="delivery-stage-action"><Button disabled={Boolean(busy)} onClick={() => onFinishStage(latestPackage)}><CheckCircle2 size={14}/>完成交付包 Stage</Button></div>}</>}</section>
-    <section className="workos-section"><SectionHeader kicker="Task Delivery" title="正式交付" action={taskStatus === 'delivered' ? <StatusText value="delivered"/> : undefined}/>{deliveries.length > 0 ? <div className="production-record-list">{deliveries.map(delivery => <article key={delivery.id}><span className="object-mark is-success"><PackageCheck size={15}/></span><div><strong>{delivery.destination}</strong><small>{delivery.manifest.length} 个文件 · {delivery.delivery_package_id || '无 Package'}</small></div><StatusText value={delivery.integrity_status}/><StatusText value={delivery.status}/></article>)}</div> : <Empty title="尚未正式交付" detail="所有 Stage 完成并接受任务后，可将完整包交付到指定目的地。"/>}{taskStatus === 'accepted' && latestPackage && finalArtifact && <div className="delivery-form"><Field label="交付目的地"><input value={destination} onChange={event => setDestination(event.target.value)}/></Field><Button disabled={Boolean(busy)} onClick={onDeliver}><PackageCheck size={15}/>{busy === 'deliver-task' ? '交付中...' : '确认完整性交付'}</Button></div>}</section>
+    <section className="workos-section delivery-workbench"><SectionHeader kicker="交付包" title="服务端交付清单" action={taskStage === 'delivery' && taskStatus === 'running' && !latestPackage ? <Button disabled={Boolean(busy)} onClick={onBuild}><PackageCheck size={14}/>构建交付包</Button> : undefined}/>{!latestPackage ? <Empty title="还没有交付包" detail="最终成片批准后，服务端会固定交付文件清单。"/> : <><div className="package-heading"><div><span>交付包 ID</span><strong>{latestPackage.id}</strong><small>{formatDateTime(latestPackage.created_at)} · {commonStatusLabel(latestPackage.status)}</small></div><StatusText value={latestPackage.status}/></div><div className="delivery-manifest">{latestPackage.manifest.map(artifact => <article key={artifact.id}><span className="object-mark is-production"><Film size={15}/></span><div><strong>{artifact.file_name}</strong><small>{artifact.media_type} · {formatBytes(artifact.byte_size)}</small><code>{artifact.sha256}</code></div><span className="status-text is-success"><i></i>{artifactKindLabel(artifact.kind)}</span><IconButton label={`下载 ${artifact.file_name}`} onClick={() => onDownload(artifact)}><Download size={15}/></IconButton></article>)}</div>{taskStage === 'delivery' && taskStatus === 'running' && <div className="delivery-stage-action"><Button disabled={Boolean(busy)} onClick={() => onFinishStage(latestPackage)}><CheckCircle2 size={14}/>完成交付阶段</Button></div>}</>}</section>
+    <section className="workos-section"><SectionHeader kicker="任务交付" title="正式交付" action={taskStatus === 'delivered' ? <StatusText value="delivered"/> : undefined}/>{deliveries.length > 0 ? <div className="production-record-list">{deliveries.map(delivery => <article key={delivery.id}><span className="object-mark is-success"><PackageCheck size={15}/></span><div><strong>{deliveryDestinationLabel(delivery.destination)}</strong><small>{delivery.manifest.length} 个文件 · {delivery.delivery_package_id || '无交付包'}</small></div><StatusText value={delivery.integrity_status}/><StatusText value={delivery.status}/></article>)}</div> : <Empty title="尚未正式交付" detail="所有流程阶段完成并接受任务后，可将完整交付包发送到指定目的地。"/>}{taskStatus === 'accepted' && latestPackage && finalArtifact && <div className="delivery-form"><Field label="交付目的地"><input value={destination} onChange={event => setDestination(event.target.value)}/></Field><Button disabled={Boolean(busy)} onClick={onDeliver}><PackageCheck size={15}/>{busy === 'deliver-task' ? '交付中…' : '确认完整性交付'}</Button></div>}</section>
   </>;
 }
 
 function TypedStageEditor({stage, outputIDs, setOutputIDs, busy, onReport}: {stage: StageDefinition; outputIDs: Record<string,string>; setOutputIDs: (value: Record<string,string>) => void; busy: string; onReport: () => void}) {
-  return <section className="workos-section typed-stage-editor"><SectionHeader kicker="类型化输出" title={`完成 ${stage.name}`}/><div className="typed-output-grid">{stage.required_output_types.map((requirement, index) => {const key = `${requirement.output_type}:${index}`; return <Field key={key} label={outputLabels[requirement.output_type] || requirement.output_type} hint={`${requirement.role || 'primary'} · 最低状态 ${requirement.min_status || 'validated'}`}><input value={outputIDs[key] || ''} onChange={event => setOutputIDs({...outputIDs, [key]: event.target.value})} placeholder="服务端规范对象 ID"/></Field>;})}</div><div className="stage-check-list">{stage.checks.map(check => <span key={check}><Check size={13}/>{check}</span>)}</div><div className="production-editor-actions"><Button disabled={Boolean(busy) || stage.required_output_types.some((requirement, index) => !(outputIDs[`${requirement.output_type}:${index}`] || '').trim())} onClick={onReport}><CheckCircle2 size={14}/>{busy === 'report-stage' ? '核验中...' : '核验并完成 Stage'}</Button></div></section>;
+  return <section className="workos-section typed-stage-editor"><SectionHeader kicker="规范化输出" title={`完成${stage.name}`}/><div className="typed-output-grid">{stage.required_output_types.map((requirement, index) => {const key = `${requirement.output_type}:${index}`; return <Field key={key} label={outputLabels[requirement.output_type] || `其他输出（${requirement.output_type}）`} hint={`${outputRoleLabel(requirement.role || 'primary')} · 最低要求：${commonStatusLabel(requirement.min_status || 'validated')}`}><input value={outputIDs[key] || ''} onChange={event => setOutputIDs({...outputIDs, [key]: event.target.value})} placeholder="服务端规范对象 ID"/></Field>;})}</div><div className="stage-check-list">{stage.checks.map(check => <span key={check}><Check size={13}/>{workflowCheckLabel(check)}</span>)}</div><div className="production-editor-actions"><Button disabled={Boolean(busy) || stage.required_output_types.some((requirement, index) => !(outputIDs[`${requirement.output_type}:${index}`] || '').trim())} onClick={onReport}><CheckCircle2 size={14}/>{busy === 'report-stage' ? '核验中…' : '核验并完成当前阶段'}</Button></div></section>;
 }
 
 function MediaPreview({artifact, failed, onError}: {artifact?: Artifact; failed:boolean; onError: () => void}) {
-  if (!artifact) return <div className="media-preview is-empty"><Video size={25}/><span>媒体 Artifact 待生成</span></div>;
-  if (failed) return <div className="media-preview is-error"><AlertCircle size={24}/><span>当前 Fixture 无浏览器可解码轨道</span><code>{artifact.sha256.slice(0, 20)}...</code></div>;
-  return <div className="media-preview"><video controls preload="metadata" playsInline onError={onError}><source src={`/api/bff/artifacts/${encodeURIComponent(artifact.id)}/download`} type={artifact.media_type}/></video><span className="media-kind">{artifact.kind === 'final_render' ? 'FINAL' : 'TAKE'}</span></div>;
+  if (!artifact) return <div className="media-preview is-empty"><Video size={25}/><span>媒体文件待生成</span></div>;
+  if (failed) return <div className="media-preview is-error"><AlertCircle size={24}/><span>当前演示媒体无法在浏览器中播放</span><code>{artifact.sha256.slice(0, 20)}…</code></div>;
+  return <div className="media-preview"><video controls preload="metadata" playsInline onError={onError}><source src={`/api/bff/artifacts/${encodeURIComponent(artifact.id)}/download`} type={artifact.media_type}/></video><span className="media-kind">{artifact.kind === 'final_render' ? '最终成片' : '候选成片'}</span></div>;
 }
 
 function TabCount({tab, view}: {tab:ProductionTab;view:WorkTaskView}) {
@@ -470,7 +469,7 @@ function SectionHeader({kicker, title, action}: {kicker:string;title:string;acti
 }
 
 function StatusText({value}: {value:string}) {
-  return <span className={`status-text ${tone(value)}`}><i></i>{statusLabels[value] || value}</span>;
+  return <span className={`status-text ${tone(value)}`}><i></i>{commonStatusLabel(value)}</span>;
 }
 
 function SideFact({label, value, icon: Icon}: {label:string;value:string;icon?:typeof Workflow}) {

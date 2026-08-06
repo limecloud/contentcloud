@@ -108,13 +108,13 @@ func (s *Store) AppendBootstrapProgress(_ context.Context, tokenHash string, eve
 		if reflect.DeepEqual(existing, event) {
 			return existing, nil
 		}
-		return event, domain.Conflict("BOOTSTRAP_PROGRESS_SEQUENCE_CONFLICT", "同一 sequence 已存在不同事件")
+		return event, domain.Conflict("BOOTSTRAP_PROGRESS_SEQUENCE_CONFLICT", "同一进度序号（sequence）已存在不同事件")
 	}
 	if attempt.State == "completed" || attempt.State == "failed" || attempt.State == "denied" {
 		return event, domain.Conflict("BOOTSTRAP_PROGRESS_TERMINAL", "初始化尝试进入终态后不能追加新进度")
 	}
 	if event.Sequence != attempt.LastSequence+1 {
-		return event, domain.Conflict("BOOTSTRAP_PROGRESS_SEQUENCE_GAP", "bootstrap progress sequence 必须连续递增")
+		return event, domain.Conflict("BOOTSTRAP_PROGRESS_SEQUENCE_GAP", "初始化进度序号（sequence）必须连续递增")
 	}
 	s.bootstrapEvents[attemptID][event.Sequence] = event
 	attempt.LastSequence = event.Sequence

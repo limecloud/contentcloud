@@ -137,7 +137,7 @@ func sameOriginBootstrapURL(serverURL, verificationURL string) (string, error) {
 	server, serverErr := url.Parse(serverURL)
 	target, targetErr := url.Parse(verificationURL)
 	if serverErr != nil || targetErr != nil || target.User != nil || target.Scheme != server.Scheme || !strings.EqualFold(target.Host, server.Host) || target.Path == "" {
-		return "", domain.Policy("BOOTSTRAP_VERIFICATION_URL_INVALID", "服务端返回了非同源的浏览器授权地址", "检查 ContentCloud 反向代理 Host 配置后重试")
+		return "", domain.Policy("BOOTSTRAP_VERIFICATION_URL_INVALID", "服务端返回了非同源的浏览器授权地址", "检查 Content Work OS 反向代理的 Host 配置后重试")
 	}
 	return target.String(), nil
 }
@@ -167,10 +167,10 @@ func (r *Root) bootstrapDiagnosticCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "diagnostics [directory]",
 		Args:  cobra.MaximumNArgs(1),
-		Short: "Preview a redacted bootstrap diagnostic summary",
+		Short: "预览已脱敏的初始化诊断摘要",
 		RunE: func(command *cobra.Command, args []string) error {
 			if _, err := uuid.Parse(strings.TrimSpace(attemptID)); err != nil {
-				return domain.Invalid("BOOTSTRAP_ATTEMPT_ID_INVALID", "--attempt 必须是有效的初始化 attempt ID")
+				return domain.Invalid("BOOTSTRAP_ATTEMPT_ID_INVALID", "--attempt 必须是有效的初始化尝试 ID")
 			}
 			cfg, err := localconfig.Load()
 			if err != nil {
@@ -193,7 +193,7 @@ func (r *Root) bootstrapDiagnosticCommand() *cobra.Command {
 				return domain.Policy("BOOTSTRAP_DIAGNOSTIC_CONFIRMATION_REQUIRED", "上传前必须确认当前脱敏摘要", "先预览输出，再同时传入 --upload --accept-upload")
 			}
 			if cfg.WorkspaceID == "" {
-				return domain.Conflict("WORKSPACE_BINDING_MISSING", "当前配置没有可用于上传诊断摘要的 Workspace")
+				return domain.Conflict("WORKSPACE_BINDING_MISSING", "当前配置没有可用于上传诊断摘要的工作区")
 			}
 			workspaceToken, err := localconfig.WorkspaceToken(cfg.WorkspaceID)
 			if err != nil {
@@ -207,9 +207,9 @@ func (r *Root) bootstrapDiagnosticCommand() *cobra.Command {
 			return r.writeOK("bootstrap.diagnostics", result)
 		},
 	}
-	command.Flags().StringVar(&attemptID, "attempt", "", "bootstrap attempt ID shown with the support code")
-	command.Flags().BoolVar(&upload, "upload", false, "upload the previewed redacted summary")
-	command.Flags().BoolVar(&acceptUpload, "accept-upload", false, "confirm upload of exactly the generated summary")
+	command.Flags().StringVar(&attemptID, "attempt", "", "与支持码一同显示的初始化尝试 ID")
+	command.Flags().BoolVar(&upload, "upload", false, "上传刚刚预览的脱敏摘要")
+	command.Flags().BoolVar(&acceptUpload, "accept-upload", false, "确认只上传本次生成的摘要")
 	return command
 }
 

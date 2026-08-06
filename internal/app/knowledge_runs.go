@@ -44,7 +44,7 @@ func (s *Service) CreateKnowledgeExtractionRun(ctx context.Context, actor Actor,
 			return domain.TaskRun{}, domain.Policy("SOURCE_REVISION_PROJECT_MISMATCH", "来源版本不属于当前项目", "只选择当前项目内的来源版本")
 		}
 		if revision.ProcessingStatus != "ready" {
-			return domain.TaskRun{}, domain.Policy("SOURCE_REVISION_NOT_READY", "来源版本尚未完成可信解析", "等待来源状态变为 ready")
+			return domain.TaskRun{}, domain.Policy("SOURCE_REVISION_NOT_READY", "来源版本尚未完成可信解析", "等待来源状态变为“就绪（ready）”")
 		}
 		source, err := s.store.Source(ctx, actor.TenantID, revision.SourceID)
 		if err != nil {
@@ -62,7 +62,7 @@ func (s *Service) CreateKnowledgeExtractionRun(ctx context.Context, actor Actor,
 			evidence = append(evidence, domain.ContractEvidence{ID: span.ID, LocatorKind: span.LocatorKind, Locator: span.Locator, Quote: span.QuoteText, QuoteHash: span.QuoteHash})
 		}
 		if len(evidence) == 0 {
-			return domain.TaskRun{}, domain.Policy("ACCEPTED_EVIDENCE_REQUIRED", "来源版本没有可用于提取的已验收证据", "先复核并接受至少一个证据片段")
+			return domain.TaskRun{}, domain.Policy("ACCEPTED_EVIDENCE_REQUIRED", "来源版本没有可用于提取的已接受证据", "先复核并接受至少一个证据片段")
 		}
 		sources = append(sources, domain.ContractSource{SourceID: source.ID, RevisionID: revision.ID, Name: source.Name, SourceType: source.SourceType, FileName: revision.FileName, SHA256: revision.SHA256, DetectedMIME: revision.DetectedMIME, Evidence: evidence})
 	}
@@ -95,7 +95,7 @@ func (s *Service) ReportTask(ctx context.Context, actor Actor, device domain.Dev
 		var pkg domain.KnowledgeExtractionPackage
 		if err := decodeStrict(body, &pkg); err != nil {
 			s.failMalformedOutput(ctx, actor, device, run, attemptID, runToken, "knowledge_json")
-			return nil, domain.Invalid("CAPABILITY_OUTPUT_INVALID", "本地 Agent 返回的知识候选 JSON 无效: "+err.Error())
+			return nil, domain.Invalid("CAPABILITY_OUTPUT_INVALID", "本地智能体返回的知识候选 JSON 无效："+err.Error())
 		}
 		return s.reportKnowledgeExtraction(ctx, actor, device, run, attemptID, runToken, pkg, requestID)
 	default:
@@ -123,11 +123,11 @@ func (s *Service) reportKnowledgeExtraction(ctx context.Context, actor Actor, de
 		return domain.KnowledgeExtractionResult{}, domain.Conflict("RUN_CANCELED", "任务已取消，结果不会入库")
 	}
 	if pkg.SchemaVersion != "1.0" || len(pkg.Candidates) == 0 || len(pkg.Candidates) > run.OutputCount {
-		return s.rejectKnowledgeOutput(ctx, run, attempt, "output_validation", "知识候选 Schema 版本或数量不符合任务契约", domain.Invalid("KNOWLEDGE_PACKAGE_INVALID", "知识候选 Schema 版本或候选数量不符合任务契约"))
+		return s.rejectKnowledgeOutput(ctx, run, attempt, "output_validation", "知识候选格式版本或数量不符合任务契约", domain.Invalid("KNOWLEDGE_PACKAGE_INVALID", "知识候选格式版本或候选数量不符合任务契约"))
 	}
 	project, err := s.projectForWrite(ctx, actor, run.ProjectID)
 	if err != nil || project.Status == "archived" {
-		return domain.KnowledgeExtractionResult{}, domain.Policy("PROJECT_ARCHIVED", "已归档项目不能接收新的 Agent 结果", "恢复项目或取消任务")
+		return domain.KnowledgeExtractionResult{}, domain.Policy("PROJECT_ARCHIVED", "已归档项目不能接收新的智能体结果", "恢复项目或取消任务")
 	}
 	snapshot, err := s.store.Snapshot(ctx, actor.TenantID, run.InputSnapshotID)
 	if err != nil {
@@ -136,11 +136,11 @@ func (s *Service) reportKnowledgeExtraction(ctx context.Context, actor Actor, de
 	inputs := make([]CreateKnowledgeObjectInput, 0, len(pkg.Candidates))
 	for index, candidate := range pkg.Candidates {
 		if !knowledgeCandidateEnumsValid(candidate) || !evidenceWithinKnowledgeContract(candidate.Evidence, snapshot.Sources) {
-			return s.rejectKnowledgeOutput(ctx, run, attempt, "output_grounding", "知识候选类型、风险或证据超出冻结契约", domain.E("content", "policy", "KNOWLEDGE_CANDIDATE_INVALID", "知识候选类型、风险或证据超出 Task Contract", 7))
+			return s.rejectKnowledgeOutput(ctx, run, attempt, "output_grounding", "知识候选类型、风险或证据超出冻结契约", domain.E("content", "policy", "KNOWLEDGE_CANDIDATE_INVALID", "知识候选类型、风险或证据超出任务契约", 7))
 		}
 		evidenceIDs, err := s.knowledgeEvidenceIDs(ctx, actor.TenantID, run.ProjectID, candidate.Evidence)
 		if err != nil {
-			return s.rejectKnowledgeOutput(ctx, run, attempt, "output_grounding", "知识候选引用的 Evidence 无效", err)
+			return s.rejectKnowledgeOutput(ctx, run, attempt, "output_grounding", "知识候选引用的证据无效", err)
 		}
 		input := knowledgeCandidateObjectInput(run, candidate, evidenceIDs, index)
 		inputs = append(inputs, input)
@@ -178,7 +178,7 @@ func (s *Service) rejectKnowledgeOutput(ctx context.Context, run domain.TaskRun,
 func (s *Service) failMalformedOutput(ctx context.Context, actor Actor, device domain.Device, run domain.TaskRun, attemptID, runToken, failureClass string) {
 	attempt, err := s.activeRunAttempt(ctx, actor, device, run, attemptID, runToken, s.now().UTC())
 	if err == nil {
-		_, _ = s.failRunAttempt(ctx, run, attempt, failureClass, nil, nil, "本地 Agent 返回无法解析的结构化输出")
+		_, _ = s.failRunAttempt(ctx, run, attempt, failureClass, nil, nil, "本地智能体返回了无法解析的结构化输出")
 	}
 }
 
@@ -223,14 +223,14 @@ func (s *Service) knowledgeEvidenceIDs(ctx context.Context, tenantID, projectID 
 	ids := make([]string, 0, len(refs))
 	for _, ref := range refs {
 		if strings.TrimSpace(ref.SourceRevisionID) == "" || strings.TrimSpace(ref.LocatorKind) == "" || strings.TrimSpace(ref.Quote) == "" {
-			return nil, domain.Invalid("EVIDENCE_REF_INVALID", "Evidence 引用缺少来源版本、定位类型或原文")
+			return nil, domain.Invalid("EVIDENCE_REF_INVALID", "证据引用缺少来源版本、定位类型或原文")
 		}
 		revision, err := s.store.SourceRevision(ctx, tenantID, ref.SourceRevisionID)
 		if err != nil {
 			return nil, err
 		}
 		if revision.ProjectID != projectID {
-			return nil, domain.Policy("EVIDENCE_PROJECT_MISMATCH", "Evidence 来源不属于当前项目", "选择当前项目内的已验收 Evidence")
+			return nil, domain.Policy("EVIDENCE_PROJECT_MISMATCH", "证据来源不属于当前项目", "选择当前项目内已接受的证据")
 		}
 		spans, err := s.store.Evidence(ctx, tenantID, revision.ID)
 		if err != nil {
@@ -244,7 +244,7 @@ func (s *Service) knowledgeEvidenceIDs(ctx context.Context, tenantID, projectID 
 			}
 		}
 		if matched == "" {
-			return nil, domain.Policy("EVIDENCE_NOT_ACCEPTED", "Evidence 原文或定位与已验收片段不一致", "重新选择来源中的已验收 Evidence")
+			return nil, domain.Policy("EVIDENCE_NOT_ACCEPTED", "证据原文或定位与已接受的片段不一致", "重新选择来源中已接受的证据")
 		}
 		ids = append(ids, matched)
 	}

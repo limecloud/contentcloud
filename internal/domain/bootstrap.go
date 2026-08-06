@@ -170,28 +170,28 @@ func BootstrapProgressFrom(attempt BootstrapAttempt, latest BootstrapProgressEve
 
 func ValidateBootstrapEvent(event BootstrapProgressEvent) error {
 	if event.SchemaVersion != BootstrapSchemaVersion {
-		return Invalid("BOOTSTRAP_PROGRESS_SCHEMA_INVALID", "bootstrap progress schema_version 必须为 1.0")
+		return Invalid("BOOTSTRAP_PROGRESS_SCHEMA_INVALID", "初始化进度的 schema_version 必须为 1.0")
 	}
 	if event.Sequence < 1 {
-		return Invalid("BOOTSTRAP_PROGRESS_SEQUENCE_INVALID", "bootstrap progress sequence 必须大于 0")
+		return Invalid("BOOTSTRAP_PROGRESS_SEQUENCE_INVALID", "初始化进度序号（sequence）必须大于 0")
 	}
 	if step, _ := BootstrapStageStep(event.Stage); step == 0 {
-		return Invalid("BOOTSTRAP_PROGRESS_STAGE_INVALID", "bootstrap progress stage 不受支持")
+		return Invalid("BOOTSTRAP_PROGRESS_STAGE_INVALID", "不支持该初始化阶段")
 	}
 	if !bootstrapStatuses[event.Status] {
-		return Invalid("BOOTSTRAP_PROGRESS_STATUS_INVALID", "bootstrap progress status 不受支持")
+		return Invalid("BOOTSTRAP_PROGRESS_STATUS_INVALID", "不支持该初始化进度状态")
 	}
 	if event.CheckID != "" && !BootstrapCheckIDs()[event.CheckID] {
-		return Invalid("BOOTSTRAP_CHECK_ID_INVALID", "bootstrap check_id 不在版本化目录中")
+		return Invalid("BOOTSTRAP_CHECK_ID_INVALID", "初始化检查标识（check_id）不在版本化目录中")
 	}
 	if event.ActionID != "" {
 		if _, ok := BootstrapActionByID(event.ActionID); !ok {
-			return Invalid("BOOTSTRAP_ACTION_ID_INVALID", "bootstrap action_id 不在版本化目录中")
+			return Invalid("BOOTSTRAP_ACTION_ID_INVALID", "初始化操作标识（action_id）不在版本化目录中")
 		}
 	}
 	for key, value := range event.Facts {
 		if !bootstrapFactKeys[key] {
-			return Invalid("BOOTSTRAP_FACT_NOT_ALLOWED", fmt.Sprintf("bootstrap fact %q 不在允许列表中", key))
+			return Invalid("BOOTSTRAP_FACT_NOT_ALLOWED", fmt.Sprintf("初始化事实字段 %q 不在允许列表中", key))
 		}
 		if err := validateBootstrapScalar(value); err != nil {
 			return err
@@ -225,35 +225,35 @@ func BootstrapActions() BootstrapActionCatalog {
 		{ID: "guide.node.install", Kind: "open_guide", Title: "安装 Node.js 20 或更高版本", Body: "完成安装后关闭并重新打开 Codex，再运行环境检查。", DocURL: "https://nodejs.org/en/download", Recheck: []string{"runtime.node.available", "runtime.node.version", "runtime.npx.available"}},
 		{ID: "guide.node.upgrade", Kind: "open_guide", Title: "升级 Node.js", Body: "当前 Node.js 版本过低，需要升级到 20 或更高版本。", DocURL: "https://nodejs.org/en/download", Recheck: []string{"runtime.node.version", "runtime.npx.available"}},
 		{ID: "guide.npx.repair", Kind: "open_guide", Title: "修复 npm 与 npx", Body: "确认 npm/npx 与 Node.js 来自同一套安装，然后重新打开 Codex。", DocURL: "https://docs.npmjs.com/downloading-and-installing-node-js-and-npm", Recheck: []string{"runtime.npx.available"}},
-		{ID: "guide.permissions.temp", Kind: "open_guide", Title: "修复临时目录权限", Body: "ContentCloud 需要在系统临时目录创建短期检测文件。", DocURL: "/help/bootstrap/permissions", Recheck: []string{"runtime.temp.writable"}},
-		{ID: "guide.credentials.keychain", Kind: "open_guide", Title: "检查 macOS 钥匙串", Body: "ContentCloud 需要使用当前用户的默认钥匙串保存设备和工作区凭据。解锁钥匙串后重新检查。", DocURL: "/help/bootstrap/keychain", Recheck: []string{"runtime.credential_store.available"}},
-		{ID: "guide.path.desktop", Kind: "open_guide", Title: "让 Codex Desktop 识别命令行工具", Body: "重新打开 Codex Desktop；若仍失败，请按教程统一 Desktop 与终端的 PATH。", DocURL: "/help/bootstrap/codex-path", Recheck: []string{"runtime.path.consistent"}},
+		{ID: "guide.permissions.temp", Kind: "open_guide", Title: "修复临时目录权限", Body: "Content Work OS 需要在系统临时目录创建短期检测文件。", DocURL: "/help/bootstrap/permissions", Recheck: []string{"runtime.temp.writable"}},
+		{ID: "guide.credentials.keychain", Kind: "open_guide", Title: "检查 macOS 钥匙串", Body: "Content Work OS 需要使用当前用户的默认钥匙串保存设备和工作区凭据。解锁钥匙串后重新检查。", DocURL: "/help/bootstrap/keychain", Recheck: []string{"runtime.credential_store.available"}},
+		{ID: "guide.path.desktop", Kind: "open_guide", Title: "让 Codex Desktop 识别命令行工具", Body: "重新打开 Codex Desktop；若仍失败，请按教程统一桌面客户端与终端的 PATH。", DocURL: "/help/bootstrap/codex-path", Recheck: []string{"runtime.path.consistent"}},
 		{ID: "guide.codex.cli_install", Kind: "open_guide", Title: "安装 Codex CLI", Body: "安装 Codex CLI 后重新打开终端和 Codex Desktop。", DocURL: "https://developers.openai.com/codex/quickstart", Recheck: []string{"codex.cli.available", "codex.cli.version"}},
 		{ID: "guide.codex.upgrade", Kind: "open_guide", Title: "升级 Codex", Body: "当前 Codex CLI 不在服务端兼容范围内。升级后重新检查。", DocURL: "https://developers.openai.com/codex/quickstart", Recheck: []string{"codex.cli.version"}},
 		{ID: "guide.codex.desktop_install", Kind: "open_guide", Title: "安装 Codex Desktop", Body: "安装并登录 Codex Desktop，然后回到这里重新检查。", DocURL: "https://developers.openai.com/codex/app", Recheck: []string{"codex.desktop.available"}},
 		{ID: "open.codex.login", Kind: "open_codex", Title: "登录 Codex", Body: "在 Codex 中完成登录，再重新检查当前步骤。", Handler: "codex_login", Recheck: []string{"codex.auth.ready"}},
-		{ID: "guide.codex.home_mismatch", Kind: "open_guide", Title: "统一 Codex 配置目录", Body: "CLI 与 Desktop 需要在同一用户和同一 CODEX_HOME 下运行。", DocURL: "/help/bootstrap/codex-home", Recheck: []string{"codex.home.consistent"}},
-		{ID: "contact_admin.codex_policy", Kind: "contact_support", Title: "联系 Codex 管理员", Body: "当前 Workspace 策略可能禁止 Plugin 或 MCP。", Handler: "contact_admin", Recheck: []string{"codex.workspace.policy"}},
-		{ID: "retry.network.contentcloud", Kind: "retry_check", Title: "重新连接 ContentCloud", Body: "检查网络后只重试 ContentCloud 服务连接。", Handler: "retry_check", Recheck: []string{"network.contentcloud.reachable"}},
-		{ID: "guide.network.npm", Kind: "open_guide", Title: "检查 npm 网络", Body: "确认网络或代理允许访问 npm Registry。", DocURL: "/help/bootstrap/network", Recheck: []string{"network.npm.reachable"}},
-		{ID: "guide.network.marketplace", Kind: "open_guide", Title: "检查 Plugin 来源网络", Body: "确认网络或代理允许访问固定的 Plugin Marketplace 来源。", DocURL: "/help/bootstrap/network", Recheck: []string{"network.marketplace.reachable"}},
+		{ID: "guide.codex.home_mismatch", Kind: "open_guide", Title: "统一 Codex 配置目录", Body: "命令行工具与桌面客户端需要以同一用户、同一 CODEX_HOME 运行。", DocURL: "/help/bootstrap/codex-home", Recheck: []string{"codex.home.consistent"}},
+		{ID: "contact_admin.codex_policy", Kind: "contact_support", Title: "联系 Codex 管理员", Body: "当前工作区策略可能禁止使用插件或 MCP。", Handler: "contact_admin", Recheck: []string{"codex.workspace.policy"}},
+		{ID: "retry.network.contentcloud", Kind: "retry_check", Title: "重新连接 Content Work OS", Body: "检查网络后，仅重试 Content Work OS 服务连接。", Handler: "retry_check", Recheck: []string{"network.contentcloud.reachable"}},
+		{ID: "guide.network.npm", Kind: "open_guide", Title: "检查 npm 网络", Body: "确认网络或代理允许访问 npm 软件包仓库。", DocURL: "/help/bootstrap/network", Recheck: []string{"network.npm.reachable"}},
+		{ID: "guide.network.marketplace", Kind: "open_guide", Title: "检查插件来源网络", Body: "确认网络或代理允许访问固定的插件市场来源。", DocURL: "/help/bootstrap/network", Recheck: []string{"network.marketplace.reachable"}},
 		{ID: "guide.network.openai", Kind: "open_guide", Title: "检查 Codex 网络", Body: "确认 Codex 可以登录并访问 OpenAI 服务。", DocURL: "https://developers.openai.com/codex/quickstart", Recheck: []string{"network.openai.reachable"}},
-		{ID: "repair.marketplace.install", Kind: "run_managed_repair", Title: "安装 ContentCloud Marketplace", Body: "将展示固定来源和版本的安装计划，确认后才执行。", Handler: "marketplace_install", RequiresConfirmation: true, Recheck: []string{"codex.marketplace.identity"}},
-		{ID: "contact_support.marketplace_identity_conflict", Kind: "contact_support", Title: "Marketplace 来源冲突", Body: "检测到同名但不同来源的 Marketplace，不会自动覆盖。", Handler: "diagnostic_support", Recheck: []string{"codex.marketplace.source_conflict"}},
-		{ID: "repair.plugin.install", Kind: "run_managed_repair", Title: "安装 ContentCloud Plugin", Body: "将展示固定 Plugin 版本和来源，确认后才执行。", Handler: "plugin_install", RequiresConfirmation: true, Recheck: []string{"codex.plugin.identity"}},
-		{ID: "contact_support.plugin_identity_conflict", Kind: "contact_support", Title: "Plugin 来源冲突", Body: "检测到同名但不同来源的 Plugin，不会自动覆盖。", Handler: "diagnostic_support", Recheck: []string{"codex.plugin.source_conflict"}},
-		{ID: "repair.plugin.enable", Kind: "run_managed_repair", Title: "启用 ContentCloud Plugin", Body: "确认后启用已验证来源的 Plugin。", Handler: "plugin_enable", RequiresConfirmation: true, Recheck: []string{"codex.plugin.enabled"}},
-		{ID: "open.codex.new_workspace_chat", Kind: "open_codex", Title: "打开新的项目对话", Body: "Plugin、Skill 或 MCP 变化需要在新对话中生效。", Handler: "new_workspace_chat", Recheck: []string{"codex.plugin.new_session", "desktop.new_chat"}},
-		{ID: "choose.workspace.directory", Kind: "choose_directory", Title: "选择新的工作区目录", Body: "请选择空目录或已绑定同一项目的 ContentCloud 目录。", Handler: "choose_directory", Recheck: []string{"workspace.path.safe", "workspace.path.writable"}},
+		{ID: "repair.marketplace.install", Kind: "run_managed_repair", Title: "安装 Content Work OS 插件市场", Body: "将展示固定来源和版本的安装计划，确认后才执行。", Handler: "marketplace_install", RequiresConfirmation: true, Recheck: []string{"codex.marketplace.identity"}},
+		{ID: "contact_support.marketplace_identity_conflict", Kind: "contact_support", Title: "插件市场来源冲突", Body: "检测到同名但来源不同的插件市场，不会自动覆盖。", Handler: "diagnostic_support", Recheck: []string{"codex.marketplace.source_conflict"}},
+		{ID: "repair.plugin.install", Kind: "run_managed_repair", Title: "安装 Content Work OS 插件", Body: "将展示固定的插件版本和来源，确认后才执行。", Handler: "plugin_install", RequiresConfirmation: true, Recheck: []string{"codex.plugin.identity"}},
+		{ID: "contact_support.plugin_identity_conflict", Kind: "contact_support", Title: "插件来源冲突", Body: "检测到同名但来源不同的插件，不会自动覆盖。", Handler: "diagnostic_support", Recheck: []string{"codex.plugin.source_conflict"}},
+		{ID: "repair.plugin.enable", Kind: "run_managed_repair", Title: "启用 Content Work OS 插件", Body: "确认后启用来源已经验证的插件。", Handler: "plugin_enable", RequiresConfirmation: true, Recheck: []string{"codex.plugin.enabled"}},
+		{ID: "open.codex.new_workspace_chat", Kind: "open_codex", Title: "打开新的项目对话", Body: "插件、技能或 MCP 发生变化后，需要新建对话才能生效。", Handler: "new_workspace_chat", Recheck: []string{"codex.plugin.new_session", "desktop.new_chat"}},
+		{ID: "choose.workspace.directory", Kind: "choose_directory", Title: "选择新的工作区目录", Body: "请选择空目录，或已绑定同一项目的 Content Work OS 目录。", Handler: "choose_directory", Recheck: []string{"workspace.path.safe", "workspace.path.writable"}},
 		{ID: "guide.permissions.workspace", Kind: "open_guide", Title: "修复工作区权限", Body: "当前目录不可写，请选择有权限的目录。", DocURL: "/help/bootstrap/permissions", Recheck: []string{"workspace.path.writable"}},
 		{ID: "repair.bootstrap.resume", Kind: "run_managed_repair", Title: "恢复初始化", Body: "复用已存在的安全凭据和工作区绑定继续初始化。", Handler: "bootstrap_resume", RequiresConfirmation: true, Recheck: []string{"workspace.binding", "workspace.template_lock"}},
-		{ID: "review.workspace.managed_files", Kind: "open_guide", Title: "检查受管文件变化", Body: "先查看 ContentCloud 受管文件的漂移，再决定是否恢复。", DocURL: "/help/bootstrap/managed-files", Recheck: []string{"workspace.managed_files"}},
-		{ID: "repair.routing.update", Kind: "run_managed_repair", Title: "更新能力路由", Body: "确认后只更新 ContentCloud 管理的能力路由。", Handler: "routing_update", RequiresConfirmation: true, Recheck: []string{"workspace.capability_routing"}},
+		{ID: "review.workspace.managed_files", Kind: "open_guide", Title: "检查受管文件变化", Body: "先查看 Content Work OS 受管文件的差异，再决定是否恢复。", DocURL: "/help/bootstrap/managed-files", Recheck: []string{"workspace.managed_files"}},
+		{ID: "repair.routing.update", Kind: "run_managed_repair", Title: "更新能力路由", Body: "确认后只更新由 Content Work OS 管理的能力路由。", Handler: "routing_update", RequiresConfirmation: true, Recheck: []string{"workspace.capability_routing"}},
 		{ID: "contact_support.environment_signature", Kind: "contact_support", Title: "环境签名验证失败", Body: "为避免安装被篡改的内容，此问题必须由支持人员核验。", Handler: "diagnostic_support", Recheck: []string{"environment.signature"}},
 		{ID: "repair.environment.plan", Kind: "run_managed_repair", Title: "重新生成环境计划", Body: "拉取并验证最新签名环境后重新展示变更计划。", Handler: "environment_plan", RequiresConfirmation: true, Recheck: []string{"environment.lock"}},
 		{ID: "retry.bootstrap.resume", Kind: "run_managed_repair", Title: "继续注册工作区", Body: "本地检查已完成，只重试工作区注册。", Handler: "bootstrap_resume", RequiresConfirmation: true, Recheck: []string{"workspace.registration"}},
-		{ID: "open.codex.recovery_prompt", Kind: "copy_fixed_command", Title: "复制恢复入口", Body: "复制当前 CLI 固定的恢复命令，在工作区中新建 Codex 对话。", Handler: "copy_bootstrap_resume", Recheck: []string{"desktop.new_chat"}},
-		{ID: "open.browser.authorization", Kind: "open_browser_auth", Title: "确认这台电脑", Body: "在已登录的 ContentCloud 页面确认项目和本机授权。", Handler: "approve_bootstrap_authorization", Recheck: []string{}},
+		{ID: "open.codex.recovery_prompt", Kind: "copy_fixed_command", Title: "复制恢复入口", Body: "复制当前命令行工具提供的固定恢复命令，在工作区中新建 Codex 对话。", Handler: "copy_bootstrap_resume", Recheck: []string{"desktop.new_chat"}},
+		{ID: "open.browser.authorization", Kind: "open_browser_auth", Title: "确认这台电脑", Body: "在已登录的 Content Work OS 页面中确认项目和本机授权。", Handler: "approve_bootstrap_authorization", Recheck: []string{}},
 		{ID: "create.diagnostic.bundle", Kind: "create_diagnostic_bundle", Title: "生成诊断摘要", Body: "在本机生成脱敏摘要，预览后再决定是否上传。", Handler: "create_diagnostic_bundle", RequiresConfirmation: true, Recheck: []string{}},
 	}
 	sort.Slice(actions, func(i, j int) bool { return actions[i].ID < actions[j].ID })
@@ -278,16 +278,16 @@ func ValidateBootstrapActionCatalog(catalog BootstrapActionCatalog) error {
 	seen := map[string]bool{}
 	for _, action := range catalog.Actions {
 		if action.ID == "" || seen[action.ID] || !allowedKinds[action.Kind] {
-			return Invalid("BOOTSTRAP_ACTION_CATALOG_INVALID", "Action Catalog 包含重复 ID 或不受支持的 kind")
+			return Invalid("BOOTSTRAP_ACTION_CATALOG_INVALID", "操作目录包含重复 ID 或不受支持的类型（kind）")
 		}
 		seen[action.ID] = true
 		if action.Kind == "run_managed_repair" && (action.Handler == "" || !action.RequiresConfirmation) {
-			return Invalid("BOOTSTRAP_ACTION_CATALOG_INVALID", "受管修复必须使用固定 handler 并要求确认")
+			return Invalid("BOOTSTRAP_ACTION_CATALOG_INVALID", "受管修复必须使用固定处理器（handler）并要求确认")
 		}
 		if action.DocURL != "" {
 			parsed, err := url.Parse(action.DocURL)
 			if err != nil || (parsed.IsAbs() && parsed.Scheme != "https") || strings.Contains(strings.ToLower(action.DocURL), "javascript:") {
-				return Invalid("BOOTSTRAP_ACTION_URL_INVALID", "Action Catalog 文档地址必须是 HTTPS 或站内路径")
+				return Invalid("BOOTSTRAP_ACTION_URL_INVALID", "操作目录中的文档地址必须是 HTTPS 地址或站内路径")
 			}
 		}
 	}
@@ -311,15 +311,15 @@ func ValidateBootstrapDiagnostic(summary BootstrapDiagnosticSummary) error {
 	}
 	for _, check := range summary.Checks {
 		if !BootstrapCheckIDs()[check.CheckID] || !bootstrapStatuses[check.Status] {
-			return Invalid("BOOTSTRAP_DIAGNOSTIC_CHECK_INVALID", "诊断摘要包含未知 check 或 status")
+			return Invalid("BOOTSTRAP_DIAGNOSTIC_CHECK_INVALID", "诊断摘要包含未知的检查项或状态")
 		}
 	}
 	for key, value := range summary.ManagedDigests {
 		if key != "environment_lock" && key != "plugin_spec" && key != "workspace_binding" {
-			return Invalid("BOOTSTRAP_DIAGNOSTIC_FIELD_NOT_ALLOWED", "诊断摘要包含未允许的 digest 字段")
+			return Invalid("BOOTSTRAP_DIAGNOSTIC_FIELD_NOT_ALLOWED", "诊断摘要包含不允许使用的摘要字段")
 		}
 		if value != "" && !strings.HasPrefix(value, "sha256:") {
-			return Invalid("BOOTSTRAP_DIAGNOSTIC_DIGEST_INVALID", "诊断摘要 digest 格式错误")
+			return Invalid("BOOTSTRAP_DIAGNOSTIC_DIGEST_INVALID", "诊断摘要的 digest 格式错误")
 		}
 	}
 	return nil

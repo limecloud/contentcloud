@@ -1,6 +1,7 @@
 import { LoaderCircle, PauseCircle, PlayCircle, ShieldCheck, Video } from 'lucide-react';
 import type { PlatformTenant, PlatformUser } from '../types';
 import { Empty, IconButton, Status } from '../components/ui';
+import { roleLabel } from '../uiLabels';
 
 export function TenantTable({tenants,currentTenantID,busy,onAction,onContentAction,compact=false}:{tenants:PlatformTenant[];currentTenantID:string;busy:string;onAction?:(tenant:PlatformTenant)=>void;onContentAction?:(tenant:PlatformTenant)=>void;compact?:boolean}) {
   return <div className="admin-table-scroll"><div className={`admin-tenant-table ${compact?'is-compact':''}`}>
@@ -23,6 +24,6 @@ function TenantRow({tenant,currentTenantID,busy,onAction,onContentAction,compact
 
 export function UserAvatar({user}:{user:PlatformUser}) {return <span className="admin-user-avatar">{(user.display_name||user.email).slice(0,1).toUpperCase()}</span>}
 export function AdminBadge({long=false}:{long?:boolean}) {return <span className="admin-badge"><ShieldCheck size={12}/>{long?'平台管理员':'管理员'}</span>}
-export const roleLabel=(value:string)=>({tenant_admin:'租户管理员',project_manager:'项目经理',strategist:'策略',editor:'编辑',reviewer:'审核',viewer:'查看者'}[value]||value);
+export { roleLabel };
 export const formatDate=(value:string)=>new Intl.DateTimeFormat('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
 function formatRelative(value:string){const seconds=Math.round((Date.now()-new Date(value).getTime())/1000);if(seconds<60)return '刚刚';if(seconds<3600)return `${Math.floor(seconds/60)} 分钟前`;if(seconds<86400)return `${Math.floor(seconds/3600)} 小时前`;return formatDate(value)}

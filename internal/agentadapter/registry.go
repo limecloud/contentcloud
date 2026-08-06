@@ -106,7 +106,7 @@ func RequireKnown(value string) (ClientDefinition, error) {
 	if ok {
 		return client, nil
 	}
-	err := domain.Invalid("AGENT_CLIENT_INVALID", "未知的 Agent 客户端")
+	err := domain.Invalid("AGENT_CLIENT_INVALID", "未知的智能体客户端")
 	err.Details = map[string]any{"client": strings.TrimSpace(value), "known_clients": ClientIDs()}
 	return ClientDefinition{}, err
 }
@@ -119,7 +119,7 @@ func RequireCapability(value string, capability Capability) (ClientDefinition, e
 	if client.CapabilityStatus(capability) == SupportAvailable {
 		return client, nil
 	}
-	domainErr := domain.Policy("AGENT_CLIENT_CAPABILITY_UNAVAILABLE", client.DisplayName+" 尚未提供所需的 ContentCloud 能力", "选择已支持该能力的客户端，或等待对应 Adapter 发布")
+	domainErr := domain.Policy("AGENT_CLIENT_CAPABILITY_UNAVAILABLE", client.DisplayName+" 尚未提供所需的 Content Work OS 能力", "选择已支持该能力的客户端，或等待对应适配器发布")
 	domainErr.Details = map[string]any{"client": client.ID, "capability": capability, "status": client.CapabilityStatus(capability)}
 	return ClientDefinition{}, domainErr
 }

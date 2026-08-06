@@ -338,7 +338,7 @@ func (s *Service) SaveEnvironment(ctx context.Context, actor Actor, id string, i
 	}
 	if input.Status != "" {
 		if input.Status != "active" && input.Status != "paused" {
-			return value, domain.Invalid("ENVIRONMENT_STATUS_INVALID", "Environment 状态只能是 active 或 paused")
+			return value, domain.Invalid("ENVIRONMENT_STATUS_INVALID", "执行环境状态只能是“运行中（active）”或“已暂停（paused）”")
 		}
 		value.Status = input.Status
 	}
@@ -355,13 +355,13 @@ func (s *Service) SaveEnvironment(ctx context.Context, actor Actor, id string, i
 			}
 		}
 		if !validVersion {
-			return value, domain.Policy("DEFAULT_SOP_NOT_PUBLISHED", "Environment 默认 SOP 必须是当前租户已发布版本", "先发布该 SOP 版本，再设为默认")
+			return value, domain.Policy("DEFAULT_SOP_NOT_PUBLISHED", "执行环境的默认流程规范必须是当前租户已发布的版本", "先发布该流程规范版本，再设为默认")
 		}
 		value.DefaultSOPID = input.DefaultSOPID
 		value.DefaultSOPVersion = input.DefaultSOPVersion
 	}
 	if value.DefaultSOPID == "" || value.DefaultSOPVersion < 1 {
-		return value, domain.Policy("ENVIRONMENT_DEFAULT_SOP_REQUIRED", "Environment 必须绑定已发布 SOP 版本", "先选择一条已发布 SOP，再保存 Environment")
+		return value, domain.Policy("ENVIRONMENT_DEFAULT_SOP_REQUIRED", "执行环境必须绑定已发布的流程规范版本", "先选择一条已发布的流程规范，再保存执行环境")
 	}
 	if input.Capabilities != nil {
 		value.Capabilities = input.Capabilities
@@ -381,15 +381,15 @@ func (s *Service) CreateEnvironment(ctx context.Context, actor Actor, input Save
 	name := strings.TrimSpace(input.Name)
 	slug := strings.TrimSpace(input.Slug)
 	if name == "" || slug == "" {
-		return domain.Environment{}, domain.Invalid("ENVIRONMENT_FIELDS_REQUIRED", "Environment 名称和标识不能为空")
+		return domain.Environment{}, domain.Invalid("ENVIRONMENT_FIELDS_REQUIRED", "执行环境名称和标识不能为空")
 	}
 	value := domain.Environment{ID: domain.NewID(), TenantID: actor.TenantID, Name: name, Slug: slug, Status: defaultString(input.Status, "active"), Capabilities: append([]domain.EnvironmentCapability(nil), input.Capabilities...), CreatedAt: s.now().UTC(), UpdatedAt: s.now().UTC()}
 	value.NormalizeCollections()
 	if value.Status != "active" && value.Status != "paused" {
-		return domain.Environment{}, domain.Invalid("ENVIRONMENT_STATUS_INVALID", "Environment 状态只能是 active 或 paused")
+		return domain.Environment{}, domain.Invalid("ENVIRONMENT_STATUS_INVALID", "执行环境状态只能是“运行中（active）”或“已暂停（paused）”")
 	}
 	if input.DefaultSOPID == "" || input.DefaultSOPVersion < 1 {
-		return domain.Environment{}, domain.Policy("ENVIRONMENT_DEFAULT_SOP_REQUIRED", "Environment 必须绑定已发布 SOP 版本", "先选择一条已发布 SOP，再创建 Environment")
+		return domain.Environment{}, domain.Policy("ENVIRONMENT_DEFAULT_SOP_REQUIRED", "执行环境必须绑定已发布的流程规范版本", "先选择一条已发布的流程规范，再创建执行环境")
 	}
 	if input.DefaultSOPID != "" {
 		summary, err := s.store.SOP(ctx, actor.TenantID, input.DefaultSOPID)
@@ -404,7 +404,7 @@ func (s *Service) CreateEnvironment(ctx context.Context, actor Actor, input Save
 			}
 		}
 		if value.DefaultSOPID == "" {
-			return domain.Environment{}, domain.Policy("DEFAULT_SOP_NOT_PUBLISHED", "Environment 默认 SOP 必须是当前租户已发布版本", "先发布该 SOP 版本，再创建 Environment")
+			return domain.Environment{}, domain.Policy("DEFAULT_SOP_NOT_PUBLISHED", "执行环境的默认流程规范必须是当前租户已发布的版本", "先发布该流程规范版本，再创建执行环境")
 		}
 	}
 	if err := value.Validate(); err != nil {
@@ -423,7 +423,7 @@ func (s *Service) CreateSOP(ctx context.Context, actor Actor, input CreateSOPInp
 	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
-		return domain.SOPSummary{}, domain.Invalid("SOP_NAME_REQUIRED", "SOP 名称不能为空")
+		return domain.SOPSummary{}, domain.Invalid("SOP_NAME_REQUIRED", "流程规范名称不能为空")
 	}
 	contentTypes := append([]string(nil), input.ContentTypes...)
 	if len(contentTypes) == 0 {
@@ -465,10 +465,10 @@ func (s *Service) SaveSOPVersion(ctx context.Context, actor Actor, sopID string,
 		}
 	}
 	if current.ID == "" {
-		return current, domain.NotFound("SOP 版本")
+		return current, domain.NotFound("流程规范版本")
 	}
 	if current.Status != "draft" {
-		return current, domain.Conflict("SOP_VERSION_IMMUTABLE", "已发布 SOP 版本不可直接修改，请复制为新草稿")
+		return current, domain.Conflict("SOP_VERSION_IMMUTABLE", "已发布的流程规范版本不可直接修改，请复制为新草稿")
 	}
 	current.Name = strings.TrimSpace(input.Name)
 	current.Description = input.Description
@@ -650,7 +650,7 @@ func (s *Service) RollbackSOPVersion(ctx context.Context, actor Actor, sopID str
 		return SOPRollbackResult{}, err
 	}
 	if target.Status != "published" && target.Status != "retired" {
-		return SOPRollbackResult{}, domain.Policy("SOP_ROLLBACK_SOURCE_INVALID", "只能从已发布或已退休版本回滚", "选择一个有 digest 的历史版本")
+		return SOPRollbackResult{}, domain.Policy("SOP_ROLLBACK_SOURCE_INVALID", "只能从已发布或已停用的版本回滚", "选择一个有摘要的历史版本")
 	}
 	previousVersion := summary.Definition.CurrentVersion
 	if previousVersion == 0 {
@@ -728,7 +728,7 @@ func (s *Service) sopVersionFromSummary(summary domain.SOPSummary, version int) 
 			return candidate, nil
 		}
 	}
-	return domain.SOPVersion{}, domain.NotFound("SOP 版本")
+	return domain.SOPVersion{}, domain.NotFound("流程规范版本")
 }
 
 func (s *Service) CreateSOPDraft(ctx context.Context, actor Actor, sopID string, sourceVersion int, requestID string) (domain.SOPVersion, error) {
@@ -753,7 +753,7 @@ func (s *Service) CreateSOPDraft(ctx context.Context, actor Actor, sopID string,
 		}
 	}
 	if source.ID == "" {
-		return domain.SOPVersion{}, domain.NotFound("SOP 源版本")
+		return domain.SOPVersion{}, domain.NotFound("流程规范源版本")
 	}
 	now := s.now().UTC()
 	draft := source
@@ -782,7 +782,7 @@ func (s *Service) PublishSOP(ctx context.Context, actor Actor, sopID string, ver
 		return domain.SOPVersion{}, err
 	}
 	if !report.Valid {
-		return domain.SOPVersion{}, domain.Policy("SOP_LINT_FAILED", "SOP 发布前检查未通过", "修正 Stage、Gate 和执行方式配置后重试")
+		return domain.SOPVersion{}, domain.Policy("SOP_LINT_FAILED", "流程规范发布前检查未通过", "修正流程阶段、检查与审批及执行方式配置后重试")
 	}
 	value, err := s.store.PublishSOPVersion(ctx, actor.TenantID, sopID, version, actor.UserID, s.now().UTC())
 	if err != nil {
@@ -805,7 +805,7 @@ func (s *Service) RetireSOPVersion(ctx context.Context, actor Actor, sopID strin
 		return err
 	}
 	if value.Status != "published" {
-		return domain.Conflict("SOP_VERSION_STATE_INVALID", "只有已发布 SOP 版本可以退休")
+		return domain.Conflict("SOP_VERSION_STATE_INVALID", "只有已发布的流程规范版本可以停用")
 	}
 	if err := s.store.RetireSOPVersion(ctx, actor.TenantID, sopID, version, s.now().UTC()); err != nil {
 		return err
@@ -830,7 +830,7 @@ func (s *Service) LintSOPVersion(ctx context.Context, actor Actor, sopID string,
 		}
 	}
 	if value.ID == "" {
-		return SOPLintReport{}, domain.NotFound("SOP 版本")
+		return SOPLintReport{}, domain.NotFound("流程规范版本")
 	}
 	report := SOPLintReport{Errors: []SOPLintIssue{}, Warnings: []SOPLintIssue{}}
 	addError := func(code, path, message string) {
@@ -846,7 +846,7 @@ func (s *Service) LintSOPVersion(ctx context.Context, actor Actor, sopID string,
 		addError("content_type.required", "content_types", "至少选择一种内容类型")
 	}
 	if len(value.Stages) == 0 {
-		addError("stage.required", "stages", "SOP 至少需要一个 Stage")
+		addError("stage.required", "stages", "流程规范至少需要一个流程阶段")
 	}
 	if strings.TrimSpace(value.DefaultExecutionMode) == "" {
 		addError("execution_mode.required", "default_execution_mode", "必须配置默认执行方式")
@@ -857,11 +857,11 @@ func (s *Service) LintSOPVersion(ctx context.Context, actor Actor, sopID string,
 		path := "stages[" + strconv.Itoa(index) + "]"
 		for _, ref := range stage.InputRefs {
 			if !seenStages[ref] {
-				addError("stage.input_ref.invalid", path+".input_refs", "输入引用必须指向当前 Stage 之前的 Stage")
+				addError("stage.input_ref.invalid", path+".input_refs", "输入引用必须指向当前流程阶段之前的阶段")
 			}
 		}
 		if len(stage.ExecutionModes) == 0 {
-			addError("stage.execution_mode.required", path+".execution_modes", "Stage 至少需要一种执行方式")
+			addError("stage.execution_mode.required", path+".execution_modes", "流程阶段至少需要一种执行方式")
 		}
 		for _, gateID := range stage.GateIDs {
 			usedGates[gateID] = true
@@ -872,16 +872,16 @@ func (s *Service) LintSOPVersion(ctx context.Context, actor Actor, sopID string,
 		path := "gates[" + strconv.Itoa(index) + "]"
 		humanGate := gate.Mode == domain.GateModeRequired || gate.Mode == domain.GateModeInternalReview || gate.Mode == domain.GateModeClientDecision
 		if humanGate && !gate.Blocking {
-			addError("gate.required_not_blocking", path+".blocking", "人工 Gate 必须阻断后续 Stage")
+			addError("gate.required_not_blocking", path+".blocking", "人工审核必须阻断后续流程阶段")
 		}
 		if !humanGate && gate.Mode != domain.GateModeRequiredCheck && gate.Blocking {
-			addError("gate.optional_blocking", path+".blocking", "none、advisory 或检查 Gate 不能阻断后续 Stage")
+			addError("gate.optional_blocking", path+".blocking", "无审批（none）、可选建议（advisory）或必做检查不能阻断后续流程阶段")
 		}
 		if !usedGates[gate.ID] {
-			addWarning("gate.unused", path, "Gate 尚未绑定到任何 Stage")
+			addWarning("gate.unused", path, "检查与审批项尚未绑定到任何流程阶段")
 		}
 		if humanGate && len(gate.AssigneeRoles) == 0 {
-			addWarning("gate.assignee_roles.empty", path+".assignee_roles", "人工 Gate 建议配置决定角色")
+			addWarning("gate.assignee_roles.empty", path+".assignee_roles", "人工审核建议配置决定角色")
 		}
 	}
 	report.Valid = len(report.Errors) == 0
@@ -932,7 +932,7 @@ func (s *Service) ProjectSOP(ctx context.Context, actor Actor, projectID string)
 				return binding, desiredSOP, nil
 			}
 		}
-		return binding, domain.SOPVersion{}, domain.NotFound("SOP 版本")
+		return binding, domain.SOPVersion{}, domain.NotFound("流程规范版本")
 	}
 	if !domain.IsNotFound(err) {
 		return domain.ProjectSOPBinding{}, domain.SOPVersion{}, err
@@ -971,14 +971,14 @@ func (s *Service) BindProjectSOP(ctx context.Context, actor Actor, projectID str
 	}
 	environmentID := strings.TrimSpace(input.EnvironmentID)
 	if environmentID == "" {
-		return ProjectSOPBindingResult{}, domain.Invalid("PROJECT_SOP_ENVIRONMENT_REQUIRED", "Project SOP 绑定必须指定 Environment")
+		return ProjectSOPBindingResult{}, domain.Invalid("PROJECT_SOP_ENVIRONMENT_REQUIRED", "项目流程规范绑定必须指定执行环境")
 	}
 	environment, err := s.store.Environment(ctx, actor.TenantID, environmentID)
 	if err != nil {
 		return ProjectSOPBindingResult{}, err
 	}
 	if environment.DefaultSOPID == "" || environment.DefaultSOPVersion < 1 {
-		return ProjectSOPBindingResult{}, domain.Policy("ENVIRONMENT_SOP_REQUIRED", "Environment 尚未配置已发布 SOP", "先在管理后台为 Environment 配置默认 SOP")
+		return ProjectSOPBindingResult{}, domain.Policy("ENVIRONMENT_SOP_REQUIRED", "执行环境尚未配置已发布的流程规范", "先在管理后台为执行环境配置默认流程规范")
 	}
 	sopID := strings.TrimSpace(input.SOPID)
 	version := input.SOPVersion
@@ -989,7 +989,7 @@ func (s *Service) BindProjectSOP(ctx context.Context, actor Actor, projectID str
 		version = environment.DefaultSOPVersion
 	}
 	if sopID != environment.DefaultSOPID || version != environment.DefaultSOPVersion {
-		return ProjectSOPBindingResult{}, domain.Policy("PROJECT_SOP_NOT_ALLOWED", "Project 只能绑定当前 Environment 配置的 SOP 版本", "先切换 Environment 的默认 SOP，再绑定 Project")
+		return ProjectSOPBindingResult{}, domain.Policy("PROJECT_SOP_NOT_ALLOWED", "项目只能绑定当前执行环境配置的流程规范版本", "先切换执行环境的默认流程规范，再绑定项目")
 	}
 	sop, err := s.publishedSOPVersion(ctx, actor.TenantID, sopID, version)
 	if err != nil {
@@ -1003,7 +1003,7 @@ func (s *Service) BindProjectSOP(ctx context.Context, actor Actor, projectID str
 		projectContentType = sop.ContentTypes[0]
 	}
 	if !domain.ValidTenantContentType(projectContentType) || !containsString(sop.ContentTypes, projectContentType) {
-		return ProjectSOPBindingResult{}, domain.Policy("PROJECT_SOP_CONTENT_TYPE_REQUIRED", "绑定 SOP 必须明确且适用 Project 的内容类型", "选择 SOP 支持的内容类型后重试")
+		return ProjectSOPBindingResult{}, domain.Policy("PROJECT_SOP_CONTENT_TYPE_REQUIRED", "绑定流程规范时必须明确适用于项目的内容类型", "选择流程规范支持的内容类型后重试")
 	}
 	if project.ContentType != projectContentType {
 		project.ContentType = projectContentType
@@ -1044,12 +1044,12 @@ func (s *Service) publishedSOPVersion(ctx context.Context, tenantID, sopID strin
 	for _, candidate := range summary.Versions {
 		if candidate.Version == version {
 			if candidate.Status != "published" {
-				return domain.SOPVersion{}, domain.Policy("SOP_NOT_PUBLISHED", "只能绑定已发布 SOP 版本", "先发布该 SOP 版本，再绑定 Environment 或 Project")
+				return domain.SOPVersion{}, domain.Policy("SOP_NOT_PUBLISHED", "只能绑定已发布的流程规范版本", "先发布该流程规范版本，再绑定执行环境或项目")
 			}
 			return candidate, nil
 		}
 	}
-	return domain.SOPVersion{}, domain.NotFound("SOP 版本")
+	return domain.SOPVersion{}, domain.NotFound("流程规范版本")
 }
 
 func (s *Service) CreateWorkTask(ctx context.Context, actor Actor, input CreateWorkTaskInput, requestID string) (WorkTaskView, error) {
@@ -1075,14 +1075,14 @@ func (s *Service) CreateWorkTask(ctx context.Context, actor Actor, input CreateW
 		}
 	}
 	if environment.Status != "active" {
-		return WorkTaskView{}, domain.Policy("ENVIRONMENT_PAUSED", "当前 Environment 已暂停，不能创建新任务", "在管理后台恢复 Environment 后重试")
+		return WorkTaskView{}, domain.Policy("ENVIRONMENT_PAUSED", "当前执行环境已暂停，不能创建新任务", "在管理后台恢复执行环境后重试")
 	}
 	// An explicit Environment override selects that Environment's configured
 	// SOP. A Project binding may be used only when it belongs to the selected
 	// Environment; arbitrary tenant SOPs cannot bypass Environment policy.
 	environmentSOP, envErr := s.publishedSOPVersion(ctx, actor.TenantID, environment.DefaultSOPID, environment.DefaultSOPVersion)
 	if envErr != nil {
-		return WorkTaskView{}, domain.Policy("ENVIRONMENT_SOP_INVALID", "Environment 的默认 SOP 不可用于创建任务", "先在管理后台绑定已发布 SOP")
+		return WorkTaskView{}, domain.Policy("ENVIRONMENT_SOP_INVALID", "执行环境的默认流程规范不可用于创建任务", "先在管理后台绑定已发布的流程规范")
 	}
 	sop := environmentSOP
 	if environment.ID == binding.EnvironmentID && input.EnvironmentID == "" {
@@ -1100,7 +1100,7 @@ func (s *Service) CreateWorkTask(ctx context.Context, actor Actor, input CreateW
 		allowedBound := environment.ID == binding.EnvironmentID && requestedID == binding.SOPID && requestedVersion == binding.SOPVersion
 		allowedEnvironment := requestedID == environment.DefaultSOPID && requestedVersion == environment.DefaultSOPVersion
 		if !allowedBound && !allowedEnvironment {
-			return WorkTaskView{}, domain.Policy("TASK_SOP_NOT_ALLOWED", "任务只能使用 Project 绑定或 Environment 配置的 SOP 版本", "先在管理后台调整 Project 或 Environment SOP 配置")
+			return WorkTaskView{}, domain.Policy("TASK_SOP_NOT_ALLOWED", "任务只能使用项目绑定或执行环境配置的流程规范版本", "先在管理后台调整项目或执行环境的流程规范配置")
 		}
 		sop, err = s.publishedSOPVersion(ctx, actor.TenantID, requestedID, requestedVersion)
 		if err != nil {
@@ -1108,11 +1108,11 @@ func (s *Service) CreateWorkTask(ctx context.Context, actor Actor, input CreateW
 		}
 	}
 	if sop.Status != "published" {
-		return WorkTaskView{}, domain.Policy("SOP_NOT_PUBLISHED", "只能使用已发布 SOP 创建任务", "先在管理后台发布 SOP 版本")
+		return WorkTaskView{}, domain.Policy("SOP_NOT_PUBLISHED", "只能使用已发布的流程规范创建任务", "先在管理后台发布流程规范版本")
 	}
 	now := s.now().UTC()
 	status := "ready"
-	nextAction := "开始第一个 Stage"
+	nextAction := "开始第一个流程阶段"
 	if len(input.InputRefs) == 0 {
 		status = "needs_input"
 		nextAction = "补充任务输入"
@@ -1126,7 +1126,7 @@ func (s *Service) CreateWorkTask(ctx context.Context, actor Actor, input CreateW
 		return WorkTaskView{}, domain.Invalid("TASK_CONTENT_TYPE_INVALID", "任务内容类型不受支持")
 	}
 	if project.ContentType != "" && contentType != project.ContentType {
-		return WorkTaskView{}, domain.Policy("TASK_CONTENT_TYPE_NOT_IN_PROJECT", "任务内容类型必须与 Project 生产类型一致", "在对应内容类型的 Project 中创建任务")
+		return WorkTaskView{}, domain.Policy("TASK_CONTENT_TYPE_NOT_IN_PROJECT", "任务内容类型必须与项目生产类型一致", "在对应内容类型的项目中创建任务")
 	}
 	if contentType == domain.ContentTypeMarketingVideo {
 		capabilities, capabilityErr := s.store.TenantContentCapabilities(ctx, actor.TenantID)
@@ -1141,7 +1141,7 @@ func (s *Service) CreateWorkTask(ctx context.Context, actor Actor, input CreateW
 			}
 		}
 		if !enabled {
-			return WorkTaskView{}, domain.Policy("MARKETING_VIDEO_CAPABILITY_DISABLED", "当前租户未启用营销视频全流程能力", "由平台管理员启用 marketing_video 内容能力")
+			return WorkTaskView{}, domain.Policy("MARKETING_VIDEO_CAPABILITY_DISABLED", "当前租户未启用营销视频全流程能力", "由平台管理员启用营销视频（marketing_video）内容能力")
 		}
 	}
 	contentTypeAllowed := false
@@ -1152,11 +1152,11 @@ func (s *Service) CreateWorkTask(ctx context.Context, actor Actor, input CreateW
 		}
 	}
 	if len(sop.ContentTypes) > 0 && !contentTypeAllowed {
-		return WorkTaskView{}, domain.Policy("TASK_CONTENT_TYPE_NOT_IN_SOP", "当前 SOP 未启用该内容类型", "在 SOP Builder 中启用内容类型后重试")
+		return WorkTaskView{}, domain.Policy("TASK_CONTENT_TYPE_NOT_IN_SOP", "当前流程规范未启用该内容类型", "在流程规范编辑器中启用内容类型后重试")
 	}
 	idempotencyKey := strings.TrimSpace(input.IdempotencyKey)
 	if len(idempotencyKey) > 128 {
-		return WorkTaskView{}, domain.Invalid("IDEMPOTENCY_KEY_INVALID", "Idempotency-Key 不能超过 128 字符")
+		return WorkTaskView{}, domain.Invalid("IDEMPOTENCY_KEY_INVALID", "幂等键（Idempotency-Key）不能超过 128 个字符")
 	}
 	task := domain.WorkTask{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, EnvironmentID: environment.ID, SOPID: sop.SOPID, SOPVersion: sop.Version, SOPDigest: sop.Digest, Title: strings.TrimSpace(input.Title), Intent: input.Intent, ContentType: contentType, InputRefs: input.InputRefs, RequestedOutput: input.RequestedOutput, AssigneeUserID: input.AssigneeUserID, Priority: defaultString(input.Priority, "normal"), DueAt: input.DueAt, RiskProfile: defaultString(input.RiskProfile, "low"), IdempotencyKey: idempotencyKey, Status: status, CurrentStageID: stageID, NextAction: nextAction, CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now}
 	if err := task.Validate(); err != nil {
@@ -1165,7 +1165,7 @@ func (s *Service) CreateWorkTask(ctx context.Context, actor Actor, input CreateW
 	if idempotencyKey != "" {
 		if existing, lookupErr := s.store.WorkTaskByIdempotencyKey(ctx, actor.TenantID, idempotencyKey); lookupErr == nil {
 			if !sameTaskCreateRequest(existing, task) {
-				return WorkTaskView{}, domain.Conflict("IDEMPOTENCY_KEY_REUSE", "相同 Idempotency-Key 已用于不同任务参数")
+				return WorkTaskView{}, domain.Conflict("IDEMPOTENCY_KEY_REUSE", "相同的幂等键（Idempotency-Key）已用于不同任务参数")
 			}
 			return s.WorkTask(ctx, actor, existing.ID)
 		} else if !domain.IsNotFound(lookupErr) {
@@ -1176,7 +1176,7 @@ func (s *Service) CreateWorkTask(ctx context.Context, actor Actor, input CreateW
 		if idempotencyKey != "" {
 			if existing, lookupErr := s.store.WorkTaskByIdempotencyKey(ctx, actor.TenantID, idempotencyKey); lookupErr == nil {
 				if !sameTaskCreateRequest(existing, task) {
-					return WorkTaskView{}, domain.Conflict("IDEMPOTENCY_KEY_REUSE", "相同 Idempotency-Key 已用于不同任务参数")
+					return WorkTaskView{}, domain.Conflict("IDEMPOTENCY_KEY_REUSE", "相同的幂等键（Idempotency-Key）已用于不同任务参数")
 				}
 				return s.WorkTask(ctx, actor, existing.ID)
 			}
@@ -1237,7 +1237,7 @@ func (s *Service) WorkTask(ctx context.Context, actor Actor, id string) (WorkTas
 		}
 	}
 	if sop.ID == "" {
-		return WorkTaskView{}, domain.NotFound("SOP 版本")
+		return WorkTaskView{}, domain.NotFound("流程规范版本")
 	}
 	stageRuns, err := s.store.StageRuns(ctx, actor.TenantID, id)
 	if err != nil {

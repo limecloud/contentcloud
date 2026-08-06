@@ -93,8 +93,8 @@ func ResolveWorkspaceRoot(directory, cwd string) (WorkspaceResolution, error) {
 	root, err := FindRoot(requested)
 	if err != nil {
 		if source == "process_cwd" {
-			notFound := domain.NotFound("唯一 ContentCloud 工作区")
-			notFound.Hint = "请在 ContentCloud Workspace 中打开 Codex，或向工具显式传入 workspace directory"
+			notFound := domain.NotFound("唯一的 Content Work OS 工作区")
+			notFound.Hint = "请在 Content Work OS 工作区中打开 Codex，或向工具明确传入工作区目录"
 			return WorkspaceResolution{}, notFound
 		}
 		return WorkspaceResolution{}, err
@@ -204,7 +204,7 @@ func ConversationContextWithEnvironment(directory, cwd string, now time.Time, ve
 
 func StoreBootstrapHandoff(root, pluginID, pluginVersion, marketplaceRef string, now time.Time) (BootstrapHandoff, string, error) {
 	if strings.TrimSpace(pluginID) == "" || strings.TrimSpace(pluginVersion) == "" || strings.TrimSpace(marketplaceRef) == "" {
-		return BootstrapHandoff{}, "", domain.Invalid("BOOTSTRAP_HANDOFF_SPEC_INVALID", "Bootstrap handoff 需要固定 Plugin ID、版本和 Marketplace ref")
+		return BootstrapHandoff{}, "", domain.Invalid("BOOTSTRAP_HANDOFF_SPEC_INVALID", "初始化交接需要固定的插件 ID、版本和插件市场来源引用（Marketplace ref）")
 	}
 	status, err := LoadStatus(root)
 	if err != nil {
@@ -248,7 +248,7 @@ func loadBootstrapHandoff(root string) (*BootstrapHandoff, error) {
 		return nil, err
 	}
 	if handoff.SchemaVersion != "1.0" || handoff.Kind != "bootstrap_handoff" || handoff.Status != "ready" || handoff.WorkspaceID == "" || handoff.ProjectID == "" || handoff.PluginID == "" || handoff.PluginVersion == "" || handoff.MarketplaceRef == "" || handoff.EnvironmentDigest == "" || handoff.NextCapabilityID == "" || handoff.NextAction == "" || handoff.CreatedAt.IsZero() {
-		return nil, domain.Invalid("BOOTSTRAP_HANDOFF_INVALID", "Bootstrap handoff 文件无效")
+		return nil, domain.Invalid("BOOTSTRAP_HANDOFF_INVALID", "初始化交接文件无效")
 	}
 	return &handoff, nil
 }
@@ -265,7 +265,7 @@ func activeLocalRuns(root string, now time.Time) ([]WorkspaceRunSummary, error) 
 			return nil, err
 		}
 		if problems := validateLocalRun(run); len(problems) > 0 {
-			invalid := domain.Invalid("LOCAL_RUN_CONTEXT_INVALID", "LocalRunContext 校验失败")
+			invalid := domain.Invalid("LOCAL_RUN_CONTEXT_INVALID", "本地运行上下文（LocalRunContext）校验失败")
 			invalid.Details = map[string]any{"path": path, "errors": problems}
 			return nil, invalid
 		}

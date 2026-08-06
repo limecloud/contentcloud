@@ -1,7 +1,7 @@
 import { Navigate, type RouteObject } from 'react-router-dom';
 import { projectRoute, projectViewIDs } from './v3/page-contracts';
 
-const routeHydrateFallback = {hydrateFallbackElement: <div className="splash" aria-live="polite"><strong>正在加载...</strong></div>};
+const routeHydrateFallback = {hydrateFallbackElement: <div className="splash" aria-live="polite"><strong>正在加载…</strong></div>};
 
 export const appRoutes: RouteObject[] = [
   {...routeHydrateFallback, path: '/', lazy: async()=>({Component:(await import('./marketing/MarketingHome')).MarketingHome})},
@@ -40,6 +40,7 @@ export const appRoutes: RouteObject[] = [
           {path: 'sops', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
           {path: 'gates', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
           {path: 'capabilities', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
+          {path: 'runtime', lazy: async()=>({Component:(await import('./admin/views/AdminRuntimePage')).AdminRuntimePage})},
           {path: 'audit', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
           {path: 'usage', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
           {path: '*', element: <Navigate to="dashboard" replace />}
@@ -56,6 +57,15 @@ export const appRoutes: RouteObject[] = [
     {path: 'inbox', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSInboxPage})},
     {path: 'knowledge', lazy: async()=>({Component:(await import('./workspace/pages')).WorkspaceKnowledgeRedirectPage})},
     {path: '*', element: <Navigate to="/workspace" replace />}
+  ]),
+  protectedStudioRoute('/studio', [
+    {index: true, lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioHomePage})},
+    {path: 'tasks/new', lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioNewTaskPage})},
+    {path: 'tasks/:taskID', lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioTaskPage})},
+    {path: 'tasks', lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioTasksPage})},
+    {path: 'assets', lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioAssetsPage})},
+    {path: 'deliveries', lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioDeliveriesPage})},
+    {path: '*', element: <Navigate to="/studio" replace />}
   ]),
   protectedConsoleRoute('/team', [
     {index: true, lazy: async()=>({Component:(await import('./workspace/pages')).ConsoleTeamPage})},
@@ -80,6 +90,18 @@ function protectedConsoleRoute(path:string, children:RouteObject[]):RouteObject 
     lazy:async()=>({Component:(await import('./App')).App}),
     children:[{
       lazy:async()=>({Component:(await import('./workspace/WorkspaceShell')).ConsoleShell}),
+      children
+    }]
+  };
+}
+
+function protectedStudioRoute(path:string, children:RouteObject[]):RouteObject {
+  return {
+    ...routeHydrateFallback,
+    path,
+    lazy:async()=>({Component:(await import('./studio/StudioContext')).CustomerStudioApp}),
+    children:[{
+      lazy:async()=>({Component:(await import('./studio/CustomerStudioShell')).CustomerStudioShell}),
       children
     }]
   };

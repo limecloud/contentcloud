@@ -29,7 +29,7 @@
       "slug": "clients/codex",
       "source": "clients/codex.md",
       "title": "Codex",
-      "description": "使用 Codex 接入 Workspace、恢复项目状态并生产内容。",
+      "description": "使用 Codex 接入本地工作区、恢复项目状态并生产内容。",
       "kind": "client",
       "status": "available"
     },
@@ -69,15 +69,15 @@
       "slug": "guides/wechat-article/codex",
       "source": "guides/wechat-article/codex.md",
       "title": "使用 Codex 制作微信公众号文章",
-      "description": "从租户开通到 ArticleBrief、文章审核和人工发布包的完整流程。",
+      "description": "从租户开通到文章创作简报、文章审核和人工发布包的完整流程。",
       "kind": "guide",
       "status": "available"
     },
     {
       "slug": "troubleshooting/workspace-and-handoff",
       "source": "troubleshooting/workspace-and-handoff.md",
-      "title": "Workspace 与 Handoff 故障排查",
-      "description": "按确定性检查定位初始化、Workspace 和恢复入口问题。",
+      "title": "工作区与交接恢复故障排查",
+      "description": "按确定性检查定位初始化、本地工作区和恢复入口问题。",
       "kind": "troubleshooting",
       "status": "available"
     }
@@ -92,7 +92,7 @@
     {
       "id": "troubleshooting",
       "title": "故障排查",
-      "description": "处理 Workspace、初始化和 Handoff 问题。",
+      "description": "处理本地工作区、初始化和交接恢复问题。",
       "page_slugs": ["troubleshooting/workspace-and-handoff"]
     }
   ],
@@ -101,14 +101,14 @@
       "id": "marketing-video",
       "title": "营销视频",
       "status": "available",
-      "summary": "可信知识、Brief、营销视频剧本、分镜和 Seedance 交付链。",
+      "summary": "可信知识、创作简报、营销视频剧本、分镜和 Seedance 交付链。",
       "page_slug": "content-types/marketing-video"
     },
     {
       "id": "wechat-article",
       "title": "微信公众号文章",
       "status": "available",
-      "summary": "按租户开通，支持 ArticleBrief、结构化长文、文章审核和本地人工发布包。",
+      "summary": "按租户开通，支持文章创作简报、结构化长文、文章审核和本地人工发布包。",
       "page_slug": "content-types/wechat-article"
     }
   ],
@@ -119,7 +119,7 @@
       "client_id": "codex",
       "content_type_id": "marketing-video",
       "status": "available",
-      "summary": "从连接 Workspace 到提交审核和交付的完整流程。",
+      "summary": "从连接本地工作区到提交审核和交付的完整流程。",
       "page_slug": "guides/marketing-video/codex"
     },
     {

@@ -133,7 +133,7 @@ func TestAutomationArgumentsUsePreauthorizedFullAccess(t *testing.T) {
 
 func TestAutomationPromptAllowsToolsWithoutInteractiveApproval(t *testing.T) {
 	prompt := agentPrompt(domain.TaskContract{RunID: "run-1"}, []byte("# Test Skill"))
-	for _, required := range []string{"不要请求交互确认", "本机工具", "Shell", "网络能力", "Automation Attempt 工作目录"} {
+	for _, required := range []string{"不要请求交互确认", "本机工具", "Shell", "网络能力", "执行尝试的工作目录"} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("automation prompt missing %q: %s", required, prompt)
 		}

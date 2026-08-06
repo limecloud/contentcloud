@@ -128,7 +128,7 @@ func RegisterLocalSource(options RegisterLocalSourceOptions) (LocalSource, error
 		mode = "copy"
 	}
 	if mode != "copy" && mode != "reference" {
-		return LocalSource{}, domain.Invalid("LOCAL_SOURCE_STORAGE_MODE_INVALID", "storage mode 只允许 copy 或 reference")
+		return LocalSource{}, domain.Invalid("LOCAL_SOURCE_STORAGE_MODE_INVALID", "storage_mode 只允许 copy 或 reference")
 	}
 	id := strings.TrimSpace(options.ID)
 	if id == "" {
@@ -316,10 +316,10 @@ func loadSourceRegistry(root string) (SourceRegistry, error) {
 	var registry SourceRegistry
 	path := filepath.Join(root, "20-sources", "registry.yaml")
 	if err := readYAML(path, &registry); err != nil {
-		return registry, domain.Invalid("LOCAL_SOURCE_REGISTRY_INVALID", "20-sources/registry.yaml 必须符合 V3 Source Registry")
+		return registry, domain.Invalid("LOCAL_SOURCE_REGISTRY_INVALID", "20-sources/registry.yaml 必须符合 V3 来源目录规范")
 	}
 	if registry.SchemaVersion != SourceRegistrySchemaVersion {
-		return registry, domain.Conflict("LOCAL_SOURCE_REGISTRY_VERSION_UNSUPPORTED", "source registry schema version 不受支持")
+		return registry, domain.Conflict("LOCAL_SOURCE_REGISTRY_VERSION_UNSUPPORTED", "不支持该来源目录 Schema 版本")
 	}
 	if registry.Sources == nil {
 		registry.Sources = []LocalSource{}
@@ -340,7 +340,7 @@ func resolveLocalSourcePath(root string, location SourceLocation) (string, error
 	switch location.Kind {
 	case "workspace_file":
 		if location.Path == "" || filepath.IsAbs(location.Path) {
-			return "", domain.Invalid("LOCAL_SOURCE_LOCATION_INVALID", "workspace_file 来源需要 20-sources 相对路径")
+			return "", domain.Invalid("LOCAL_SOURCE_LOCATION_INVALID", "workspace_file 来源必须使用 20-sources 下的相对路径")
 		}
 		path := filepath.Clean(filepath.Join(root, "20-sources", filepath.FromSlash(location.Path)))
 		base := filepath.Clean(filepath.Join(root, "20-sources")) + string(os.PathSeparator)
@@ -350,11 +350,11 @@ func resolveLocalSourcePath(root string, location SourceLocation) (string, error
 		return path, nil
 	case "external_readonly_ref":
 		if !filepath.IsAbs(location.Ref) {
-			return "", domain.Invalid("LOCAL_SOURCE_LOCATION_INVALID", "external_readonly_ref 必须是绝对只读引用")
+			return "", domain.Invalid("LOCAL_SOURCE_LOCATION_INVALID", "external_readonly_ref 必须是只读的绝对路径引用")
 		}
 		return filepath.Clean(location.Ref), nil
 	default:
-		return "", domain.Policy("LOCAL_SOURCE_LOCATION_UNREADABLE", "当前来源位置不能由本地 ingest 读取", "先把来源下载或复制到当前 Workspace")
+		return "", domain.Policy("LOCAL_SOURCE_LOCATION_UNREADABLE", "本地导入程序无法读取当前来源位置", "先把来源下载或复制到当前工作区")
 	}
 }
 

@@ -52,13 +52,13 @@ type publishBuildOptions struct {
 }
 
 func (r *Root) publishCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "publish", Short: "Publish an immutable local checkpoint for cloud review"}
+	cmd := &cobra.Command{Use: "publish", Short: "发布不可变的本地检查点，供云端审核"}
 	for _, submissionType := range domain.SubmissionTypes() {
 		typeName := submissionType
 		var files []string
 		var disclosuresFile, message, idempotencyKey, planID string
 		var dryRun, review, yes bool
-		publish := &cobra.Command{Use: typeName, Short: "Publish a " + typeName + " checkpoint", RunE: func(command *cobra.Command, args []string) error {
+		publish := &cobra.Command{Use: typeName, Short: "发布 " + typeName + " 检查点", RunE: func(command *cobra.Command, args []string) error {
 			root, err := localworkspace.FindRoot("")
 			if err != nil {
 				return err
@@ -76,14 +76,14 @@ func (r *Root) publishCommand() *cobra.Command {
 			}
 			return r.writeOK("publish."+typeName, map[string]any{"submission_revision": revision, "preflight": preflight, "next_command": "contentcloud submission status " + revision.SubmissionID})
 		}}
-		publish.Flags().StringSliceVar(&files, "file", nil, "JSON checkpoint file; repeat for multiple files")
-		publish.Flags().StringVar(&disclosuresFile, "disclosures", "", "JSON array describing per-source disclosure levels")
-		publish.Flags().StringVar(&message, "message", "", "review note")
-		publish.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "stable retry key; defaults to type and content hash")
-		publish.Flags().StringVar(&planID, "plan-id", "", "exact plan_id returned by the confirmed publish preflight")
-		publish.Flags().BoolVar(&dryRun, "dry-run", false, "run local preflight without credentials or network writes")
-		publish.Flags().BoolVar(&review, "review", false, "confirm publishing this checkpoint for review")
-		publish.Flags().BoolVar(&yes, "yes", false, "confirm publishing this checkpoint")
+		publish.Flags().StringSliceVar(&files, "file", nil, "JSON 检查点文件；需要多个文件时可重复传入")
+		publish.Flags().StringVar(&disclosuresFile, "disclosures", "", "描述各来源披露级别的 JSON 数组")
+		publish.Flags().StringVar(&message, "message", "", "审核说明")
+		publish.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "稳定的重试键；默认由类型和内容摘要生成")
+		publish.Flags().StringVar(&planID, "plan-id", "", "发布预检确认后返回的准确 plan_id")
+		publish.Flags().BoolVar(&dryRun, "dry-run", false, "只执行本地预检，不读取凭据，也不写入网络")
+		publish.Flags().BoolVar(&review, "review", false, "确认发布此检查点供审核")
+		publish.Flags().BoolVar(&yes, "yes", false, "确认发布此检查点")
 		cmd.AddCommand(publish)
 	}
 	return cmd
@@ -111,7 +111,7 @@ func buildPublishCheckpoint(options publishBuildOptions) (domain.SubmissionBundl
 	}
 	environmentDigest := strings.TrimSpace(status.Binding.EnvironmentDigest)
 	if environmentDigest == "" {
-		return domain.SubmissionBundle{}, publishPreflight{}, domain.Invalid("ENVIRONMENT_DIGEST_REQUIRED", "Workspace binding 缺少 environment_digest，请重新初始化创作环境")
+		return domain.SubmissionBundle{}, publishPreflight{}, domain.Invalid("ENVIRONMENT_DIGEST_REQUIRED", "工作区绑定缺少 environment_digest，请重新初始化创作环境")
 	}
 	workspaceStateHash, err := domain.CanonicalHash(status.Template)
 	if err != nil {
@@ -148,7 +148,7 @@ func buildPublishCheckpoint(options publishBuildOptions) (domain.SubmissionBundl
 		PreflightPlane: codexLocalExecutionPlane, ApplyPlane: "contentcloud_server",
 		SubmissionType: options.SubmissionType, SchemaVersion: domain.SubmissionSchemaVersion(options.SubmissionType), Files: relativePaths(options.Root, resolvedFiles), ObjectCount: len(objects), BlockedCount: blocked,
 		DisclosureCount: counts, UploadBytes: fileBytes + disclosureBytes, ContentHash: bundle.ContentHash, IdempotencyKey: bundle.IdempotencyKey, EnvironmentHash: environmentDigest, WorkspaceStateHash: "sha256:" + workspaceStateHash, BaseSnapshotIDs: append([]string(nil), bundle.BaseSnapshotIDs...),
-		ReviewVisible: []string{"objects", "local_run_summary", "source_disclosures", "artifact_manifest"}, ExternalEffects: []string{"create an immutable SubmissionRevision", "make structured objects and declared source disclosures visible to ContentCloud reviewers"}, RawFilesUpload: false, RequiresConfirm: true,
+		ReviewVisible: []string{"objects", "local_run_summary", "source_disclosures", "artifact_manifest"}, ExternalEffects: []string{"创建不可变的提交修订版本", "让审核人员查看结构化对象和已声明的来源披露"}, RawFilesUpload: false, RequiresConfirm: true,
 	}
 	planHash, err := domain.CanonicalHash(preflight)
 	if err != nil {
@@ -161,16 +161,16 @@ func buildPublishCheckpoint(options publishBuildOptions) (domain.SubmissionBundl
 func (r *Root) applyPublishCheckpoint(ctx context.Context, root string, bundle domain.SubmissionBundle, preflight publishPreflight, approvedPlanID string, confirmed bool) (domain.SubmissionRevision, error) {
 	approvedPlanID = strings.TrimSpace(approvedPlanID)
 	if approvedPlanID == "" {
-		return domain.SubmissionRevision{}, domain.Invalid("PUBLISH_PLAN_ID_REQUIRED", "--plan-id 必填；请先运行 publish preflight 并确认返回的 plan_id")
+		return domain.SubmissionRevision{}, domain.Invalid("PUBLISH_PLAN_ID_REQUIRED", "--plan-id 必填；请先运行发布预检并确认返回的 plan_id")
 	}
 	if approvedPlanID != preflight.PlanID {
 		err := domain.Conflict("PUBLISH_PLAN_STALE", "本地发布内容、披露或环境与已确认的 plan_id 不一致")
 		err.Details = map[string]any{"approved_plan_id": approvedPlanID, "current_plan_id": preflight.PlanID}
-		err.Hint = "重新运行 publish preflight、检查变化并再次确认"
+		err.Hint = "重新运行发布预检，检查变化后再次确认"
 		return domain.SubmissionRevision{}, err
 	}
 	if !confirmed {
-		return domain.SubmissionRevision{}, confirmationRequired("发布会将 preflight 中列出的结构化对象和来源披露发送到云端审核；raw 原始文件不会上传")
+		return domain.SubmissionRevision{}, confirmationRequired("发布会将预检中列出的结构化对象和来源披露发送到云端审核；原始文件不会上传")
 	}
 	_, client, _, err := r.workspaceClient(root)
 	if err != nil {
@@ -189,10 +189,10 @@ func (r *Root) applyPublishCheckpoint(ctx context.Context, root string, bundle d
 func (r *Root) pullCommand() *cobra.Command {
 	var submissionType, id string
 	var dryRun bool
-	cmd := &cobra.Command{Use: "pull <feedback|decisions|approved>", Args: cobra.ExactArgs(1), Short: "Pull immutable review bundles without changing business files", RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "pull <feedback|decisions|approved>", Args: cobra.ExactArgs(1), Short: "拉取不可变审核数据包，不修改业务文件", RunE: func(cmd *cobra.Command, args []string) error {
 		kind := args[0]
 		if kind != "feedback" && kind != "decisions" && kind != "approved" {
-			return domain.Invalid("PULL_KIND_INVALID", "pull 只支持 feedback、decisions 或 approved")
+			return domain.Invalid("PULL_KIND_INVALID", "拉取类型只支持 feedback、decisions 或 approved")
 		}
 		root, client, _, err := r.workspaceClient("")
 		if err != nil {
@@ -254,15 +254,15 @@ func (r *Root) pullCommand() *cobra.Command {
 		}
 		return r.writeOK("pull."+kind, map[string]any{"dry_run": dryRun, "count": count, "downloaded": downloaded, "business_files_modified": false})
 	}}
-	cmd.Flags().StringVar(&submissionType, "type", "", "filter approved snapshots by submission type")
-	cmd.Flags().StringVar(&id, "id", "", "pull one approved snapshot by ID")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show remote bundle count without writing local files")
+	cmd.Flags().StringVar(&submissionType, "type", "", "按提交类型筛选批准快照")
+	cmd.Flags().StringVar(&id, "id", "", "按 ID 拉取一份批准快照")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "只显示远端数据包数量，不写入本地文件")
 	return cmd
 }
 
 func (r *Root) submissionCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "submission", Short: "Inspect workspace submissions and perform human governance actions"}
-	list := &cobra.Command{Use: "list", Short: "List submissions created by this workspace", RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "submission", Short: "查看工作区提交记录并执行人工治理操作"}
+	list := &cobra.Command{Use: "list", Short: "列出当前工作区创建的提交记录", RunE: func(cmd *cobra.Command, args []string) error {
 		_, client, _, err := r.workspaceClient("")
 		if err != nil {
 			return err
@@ -273,7 +273,7 @@ func (r *Root) submissionCommand() *cobra.Command {
 		}
 		return r.writeOK("submission.list", values)
 	}}
-	show := &cobra.Command{Use: "show <submission-id>", Args: cobra.ExactArgs(1), Short: "Show one submission and immutable revisions", RunE: func(cmd *cobra.Command, args []string) error {
+	show := &cobra.Command{Use: "show <submission-id>", Args: cobra.ExactArgs(1), Short: "显示一条提交记录及其不可变版本", RunE: func(cmd *cobra.Command, args []string) error {
 		_, client, _, err := r.workspaceClient("")
 		if err != nil {
 			return err
@@ -284,7 +284,7 @@ func (r *Root) submissionCommand() *cobra.Command {
 		}
 		return r.writeOK("submission.show", value)
 	}}
-	status := &cobra.Command{Use: "status <submission-id>", Args: cobra.ExactArgs(1), Short: "Show the current cloud governance state", RunE: func(cmd *cobra.Command, args []string) error {
+	status := &cobra.Command{Use: "status <submission-id>", Args: cobra.ExactArgs(1), Short: "显示当前云端治理状态", RunE: func(cmd *cobra.Command, args []string) error {
 		_, client, _, err := r.workspaceClient("")
 		if err != nil {
 			return err
@@ -297,7 +297,7 @@ func (r *Root) submissionCommand() *cobra.Command {
 	}}
 	var reason string
 	var yes, dryRun bool
-	approve := &cobra.Command{Use: "approve <revision-id>", Args: cobra.ExactArgs(1), Short: "Record internal approval for a current SubmissionRevision", RunE: func(cmd *cobra.Command, args []string) error {
+	approve := &cobra.Command{Use: "approve <revision-id>", Args: cobra.ExactArgs(1), Short: "记录当前提交版本的内部批准结果", RunE: func(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(reason) == "" {
 			return domain.Invalid("APPROVAL_REASON_REQUIRED", "--reason 必填")
 		}
@@ -305,7 +305,7 @@ func (r *Root) submissionCommand() *cobra.Command {
 			return r.writeOK("submission.approve", map[string]any{"dry_run": true, "revision_id": args[0], "reason": reason, "script_requires_client_approval": true})
 		}
 		if !yes {
-			return confirmationRequired("批准会锁定当前 revision hash；script 还需客户 OTP 批准后才创建 ApprovedSnapshot")
+			return confirmationRequired("批准后将锁定当前修订版本的内容摘要；视频脚本还需客户使用一次性验证码批准，之后才会创建批准快照")
 		}
 		_, client, _, err := r.userClient()
 		if err != nil {
@@ -317,12 +317,12 @@ func (r *Root) submissionCommand() *cobra.Command {
 		}
 		return r.writeOK("submission.approve", result)
 	}}
-	approve.Flags().StringVar(&reason, "reason", "", "human approval conclusion")
-	approve.Flags().BoolVar(&yes, "yes", false, "confirm immutable approval")
-	approve.Flags().BoolVar(&dryRun, "dry-run", false, "validate command without approving")
+	approve.Flags().StringVar(&reason, "reason", "", "人工批准结论")
+	approve.Flags().BoolVar(&yes, "yes", false, "确认写入不可变批准结果")
+	approve.Flags().BoolVar(&dryRun, "dry-run", false, "只验证命令，不执行批准")
 	var changeReason, jsonPointer string
 	var changeYes, changeDryRun bool
-	requestChanges := &cobra.Command{Use: "request-changes <revision-id>", Args: cobra.ExactArgs(1), Short: "Return the current revision with actionable feedback", RunE: func(cmd *cobra.Command, args []string) error {
+	requestChanges := &cobra.Command{Use: "request-changes <revision-id>", Args: cobra.ExactArgs(1), Short: "退回当前版本并提供可执行的修改意见", RunE: func(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(changeReason) == "" {
 			return domain.Invalid("CHANGE_REASON_REQUIRED", "--reason 必填")
 		}
@@ -330,7 +330,7 @@ func (r *Root) submissionCommand() *cobra.Command {
 			return r.writeOK("submission.request_changes", map[string]any{"dry_run": true, "revision_id": args[0], "reason": changeReason, "json_pointer": jsonPointer})
 		}
 		if !changeYes {
-			return confirmationRequired("提出修改会记录不可变决定和批注，并把当前 Submission 状态改为 changes_requested")
+			return confirmationRequired("提出修改后将记录不可变的审核决定和批注，并把当前提交状态改为“已要求修改”")
 		}
 		_, client, _, err := r.userClient()
 		if err != nil {
@@ -342,10 +342,10 @@ func (r *Root) submissionCommand() *cobra.Command {
 		}
 		return r.writeOK("submission.request_changes", submission)
 	}}
-	requestChanges.Flags().StringVar(&changeReason, "reason", "", "actionable revision request")
-	requestChanges.Flags().StringVar(&jsonPointer, "json-pointer", "", "optional RFC 6901 path into the submitted objects")
-	requestChanges.Flags().BoolVar(&changeYes, "yes", false, "confirm the review decision")
-	requestChanges.Flags().BoolVar(&changeDryRun, "dry-run", false, "validate command without changing cloud state")
+	requestChanges.Flags().StringVar(&changeReason, "reason", "", "可执行的修改要求")
+	requestChanges.Flags().StringVar(&jsonPointer, "json-pointer", "", "可选的 RFC 6901 路径，用于定位已提交对象")
+	requestChanges.Flags().BoolVar(&changeYes, "yes", false, "确认审核决定")
+	requestChanges.Flags().BoolVar(&changeDryRun, "dry-run", false, "只验证命令，不修改云端状态")
 	cmd.AddCommand(list, show, status, approve, requestChanges)
 	return cmd
 }
@@ -397,10 +397,10 @@ func resolvePublishFiles(root, submissionType string, explicit []string) ([]stri
 		}
 		sort.Strings(values)
 		if len(values) == 0 {
-			return nil, domain.Invalid("PUBLISH_FILE_REQUIRED", "没有找到可发布 StoryboardPackage manifest；使用 --file 明确指定 manifest.json")
+			return nil, domain.Invalid("PUBLISH_FILE_REQUIRED", "没有找到可发布的分镜包清单；请使用 --file 明确指定 manifest.json")
 		}
 		if len(values) > 1 {
-			return nil, domain.Invalid("PUBLISH_FILE_AMBIGUOUS", "发现多个 StoryboardPackage manifest；使用 --file 明确指定本次审核的 manifest.json")
+			return nil, domain.Invalid("PUBLISH_FILE_AMBIGUOUS", "发现多个分镜包清单；请使用 --file 明确指定本次审核的 manifest.json")
 		}
 		return values, nil
 	}
@@ -416,7 +416,7 @@ func resolvePublishFiles(root, submissionType string, explicit []string) ([]stri
 		"result":      "70-results/submissions",
 	}[submissionType]
 	if directory == "" {
-		return nil, domain.Invalid("SUBMISSION_TYPE_INVALID", "submission_type 不受支持")
+		return nil, domain.Invalid("SUBMISSION_TYPE_INVALID", "不支持该提交类型（submission_type）")
 	}
 	values, err := filepath.Glob(filepath.Join(root, directory, "*.json"))
 	if err != nil {
@@ -436,10 +436,10 @@ func discoverContentBatchPublishFiles(root string) ([]string, error) {
 	}
 	sort.Strings(manifests)
 	if len(manifests) == 0 {
-		return nil, domain.Invalid("PUBLISH_FILE_REQUIRED", "没有找到可发布 ContentBatch manifest；使用 --file 明确指定 manifest.yaml")
+		return nil, domain.Invalid("PUBLISH_FILE_REQUIRED", "没有找到可发布的内容批次清单；请使用 --file 明确指定 manifest.yaml")
 	}
 	if len(manifests) > 1 {
-		return nil, domain.Invalid("PUBLISH_FILE_AMBIGUOUS", "发现多个 ContentBatch manifest；使用 --file 明确指定本次审核的 manifest.yaml")
+		return nil, domain.Invalid("PUBLISH_FILE_AMBIGUOUS", "发现多个内容批次清单；请使用 --file 明确指定本次审核的 manifest.yaml")
 	}
 	return contentBatchPublishFiles(root, manifests[0])
 }
@@ -454,7 +454,7 @@ func contentBatchPublishFiles(root, manifest string) ([]string, error) {
 		return nil, err
 	}
 	if len(batch.ContentItemRefs) == 0 {
-		return nil, domain.Invalid("CONTENT_BATCH_OBJECTS_REQUIRED", "ContentBatch manifest 尚未列出可审核的 ContentItem")
+		return nil, domain.Invalid("CONTENT_BATCH_OBJECTS_REQUIRED", "内容批次清单尚未列出可审核的内容项")
 	}
 	values := make([]string, 0, len(batch.ContentItemRefs))
 	for _, ref := range batch.ContentItemRefs {
@@ -479,7 +479,7 @@ func validatePublishDomainFiles(root, submissionType string, files []string) err
 				Type string `json:"type"`
 			}
 			if err := json.Unmarshal(body, &identity); err != nil {
-				return domain.Invalid("STRATEGY_JSON_INVALID", "strategy 发布文件不是有效 JSON："+file)
+				return domain.Invalid("STRATEGY_JSON_INVALID", "策略发布文件不是有效的 JSON："+file)
 			}
 			var report localworkspace.V5LintReport
 			switch identity.Type {
@@ -488,13 +488,13 @@ func validatePublishDomainFiles(root, submissionType string, files []string) err
 			case "audience_strategy_version":
 				report, _, err = localworkspace.LintAudienceStrategy(root, file, time.Now())
 			default:
-				return domain.Invalid("STRATEGY_OBJECT_TYPE_INVALID", "strategy 只接受 AudienceTaxonomySnapshot 或 AudienceStrategyVersion："+file)
+				return domain.Invalid("STRATEGY_OBJECT_TYPE_INVALID", "策略提交只接受受众分类快照或受众策略版本："+file)
 			}
 			if err != nil {
 				return err
 			}
 			if !report.Valid {
-				lintErr := domain.Invalid("STRATEGY_LINT_FAILED", "strategy 发布前校验失败："+report.File)
+				lintErr := domain.Invalid("STRATEGY_LINT_FAILED", "策略发布前校验失败："+report.File)
 				lintErr.Details = report
 				return lintErr
 			}
@@ -506,7 +506,7 @@ func validatePublishDomainFiles(root, submissionType string, files []string) err
 				return err
 			}
 			if !report.Valid {
-				lintErr := domain.Invalid("COMMERCE_OFFER_LINT_FAILED", "Offer 发布前校验失败："+report.File)
+				lintErr := domain.Invalid("COMMERCE_OFFER_LINT_FAILED", "商品方案发布前校验失败："+report.File)
 				lintErr.Details = report
 				return lintErr
 			}
@@ -521,7 +521,7 @@ func validatePublishDomainFiles(root, submissionType string, files []string) err
 				SchemaVersion string `json:"schema_version"`
 			}
 			if err := json.Unmarshal(body, &identity); err != nil {
-				return domain.Invalid("BRIEF_JSON_INVALID", "Brief 发布文件不是有效 JSON："+file)
+				return domain.Invalid("BRIEF_JSON_INVALID", "创作简报发布文件不是有效的 JSON："+file)
 			}
 			if identity.SchemaVersion == localworkspace.ArticleBriefSchema {
 				report, _, lintErr := localworkspace.LintArticleBrief(root, file)
@@ -529,7 +529,7 @@ func validatePublishDomainFiles(root, submissionType string, files []string) err
 					return lintErr
 				}
 				if !report.Valid {
-					lintErr := domain.Invalid("ARTICLE_BRIEF_LINT_FAILED", "ArticleBrief 发布前校验失败："+file)
+					lintErr := domain.Invalid("ARTICLE_BRIEF_LINT_FAILED", "文章简报发布前校验失败："+file)
 					lintErr.Details = report
 					return lintErr
 				}
@@ -540,7 +540,7 @@ func validatePublishDomainFiles(root, submissionType string, files []string) err
 				return lintErr
 			}
 			if !report.Valid {
-				lintErr := domain.Invalid("BRIEF_LINT_FAILED", "Brief 发布前校验失败："+file)
+				lintErr := domain.Invalid("BRIEF_LINT_FAILED", "创作简报发布前校验失败："+file)
 				lintErr.Details = report
 				return lintErr
 			}
@@ -564,7 +564,7 @@ func validatePublishDomainFiles(root, submissionType string, files []string) err
 					return lintErr
 				}
 				if !report.Valid {
-					lintErr := domain.Invalid("CONTENT_ITEM_LINT_FAILED", "ContentItem 发布前校验失败："+report.File)
+					lintErr := domain.Invalid("CONTENT_ITEM_LINT_FAILED", "内容项发布前校验失败："+report.File)
 					lintErr.Details = report
 					return lintErr
 				}
@@ -574,12 +574,12 @@ func validatePublishDomainFiles(root, submissionType string, files []string) err
 					return lintErr
 				}
 				if !report.Valid {
-					lintErr := domain.Invalid("ARTICLE_ITEM_LINT_FAILED", "ArticleItem 发布前校验失败："+report.File)
+					lintErr := domain.Invalid("ARTICLE_ITEM_LINT_FAILED", "文章内容项发布前校验失败："+report.File)
 					lintErr.Details = report
 					return lintErr
 				}
 			default:
-				return domain.Invalid("CONTENT_SCHEMA_UNSUPPORTED", "ContentBatch 包含不受支持的内容 Schema："+identity.SchemaVersion)
+				return domain.Invalid("CONTENT_SCHEMA_UNSUPPORTED", "内容批次包含不受支持的内容结构版本："+identity.SchemaVersion)
 			}
 		}
 	case "storyboard":
@@ -589,7 +589,7 @@ func validatePublishDomainFiles(root, submissionType string, files []string) err
 				return err
 			}
 			if !report.Valid {
-				lintErr := domain.Invalid("STORYBOARD_LINT_FAILED", "StoryboardPackage 发布前校验失败："+report.File)
+				lintErr := domain.Invalid("STORYBOARD_LINT_FAILED", "分镜包发布前校验失败："+report.File)
 				lintErr.Details = report
 				return lintErr
 			}
@@ -608,12 +608,12 @@ func requiredSubmissionBaseSnapshotIDs(root, submissionType string, objects []do
 			}
 			var strategy domain.AudienceStrategyVersion
 			if err := json.Unmarshal(object.Content, &strategy); err != nil {
-				return nil, domain.Invalid("AUDIENCE_STRATEGY_JSON_INVALID", "AudienceStrategyVersion 不是有效 JSON")
+				return nil, domain.Invalid("AUDIENCE_STRATEGY_JSON_INVALID", "受众策略版本不是有效的 JSON")
 			}
 			snapshot, err := localworkspace.ApprovedSnapshotForObject(root, "strategy", strategy.TaxonomySnapshotID)
 			if err != nil {
 				if domain.IsNotFound(err) {
-					return nil, domain.Policy("AUDIENCE_TAXONOMY_BASE_SNAPSHOT_REQUIRED", "AudienceStrategyVersion 必须引用本机已 pull 的 taxonomy ApprovedSnapshot", "先执行 contentcloud pull approved --type strategy")
+					return nil, domain.Policy("AUDIENCE_TAXONOMY_BASE_SNAPSHOT_REQUIRED", "受众策略版本必须引用本机已拉取的受众分类批准快照", "先执行 contentcloud pull approved --type strategy")
 				}
 				return nil, err
 			}
@@ -621,10 +621,10 @@ func requiredSubmissionBaseSnapshotIDs(root, submissionType string, objects []do
 		case "storyboard":
 			var storyboard domain.StoryboardPackage
 			if err := json.Unmarshal(object.Content, &storyboard); err != nil {
-				return nil, domain.Invalid("STORYBOARD_JSON_INVALID", "StoryboardPackage 不是有效 JSON")
+				return nil, domain.Invalid("STORYBOARD_JSON_INVALID", "分镜包不是有效的 JSON")
 			}
 			if strings.TrimSpace(storyboard.ApprovedSnapshotID) == "" {
-				return nil, domain.Invalid("STORYBOARD_BASE_SNAPSHOT_REQUIRED", "StoryboardPackage 缺少 approved_snapshot_id")
+				return nil, domain.Invalid("STORYBOARD_BASE_SNAPSHOT_REQUIRED", "分镜包缺少 approved_snapshot_id")
 			}
 			values = append(values, storyboard.ApprovedSnapshotID)
 		case "content_batch":
@@ -633,7 +633,7 @@ func requiredSubmissionBaseSnapshotIDs(root, submissionType string, objects []do
 				ContentBatchID string `json:"content_batch_id"`
 			}
 			if err := json.Unmarshal(object.Content, &identity); err != nil {
-				return nil, domain.Invalid("CONTENT_ITEM_JSON_INVALID", "ContentBatch 对象不是有效 JSON")
+				return nil, domain.Invalid("CONTENT_ITEM_JSON_INVALID", "内容批次对象不是有效的 JSON")
 			}
 			if identity.SchemaVersion != localworkspace.ArticleSchema {
 				continue
@@ -689,12 +689,12 @@ func readPublishObjects(root, submissionType string, files []string) ([]domain.S
 			return nil, 0, 0, "", err
 		}
 		if len(body) > 20<<20 || total+int64(len(body)) > 50<<20 {
-			return nil, 0, 0, "", domain.Invalid("PUBLISH_SIZE_LIMIT", "单文件不能超过 20 MB，单次 publish 不能超过 50 MB")
+			return nil, 0, 0, "", domain.Invalid("PUBLISH_SIZE_LIMIT", "单个文件不能超过 20 MB，单次发布不能超过 50 MB")
 		}
 		total += int64(len(body))
 		trimmed := strings.TrimSpace(string(body))
 		if !json.Valid(body) {
-			return nil, 0, 0, "", domain.Invalid("PUBLISH_JSON_INVALID", "publish 文件不是有效 JSON："+relative)
+			return nil, 0, 0, "", domain.Invalid("PUBLISH_JSON_INVALID", "发布文件不是有效的 JSON："+relative)
 		}
 		contents := []json.RawMessage{}
 		if strings.HasPrefix(trimmed, "[") {
@@ -718,7 +718,7 @@ func readPublishObjects(root, submissionType string, files []string) ([]domain.S
 			_ = json.Unmarshal(content, &identity)
 			id := stringField(identity, "id")
 			if id == "" {
-				return nil, 0, 0, "", domain.Invalid("PUBLISH_OBJECT_ID_REQUIRED", "每个 publish 对象都必须有稳定 id")
+				return nil, 0, 0, "", domain.Invalid("PUBLISH_OBJECT_ID_REQUIRED", "每个发布对象都必须有稳定的 ID")
 			}
 			objectType := stringField(identity, "type")
 			if objectType == "" {
@@ -748,16 +748,16 @@ func readPublishObjects(root, submissionType string, files []string) ([]domain.S
 func validatePublishObject(submissionType string, body json.RawMessage) (bool, error) {
 	var object map[string]any
 	if err := json.Unmarshal(body, &object); err != nil || object == nil {
-		return false, fmt.Errorf("必须是 JSON object")
+		return false, fmt.Errorf("必须是 JSON 对象")
 	}
 	switch submissionType {
 	case "knowledge":
 		if stringField(object, "id") == "" || stringField(object, "kind") == "" {
-			return false, fmt.Errorf("knowledge 对象需要 id 和 kind")
+			return false, fmt.Errorf("知识对象需要 id 和 kind")
 		}
 	case "brief":
 		if stringField(object, "objective") == "" || stringField(object, "audience") == "" {
-			return false, fmt.Errorf("brief 需要 objective 和 audience")
+			return false, fmt.Errorf("简报需要 objective 和 audience")
 		}
 	case "content_batch":
 		schemaVersion := stringField(object, "schema_version")
@@ -773,32 +773,32 @@ func validatePublishObject(submissionType string, body json.RawMessage) (bool, e
 			}
 		case localworkspace.ArticleSchema:
 			if stringField(object, "type") != "article_item" || stringField(object, "selected_title_id") == "" {
-				return false, fmt.Errorf("ArticleItem 需要 type=article_item 和 selected_title_id")
+				return false, fmt.Errorf("文章对象需要 type=article_item 和 selected_title_id")
 			}
 			blocks, ok := object["blocks"].([]any)
 			if !ok || (!blocked && len(blocks) == 0) {
-				return false, fmt.Errorf("非 blocked ArticleItem 需要至少一个 block")
+				return false, fmt.Errorf("未阻断的文章对象至少需要一个内容块")
 			}
 		default:
-			return false, fmt.Errorf("content schema 不受支持：%s", schemaVersion)
+			return false, fmt.Errorf("不支持该内容 Schema：%s", schemaVersion)
 		}
 		if blocked {
 			reasons, ok := object["blocked_reasons"].([]any)
 			if !ok || len(reasons) == 0 {
-				return false, fmt.Errorf("blocked content item 需要 blocked_reasons")
+				return false, fmt.Errorf("已阻断的内容对象需要 blocked_reasons")
 			}
 		}
 	case "strategy":
 		if objectType := stringField(object, "type"); objectType != "audience_taxonomy_snapshot" && objectType != "audience_strategy_version" {
-			return false, fmt.Errorf("strategy type 必须是 audience_taxonomy_snapshot 或 audience_strategy_version")
+			return false, fmt.Errorf("策略 type 必须是 audience_taxonomy_snapshot 或 audience_strategy_version")
 		}
 	case "offer":
 		if stringField(object, "type") != "commerce_offer_snapshot" {
-			return false, fmt.Errorf("offer type 必须是 commerce_offer_snapshot")
+			return false, fmt.Errorf("报价 type 必须是 commerce_offer_snapshot")
 		}
 	case "storyboard":
 		if stringField(object, "type") != "storyboard_package" || stringField(object, "status") != "review_ready" {
-			return false, fmt.Errorf("storyboard 必须是 review_ready StoryboardPackage")
+			return false, fmt.Errorf("分镜必须是 review_ready StoryboardPackage")
 		}
 	}
 	deliverability := stringField(object, "deliverability")

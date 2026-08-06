@@ -28,10 +28,10 @@ func NewRegistryVerifier(keys []RegistryTrustedKey) (*RegistryVerifier, error) {
 	trusted := make(map[string]RegistryTrustedKey, len(keys))
 	for _, key := range keys {
 		if !dottedIDPattern.MatchString(key.KeyID) || len(key.PublicKey) != ed25519.PublicKeySize || (key.Status != "active" && key.Status != "revoked") {
-			return nil, domain.Invalid("REGISTRY_TRUST_KEY_INVALID", "Marketplace Registry trust store 包含无效 Ed25519 公钥")
+			return nil, domain.Invalid("REGISTRY_TRUST_KEY_INVALID", "插件市场能力目录的信任库包含无效的 Ed25519 公钥")
 		}
 		if _, exists := trusted[key.KeyID]; exists {
-			return nil, domain.Conflict("REGISTRY_TRUST_KEY_DUPLICATED", "Marketplace Registry trust store 包含重复 key_id")
+			return nil, domain.Conflict("REGISTRY_TRUST_KEY_DUPLICATED", "插件市场能力目录的信任库包含重复的 key_id")
 		}
 		key.PublicKey = append(ed25519.PublicKey(nil), key.PublicKey...)
 		trusted[key.KeyID] = key
@@ -41,7 +41,7 @@ func NewRegistryVerifier(keys []RegistryTrustedKey) (*RegistryVerifier, error) {
 
 func (verifier *RegistryVerifier) Verify(registry Registry) (VerifiedRegistry, error) {
 	if verifier == nil || registry.SchemaVersion != "1.0" || len(registry.Entries) == 0 {
-		return VerifiedRegistry{}, domain.Invalid("REGISTRY_INVALID", "Marketplace Registry 缺少 verifier、schema_version 或 entries")
+		return VerifiedRegistry{}, domain.Invalid("REGISTRY_INVALID", "插件市场能力目录缺少校验器、schema_version 或条目列表")
 	}
 	seen := map[string]struct{}{}
 	for _, entry := range registry.Entries {
@@ -50,7 +50,7 @@ func (verifier *RegistryVerifier) Verify(registry Registry) (VerifiedRegistry, e
 		}
 		identity := entry.ID + "@" + entry.Version
 		if _, exists := seen[identity]; exists {
-			return VerifiedRegistry{}, domain.Conflict("REGISTRY_VERSION_AMBIGUOUS", "Marketplace Registry 同一 ID/version 存在多个 entry")
+			return VerifiedRegistry{}, domain.Conflict("REGISTRY_VERSION_AMBIGUOUS", "插件市场能力目录中，同一 ID 和版本对应多个条目")
 		}
 		seen[identity] = struct{}{}
 		if err := verifier.VerifyEntry(entry); err != nil {
@@ -66,22 +66,22 @@ func (verifier *RegistryVerifier) Verify(registry Registry) (VerifiedRegistry, e
 
 func (verifier *RegistryVerifier) VerifyEntry(entry RegistryEntry) error {
 	if entry.Signature.Status != "verified" || entry.Signature.Algorithm != "ed25519" || !dottedIDPattern.MatchString(entry.Signature.KeyID) {
-		return domain.Invalid("REGISTRY_SIGNATURE_INVALID", "Marketplace Registry entry 缺少 verified Ed25519 签名")
+		return domain.Invalid("REGISTRY_SIGNATURE_INVALID", "插件市场能力目录条目缺少已验证的 Ed25519 签名")
 	}
 	key, exists := verifier.keys[entry.Signature.KeyID]
 	if !exists || key.Status != "active" {
-		return domain.Policy("REGISTRY_SIGNING_KEY_UNTRUSTED", "Marketplace Registry 签名 key 不受信任或已撤销", "刷新 ContentCloud CLI/Plugin 的可信公钥后重试")
+		return domain.Policy("REGISTRY_SIGNING_KEY_UNTRUSTED", "插件市场能力目录的签名密钥不受信任或已撤销", "刷新 Content Work OS 命令行工具或插件的可信公钥后重试")
 	}
 	signature, err := base64.StdEncoding.Strict().DecodeString(entry.Signature.Value)
 	if err != nil || len(signature) != ed25519.SignatureSize {
-		return domain.Invalid("REGISTRY_SIGNATURE_INVALID", "Marketplace Registry entry 签名格式无效")
+		return domain.Invalid("REGISTRY_SIGNATURE_INVALID", "插件市场能力目录条目的签名格式无效")
 	}
 	payload, err := RegistryEntrySigningPayload(entry)
 	if err != nil {
 		return err
 	}
 	if !ed25519.Verify(key.PublicKey, payload, signature) {
-		return domain.Conflict("REGISTRY_SIGNATURE_MISMATCH", "Marketplace Registry entry 签名验证失败")
+		return domain.Conflict("REGISTRY_SIGNATURE_MISMATCH", "插件市场能力目录条目的签名验证失败")
 	}
 	return nil
 }

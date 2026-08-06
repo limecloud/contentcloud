@@ -49,7 +49,7 @@ type VerifyOptions struct {
 
 func NewIssuer(keyID string, privateKey ed25519.PrivateKey) (*Issuer, error) {
 	if !dottedIDPattern.MatchString(keyID) || len(privateKey) != ed25519.PrivateKeySize {
-		return nil, domain.Invalid("ENVIRONMENT_SIGNING_KEY_INVALID", "Environment Manifest 需要有效的 key_id 和 Ed25519 私钥")
+		return nil, domain.Invalid("ENVIRONMENT_SIGNING_KEY_INVALID", "环境清单需要有效的 key_id 和 Ed25519 私钥")
 	}
 	return &Issuer{keyID: keyID, privateKey: append(ed25519.PrivateKey(nil), privateKey...)}, nil
 }
@@ -58,10 +58,10 @@ func NewVerifier(keys []TrustedKey) (*Verifier, error) {
 	trusted := make(map[string]TrustedKey, len(keys))
 	for _, key := range keys {
 		if !dottedIDPattern.MatchString(key.KeyID) || len(key.PublicKey) != ed25519.PublicKeySize || (key.Status != "active" && key.Status != "revoked") {
-			return nil, domain.Invalid("ENVIRONMENT_TRUST_KEY_INVALID", "Environment Manifest trust store 包含无效 Ed25519 公钥")
+			return nil, domain.Invalid("ENVIRONMENT_TRUST_KEY_INVALID", "环境清单信任库包含无效的 Ed25519 公钥")
 		}
 		if _, exists := trusted[key.KeyID]; exists {
-			return nil, domain.Conflict("ENVIRONMENT_TRUST_KEY_DUPLICATED", "Environment Manifest trust store 包含重复 key_id")
+			return nil, domain.Conflict("ENVIRONMENT_TRUST_KEY_DUPLICATED", "环境清单信任库包含重复的 key_id")
 		}
 		key.PublicKey = append(ed25519.PublicKey(nil), key.PublicKey...)
 		trusted[key.KeyID] = key
@@ -96,23 +96,23 @@ func (verifier *Verifier) Verify(manifest Manifest, options VerifyOptions) error
 		return err
 	}
 	if options.ProjectID != "" && manifest.ProjectID != options.ProjectID {
-		return domain.Conflict("ENVIRONMENT_PROJECT_MISMATCH", "Environment Manifest 不属于当前项目")
+		return domain.Conflict("ENVIRONMENT_PROJECT_MISMATCH", "环境清单不属于当前项目")
 	}
 	if options.ProfileID != "" && manifest.ProfileID != options.ProfileID {
-		return domain.Conflict("ENVIRONMENT_PROFILE_MISMATCH", "Environment Manifest Profile 不匹配")
+		return domain.Conflict("ENVIRONMENT_PROFILE_MISMATCH", "环境清单的配置标识不匹配")
 	}
 	if options.Harness != "" && manifest.Harness != options.Harness {
-		return domain.Conflict("ENVIRONMENT_HARNESS_MISMATCH", "Environment Manifest Harness 不匹配")
+		return domain.Conflict("ENVIRONMENT_HARNESS_MISMATCH", "环境清单的智能体宿主不匹配")
 	}
 	now := options.Now.UTC()
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 	if manifest.IssuedAt.After(now.Add(5 * time.Minute)) {
-		return domain.Conflict("ENVIRONMENT_MANIFEST_NOT_YET_VALID", "Environment Manifest 签发时间晚于本机允许的时钟偏差")
+		return domain.Conflict("ENVIRONMENT_MANIFEST_NOT_YET_VALID", "环境清单的签发时间晚于本机允许的时钟偏差")
 	}
 	if !now.Before(manifest.ExpiresAt) {
-		return domain.Conflict("ENVIRONMENT_MANIFEST_EXPIRED", "Environment Manifest 已过期")
+		return domain.Conflict("ENVIRONMENT_MANIFEST_EXPIRED", "环境清单已过期")
 	}
 	payload, err := manifestPayloadBytes(manifest)
 	if err != nil {
@@ -121,38 +121,38 @@ func (verifier *Verifier) Verify(manifest Manifest, options VerifyOptions) error
 	sum := sha256.Sum256(payload)
 	actualDigest := "sha256:" + hex.EncodeToString(sum[:])
 	if actualDigest != manifest.Digest {
-		return domain.Conflict("ENVIRONMENT_MANIFEST_DIGEST_MISMATCH", "Environment Manifest 内容与 digest 不一致")
+		return domain.Conflict("ENVIRONMENT_MANIFEST_DIGEST_MISMATCH", "环境清单内容与摘要不一致")
 	}
 	key, exists := verifier.keys[manifest.Signature.KeyID]
 	if !exists || key.Status != "active" {
-		return domain.Policy("ENVIRONMENT_SIGNING_KEY_UNTRUSTED", "Environment Manifest 签名 key 不受信任或已撤销", "刷新 ContentCloud CLI/Plugin 的可信公钥后重试")
+		return domain.Policy("ENVIRONMENT_SIGNING_KEY_UNTRUSTED", "环境清单的签名密钥不受信任或已撤销", "刷新 Content Work OS 命令行工具或插件的可信公钥后重试")
 	}
 	signature, err := base64.StdEncoding.Strict().DecodeString(manifest.Signature.Value)
 	if err != nil || len(signature) != ed25519.SignatureSize {
-		return domain.Invalid("ENVIRONMENT_SIGNATURE_INVALID", "Environment Manifest 签名格式无效")
+		return domain.Invalid("ENVIRONMENT_SIGNATURE_INVALID", "环境清单的签名格式无效")
 	}
 	signed, err := manifestSignedBytes(manifest.Digest)
 	if err != nil {
 		return err
 	}
 	if !ed25519.Verify(key.PublicKey, signed, signature) {
-		return domain.Conflict("ENVIRONMENT_SIGNATURE_MISMATCH", "Environment Manifest 签名验证失败")
+		return domain.Conflict("ENVIRONMENT_SIGNATURE_MISMATCH", "环境清单的签名验证失败")
 	}
 	return nil
 }
 
 func validateManifest(manifest Manifest, requireSignature bool) error {
 	if manifest.SchemaVersion != ManifestSchemaVersion || strings.TrimSpace(manifest.ProjectID) == "" || !dottedIDPattern.MatchString(manifest.ProfileID) || !versionPattern.MatchString(manifest.ProfileVersion) || !versionPattern.MatchString(manifest.EnvironmentVersion) {
-		return domain.Invalid("ENVIRONMENT_MANIFEST_INVALID", "Environment Manifest 缺少有效项目、Profile 或版本")
+		return domain.Invalid("ENVIRONMENT_MANIFEST_INVALID", "环境清单缺少有效的项目、环境配置或版本")
 	}
 	if _, err := agentadapter.RequireCapability(manifest.Harness, agentadapter.CapabilityCreativeEnvironment); err != nil || !pluginIDPattern.MatchString(manifest.Distribution.Marketplace) {
-		return domain.Invalid("ENVIRONMENT_DISTRIBUTION_INVALID", "Environment Manifest Harness 或 Marketplace 无效")
+		return domain.Invalid("ENVIRONMENT_DISTRIBUTION_INVALID", "环境清单中的智能体宿主或插件市场无效")
 	}
 	if !dottedIDPattern.MatchString(manifest.WorkspaceTemplate.ID) || !versionPattern.MatchString(manifest.WorkspaceTemplate.Version) || !digestPattern.MatchString(manifest.WorkspaceTemplate.Digest) {
-		return domain.Invalid("ENVIRONMENT_TEMPLATE_INVALID", "Environment Manifest Workspace Template 引用无效")
+		return domain.Invalid("ENVIRONMENT_TEMPLATE_INVALID", "环境清单中的工作区模板引用无效")
 	}
 	if manifest.IssuedAt.IsZero() || manifest.ExpiresAt.IsZero() || !manifest.ExpiresAt.After(manifest.IssuedAt) {
-		return domain.Invalid("ENVIRONMENT_MANIFEST_TIME_INVALID", "Environment Manifest 签发或过期时间无效")
+		return domain.Invalid("ENVIRONMENT_MANIFEST_TIME_INVALID", "环境清单的签发时间或过期时间无效")
 	}
 	if err := validateUniqueStrings(manifest.Capabilities, dottedIDPattern, "ENVIRONMENT_CAPABILITIES_INVALID"); err != nil {
 		return err
@@ -161,7 +161,7 @@ func validateManifest(manifest Manifest, requireSignature bool) error {
 		return err
 	}
 	if len(manifest.Distribution.Plugins) == 0 {
-		return domain.Invalid("ENVIRONMENT_PLUGINS_REQUIRED", "Environment Manifest 至少需要一个受控 Plugin")
+		return domain.Invalid("ENVIRONMENT_PLUGINS_REQUIRED", "环境清单至少需要一个受控插件")
 	}
 	seen := map[string]struct{}{}
 	for _, plugin := range manifest.Distribution.Plugins {
@@ -169,13 +169,13 @@ func validateManifest(manifest Manifest, requireSignature bool) error {
 			return err
 		}
 		if _, exists := seen[plugin.ID]; exists {
-			return domain.Conflict("ENVIRONMENT_PLUGIN_DUPLICATED", "Environment Manifest 包含重复 Plugin")
+			return domain.Conflict("ENVIRONMENT_PLUGIN_DUPLICATED", "环境清单包含重复插件")
 		}
 		seen[plugin.ID] = struct{}{}
 	}
 	if requireSignature {
 		if !digestPattern.MatchString(manifest.Digest) || manifest.Signature.Algorithm != "ed25519" || !dottedIDPattern.MatchString(manifest.Signature.KeyID) || strings.TrimSpace(manifest.Signature.Value) == "" {
-			return domain.Invalid("ENVIRONMENT_SIGNATURE_INVALID", "Environment Manifest 缺少有效 digest 或 Ed25519 签名")
+			return domain.Invalid("ENVIRONMENT_SIGNATURE_INVALID", "环境清单缺少有效摘要或 Ed25519 签名")
 		}
 	}
 	return nil
@@ -183,7 +183,7 @@ func validateManifest(manifest Manifest, requireSignature bool) error {
 
 func validatePluginRef(plugin PluginRef) error {
 	if !pluginIDPattern.MatchString(plugin.ID) || !validPluginKind(plugin.Kind) || !versionPattern.MatchString(plugin.Version) || !sourceRefPattern.MatchString(plugin.SourceRef) || !digestPattern.MatchString(plugin.Digest) || (plugin.Scope != "environment" && plugin.Scope != "task") {
-		return domain.Invalid("ENVIRONMENT_PLUGIN_INVALID", fmt.Sprintf("Environment Plugin %q 引用无效", plugin.ID))
+		return domain.Invalid("ENVIRONMENT_PLUGIN_INVALID", fmt.Sprintf("环境插件 %q 的引用无效", plugin.ID))
 	}
 	if err := validateUniqueStrings(plugin.Capabilities, dottedIDPattern, "ENVIRONMENT_PLUGIN_CAPABILITIES_INVALID"); err != nil {
 		return err
@@ -212,20 +212,20 @@ func manifestPayloadBytes(manifest Manifest) ([]byte, error) {
 
 func validateContentTypes(values []string) error {
 	if len(values) == 0 {
-		return domain.Invalid("ENVIRONMENT_CONTENT_TYPES_INVALID", "Environment Manifest 必须声明租户可用内容类型")
+		return domain.Invalid("ENVIRONMENT_CONTENT_TYPES_INVALID", "环境清单必须声明租户可用的内容类型")
 	}
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		if !domain.ValidTenantContentType(value) {
-			return domain.Invalid("ENVIRONMENT_CONTENT_TYPES_INVALID", "Environment Manifest 包含不受支持的内容类型")
+			return domain.Invalid("ENVIRONMENT_CONTENT_TYPES_INVALID", "环境清单包含不受支持的内容类型")
 		}
 		if _, exists := seen[value]; exists {
-			return domain.Conflict("ENVIRONMENT_CONTENT_TYPES_INVALID", "Environment Manifest 包含重复内容类型")
+			return domain.Conflict("ENVIRONMENT_CONTENT_TYPES_INVALID", "环境清单包含重复的内容类型")
 		}
 		seen[value] = struct{}{}
 	}
 	if _, exists := seen[domain.ContentTypeVideoScript]; !exists {
-		return domain.Invalid("ENVIRONMENT_CONTENT_TYPES_INVALID", "Environment Manifest 缺少默认 video_script 内容类型")
+		return domain.Invalid("ENVIRONMENT_CONTENT_TYPES_INVALID", "环境清单缺少默认的短视频剧本内容类型（video_script）")
 	}
 	return nil
 }

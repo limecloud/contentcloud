@@ -61,7 +61,7 @@ func (s *Server) projectHandoffContext(r *http.Request) (string, error) {
 	projectID := chi.URLParam(r, "projectID")
 	project, err := s.service.Project(r.Context(), actor, projectID)
 	if err == nil && project.ConnectedDevices == 0 {
-		err = domain.Conflict("AGENT_HANDOFF_WORKSPACE_REQUIRED", "项目尚未连接本地 Workspace，不能生成 Agent 恢复入口")
+		err = domain.Conflict("AGENT_HANDOFF_WORKSPACE_REQUIRED", "项目尚未连接本地工作区，不能生成智能体恢复入口")
 	}
 	return project.ID, err
 }
@@ -75,10 +75,10 @@ func (s *Server) reviewFeedbackHandoffContext(r *http.Request) (string, string, 
 		view, err = s.service.ProjectSubmissionRevision(r.Context(), actor, projectID, chi.URLParam(r, "id"))
 	}
 	if err == nil && project.ConnectedDevices == 0 {
-		err = domain.Conflict("AGENT_HANDOFF_WORKSPACE_REQUIRED", "项目尚未连接本地 Workspace，不能生成 Agent 恢复入口")
+		err = domain.Conflict("AGENT_HANDOFF_WORKSPACE_REQUIRED", "项目尚未连接本地工作区，不能生成智能体恢复入口")
 	}
 	if err == nil && len(view.Comments) == 0 && view.Submission.Status != "changes_requested" {
-		err = domain.Conflict("AGENT_HANDOFF_FEEDBACK_REQUIRED", "该 SubmissionRevision 尚无可恢复的审核反馈")
+		err = domain.Conflict("AGENT_HANDOFF_FEEDBACK_REQUIRED", "该提交版本尚无可恢复的审核反馈")
 	}
 	return project.ID, view.Revision.ID, codexHandoffDigest(view.Revision.ContentHash), err
 }

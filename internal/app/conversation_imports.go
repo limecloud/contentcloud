@@ -44,7 +44,7 @@ func (s *Service) CreateConversationImport(ctx context.Context, actor Actor, tas
 	clientID := strings.ToLower(strings.TrimSpace(input.ClientID))
 	adapterVersion, ok := conversationAdapterVersions[clientID]
 	if !ok {
-		return domain.ConversationImport{}, domain.Invalid("CLIENT_ADAPTER_UNSUPPORTED", "当前客户端没有可用的对话导出 Adapter")
+		return domain.ConversationImport{}, domain.Invalid("CLIENT_ADAPTER_UNSUPPORTED", "当前客户端没有可用的对话导出适配器")
 	}
 	if input.StageRunID != "" {
 		stageRuns, stageErr := s.store.StageRuns(ctx, actor.TenantID, taskID)
@@ -59,7 +59,7 @@ func (s *Service) CreateConversationImport(ctx context.Context, actor Actor, tas
 			}
 		}
 		if !found {
-			return domain.ConversationImport{}, domain.NotFound("StageRun")
+			return domain.ConversationImport{}, domain.NotFound("流程阶段执行记录")
 		}
 	}
 	retentionDays := input.RetentionDays

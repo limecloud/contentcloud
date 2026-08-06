@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-var ErrNotFound = errors.New("blob not found")
+var ErrNotFound = errors.New("文件对象不存在")
 
 type Store interface {
 	Put(context.Context, string, []byte) error

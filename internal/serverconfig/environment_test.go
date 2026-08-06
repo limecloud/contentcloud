@@ -62,7 +62,7 @@ func TestLoadEnvironmentFailsClosedForPartialOrUnsafeConfiguration(t *testing.T)
 	if err := os.Chmod(config.SigningKeyPath, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := serverconfig.LoadEnvironment(config); err == nil || !strings.Contains(err.Error(), "group/other") {
+	if _, err := serverconfig.LoadEnvironment(config); err == nil || !strings.Contains(err.Error(), "用户组或其他用户") {
 		t.Fatalf("permissive key failure = %v", err)
 	}
 }

@@ -120,12 +120,12 @@ func ClaimRun(options ClaimRunOptions) (RunClaim, error) {
 	path := runClaimPath(root, run.RunID)
 	if existing, readErr := loadRunClaimPath(path); readErr == nil {
 		if existing.ExpiresAt.After(now) {
-			conflict := domain.Conflict("RUN_ALREADY_CLAIMED", "LocalRun 已被其他对话 claim")
+			conflict := domain.Conflict("RUN_ALREADY_CLAIMED", "本地运行已被其他对话锁定")
 			conflict.Details = map[string]any{"run_id": run.RunID, "owner": existing.Owner, "expires_at": existing.ExpiresAt}
 			return RunClaim{}, conflict
 		}
 		if !options.TakeoverExpired {
-			policy := domain.Policy("RUN_CLAIM_TAKEOVER_CONFIRMATION_REQUIRED", "已有 RunClaim 已过期", "确认前一个对话不再写入后，以 takeover_expired=true 接管")
+			policy := domain.Policy("RUN_CLAIM_TAKEOVER_CONFIRMATION_REQUIRED", "已有运行锁已过期", "确认前一个对话不再写入后，以 takeover_expired=true 接管")
 			policy.Details = map[string]any{"run_id": run.RunID, "previous_owner": existing.Owner, "expired_at": existing.ExpiresAt}
 			return RunClaim{}, policy
 		}
@@ -146,7 +146,7 @@ func ClaimRun(options ClaimRunOptions) (RunClaim, error) {
 	}
 	if err := writeExclusiveJSON(path, claim); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return RunClaim{}, domain.Conflict("RUN_ALREADY_CLAIMED", "LocalRun 已被其他对话 claim")
+			return RunClaim{}, domain.Conflict("RUN_ALREADY_CLAIMED", "本地运行已被其他对话锁定")
 		}
 		return RunClaim{}, err
 	}
@@ -167,7 +167,7 @@ func RenewRunClaim(root, runID, token string, ttl time.Duration, now time.Time) 
 		ttl = defaultClaimTTL
 	}
 	if ttl <= 0 || ttl > maximumClaimTTL {
-		return RunClaim{}, domain.Invalid("RUN_CLAIM_TTL_INVALID", "RunClaim TTL 必须大于 0 且不超过 4 小时")
+		return RunClaim{}, domain.Invalid("RUN_CLAIM_TTL_INVALID", "运行锁有效期必须大于 0 且不超过 4 小时")
 	}
 	claim.ExpiresAt = at.Add(ttl)
 	if err := replaceJSON(runClaimPath(resolved, runID), claim, 0o600); err != nil {
@@ -219,19 +219,19 @@ func CreateReadyHandoff(options CreateReadyHandoffOptions) (HandoffRecord, error
 		return HandoffRecord{}, err
 	}
 	if options.ExpectedRevision == 0 || options.ExpectedRevision != run.ContextRevision {
-		conflict := domain.Conflict("LOCAL_RUN_REVISION_CONFLICT", "创建 Handoff 时 LocalRunContext revision 已变化")
+		conflict := domain.Conflict("LOCAL_RUN_REVISION_CONFLICT", "创建交接时，本地运行上下文的版本已经变化")
 		conflict.Details = map[string]any{"expected_revision": options.ExpectedRevision, "current_revision": run.ContextRevision, "claim_revision": claim.ContextRevision}
 		return HandoffRecord{}, conflict
 	}
 	if strings.TrimSpace(options.NextCapabilityID) == "" || strings.TrimSpace(options.NextAction) == "" {
-		return HandoffRecord{}, domain.Invalid("HANDOFF_NEXT_ACTION_REQUIRED", "Handoff 需要 next_capability_id 和 next_action")
+		return HandoffRecord{}, domain.Invalid("HANDOFF_NEXT_ACTION_REQUIRED", "交接记录需要 next_capability_id 和 next_action")
 	}
 	inputs, err := handoffInputDigests(root, options.InputPaths)
 	if err != nil {
 		return HandoffRecord{}, err
 	}
 	if len(inputs) == 0 {
-		return HandoffRecord{}, domain.Invalid("HANDOFF_INPUT_REQUIRED", "Handoff 至少需要一个带 digest 的输入文件")
+		return HandoffRecord{}, domain.Invalid("HANDOFF_INPUT_REQUIRED", "交接记录至少需要一个带摘要的输入文件")
 	}
 	handoffID := strings.TrimSpace(options.HandoffID)
 	if handoffID == "" {
@@ -245,7 +245,7 @@ func CreateReadyHandoff(options CreateReadyHandoffOptions) (HandoffRecord, error
 	} else {
 		for _, existing := range ready {
 			if existing.RunID == run.RunID {
-				return HandoffRecord{}, domain.Conflict("HANDOFF_READY_EXISTS", "该 LocalRun 已有 ready Handoff")
+				return HandoffRecord{}, domain.Conflict("HANDOFF_READY_EXISTS", "该本地运行已经有一条待接手的交接记录")
 			}
 		}
 	}
@@ -289,14 +289,14 @@ func AcceptHandoff(options AcceptHandoffOptions) (HandoffRecord, RunClaim, error
 		return HandoffRecord{}, RunClaim{}, err
 	}
 	if record.Status != "ready" {
-		return HandoffRecord{}, RunClaim{}, domain.Conflict("HANDOFF_NOT_READY", "Handoff 当前不可接管")
+		return HandoffRecord{}, RunClaim{}, domain.Conflict("HANDOFF_NOT_READY", "当前交接记录不可接管")
 	}
 	run, err := loadLocalRun(root, record.RunID)
 	if err != nil {
 		return HandoffRecord{}, RunClaim{}, err
 	}
 	if run.ContextRevision != record.ContextRevision {
-		return HandoffRecord{}, RunClaim{}, domain.Conflict("HANDOFF_REVISION_CONFLICT", "Handoff 引用的 LocalRun revision 已变化")
+		return HandoffRecord{}, RunClaim{}, domain.Conflict("HANDOFF_REVISION_CONFLICT", "交接记录引用的本地运行版本已经变化")
 	}
 	if err := verifyHandoffDigests(root, record.InputDigests); err != nil {
 		return HandoffRecord{}, RunClaim{}, err
@@ -332,7 +332,7 @@ func CompleteHandoff(root, handoffID, claimToken string, now time.Time) (Handoff
 		return HandoffRecord{}, err
 	}
 	if record.Status != "claimed" {
-		return HandoffRecord{}, domain.Conflict("HANDOFF_NOT_CLAIMED", "只有 claimed Handoff 可以完成")
+		return HandoffRecord{}, domain.Conflict("HANDOFF_NOT_CLAIMED", "只有已接手的交接记录可以完成")
 	}
 	if _, err := validateRunClaim(resolved, record.RunID, claimToken, localNow(now)); err != nil {
 		return HandoffRecord{}, err
@@ -361,7 +361,7 @@ func SupersedeReadyHandoff(root, handoffID string, now time.Time) (HandoffRecord
 		return HandoffRecord{}, err
 	}
 	if record.Status != "ready" {
-		return HandoffRecord{}, domain.Conflict("HANDOFF_NOT_READY", "只有 ready Handoff 可以 supersede")
+		return HandoffRecord{}, domain.Conflict("HANDOFF_NOT_READY", "只有待接手的交接记录可以被取代")
 	}
 	at := localNow(now)
 	record.Status = "superseded"
@@ -409,17 +409,17 @@ func validateClaimOptions(options ClaimRunOptions) (string, LocalRunContext, tim
 	}
 	owner := strings.TrimSpace(options.Owner)
 	if owner == "" || len(owner) > 128 {
-		return "", LocalRunContext{}, time.Time{}, 0, domain.Invalid("RUN_CLAIM_OWNER_INVALID", "RunClaim owner 必填且不能超过 128 字符")
+		return "", LocalRunContext{}, time.Time{}, 0, domain.Invalid("RUN_CLAIM_OWNER_INVALID", "运行锁持有者（owner）必填，且不能超过 128 个字符")
 	}
 	run, err := loadLocalRun(root, options.RunID)
 	if err != nil {
 		return "", LocalRunContext{}, time.Time{}, 0, err
 	}
 	if run.Status == "completed" {
-		return "", LocalRunContext{}, time.Time{}, 0, domain.Conflict("LOCAL_RUN_COMPLETED", "已完成的 LocalRun 不可 claim")
+		return "", LocalRunContext{}, time.Time{}, 0, domain.Conflict("LOCAL_RUN_COMPLETED", "已完成的本地运行不能再加锁")
 	}
 	if options.ExpectedRevision == 0 || options.ExpectedRevision != run.ContextRevision {
-		conflict := domain.Conflict("LOCAL_RUN_REVISION_CONFLICT", "claim 使用的 LocalRunContext revision 已过期")
+		conflict := domain.Conflict("LOCAL_RUN_REVISION_CONFLICT", "加锁时使用的本地运行上下文版本已经过期")
 		conflict.Details = map[string]any{"expected_revision": options.ExpectedRevision, "current_revision": run.ContextRevision}
 		return "", LocalRunContext{}, time.Time{}, 0, conflict
 	}
@@ -428,7 +428,7 @@ func validateClaimOptions(options ClaimRunOptions) (string, LocalRunContext, tim
 		ttl = defaultClaimTTL
 	}
 	if ttl <= 0 || ttl > maximumClaimTTL {
-		return "", LocalRunContext{}, time.Time{}, 0, domain.Invalid("RUN_CLAIM_TTL_INVALID", "RunClaim TTL 必须大于 0 且不超过 4 小时")
+		return "", LocalRunContext{}, time.Time{}, 0, domain.Invalid("RUN_CLAIM_TTL_INVALID", "运行锁有效期必须大于 0 且不超过 4 小时")
 	}
 	return root, run, localNow(options.Now), ttl, nil
 }
@@ -436,26 +436,26 @@ func validateClaimOptions(options ClaimRunOptions) (string, LocalRunContext, tim
 func validateRunClaim(root, runID, token string, now time.Time) (RunClaim, error) {
 	claim, err := loadRunClaimPath(runClaimPath(root, runID))
 	if errors.Is(err, os.ErrNotExist) {
-		return RunClaim{}, domain.Conflict("RUN_CLAIM_REQUIRED", "写入前必须取得有效 RunClaim")
+		return RunClaim{}, domain.Conflict("RUN_CLAIM_REQUIRED", "写入前必须取得有效的运行锁")
 	}
 	if err != nil {
 		return RunClaim{}, err
 	}
 	if claim.RunID != runID {
-		return RunClaim{}, domain.Invalid("RUN_CLAIM_INVALID", "RunClaim run_id 与文件路径不一致")
+		return RunClaim{}, domain.Invalid("RUN_CLAIM_INVALID", "运行锁的 run_id 与文件路径不一致")
 	}
 	if claim.Token == "" || claim.Token != strings.TrimSpace(token) {
-		return RunClaim{}, domain.Conflict("RUN_CLAIM_TOKEN_INVALID", "RunClaim token 不匹配")
+		return RunClaim{}, domain.Conflict("RUN_CLAIM_TOKEN_INVALID", "运行锁凭据不匹配")
 	}
 	if !claim.ExpiresAt.After(now) {
-		return RunClaim{}, domain.Conflict("RUN_CLAIM_EXPIRED", "RunClaim 已过期")
+		return RunClaim{}, domain.Conflict("RUN_CLAIM_EXPIRED", "运行锁已过期")
 	}
 	return claim, nil
 }
 
 func validateClaimedRunWrite(root string, run LocalRunContext, token string, expectedRevision uint64, now time.Time) error {
 	if expectedRevision == 0 || expectedRevision != run.ContextRevision {
-		conflict := domain.Conflict("LOCAL_RUN_REVISION_CONFLICT", "写入使用的 LocalRunContext revision 已过期")
+		conflict := domain.Conflict("LOCAL_RUN_REVISION_CONFLICT", "写入时使用的本地运行上下文版本已经过期")
 		conflict.Details = map[string]any{"expected_revision": expectedRevision, "current_revision": run.ContextRevision}
 		return conflict
 	}
@@ -478,7 +478,7 @@ func loadRunClaimPath(path string) (RunClaim, error) {
 		return RunClaim{}, err
 	}
 	if claim.SchemaVersion != RunClaimSchemaVersion || claim.RunID == "" || claim.Owner == "" || claim.Token == "" || claim.ContextRevision == 0 || claim.ClaimedAt.IsZero() || claim.ExpiresAt.IsZero() {
-		return RunClaim{}, domain.Invalid("RUN_CLAIM_INVALID", "RunClaim 文件无效")
+		return RunClaim{}, domain.Invalid("RUN_CLAIM_INVALID", "运行锁文件无效")
 	}
 	return claim, nil
 }
@@ -489,7 +489,7 @@ func loadHandoff(root, handoffID string) (HandoffRecord, error) {
 	}
 	record, err := loadHandoffPath(handoffPath(root, handoffID))
 	if errors.Is(err, os.ErrNotExist) {
-		return HandoffRecord{}, domain.NotFound("Handoff")
+		return HandoffRecord{}, domain.NotFound("交接记录")
 	}
 	return record, err
 }
@@ -500,7 +500,7 @@ func loadHandoffPath(path string) (HandoffRecord, error) {
 		return HandoffRecord{}, err
 	}
 	if record.SchemaVersion != HandoffSchemaVersion || record.HandoffID == "" || record.RunID == "" || record.ContextRevision == 0 || record.InputDigests == nil || record.CompletedChecks == nil || record.History == nil || !validHandoffStatus(record.Status) {
-		return HandoffRecord{}, domain.Invalid("HANDOFF_INVALID", "HandoffRecord 文件无效")
+		return HandoffRecord{}, domain.Invalid("HANDOFF_INVALID", "交接记录文件无效")
 	}
 	return record, nil
 }
@@ -540,7 +540,7 @@ func verifyHandoffDigests(root string, inputs []HandoffInputDigest) error {
 		}
 		actual := "sha256:" + digest(body)
 		if input.ID == "" || relative != input.Path || actual != input.Digest {
-			conflict := domain.Conflict("HANDOFF_INPUT_DIGEST_MISMATCH", "Handoff 输入在交接后已变化")
+			conflict := domain.Conflict("HANDOFF_INPUT_DIGEST_MISMATCH", "交接输入在交接后已经变化")
 			conflict.Details = map[string]any{"path": input.Path, "expected_digest": input.Digest, "actual_digest": actual}
 			return conflict
 		}
@@ -551,7 +551,7 @@ func verifyHandoffDigests(root string, inputs []HandoffInputDigest) error {
 func readWorkspaceHandoffInput(root, raw string) (string, []byte, error) {
 	relative := filepath.Clean(filepath.FromSlash(strings.TrimSpace(raw)))
 	if relative == "." || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", nil, domain.Invalid("HANDOFF_INPUT_PATH_INVALID", "Handoff 输入必须是 Workspace 内的相对路径")
+		return "", nil, domain.Invalid("HANDOFF_INPUT_PATH_INVALID", "交接输入必须是工作区内的相对路径")
 	}
 	canonicalRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -563,7 +563,7 @@ func readWorkspaceHandoffInput(root, raw string) (string, []byte, error) {
 	}
 	contained, err := filepath.Rel(canonicalRoot, candidate)
 	if err != nil || contained == ".." || strings.HasPrefix(contained, ".."+string(filepath.Separator)) {
-		return "", nil, domain.Invalid("HANDOFF_INPUT_PATH_INVALID", "Handoff 输入越出 Workspace 边界")
+		return "", nil, domain.Invalid("HANDOFF_INPUT_PATH_INVALID", "交接输入超出工作区边界")
 	}
 	body, err := os.ReadFile(candidate)
 	if err != nil {

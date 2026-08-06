@@ -134,7 +134,7 @@ func (s *Service) TaskAction(ctx context.Context, actor Actor, taskID string, in
 			return WorkTaskView{}, domain.Conflict("TASK_NOT_STARTABLE", "当前任务状态不能开始执行")
 		}
 		if task.Status == domain.TaskStatusWaitingGate {
-			return WorkTaskView{}, domain.Policy("TASK_GATE_PENDING", "任务仍在等待 Gate 决定", "先处理待决定 Gate")
+			return WorkTaskView{}, domain.Policy("TASK_GATE_PENDING", "任务仍在等待审核决定", "先完成待处理的审核")
 		}
 		if err := s.startCurrentStage(ctx, actor, &task, now, requestID); err != nil {
 			return WorkTaskView{}, err
@@ -144,7 +144,7 @@ func (s *Service) TaskAction(ctx context.Context, actor Actor, taskID string, in
 			return WorkTaskView{}, domain.Conflict("TASK_NOT_RUNNING", "只有运行中的任务可以暂停")
 		}
 		task.Status = domain.TaskStatusPaused
-		task.NextAction = "恢复当前 Stage"
+		task.NextAction = "恢复当前流程阶段"
 		task.UpdatedAt = now
 		if err := s.store.SaveWorkTask(ctx, task); err != nil {
 			return WorkTaskView{}, err
@@ -194,7 +194,7 @@ func (s *Service) TaskAction(ctx context.Context, actor Actor, taskID string, in
 			return WorkTaskView{}, err
 		}
 		task.Status = domain.TaskStatusReady
-		task.NextAction = "开始当前 Stage"
+		task.NextAction = "开始当前流程阶段"
 		task.UpdatedAt = now
 		if err := s.store.SaveWorkTask(ctx, task); err != nil {
 			return WorkTaskView{}, err
@@ -216,10 +216,10 @@ func (s *Service) startCurrentStage(ctx context.Context, actor Actor, task *doma
 		return err
 	}
 	if stageRun.Status == domain.StageRunStatusWaitingGate {
-		return domain.Policy("STAGE_GATE_PENDING", "当前 Stage 正在等待 Gate 决定", "先处理 Gate 决定")
+		return domain.Policy("STAGE_GATE_PENDING", "当前流程阶段正在等待审核决定", "先处理审核决定")
 	}
 	if stageRun.Status == domain.StageRunStatusCompleted {
-		return domain.Conflict("STAGE_ALREADY_COMPLETED", "当前 Stage 已完成")
+		return domain.Conflict("STAGE_ALREADY_COMPLETED", "当前流程阶段已完成")
 	}
 	if stageRun.Status != domain.StageRunStatusRunning {
 		stageRun.Status = domain.StageRunStatusRunning
@@ -233,7 +233,7 @@ func (s *Service) startCurrentStage(ctx context.Context, actor Actor, task *doma
 		}
 	}
 	task.Status = domain.TaskStatusRunning
-	task.NextAction = "执行 " + stageRun.StageID + " 并上报结果"
+	task.NextAction = "执行流程阶段“" + stageRun.StageID + "”并上报结果"
 	task.UpdatedAt = now
 	if err := s.store.SaveWorkTask(ctx, *task); err != nil {
 		return err
@@ -272,7 +272,7 @@ func (s *Service) ensureTaskRun(ctx context.Context, actor Actor, task domain.Wo
 	if stageRun.ExecutionMode == "agent" {
 		capabilityID = "contentcloud.agent.stage"
 	}
-	run := domain.TaskRun{ID: domain.NewID(), TenantID: task.TenantID, ProjectID: task.ProjectID, WorkTaskID: task.ID, SOPID: task.SOPID, SOPVersion: task.SOPVersion, SOPDigest: task.SOPDigest, StageID: stageRun.StageID, ExecutionMode: defaultString(stageRun.ExecutionMode, "local"), ExecutorKind: defaultString(stageRun.ExecutionMode, "local"), InputSnapshotID: inputSnapshot.ID, IdempotencyKey: "work-task:" + task.ID + ":" + stageRun.StageID + ":" + domain.NewID(), TaskType: task.ContentType, CapabilityID: capabilityID, CapabilityVersion: capabilityVersion, InputSchema: "contentcloud.task-input/1.0", OutputSchema: stageOutputSchema(task, stageRun.StageID), OutputCount: 1, DeliveryProfiles: []string{"workspace"}, State: "running", Priority: priority, ProgressLabel: "Stage 已开始", CreatedAt: now, UpdatedAt: now}
+	run := domain.TaskRun{ID: domain.NewID(), TenantID: task.TenantID, ProjectID: task.ProjectID, WorkTaskID: task.ID, SOPID: task.SOPID, SOPVersion: task.SOPVersion, SOPDigest: task.SOPDigest, StageID: stageRun.StageID, ExecutionMode: defaultString(stageRun.ExecutionMode, "local"), ExecutorKind: defaultString(stageRun.ExecutionMode, "local"), InputSnapshotID: inputSnapshot.ID, IdempotencyKey: "work-task:" + task.ID + ":" + stageRun.StageID + ":" + domain.NewID(), TaskType: task.ContentType, CapabilityID: capabilityID, CapabilityVersion: capabilityVersion, InputSchema: "contentcloud.task-input/1.0", OutputSchema: stageOutputSchema(task, stageRun.StageID), OutputCount: 1, DeliveryProfiles: []string{"workspace"}, State: "running", Priority: priority, ProgressLabel: "流程阶段已开始", CreatedAt: now, UpdatedAt: now}
 	return s.store.CreateRun(ctx, run)
 }
 
@@ -286,7 +286,7 @@ func currentStageRun(task domain.WorkTask, runs []domain.StageRun) (domain.Stage
 			return run, nil
 		}
 	}
-	return domain.StageRun{}, domain.NotFound("当前 StageRun")
+	return domain.StageRun{}, domain.NotFound("当前流程阶段执行记录")
 }
 
 func (s *Service) ReportStage(ctx context.Context, actor Actor, taskID string, input StageReportInput, requestID string) (WorkTaskView, error) {
@@ -300,7 +300,7 @@ func (s *Service) ReportStage(ctx context.Context, actor Actor, taskID string, i
 		return WorkTaskView{}, err
 	}
 	if task.Status != domain.TaskStatusRunning {
-		return WorkTaskView{}, domain.Conflict("TASK_NOT_RUNNING", "只有运行中的任务可以上报 Stage 结果")
+		return WorkTaskView{}, domain.Conflict("TASK_NOT_RUNNING", "只有运行中的任务可以上报流程阶段结果")
 	}
 	runs, err := s.store.StageRuns(ctx, actor.TenantID, task.ID)
 	if err != nil {
@@ -311,10 +311,10 @@ func (s *Service) ReportStage(ctx context.Context, actor Actor, taskID string, i
 		return WorkTaskView{}, err
 	}
 	if input.StageRunID != "" && input.StageRunID != stageRun.ID {
-		return WorkTaskView{}, domain.Conflict("STAGE_RUN_NOT_CURRENT", "上报的 StageRun 不是当前 Stage")
+		return WorkTaskView{}, domain.Conflict("STAGE_RUN_NOT_CURRENT", "上报的执行记录不属于当前流程阶段")
 	}
 	if input.StageID != "" && input.StageID != stageRun.StageID {
-		return WorkTaskView{}, domain.Conflict("STAGE_NOT_CURRENT", "上报的 Stage 不是当前 Stage")
+		return WorkTaskView{}, domain.Conflict("STAGE_NOT_CURRENT", "上报的流程阶段不是当前阶段")
 	}
 	status := strings.ToLower(strings.TrimSpace(input.Status))
 	if status == "" {
@@ -326,7 +326,7 @@ func (s *Service) ReportStage(ctx context.Context, actor Actor, taskID string, i
 		return WorkTaskView{}, err
 	}
 	if task.ContentType == domain.ContentTypeMarketingVideo && len(input.OutputRefs) > 0 {
-		return WorkTaskView{}, domain.Invalid("LEGACY_OUTPUT_REFS_NOT_ALLOWED", "营销视频任务必须上报类型化 Stage 输出")
+		return WorkTaskView{}, domain.Invalid("LEGACY_OUTPUT_REFS_NOT_ALLOWED", "营销视频任务必须按类型上报流程阶段输出")
 	}
 	if task.ContentType != domain.ContentTypeMarketingVideo && len(outputRefs) == 0 {
 		outputRefs = append([]string{}, input.OutputRefs...)
@@ -339,7 +339,7 @@ func (s *Service) ReportStage(ctx context.Context, actor Actor, taskID string, i
 			return WorkTaskView{}, err
 		}
 		task.Status = domain.TaskStatusBlocked
-		task.NextAction = "修复输出后重试当前 Stage"
+		task.NextAction = "修复输出后重试当前流程阶段"
 		task.UpdatedAt = now
 		if err := s.store.SaveWorkTask(ctx, task); err != nil {
 			return WorkTaskView{}, err
@@ -349,7 +349,7 @@ func (s *Service) ReportStage(ctx context.Context, actor Actor, taskID string, i
 		return s.WorkTask(ctx, actor, task.ID)
 	}
 	if status != domain.StageRunStatusCompleted {
-		return WorkTaskView{}, domain.Invalid("STAGE_REPORT_STATUS_INVALID", "Stage 上报状态必须是 completed 或 failed")
+		return WorkTaskView{}, domain.Invalid("STAGE_REPORT_STATUS_INVALID", "流程阶段上报状态必须是“已完成”或“失败”")
 	}
 	_, sop, err := s.loadTaskSOP(ctx, actor.TenantID, task)
 	if err != nil {
@@ -386,7 +386,7 @@ func (s *Service) updateActiveRun(ctx context.Context, tenantID, taskID, stageID
 			run.State = state
 			run.OutputRefs = append([]string{}, outputRefs...)
 			run.ErrorCode = errorCode
-			run.ProgressLabel = "Stage 已上报"
+			run.ProgressLabel = "流程阶段已上报"
 			run.UpdatedAt = now
 			_ = s.store.SaveRun(ctx, run)
 			return
@@ -457,7 +457,7 @@ func (s *Service) finishStageOrOpenGate(ctx context.Context, actor Actor, task *
 		stageRun.Status = domain.StageRunStatusWaitingGate
 		stageRun.UpdatedAt = now
 		task.Status = domain.TaskStatusWaitingGate
-		task.NextAction = "处理 Gate：" + gate.Name
+		task.NextAction = "处理审核：" + gate.Name
 		task.UpdatedAt = now
 		if err := s.store.SaveStageRun(ctx, *stageRun); err != nil {
 			return err
@@ -478,7 +478,7 @@ func (s *Service) DecideGate(ctx context.Context, actor Actor, taskID, gateID st
 		}
 	}
 	if actor.UserID == "" {
-		return WorkTaskView{}, domain.Policy("GATE_DECIDER_REQUIRED", "Gate 决定需要已认证成员", "请使用受邀的内部审核人或客户决定人账号")
+		return WorkTaskView{}, domain.Policy("GATE_DECIDER_REQUIRED", "审核决定需要已认证成员", "请使用受邀的内部审核人或客户决定人账号")
 	}
 	if actor.Role == "client_approver" && actor.Type != "user" {
 		return WorkTaskView{}, domain.Policy("CLIENT_APPROVER_SESSION_REQUIRED", "客户决定人必须通过成员账号登录", "请使用受邀客户决定人账号登录")
@@ -504,10 +504,10 @@ func (s *Service) DecideGate(ctx context.Context, actor Actor, taskID, gateID st
 		}
 	}
 	if evaluation.ID == "" {
-		return WorkTaskView{}, domain.NotFound("待决定 Gate")
+		return WorkTaskView{}, domain.NotFound("待处理的审核")
 	}
 	if actor.Role == "client_approver" && evaluation.GateMode != domain.GateModeClientDecision {
-		return WorkTaskView{}, domain.Policy("CLIENT_GATE_ROLE_REQUIRED", "客户决定人只能处理 client_decision Gate", "请由内部审核角色处理当前 Gate")
+		return WorkTaskView{}, domain.Policy("CLIENT_GATE_ROLE_REQUIRED", "客户决定人只能处理客户确认类型（client_decision）的审核", "请由内部审核角色处理当前审核")
 	}
 	_, taskSOP, sopErr := s.loadTaskSOP(ctx, actor.TenantID, task)
 	if sopErr != nil {
@@ -518,14 +518,14 @@ func (s *Service) DecideGate(ctx context.Context, actor Actor, taskID, gateID st
 		return WorkTaskView{}, gateErr
 	}
 	if evaluation.GateMode == domain.GateModeClientDecision && actor.Role != "client_approver" && actor.Role != "tenant_admin" {
-		return WorkTaskView{}, domain.Policy("CLIENT_GATE_ROLE_REQUIRED", "client_decision Gate 只能由客户决定人或租户管理员处理", "请邀请客户决定人处理该 Gate")
+		return WorkTaskView{}, domain.Policy("CLIENT_GATE_ROLE_REQUIRED", "客户确认类型（client_decision）的审核只能由客户决定人或租户管理员处理", "请邀请客户决定人处理该审核")
 	}
 	if len(gate.AssigneeRoles) > 0 && actor.Role != "tenant_admin" && !containsString(gate.AssigneeRoles, actor.Role) {
-		return WorkTaskView{}, domain.Policy("GATE_ASSIGNEE_ROLE_REQUIRED", "当前成员不在该 Gate 的决定角色范围内", "请由 Gate 配置的决定角色处理")
+		return WorkTaskView{}, domain.Policy("GATE_ASSIGNEE_ROLE_REQUIRED", "当前成员不在该审核的决定角色范围内", "请由审核配置中的决定角色处理")
 	}
 	decision := strings.ToLower(strings.TrimSpace(input.Decision))
 	if decision != "approved" && decision != "rejected" && decision != "changes_requested" {
-		return WorkTaskView{}, domain.Invalid("GATE_DECISION_INVALID", "Gate 决定必须是 approved、rejected 或 changes_requested")
+		return WorkTaskView{}, domain.Invalid("GATE_DECISION_INVALID", "审核决定必须是“批准（approved）”“拒绝（rejected）”或“要求修改（changes_requested）”")
 	}
 	if decision == "approved" && evaluation.GateID == "script_review" && task.ContentType == domain.ContentTypeMarketingVideo {
 		if err := s.approveMarketingVideoScript(ctx, actor, task, evaluation.StageRunID, input.Reason, requestID); err != nil {
@@ -553,7 +553,7 @@ func (s *Service) DecideGate(ctx context.Context, actor Actor, taskID, gateID st
 	if decision != "approved" {
 		stageRun.Status = domain.StageRunStatusBlocked
 		task.Status = domain.TaskStatusBlocked
-		task.NextAction = "根据 Gate 意见修改并重试"
+		task.NextAction = "根据审核意见修改并重试"
 		stageRun.UpdatedAt = now
 		task.UpdatedAt = now
 		if err := s.store.SaveStageRun(ctx, stageRun); err != nil {
@@ -604,7 +604,7 @@ func (s *Service) completeStage(ctx context.Context, task *domain.WorkTask, stag
 	if next == nil {
 		task.Status = domain.TaskStatusAccepted
 		task.CurrentStageID = ""
-		task.NextAction = "提交 Revision"
+		task.NextAction = "提交内容版本"
 	} else {
 		task.Status = domain.TaskStatusReady
 		task.CurrentStageID = next.ID
@@ -626,7 +626,7 @@ func (s *Service) CreateTaskRevision(ctx context.Context, actor Actor, taskID st
 		return domain.TaskRevision{}, err
 	}
 	if task.Status == domain.TaskStatusCancelled || task.Status == domain.TaskStatusDelivered {
-		return domain.TaskRevision{}, domain.Conflict("TASK_REVISION_NOT_ALLOWED", "已取消或已交付任务不能提交新 Revision")
+		return domain.TaskRevision{}, domain.Conflict("TASK_REVISION_NOT_ALLOWED", "已取消或已交付任务不能提交新的内容版本")
 	}
 	contentType := defaultString(input.ContentType, task.ContentType)
 	schemaVersion := defaultString(input.SchemaVersion, contentSchemaVersion(contentType))
@@ -657,14 +657,14 @@ func (s *Service) CreateTaskRevision(ctx context.Context, actor Actor, taskID st
 	}
 	if task.Status == domain.TaskStatusBlocked {
 		task.Status = domain.TaskStatusReady
-		task.NextAction = "重试当前 Stage"
+		task.NextAction = "重试当前流程阶段"
 		task.UpdatedAt = now
 		if err := s.store.SaveWorkTask(ctx, task); err != nil {
 			return domain.TaskRevision{}, err
 		}
 	}
 	if task.Status == domain.TaskStatusAccepted {
-		task.NextAction = "交付 Revision"
+		task.NextAction = "交付内容版本"
 		task.UpdatedAt = now
 		if err := s.store.SaveWorkTask(ctx, task); err != nil {
 			return domain.TaskRevision{}, err
@@ -683,7 +683,7 @@ func (s *Service) CreateTaskDelivery(ctx context.Context, actor Actor, taskID st
 		return domain.TaskDelivery{}, err
 	}
 	if task.Status != domain.TaskStatusAccepted {
-		return domain.TaskDelivery{}, domain.Policy("TASK_NOT_ACCEPTED", "只有已接受任务可以交付", "先完成所有 Stage 并提交 Revision")
+		return domain.TaskDelivery{}, domain.Policy("TASK_NOT_ACCEPTED", "只有已接受的任务可以交付", "先完成所有流程阶段并提交内容版本")
 	}
 	revisions, err := s.taskRevisions(ctx, task)
 	if err != nil {
@@ -698,10 +698,10 @@ func (s *Service) CreateTaskDelivery(ctx context.Context, actor Actor, taskID st
 		break
 	}
 	if revision.ID == "" {
-		return domain.TaskDelivery{}, domain.Policy("TASK_REVISION_NOT_ACCEPTED", "交付必须引用当前任务的已接受 Revision", "先提交最终 Revision")
+		return domain.TaskDelivery{}, domain.Policy("TASK_REVISION_NOT_ACCEPTED", "交付必须引用当前任务已接受的内容版本", "先提交最终内容版本")
 	}
 	if len(input.Manifest) > 0 {
-		return domain.TaskDelivery{}, domain.Invalid("TASK_DELIVERY_MANIFEST_SERVER_OWNED", "交付 manifest 由服务端 DeliveryPackage 派生，不能由客户端提交")
+		return domain.TaskDelivery{}, domain.Invalid("TASK_DELIVERY_MANIFEST_SERVER_OWNED", "交付文件清单由服务端交付包生成，不能由客户端提交")
 	}
 	destination := defaultString(input.Destination, "workspace")
 	deliver := input.Deliver == nil || *input.Deliver
@@ -709,7 +709,7 @@ func (s *Service) CreateTaskDelivery(ctx context.Context, actor Actor, taskID st
 	integrityStatus := "script_only"
 	packageID := strings.TrimSpace(input.DeliveryPackageID)
 	if packageID == "" && deliver {
-		return domain.TaskDelivery{}, domain.Policy("DELIVERY_PACKAGE_REQUIRED", "完成交付必须引用服务端 ready DeliveryPackage", "先完成最终成片批准并构建交付包")
+		return domain.TaskDelivery{}, domain.Policy("DELIVERY_PACKAGE_REQUIRED", "完成交付必须引用服务端已就绪的交付包", "先完成最终成片批准并构建交付包")
 	}
 	if packageID != "" {
 		pkg, packageErr := s.store.DeliveryPackage(ctx, actor.TenantID, packageID)
@@ -717,18 +717,18 @@ func (s *Service) CreateTaskDelivery(ctx context.Context, actor Actor, taskID st
 			return domain.TaskDelivery{}, packageErr
 		}
 		if pkg.ProjectID != task.ProjectID || pkg.ContentItemID != task.ID || pkg.Status != "ready" || len(pkg.Manifest) == 0 {
-			return domain.TaskDelivery{}, domain.Policy("DELIVERY_PACKAGE_INVALID", "DeliveryPackage 不属于当前任务、未 ready 或 manifest 为空", "重新构建当前任务的交付包")
+			return domain.TaskDelivery{}, domain.Policy("DELIVERY_PACKAGE_INVALID", "交付包不属于当前任务、尚未就绪或文件清单为空", "重新构建当前任务的交付包")
 		}
 		for _, artifact := range pkg.Manifest {
 			if artifact.TenantID != task.TenantID || artifact.ProjectID != task.ProjectID || artifact.ByteSize <= 0 || strings.TrimSpace(artifact.SHA256) == "" {
-				return domain.TaskDelivery{}, domain.Conflict("DELIVERY_ARTIFACT_INTEGRITY_FAILED", "DeliveryPackage 包含缺失或摘要无效的 Artifact")
+				return domain.TaskDelivery{}, domain.Conflict("DELIVERY_ARTIFACT_INTEGRITY_FAILED", "交付包中存在缺失或摘要无效的成果文件")
 			}
 			if quarantined, _ := artifact.Metadata["quarantined"].(bool); quarantined {
-				return domain.TaskDelivery{}, domain.Policy("DELIVERY_ARTIFACT_QUARANTINED", "DeliveryPackage 包含隔离中的 Artifact", "处理媒体安全问题后重新构建交付包")
+				return domain.TaskDelivery{}, domain.Policy("DELIVERY_ARTIFACT_QUARANTINED", "交付包中存在隔离中的成果文件", "处理媒体安全问题后重新构建交付包")
 			}
 			stored, artifactErr := s.store.Artifact(ctx, actor.TenantID, artifact.ID)
 			if artifactErr != nil || stored.ByteSize != artifact.ByteSize || normalizedSHA256(stored.SHA256) != normalizedSHA256(artifact.SHA256) {
-				return domain.TaskDelivery{}, domain.Conflict("DELIVERY_ARTIFACT_DIGEST_MISMATCH", "DeliveryPackage Artifact 与服务端存储不一致")
+				return domain.TaskDelivery{}, domain.Conflict("DELIVERY_ARTIFACT_DIGEST_MISMATCH", "交付包中的成果文件与服务端存储不一致")
 			}
 			manifest = append(manifest, artifact.ID+"@"+normalizedSHA256(artifact.SHA256))
 		}
@@ -749,7 +749,7 @@ func (s *Service) CreateTaskDelivery(ctx context.Context, actor Actor, taskID st
 				}
 			}
 			if !finalApproved {
-				return domain.TaskDelivery{}, domain.Policy("FINAL_MEDIA_REVIEW_REQUIRED", "营销视频交付包缺少精确绑定最终 Artifact 的批准记录", "先完成最终成片批准")
+				return domain.TaskDelivery{}, domain.Policy("FINAL_MEDIA_REVIEW_REQUIRED", "营销视频交付包缺少精确绑定最终成果文件的批准记录", "先完成最终成片批准")
 			}
 		}
 		integrityStatus = "complete"
@@ -789,7 +789,7 @@ func (s *Service) CreateTaskDelivery(ctx context.Context, actor Actor, taskID st
 
 func (s *Service) createMarketingVideoSubmissionRevision(ctx context.Context, actor Actor, task domain.WorkTask, input CreateTaskRevisionInput, requestID string) (domain.TaskRevision, error) {
 	if task.CurrentStageID != "script" || (task.Status != domain.TaskStatusRunning && task.Status != domain.TaskStatusBlocked) {
-		return domain.TaskRevision{}, domain.Policy("MARKETING_VIDEO_SCRIPT_STAGE_REQUIRED", "营销视频剧本只能在运行中的剧本 Stage 提交", "开始或重试短视频剧本 Stage")
+		return domain.TaskRevision{}, domain.Policy("MARKETING_VIDEO_SCRIPT_STAGE_REQUIRED", "营销视频剧本只能在运行中的剧本阶段提交", "开始或重试短视频剧本阶段")
 	}
 	binding, err := s.ensureTaskWorkspace(ctx, actor, task)
 	if err != nil {
@@ -797,7 +797,7 @@ func (s *Service) createMarketingVideoSubmissionRevision(ctx context.Context, ac
 	}
 	var content map[string]any
 	if err := json.Unmarshal(input.Content, &content); err != nil {
-		return domain.TaskRevision{}, domain.Invalid("TASK_CONTENT_OBJECT_REQUIRED", "Revision 内容必须是对象")
+		return domain.TaskRevision{}, domain.Invalid("TASK_CONTENT_OBJECT_REQUIRED", "内容版本的正文必须是对象")
 	}
 	contentItemID := "content-item:" + task.ID
 	content["id"] = contentItemID
@@ -897,7 +897,7 @@ func (s *Service) approveMarketingVideoScript(ctx context.Context, actor Actor, 
 		}
 	}
 	if revisionID == "" {
-		return domain.Policy("SCRIPT_SUBMISSION_REQUIRED", "剧本 Gate 缺少规范 SubmissionRevision", "重新上报当前剧本 Revision")
+		return domain.Policy("SCRIPT_SUBMISSION_REQUIRED", "剧本审核缺少规范的提交内容版本", "重新上报当前剧本内容版本")
 	}
 	revision, err := s.store.SubmissionRevision(ctx, task.TenantID, revisionID)
 	if err != nil {
@@ -908,20 +908,20 @@ func (s *Service) approveMarketingVideoScript(ctx context.Context, actor Actor, 
 		return err
 	}
 	if submission.WorkspaceID != task.ID || submission.ProjectID != task.ProjectID || submission.SubmissionType != "content_batch" {
-		return domain.Policy("SCRIPT_SUBMISSION_SCOPE_INVALID", "剧本 SubmissionRevision 不属于当前营销视频任务", "重新提交当前任务剧本")
+		return domain.Policy("SCRIPT_SUBMISSION_SCOPE_INVALID", "剧本提交内容版本不属于当前营销视频任务", "重新提交当前任务剧本")
 	}
 	if submission.Status == "approved" {
 		return nil
 	}
 	if submission.CurrentRevisionID != revision.ID || (submission.Status != "submitted" && submission.Status != "in_review") {
-		return domain.Conflict("SUBMISSION_STATE_INVALID", "只能批准当前待审剧本 SubmissionRevision")
+		return domain.Conflict("SUBMISSION_STATE_INVALID", "只能批准当前待审核的剧本内容版本")
 	}
 	now := s.now().UTC()
 	canonical, err := canonicalSubmissionContent(submission, revision)
 	if err != nil {
 		return err
 	}
-	decision := domain.ApprovalDecision{ID: domain.NewID(), TenantID: task.TenantID, ProjectID: task.ProjectID, SubjectType: "submission_revision", SubjectID: revision.ID, SubjectHash: revision.ContentHash, DecisionStage: "internal", ActorID: actor.UserID, Decision: "approve", Reason: defaultString(strings.TrimSpace(reason), "剧本 Gate 批准"), PreviousState: submission.Status, ResultingState: "approved", CreatedAt: now}
+	decision := domain.ApprovalDecision{ID: domain.NewID(), TenantID: task.TenantID, ProjectID: task.ProjectID, SubjectType: "submission_revision", SubjectID: revision.ID, SubjectHash: revision.ContentHash, DecisionStage: "internal", ActorID: actor.UserID, Decision: "approve", Reason: defaultString(strings.TrimSpace(reason), "剧本审核通过"), PreviousState: submission.Status, ResultingState: "approved", CreatedAt: now}
 	snapshot := domain.ApprovedSnapshot{ID: domain.NewID(), TenantID: task.TenantID, ProjectID: task.ProjectID, WorkspaceID: submission.WorkspaceID, SubmissionID: submission.ID, SubmissionRevisionID: revision.ID, SubmissionType: submission.SubmissionType, SchemaVersion: revision.SchemaVersion, ContentHash: revision.ContentHash, SubjectHash: revision.ContentHash, CanonicalContent: canonical, EligibleIDs: revision.EligibleObjectIDs(), Artifacts: revision.Artifacts, DecisionID: decision.ID, CreatedBy: actor.UserID, CreatedAt: now}
 	submission.Status = "approved"
 	submission.UpdatedAt = now
@@ -1000,7 +1000,7 @@ func (s *Service) loadTaskSOP(ctx context.Context, tenantID string, task domain.
 			return summary.Definition, version, nil
 		}
 	}
-	return domain.SOPDefinition{}, domain.SOPVersion{}, domain.NotFound("SOP 版本")
+	return domain.SOPDefinition{}, domain.SOPVersion{}, domain.NotFound("流程规范版本")
 }
 
 func stageDefinition(sop domain.SOPVersion, id string) (domain.StageDefinition, error) {
@@ -1009,7 +1009,7 @@ func stageDefinition(sop domain.SOPVersion, id string) (domain.StageDefinition, 
 			return stage, nil
 		}
 	}
-	return domain.StageDefinition{}, domain.NotFound("Stage")
+	return domain.StageDefinition{}, domain.NotFound("流程阶段")
 }
 
 func gateDefinition(sop domain.SOPVersion, id string) (domain.GateDefinition, error) {
@@ -1018,7 +1018,7 @@ func gateDefinition(sop domain.SOPVersion, id string) (domain.GateDefinition, er
 			return gate, nil
 		}
 	}
-	return domain.GateDefinition{}, domain.NotFound("Gate")
+	return domain.GateDefinition{}, domain.NotFound("检查与审批项")
 }
 
 func stageRunByID(runs []domain.StageRun, id string) (domain.StageRun, error) {
@@ -1027,7 +1027,7 @@ func stageRunByID(runs []domain.StageRun, id string) (domain.StageRun, error) {
 			return run, nil
 		}
 	}
-	return domain.StageRun{}, domain.NotFound("StageRun")
+	return domain.StageRun{}, domain.NotFound("流程阶段执行记录")
 }
 
 func firstString(values []string) string {
@@ -1107,7 +1107,7 @@ func validateTaskContent(contentType, schemaVersion string, content json.RawMess
 		return domain.Invalid("TASK_CONTENT_TYPE_INVALID", "任务内容类型不受支持")
 	}
 	if len(content) == 0 || !json.Valid(content) {
-		return domain.Invalid("TASK_CONTENT_INVALID", "Revision 内容必须是有效 JSON")
+		return domain.Invalid("TASK_CONTENT_INVALID", "内容版本的正文必须是有效 JSON")
 	}
 	want := contentSchemaVersion(contentType)
 	if schemaVersion != want && !(contentType == domain.ContentTypeVideoScript && schemaVersion == "contentcloud.content_batch/3.0") {
@@ -1115,22 +1115,22 @@ func validateTaskContent(contentType, schemaVersion string, content json.RawMess
 	}
 	var object map[string]any
 	if err := json.Unmarshal(content, &object); err != nil {
-		return domain.Invalid("TASK_CONTENT_OBJECT_REQUIRED", "Revision 内容必须是对象")
+		return domain.Invalid("TASK_CONTENT_OBJECT_REQUIRED", "内容版本的正文必须是对象")
 	}
 	if strings.TrimSpace(fmt.Sprint(object["title"])) == "" && strings.TrimSpace(fmt.Sprint(object["name"])) == "" {
-		return domain.Invalid("TASK_CONTENT_TITLE_REQUIRED", "Revision 需要标题或名称")
+		return domain.Invalid("TASK_CONTENT_TITLE_REQUIRED", "内容版本需要标题或名称")
 	}
 	if contentType == domain.ContentTypeVideoScript || contentType == domain.ContentTypeMarketingVideo {
 		if _, ok := object["scenes"]; !ok {
 			if _, ok := object["items"]; !ok {
-				return domain.Invalid("VIDEO_SCRIPT_SCENES_REQUIRED", "视频脚本 Revision 需要 scenes 或 items")
+				return domain.Invalid("VIDEO_SCRIPT_SCENES_REQUIRED", "视频脚本内容版本需要场景列表（scenes）或内容项列表（items）")
 			}
 		}
 	}
 	if contentType == domain.ContentTypeWeChatArticle {
 		if _, ok := object["blocks"]; !ok {
 			if _, ok := object["paragraphs"]; !ok {
-				return domain.Invalid("ARTICLE_BLOCKS_REQUIRED", "文章 Revision 需要 blocks 或 paragraphs")
+				return domain.Invalid("ARTICLE_BLOCKS_REQUIRED", "文章内容版本需要内容块（blocks）或段落（paragraphs）")
 			}
 		}
 	}

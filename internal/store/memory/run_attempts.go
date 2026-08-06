@@ -13,7 +13,7 @@ func (s *Store) CreateRunAttempt(_ context.Context, attempt domain.RunAttempt) e
 	defer s.mu.Unlock()
 	for _, existing := range s.runAttempts {
 		if existing.RunID == attempt.RunID && (existing.State == "leased" || existing.State == "running") {
-			return domain.Conflict("RUN_ATTEMPT_ACTIVE", "任务已有活动 Attempt")
+			return domain.Conflict("RUN_ATTEMPT_ACTIVE", "任务已有正在执行的尝试")
 		}
 	}
 	s.runAttempts[attempt.ID] = attempt
@@ -25,7 +25,7 @@ func (s *Store) RunAttempt(_ context.Context, tenantID, id string) (domain.RunAt
 	defer s.mu.RUnlock()
 	attempt, ok := s.runAttempts[id]
 	if !ok || attempt.TenantID != tenantID {
-		return attempt, domain.NotFound("任务 Attempt")
+		return attempt, domain.NotFound("任务执行尝试")
 	}
 	return attempt, nil
 }
@@ -48,7 +48,7 @@ func (s *Store) SaveRunAttempt(_ context.Context, attempt domain.RunAttempt) err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing, ok := s.runAttempts[attempt.ID]; !ok || existing.TenantID != attempt.TenantID {
-		return domain.NotFound("任务 Attempt")
+		return domain.NotFound("任务执行尝试")
 	}
 	s.runAttempts[attempt.ID] = attempt
 	return nil

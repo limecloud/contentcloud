@@ -37,7 +37,7 @@ type S3Config struct {
 
 func NewS3(ctx context.Context, input S3Config) (*S3Store, error) {
 	if strings.TrimSpace(input.Bucket) == "" {
-		return nil, fmt.Errorf("S3 bucket is required")
+		return nil, fmt.Errorf("必须配置 S3 存储桶")
 	}
 	region := input.Region
 	if region == "" {
@@ -46,13 +46,13 @@ func NewS3(ctx context.Context, input S3Config) (*S3Store, error) {
 	options := []func(*config.LoadOptions) error{config.WithRegion(region)}
 	if input.AccessKeyID != "" || input.SecretAccessKey != "" {
 		if input.AccessKeyID == "" || input.SecretAccessKey == "" {
-			return nil, fmt.Errorf("both S3 access key and secret key are required")
+			return nil, fmt.Errorf("必须同时配置 S3 访问密钥和秘密密钥")
 		}
 		options = append(options, config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(input.AccessKeyID, input.SecretAccessKey, input.SessionToken)))
 	}
 	awsConfig, err := config.LoadDefaultConfig(ctx, options...)
 	if err != nil {
-		return nil, fmt.Errorf("load S3 configuration: %w", err)
+		return nil, fmt.Errorf("加载 S3 配置失败：%w", err)
 	}
 	client := s3.NewFromConfig(awsConfig, func(options *s3.Options) {
 		options.UsePathStyle = input.UsePathStyle || input.Endpoint != ""
@@ -93,7 +93,7 @@ func (s *S3Store) Put(ctx context.Context, key string, data []byte) error {
 		ServerSideEncryption: types.ServerSideEncryptionAes256,
 	})
 	if err != nil {
-		return fmt.Errorf("put S3 object: %w", err)
+		return fmt.Errorf("写入 S3 对象失败：%w", err)
 	}
 	return nil
 }
@@ -109,18 +109,18 @@ func (s *S3Store) Get(ctx context.Context, key string) ([]byte, error) {
 		if errors.As(err, &notFound) {
 			return nil, ErrNotFound
 		}
-		return nil, fmt.Errorf("get S3 object: %w", err)
+		return nil, fmt.Errorf("读取 S3 对象失败：%w", err)
 	}
 	defer result.Body.Close()
 	if result.ContentLength != nil && *result.ContentLength > maxBlobRead {
-		return nil, fmt.Errorf("S3 object exceeds read limit")
+		return nil, fmt.Errorf("S3 对象超过读取大小限制")
 	}
 	data, err := io.ReadAll(io.LimitReader(result.Body, maxBlobRead+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(data) > maxBlobRead {
-		return nil, fmt.Errorf("S3 object exceeds read limit")
+		return nil, fmt.Errorf("S3 对象超过读取大小限制")
 	}
 	return data, nil
 }
@@ -128,7 +128,7 @@ func (s *S3Store) Get(ctx context.Context, key string) ([]byte, error) {
 func (s *S3Store) key(key string) (string, error) {
 	clean := strings.Trim(strings.ReplaceAll(key, "\\", "/"), "/")
 	if clean == "" || strings.Contains(clean, "../") || strings.HasPrefix(clean, "..") || strings.ContainsRune(clean, '\x00') {
-		return "", fmt.Errorf("invalid object key")
+		return "", fmt.Errorf("对象键无效")
 	}
 	if s.prefix == "" {
 		return clean, nil

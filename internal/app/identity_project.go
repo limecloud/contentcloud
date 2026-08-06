@@ -253,7 +253,7 @@ func (s *Service) UpdateProject(ctx context.Context, actor Actor, projectID stri
 		return project, err
 	}
 	if in.RowVersion <= 0 {
-		return project, domain.Invalid("ROW_VERSION_REQUIRED", "修改项目必须携带 row_version")
+		return project, domain.Invalid("ROW_VERSION_REQUIRED", "修改项目必须携带行版本号（row_version）")
 	}
 	changed := false
 	if in.BrandName != nil {

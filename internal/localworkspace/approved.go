@@ -91,7 +91,7 @@ func ApprovedSnapshotInbox(root, submissionType string) ([]ApprovedSnapshotCache
 		return nil, err
 	}
 	if submissionType != "" && !approvedSubmissionType(submissionType) {
-		return nil, domain.Invalid("APPROVED_SNAPSHOT_TYPE_INVALID", "ApprovedSnapshot submission_type 无效")
+		return nil, domain.Invalid("APPROVED_SNAPSHOT_TYPE_INVALID", "批准快照的 submission_type 无效")
 	}
 	paths, err := filepath.Glob(filepath.Join(resolved, ".contentcloud", "cache", "approved", "*", "snapshot.json"))
 	if err != nil {
@@ -123,7 +123,7 @@ func ShowApprovedSnapshot(root, snapshotID string) (ApprovedSnapshotCacheRecord,
 		return ApprovedSnapshotCacheRecord{}, err
 	}
 	if !safePulledBundleID(snapshotID) {
-		return ApprovedSnapshotCacheRecord{}, domain.Invalid("APPROVED_SNAPSHOT_ID_INVALID", "ApprovedSnapshot ID 无效")
+		return ApprovedSnapshotCacheRecord{}, domain.Invalid("APPROVED_SNAPSHOT_ID_INVALID", "批准快照 ID 无效")
 	}
 	return loadApprovedSnapshot(resolved, snapshotID)
 }
@@ -187,17 +187,17 @@ func loadApprovedSnapshot(root, snapshotID string) (ApprovedSnapshotCacheRecord,
 
 func validateApprovedSnapshot(root string, snapshot domain.ApprovedSnapshot) error {
 	if !safePulledBundleID(snapshot.ID) || !approvedSubmissionType(snapshot.SubmissionType) || snapshot.CreatedAt.IsZero() || len(snapshot.CanonicalContent) == 0 || !json.Valid(snapshot.CanonicalContent) {
-		return domain.Invalid("APPROVED_SNAPSHOT_INVALID", "ApprovedSnapshot 缺少有效 ID、类型、canonical content 或创建时间")
+		return domain.Invalid("APPROVED_SNAPSHOT_INVALID", "批准快照缺少有效 ID、类型、规范内容或创建时间")
 	}
 	status, err := LoadStatus(root)
 	if err != nil {
 		return err
 	}
 	if snapshot.ProjectID != "" && snapshot.ProjectID != status.Binding.ProjectID {
-		return domain.Conflict("APPROVED_SNAPSHOT_PROJECT_MISMATCH", "ApprovedSnapshot 不属于当前项目")
+		return domain.Conflict("APPROVED_SNAPSHOT_PROJECT_MISMATCH", "批准快照不属于当前项目")
 	}
 	if snapshot.WorkspaceID != "" && snapshot.WorkspaceID != status.Binding.WorkspaceID {
-		return domain.Conflict("APPROVED_SNAPSHOT_WORKSPACE_MISMATCH", "ApprovedSnapshot 不属于当前工作区")
+		return domain.Conflict("APPROVED_SNAPSHOT_WORKSPACE_MISMATCH", "批准快照不属于当前工作区")
 	}
 	var canonical struct {
 		SchemaVersion  string            `json:"schema_version"`
@@ -205,10 +205,10 @@ func validateApprovedSnapshot(root string, snapshot domain.ApprovedSnapshot) err
 		Objects        []json.RawMessage `json:"objects"`
 	}
 	if err := json.Unmarshal(snapshot.CanonicalContent, &canonical); err != nil || canonical.SubmissionType != snapshot.SubmissionType || canonical.Objects == nil {
-		return domain.Invalid("APPROVED_SNAPSHOT_CANONICAL_INVALID", "ApprovedSnapshot canonical content 与提交类型不一致或缺少 objects 数组")
+		return domain.Invalid("APPROVED_SNAPSHOT_CANONICAL_INVALID", "批准快照的规范内容与提交类型不一致，或缺少 objects 数组")
 	}
 	if snapshot.SchemaVersion != "" && canonical.SchemaVersion != snapshot.SchemaVersion {
-		return domain.Conflict("APPROVED_SNAPSHOT_SCHEMA_MISMATCH", "ApprovedSnapshot schema_version 与 canonical content 不一致")
+		return domain.Conflict("APPROVED_SNAPSHOT_SCHEMA_MISMATCH", "批准快照的 schema_version 与规范内容不一致")
 	}
 	objectIDs := map[string]bool{}
 	for _, raw := range canonical.Objects {
@@ -216,19 +216,19 @@ func validateApprovedSnapshot(root string, snapshot domain.ApprovedSnapshot) err
 			ID string `json:"id"`
 		}
 		if json.Unmarshal(raw, &identity) != nil || strings.TrimSpace(identity.ID) == "" {
-			return domain.Invalid("APPROVED_SNAPSHOT_OBJECT_INVALID", "ApprovedSnapshot canonical content 包含无 ID 对象")
+			return domain.Invalid("APPROVED_SNAPSHOT_OBJECT_INVALID", "批准快照的规范内容包含无 ID 对象")
 		}
 		objectIDs[identity.ID] = true
 	}
 	eligible := map[string]bool{}
 	for _, id := range snapshot.EligibleIDs {
 		if strings.TrimSpace(id) == "" || eligible[id] || !objectIDs[id] {
-			return domain.Invalid("APPROVED_SNAPSHOT_ELIGIBLE_INVALID", "ApprovedSnapshot eligible_ids 包含空值、重复值或非 canonical 对象")
+			return domain.Invalid("APPROVED_SNAPSHOT_ELIGIBLE_INVALID", "批准快照的 eligible_ids 包含空值、重复值或不在规范内容中的对象")
 		}
 		eligible[id] = true
 	}
 	if snapshot.ContentHash != "" && snapshot.SubjectHash != "" && normalizeApprovedHash(snapshot.ContentHash) != normalizeApprovedHash(snapshot.SubjectHash) {
-		return domain.Conflict("APPROVED_SNAPSHOT_SUBJECT_MISMATCH", "ApprovedSnapshot content_hash 与 subject_hash 不一致")
+		return domain.Conflict("APPROVED_SNAPSHOT_SUBJECT_MISMATCH", "批准快照的 content_hash 与 subject_hash 不一致")
 	}
 	return nil
 }
@@ -254,7 +254,7 @@ func requireImmutableCacheFile(path string) error {
 		return err
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0o222 != 0 {
-		return domain.Conflict("APPROVED_SNAPSHOT_CACHE_MUTABLE", "ApprovedSnapshot 缓存文件不是只读普通文件")
+		return domain.Conflict("APPROVED_SNAPSHOT_CACHE_MUTABLE", "批准快照缓存文件不是只读普通文件")
 	}
 	return nil
 }

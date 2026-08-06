@@ -49,7 +49,7 @@ func (s *Store) CreateKnowledgeObjectDecision(ctx context.Context, object domain
 			return err
 		}
 		if previousDigest != decision.SubjectDigest {
-			return domain.Conflict("KNOWLEDGE_DECISION_SUBJECT_CHANGED", "知识对象版本或 digest 已变化")
+			return domain.Conflict("KNOWLEDGE_DECISION_SUBJECT_CHANGED", "知识对象版本或摘要（digest）已变化")
 		}
 		if err := insertKnowledgeObject(ctx, tx, object); err != nil {
 			return err

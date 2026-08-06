@@ -8,9 +8,9 @@ import (
 )
 
 func (r *Root) lineageCommand() *cobra.Command {
-	command := &cobra.Command{Use: "lineage", Short: "Trace project objects from sources through results"}
-	command.AddCommand(r.lineageReadCommand("show", "lineage.show", "Show the bidirectional lineage graph", true))
-	command.AddCommand(r.lineageReadCommand("impact", "lineage.impact", "Show downstream impact with recommended actions", false))
+	command := &cobra.Command{Use: "lineage", Short: "追踪项目对象从来源到结果的完整链路"}
+	command.AddCommand(r.lineageReadCommand("show", "lineage.show", "显示双向对象链路图", true))
+	command.AddCommand(r.lineageReadCommand("impact", "lineage.impact", "显示下游影响和建议操作", false))
 	return command
 }
 
@@ -43,18 +43,18 @@ func (r *Root) lineageReadCommand(use, dispatch, short string, directionFlag boo
 		}
 		return r.writeOK(dispatch, result)
 	}}
-	command.Flags().StringVar(&focusType, "type", "", "focus object type")
-	command.Flags().StringVar(&focusID, "id", "", "focus object ID")
+	command.Flags().StringVar(&focusType, "type", "", "焦点对象类型")
+	command.Flags().StringVar(&focusID, "id", "", "焦点对象 ID")
 	if directionFlag {
-		command.Flags().StringVar(&direction, "direction", "both", "upstream, downstream, or both")
+		command.Flags().StringVar(&direction, "direction", "both", "追踪方向：upstream、downstream 或 both")
 	}
 	return command
 }
 
 func (r *Root) auditCommand() *cobra.Command {
-	command := &cobra.Command{Use: "audit", Short: "Inspect immutable business audit events"}
+	command := &cobra.Command{Use: "audit", Short: "查看不可变的业务审计事件"}
 	var limit int
-	list := &cobra.Command{Use: "list", Short: "List project audit events", RunE: func(cmd *cobra.Command, _ []string) error {
+	list := &cobra.Command{Use: "list", Short: "列出项目审计事件", RunE: func(cmd *cobra.Command, _ []string) error {
 		cfg, client, _, err := r.userClient()
 		if err != nil {
 			return err
@@ -69,7 +69,7 @@ func (r *Root) auditCommand() *cobra.Command {
 		}
 		return r.writeOK("audit.list", result)
 	}}
-	list.Flags().IntVar(&limit, "limit", 50, "maximum event count")
+	list.Flags().IntVar(&limit, "limit", 50, "最多返回的事件数量")
 	command.AddCommand(list)
 	return command
 }

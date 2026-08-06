@@ -253,7 +253,7 @@ func ValidateArticleItemForSubmission(raw json.RawMessage, projectID string) (Ar
 		return item, domain.Invalid("ARTICLE_ITEM_JSON_INVALID", err.Error())
 	}
 	if item.ProjectID != projectID {
-		return item, domain.Conflict("ARTICLE_ITEM_PROJECT_MISMATCH", "ArticleItem 不属于当前项目")
+		return item, domain.Conflict("ARTICLE_ITEM_PROJECT_MISMATCH", "文章对象不属于当前项目")
 	}
 	batch := ContentBatch{ID: item.ContentBatchID, ContentKind: domain.ContentTypeWeChatArticle, ContentSchemaRef: ArticleSchema, ProjectID: item.ProjectID, BriefRef: item.BriefRef, ContextSnapshotID: item.ContextSnapshotID}
 	query := KnowledgeQueryResult{Eligible: []KnowledgeQueryEntry{}}
@@ -281,7 +281,7 @@ func ValidateArticleItemForSubmission(raw json.RawMessage, projectID string) (Ar
 	}
 	report := lintArticleItem(item, batch, query, refs)
 	if !report.Valid {
-		err := domain.Invalid("ARTICLE_ITEM_SUBMISSION_INVALID", "ArticleItem 未通过服务端结构复验")
+		err := domain.Invalid("ARTICLE_ITEM_SUBMISSION_INVALID", "文章对象未通过服务端结构复验")
 		err.Details = report
 		return item, err
 	}
@@ -303,7 +303,7 @@ func ValidateArticleBriefForSubmission(raw json.RawMessage) (ArticleBrief, error
 	}
 	report := lintArticleBrief(brief, query)
 	if !report.Valid {
-		err := domain.Invalid("ARTICLE_BRIEF_SUBMISSION_INVALID", "ArticleBrief 未通过服务端结构复验")
+		err := domain.Invalid("ARTICLE_BRIEF_SUBMISSION_INVALID", "文章简报未通过服务端结构复验")
 		err.Details = report
 		return brief, err
 	}
@@ -421,7 +421,7 @@ func CreateArticleBatch(options CreateArticleBatchOptions) (CreateContentBatchRe
 		return CreateContentBatchResult{}, validationErr
 	}
 	if query.ApprovedSnapshotID == "" {
-		return CreateContentBatchResult{}, domain.Policy("KNOWLEDGE_SNAPSHOT_REQUIRED", "创建公众号文章批次需要已拉取的 Knowledge ApprovedSnapshot", "先执行 contentcloud pull approved --type knowledge")
+		return CreateContentBatchResult{}, domain.Policy("KNOWLEDGE_SNAPSHOT_REQUIRED", "创建公众号文章批次需要已拉取的知识批准快照", "先执行 contentcloud pull approved --type knowledge")
 	}
 	count := options.RequestedCount
 	if count == 0 {
@@ -823,7 +823,7 @@ func ExportWeChatPackage(root, contentItemID, outputDirectory string, now time.T
 	}
 	var item ArticleItem
 	if err := strictUnmarshal(raw, &item); err != nil || item.SchemaVersion != ArticleSchema || item.Deliverability != "review_ready" {
-		return ExportWeChatPackageResult{}, domain.Policy("APPROVED_ARTICLE_ITEM_INVALID", "只有已批准的 review_ready ArticleItem 能导出公众号交付包", "修订并重新批准 ArticleItem")
+		return ExportWeChatPackageResult{}, domain.Policy("APPROVED_ARTICLE_ITEM_INVALID", "只有已批准且处于 review_ready 状态的文章对象才能导出公众号交付包", "修订并重新批准文章对象")
 	}
 	contentHash, err := domain.CanonicalHash(item)
 	if err != nil {

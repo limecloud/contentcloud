@@ -47,7 +47,7 @@ func (s *Store) CompleteStageRun(_ context.Context, run domain.StageRun, outputs
 	defer s.mu.Unlock()
 	current, ok := s.stageRuns[run.ID]
 	if !ok || current.TenantID != run.TenantID || current.TaskID != run.TaskID {
-		return domain.NotFound("StageRun")
+		return domain.NotFound("阶段运行")
 	}
 	for _, output := range outputs {
 		output.NormalizeCollections()
@@ -55,10 +55,10 @@ func (s *Store) CompleteStageRun(_ context.Context, run domain.StageRun, outputs
 			return err
 		}
 		if output.TenantID != run.TenantID || output.TaskID != run.TaskID || output.StageRunID != run.ID || output.StageID != run.StageID {
-			return domain.Invalid("TASK_STAGE_OUTPUT_SCOPE_INVALID", "Stage 输出与 StageRun 作用域不一致")
+			return domain.Invalid("TASK_STAGE_OUTPUT_SCOPE_INVALID", "阶段输出与阶段执行记录的作用域不一致")
 		}
 		if _, exists := s.stageOutputs[output.ID]; exists {
-			return domain.Conflict("TASK_STAGE_OUTPUT_EXISTS", "Stage 输出已存在")
+			return domain.Conflict("TASK_STAGE_OUTPUT_EXISTS", "阶段输出已存在")
 		}
 	}
 	for _, output := range outputs {
@@ -96,7 +96,7 @@ func (s *Store) CreateProviderProfile(_ context.Context, value domain.ProviderPr
 	defer s.mu.Unlock()
 	key := providerProfileKey(value.ProviderID, value.Version)
 	if _, exists := s.providerProfiles[key]; exists {
-		return domain.Conflict("PROVIDER_PROFILE_EXISTS", "Provider Profile 已存在")
+		return domain.Conflict("PROVIDER_PROFILE_EXISTS", "服务提供方配置已存在")
 	}
 	s.providerProfiles[key] = cloneProviderProfile(value)
 	return nil
@@ -107,7 +107,7 @@ func (s *Store) ProviderProfile(_ context.Context, providerID, version string) (
 	defer s.mu.RUnlock()
 	value, ok := s.providerProfiles[providerProfileKey(providerID, version)]
 	if !ok {
-		return value, domain.NotFound("Provider Profile")
+		return value, domain.NotFound("服务商配置")
 	}
 	return cloneProviderProfile(value), nil
 }
@@ -119,7 +119,7 @@ func (s *Store) SaveProviderBinding(_ context.Context, value domain.ProviderBind
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.providerProfiles[providerProfileKey(value.ProviderID, value.ProfileVersion)]; !ok {
-		return domain.NotFound("Provider Profile")
+		return domain.NotFound("服务商配置")
 	}
 	s.providerBindings[value.TenantID+":"+value.ProviderID] = value
 	return nil
@@ -130,7 +130,7 @@ func (s *Store) ProviderBinding(_ context.Context, tenantID, providerID string) 
 	defer s.mu.RUnlock()
 	value, ok := s.providerBindings[tenantID+":"+providerID]
 	if !ok {
-		return value, domain.NotFound("Provider Binding")
+		return value, domain.NotFound("服务商绑定")
 	}
 	return value, nil
 }
@@ -143,11 +143,11 @@ func (s *Store) CreateMediaGenerationJob(_ context.Context, value domain.MediaGe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.mediaJobs[value.ID]; exists {
-		return domain.Conflict("MEDIA_JOB_EXISTS", "媒体 Job 已存在")
+		return domain.Conflict("MEDIA_JOB_EXISTS", "媒体生成任务已存在")
 	}
 	for _, existing := range s.mediaJobs {
 		if existing.TenantID == value.TenantID && existing.IdempotencyKey == value.IdempotencyKey {
-			return domain.Conflict("MEDIA_JOB_IDEMPOTENCY_CONFLICT", "相同幂等键已创建媒体 Job")
+			return domain.Conflict("MEDIA_JOB_IDEMPOTENCY_CONFLICT", "相同幂等键已创建媒体生成任务")
 		}
 	}
 	s.mediaJobs[value.ID] = cloneMediaJob(value)
@@ -175,7 +175,7 @@ func (s *Store) MediaGenerationJob(_ context.Context, tenantID, id string) (doma
 	defer s.mu.RUnlock()
 	value, ok := s.mediaJobs[id]
 	if !ok || value.TenantID != tenantID {
-		return value, domain.NotFound("媒体 Job")
+		return value, domain.NotFound("媒体生成任务")
 	}
 	return cloneMediaJob(value), nil
 }
@@ -202,13 +202,13 @@ func (s *Store) SaveMediaGenerationJob(_ context.Context, value domain.MediaGene
 	defer s.mu.Unlock()
 	current, ok := s.mediaJobs[value.ID]
 	if !ok || current.TenantID != value.TenantID {
-		return domain.NotFound("媒体 Job")
+		return domain.NotFound("媒体生成任务")
 	}
 	if current.RowVersion != expectedVersion {
-		return domain.Conflict("MEDIA_JOB_STALE", "媒体 Job 已被其他操作更新")
+		return domain.Conflict("MEDIA_JOB_STALE", "媒体生成任务已被其他操作更新")
 	}
 	if !domain.CanTransitionMediaJob(current.State, value.State) {
-		return domain.Conflict("MEDIA_JOB_TRANSITION_INVALID", "媒体 Job 状态转换无效")
+		return domain.Conflict("MEDIA_JOB_TRANSITION_INVALID", "媒体生成任务状态转换无效")
 	}
 	value.RowVersion = expectedVersion + 1
 	s.mediaJobs[value.ID] = cloneMediaJob(value)
@@ -223,11 +223,11 @@ func (s *Store) CreateProviderAttempt(_ context.Context, value domain.ProviderAt
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.providerAttempts[value.ID]; exists {
-		return domain.Conflict("PROVIDER_ATTEMPT_EXISTS", "Provider Attempt 已存在")
+		return domain.Conflict("PROVIDER_ATTEMPT_EXISTS", "服务提供方执行尝试已存在")
 	}
 	for _, existing := range s.providerAttempts {
 		if existing.TenantID == value.TenantID && existing.GenerationJobID == value.GenerationJobID && existing.AttemptNumber == value.AttemptNumber {
-			return domain.Conflict("PROVIDER_ATTEMPT_NUMBER_EXISTS", "Provider Attempt 序号已存在")
+			return domain.Conflict("PROVIDER_ATTEMPT_NUMBER_EXISTS", "服务提供方执行尝试序号已存在")
 		}
 	}
 	s.providerAttempts[value.ID] = cloneProviderAttempt(value)
@@ -243,7 +243,7 @@ func (s *Store) SaveProviderAttempt(_ context.Context, value domain.ProviderAtte
 	defer s.mu.Unlock()
 	current, ok := s.providerAttempts[value.ID]
 	if !ok || current.TenantID != value.TenantID {
-		return domain.NotFound("Provider Attempt")
+		return domain.NotFound("服务商执行尝试")
 	}
 	s.providerAttempts[value.ID] = cloneProviderAttempt(value)
 	return nil

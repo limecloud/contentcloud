@@ -156,10 +156,27 @@ func TestPlatformAdminOverviewAndTenantStatusEndpoint(t *testing.T) {
 		response.Body.Close()
 		t.Fatalf("development bootstrap status=%d body=%s", response.StatusCode, body)
 	}
+	var bootstrap struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			MarketingVideoFixture app.MarketingVideoDemoFixtureResult `json:"marketing_video_fixture"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&bootstrap); err != nil {
+		response.Body.Close()
+		t.Fatal(err)
+	}
 	response.Body.Close()
+	if !bootstrap.OK || bootstrap.Data.MarketingVideoFixture.Project.KnowledgeReady != 4 {
+		t.Fatalf("initial development bootstrap knowledge projection is incomplete: %#v", bootstrap)
+	}
 	demoProjects := callBFF[[]domain.Project](t, client, http.MethodGet, server.URL+"/api/bff/projects", nil)
-	if len(demoProjects) != 1 || demoProjects[0].ContentType != domain.ContentTypeMarketingVideo || demoProjects[0].ConnectedDevices != 1 {
+	if len(demoProjects) != 1 || demoProjects[0].ContentType != domain.ContentTypeMarketingVideo || demoProjects[0].ConnectedDevices != 1 || demoProjects[0].KnowledgeReady != 4 {
 		t.Fatalf("development bootstrap did not create the marketing video project: %#v", demoProjects)
+	}
+	dashboard := callBFF[app.Dashboard](t, client, http.MethodGet, server.URL+"/api/bff/dashboard", nil)
+	if dashboard.Counts["knowledge_ready"] != 4 || len(dashboard.Projects) != 1 || dashboard.Projects[0].KnowledgeReady != 4 {
+		t.Fatalf("development dashboard knowledge projection is incomplete: %#v", dashboard)
 	}
 	demoTasks := callBFF[[]domain.WorkTask](t, client, http.MethodGet, server.URL+"/api/bff/tasks?project_id="+demoProjects[0].ID, nil)
 	if len(demoTasks) != 1 || demoTasks[0].Status != domain.TaskStatusDelivered {

@@ -33,7 +33,7 @@ type MarketingVideoDemoFixtureResult struct {
 // canonical server objects. It is invoked only by the development HTTP route.
 func (s *Service) EnsureMarketingVideoDemoFixture(ctx context.Context, actor Actor, requestID string) (MarketingVideoDemoFixtureResult, error) {
 	if actor.Role != "tenant_admin" {
-		return MarketingVideoDemoFixtureResult{}, domain.Policy("ROLE_DENIED", "只有租户管理员可以导入开发 Fixture", "切换到租户管理员账号")
+		return MarketingVideoDemoFixtureResult{}, domain.Policy("ROLE_DENIED", "只有租户管理员可以导入开发演示数据", "切换到租户管理员账号")
 	}
 	projects, err := s.Projects(ctx, actor)
 	if err != nil {
@@ -83,7 +83,7 @@ func (s *Service) EnsureMarketingVideoDemoFixture(ctx context.Context, actor Act
 			return MarketingVideoDemoFixtureResult{}, viewErr
 		}
 		if view.Task.Status != domain.TaskStatusDelivered {
-			return MarketingVideoDemoFixtureResult{}, domain.Policy("DEV_FIXTURE_V7_INCOMPLETE", "已有 V7 演示任务未完整收敛", "检查任务当前 Stage 后重试开发环境初始化")
+			return MarketingVideoDemoFixtureResult{}, domain.Policy("DEV_FIXTURE_V7_INCOMPLETE", "已有 V7 演示任务未完整收敛", "检查任务当前流程阶段后重试开发环境初始化")
 		}
 		return MarketingVideoDemoFixtureResult{FixtureVersion: marketingVideoDemoFixtureVersion, Project: project, Task: view, Reused: true}, nil
 	}
@@ -262,7 +262,7 @@ func (s *Service) EnsureMarketingVideoDemoFixture(ctx context.Context, actor Act
 	revisions, err := s.WorkTaskRevisions(ctx, actor, task.Task.ID)
 	if err != nil || len(revisions) == 0 {
 		if err == nil {
-			err = domain.NotFound("已接受剧本 Revision")
+			err = domain.NotFound("已接受的剧本内容版本")
 		}
 		return MarketingVideoDemoFixtureResult{}, err
 	}
@@ -270,6 +270,10 @@ func (s *Service) EnsureMarketingVideoDemoFixture(ctx context.Context, actor Act
 		return MarketingVideoDemoFixtureResult{}, err
 	}
 	finalView, err := s.WorkTask(ctx, actor, task.Task.ID)
+	if err != nil {
+		return MarketingVideoDemoFixtureResult{}, err
+	}
+	project, err = s.Project(ctx, actor, project.ID)
 	if err != nil {
 		return MarketingVideoDemoFixtureResult{}, err
 	}
@@ -312,7 +316,7 @@ func (s *Service) createMarketingVideoDemoKnowledge(ctx context.Context, actor A
 	if err := s.store.CreateAsset(ctx, asset); err != nil {
 		return domain.KnowledgeSnapshot{}, nil, "", err
 	}
-	rights := domain.RightsRecord{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, AssetID: asset.ID, RightsHolder: "ContentCloud development fixture", RightsType: "internal_demo", Territories: []string{"CN"}, Channels: []string{"internal_demo"}, ValidFrom: &now, ProofSourceRevisionID: source.ID, Restrictions: []string{"仅用于本地开发演示", "不得作为金陵古都香正式产品素材投放"}, Status: "valid", ReviewedBy: actor.UserID, ReviewedAt: &now, RowVersion: 1, CreatedAt: now, UpdatedAt: now}
+	rights := domain.RightsRecord{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, AssetID: asset.ID, RightsHolder: "Content Work OS 开发演示环境", RightsType: "internal_demo", Territories: []string{"CN"}, Channels: []string{"internal_demo"}, ValidFrom: &now, ProofSourceRevisionID: source.ID, Restrictions: []string{"仅用于本地开发演示", "不得作为金陵古都香正式产品素材投放"}, Status: "valid", ReviewedBy: actor.UserID, ReviewedAt: &now, RowVersion: 1, CreatedAt: now, UpdatedAt: now}
 	if err := s.store.CreateRightsRecord(ctx, rights); err != nil {
 		return domain.KnowledgeSnapshot{}, nil, "", err
 	}
@@ -378,7 +382,7 @@ func (s *Service) createMarketingVideoDemoStoryboard(ctx context.Context, actor 
 		Objects []json.RawMessage `json:"objects"`
 	}
 	if err := json.Unmarshal(contentSnapshot.CanonicalContent, &envelope); err != nil || len(envelope.Objects) != 1 {
-		return domain.ApprovedSnapshot{}, nil, domain.Invalid("DEV_FIXTURE_CONTENT_SNAPSHOT_INVALID", "剧本批准快照缺少唯一 ContentItem")
+		return domain.ApprovedSnapshot{}, nil, domain.Invalid("DEV_FIXTURE_CONTENT_SNAPSHOT_INVALID", "剧本批准快照缺少唯一的内容项")
 	}
 	sourceHash, err := domain.CanonicalHash(envelope.Objects[0])
 	if err != nil {
@@ -444,7 +448,7 @@ func (s *Service) createMarketingVideoDemoStoryboard(ctx context.Context, actor 
 	approval, err := s.ApproveSubmission(ctx, actor, revision.ID, "分镜结构、素材摘要和权利边界已锁定", fixtureRequestID(requestID, "storyboard-approval"))
 	if err != nil || approval.ApprovedSnapshot == nil {
 		if err == nil {
-			err = domain.NotFound("分镜 ApprovedSnapshot")
+			err = domain.NotFound("分镜已批准快照")
 		}
 		return domain.ApprovedSnapshot{}, nil, err
 	}
@@ -458,7 +462,7 @@ func (s *Service) startDemoStage(ctx context.Context, actor Actor, task WorkTask
 func (s *Service) reportDemoStage(ctx context.Context, actor Actor, task WorkTaskView, outputs []domain.TaskStageOutput, checks map[string]any, requestID string) (WorkTaskView, error) {
 	run := demoCurrentRun(task)
 	if run.ID == "" {
-		return WorkTaskView{}, domain.NotFound("当前 StageRun")
+		return WorkTaskView{}, domain.NotFound("当前流程阶段执行记录")
 	}
 	return s.ReportStage(ctx, actor, task.Task.ID, StageReportInput{StageRunID: run.ID, StageID: run.StageID, Status: domain.StageRunStatusCompleted, Outputs: outputs, Checks: checks}, fixtureRequestID(requestID, "report-"+run.StageID))
 }
@@ -466,10 +470,10 @@ func (s *Service) reportDemoStage(ctx context.Context, actor Actor, task WorkTas
 func (s *Service) approveDemoGate(ctx context.Context, actor Actor, task WorkTaskView, requestID string) (WorkTaskView, error) {
 	for _, gate := range task.Gates {
 		if gate.Status == domain.GateEvaluationPending {
-			return s.DecideGate(ctx, actor, task.Task.ID, gate.ID, GateDecisionInput{Decision: "approved", Reason: "V7 开发 Fixture 审核通过"}, fixtureRequestID(requestID, "gate-"+gate.GateID))
+			return s.DecideGate(ctx, actor, task.Task.ID, gate.ID, GateDecisionInput{Decision: "approved", Reason: "V7 开发演示审核通过"}, fixtureRequestID(requestID, "gate-"+gate.GateID))
 		}
 	}
-	return WorkTaskView{}, domain.NotFound("待处理 Gate")
+	return WorkTaskView{}, domain.NotFound("待处理的检查与审批项")
 }
 
 func (s *Service) demoContentSnapshot(ctx context.Context, actor Actor, projectID, contentHash string) (domain.ApprovedSnapshot, error) {
@@ -482,7 +486,7 @@ func (s *Service) demoContentSnapshot(ctx context.Context, actor Actor, projectI
 			return snapshot, nil
 		}
 	}
-	return domain.ApprovedSnapshot{}, domain.NotFound("剧本 ApprovedSnapshot")
+	return domain.ApprovedSnapshot{}, domain.NotFound("剧本已批准快照")
 }
 
 func (s *Service) waitForDemoMedia(ctx context.Context, actor Actor, taskID, jobID string) (WorkTaskView, error) {
@@ -499,7 +503,7 @@ func (s *Service) waitForDemoMedia(ctx context.Context, actor Actor, taskID, job
 		case domain.MediaJobSucceeded:
 			return s.WorkTask(ctx, actor, taskID)
 		case domain.MediaJobFailed, domain.MediaJobCancelled, domain.MediaJobBudgetBlocked, domain.MediaJobOutputInvalid:
-			return WorkTaskView{}, domain.Policy("DEV_FIXTURE_MEDIA_FAILED", "开发 Fixture 视频生成未成功", "检查 FakeProvider 输出和媒体校验")
+			return WorkTaskView{}, domain.Policy("DEV_FIXTURE_MEDIA_FAILED", "开发演示视频生成未成功", "检查模拟服务商输出和媒体校验")
 		}
 		select {
 		case <-ctx.Done():
@@ -507,7 +511,7 @@ func (s *Service) waitForDemoMedia(ctx context.Context, actor Actor, taskID, job
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
-	return WorkTaskView{}, domain.Policy("DEV_FIXTURE_MEDIA_TIMEOUT", "开发 Fixture 视频生成超时", "检查 Media Worker 状态")
+	return WorkTaskView{}, domain.Policy("DEV_FIXTURE_MEDIA_TIMEOUT", "开发演示视频生成超时", "检查媒体执行器状态")
 }
 
 func demoCurrentRun(task WorkTaskView) domain.StageRun {
@@ -525,7 +529,7 @@ func demoArtifact(artifacts []domain.Artifact, kind string) (domain.Artifact, er
 			return artifact, nil
 		}
 	}
-	return domain.Artifact{}, domain.NotFound("媒体 Artifact")
+	return domain.Artifact{}, domain.NotFound("媒体成果文件")
 }
 
 func demoMediaReview(reviews []domain.MediaReview, kind string) (domain.MediaReview, error) {
@@ -555,7 +559,7 @@ func marketingVideoDemoScript() json.RawMessage {
 		"cta":              "你会把哪座城市带回日常？",
 		"scenes": []map[string]any{
 			{"id": "scene-01", "scene": 1, "duration_seconds": 3, "visual": "固定机位拍周末书桌，抽屉打开，里面是旅行票根和一张未整理的照片。", "voiceover": "旅行回来，最先被收起来的，常常是那段慢下来的时间。", "on_screen_text": "别把旅行收进抽屉"},
-			{"id": "scene-02", "scene": 2, "duration_seconds": 4, "visual": "手把票根推向抽屉，桌面另一侧的工作提醒亮起，不出现第三方 App 界面。", "voiceover": "照片进相册，纪念品进抽屉，日子又回到消息列表。", "on_screen_text": "记忆很容易被日常盖住"},
+			{"id": "scene-02", "scene": 2, "duration_seconds": 4, "visual": "手把票根推向抽屉，桌面另一侧的工作提醒亮起，不出现第三方应用界面。", "voiceover": "照片进相册，纪念品进抽屉，日子又回到消息列表。", "on_screen_text": "记忆很容易被日常盖住"},
 			{"id": "scene-03", "scene": 3, "duration_seconds": 5, "visual": "手停住，只把完成权利核验的真实产品素材占位留在桌角。", "voiceover": "这次不急着收起来，先给它留一个看得见的位置。", "on_screen_text": "给日常留一个位置"},
 			{"id": "scene-04", "scene": 4, "duration_seconds": 6, "visual": "把票根靠在产品占位旁，调整成稳定桌面构图；不点燃，不展示规格、价格或包装细节。", "voiceover": "不是把旅行搬回家，是给日常留一个想起它的动作。", "on_screen_text": "把一段南京放回日常"},
 			{"id": "scene-05", "scene": 5, "duration_seconds": 5, "visual": "同一张桌面保持同一光线，手合上电脑，票根和产品占位继续留在画面。", "voiceover": "不讲一个很大的故事，今天只让桌面替你记住。", "on_screen_text": "不必很大声，也可以被记住"},

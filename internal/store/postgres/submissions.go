@@ -102,7 +102,7 @@ func (s *Store) CreateSubmissionRevision(ctx context.Context, submission domain.
 			return dbError(err)
 		}
 		if result.RowsAffected() == 0 {
-			return domain.NotFound("Submission")
+			return domain.NotFound("提交")
 		}
 		if _, err := tx.Exec(ctx, `UPDATE review_grants SET revoked_at=$3
 				WHERE tenant_id=$1 AND subject_type='submission_revision' AND revoked_at IS NULL AND decision_at IS NULL
@@ -127,7 +127,7 @@ func (s *Store) SubmissionByWorkspaceType(ctx context.Context, tenantID, project
 		value, err := scanSubmission(tx.QueryRow(ctx, submissionSelect+` WHERE tenant_id=$1 AND project_id=$2 AND workspace_id=$3 AND submission_type=$4`, tenantID, projectID, workspaceID, submissionType))
 		result = value
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("Submission")
+			return domain.NotFound("提交")
 		}
 		return err
 	})
@@ -167,7 +167,7 @@ func (s *Store) Submission(ctx context.Context, tenantID, id string) (domain.Sub
 		value, err := scanSubmission(tx.QueryRow(ctx, submissionSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
 		result = value
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("Submission")
+			return domain.NotFound("提交")
 		}
 		return err
 	})
@@ -203,7 +203,7 @@ func (s *Store) SubmissionRevision(ctx context.Context, tenantID, id string) (do
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		value, err := scanSubmissionRevision(tx.QueryRow(ctx, submissionRevisionSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("SubmissionRevision")
+			return domain.NotFound("提交修订版本")
 		}
 		if err != nil {
 			return err
@@ -322,7 +322,7 @@ func (s *Store) ApprovedSnapshot(ctx context.Context, tenantID, id string) (doma
 		value, err := scanApprovedSnapshot(tx.QueryRow(ctx, approvedSnapshotSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
 		result = value
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("ApprovedSnapshot")
+			return domain.NotFound("批准快照")
 		}
 		return err
 	})
@@ -342,7 +342,7 @@ func (s *Store) ApproveSubmissionRevision(ctx context.Context, submission domain
 			return dbError(err)
 		}
 		if result.RowsAffected() == 0 {
-			return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本或状态已变化")
+			return domain.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
 		}
 		if _, err := tx.Exec(ctx, `UPDATE review_grants SET revoked_at=$3 WHERE tenant_id=$1 AND subject_type='submission_revision' AND subject_id=$2 AND revoked_at IS NULL AND decision_at IS NULL`, submission.TenantID, submission.CurrentRevisionID, decision.CreatedAt); err != nil {
 			return dbError(err)
@@ -361,7 +361,7 @@ func (s *Store) RecordSubmissionApproval(ctx context.Context, submission domain.
 			return dbError(err)
 		}
 		if result.RowsAffected() == 0 {
-			return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本或状态已变化")
+			return domain.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
 		}
 		return nil
 	})
@@ -380,7 +380,7 @@ func (s *Store) RequestSubmissionChanges(ctx context.Context, submission domain.
 			return dbError(err)
 		}
 		if result.RowsAffected() == 0 {
-			return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本或状态已变化")
+			return domain.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
 		}
 		if _, err := tx.Exec(ctx, `UPDATE review_grants SET revoked_at=$3 WHERE tenant_id=$1 AND subject_type='submission_revision' AND subject_id=$2 AND revoked_at IS NULL AND decision_at IS NULL`, submission.TenantID, submission.CurrentRevisionID, decision.CreatedAt); err != nil {
 			return dbError(err)
@@ -399,7 +399,7 @@ func (s *Store) CreateSubmissionReviewGrant(ctx context.Context, submission doma
 			return dbError(err)
 		}
 		if result.RowsAffected() == 0 {
-			return domain.Conflict("SUBMISSION_STATE_INVALID", "Submission 当前版本或状态已变化")
+			return domain.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
 		}
 		return nil
 	})

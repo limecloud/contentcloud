@@ -21,11 +21,11 @@ func (s *Service) createTaskRun(ctx context.Context, run domain.TaskRun, snapsho
 		return s.store.CreateRun(ctx, run)
 	}
 	if s.environmentControl == nil {
-		return domain.Conflict("AUTOMATION_ENVIRONMENT_CONTROL_REQUIRED", "Automation Execution Policy 需要 Environment Control Plane")
+		return domain.Conflict("AUTOMATION_ENVIRONMENT_CONTROL_REQUIRED", "自动化执行策略需要执行环境控制服务")
 	}
 	requirement, exists := s.automationPolicy[run.CapabilityID]
 	if !exists || requirement.ID != run.CapabilityID || requirement.SchemaVersion != run.CapabilityVersion {
-		return domain.Policy("AUTOMATION_CAPABILITY_POLICY_MISSING", "TaskRun capability 没有精确的 Automation Execution Policy", "配置 capability schema version 和 digest 后再创建任务")
+		return domain.Policy("AUTOMATION_CAPABILITY_POLICY_MISSING", "任务执行记录的能力没有精确的自动化执行策略", "配置能力格式版本和摘要后再创建任务")
 	}
 	contentTypes, err := s.TenantContentTypes(ctx, run.TenantID)
 	if err != nil {
@@ -74,7 +74,7 @@ func (s *Service) automationLeaseCandidates(ctx context.Context, actor Actor, ca
 		bundle, bundleErr := s.store.ExecutionBundle(ctx, actor.TenantID, run.ID)
 		if bundleErr != nil {
 			if isNotFound(bundleErr) {
-				return nil, nil, nil, domain.Conflict("EXECUTION_BUNDLE_REQUIRED", "受治理 Automation TaskRun 缺少 CreativeExecutionBundle")
+				return nil, nil, nil, domain.Conflict("EXECUTION_BUNDLE_REQUIRED", "受治理的自动化任务执行记录缺少创作执行包")
 			}
 			return nil, nil, nil, bundleErr
 		}
@@ -83,7 +83,7 @@ func (s *Service) automationLeaseCandidates(ctx context.Context, actor Actor, ca
 			return nil, nil, nil, snapshotErr
 		}
 		if !bundleMatchesRun(bundle, run) {
-			return nil, nil, nil, domain.Conflict("EXECUTION_BUNDLE_RUN_MISMATCH", "CreativeExecutionBundle capability 与 TaskRun 或设备声明不匹配")
+			return nil, nil, nil, domain.Conflict("EXECUTION_BUNDLE_RUN_MISMATCH", "创作执行包的能力与任务执行记录或设备声明不匹配")
 		}
 		claim, claimed := claimsByProject[run.ProjectID]
 		if !claimed {
@@ -123,10 +123,10 @@ func indexAutomationClaims(claims []AutomationEnvironmentClaim) (map[string]Auto
 	for _, claim := range claims {
 		projectID := strings.TrimSpace(claim.Manifest.ProjectID)
 		if projectID == "" || claim.Lock.ProjectID != projectID {
-			return nil, domain.Invalid("AUTOMATION_ENVIRONMENT_CLAIM_INVALID", "Automation Environment Claim 缺少一致的 project_id")
+			return nil, domain.Invalid("AUTOMATION_ENVIRONMENT_CLAIM_INVALID", "自动化环境声明缺少一致的项目标识（project_id）")
 		}
 		if _, exists := indexed[projectID]; exists {
-			return nil, domain.Conflict("AUTOMATION_ENVIRONMENT_CLAIM_DUPLICATED", "同一项目包含重复 Automation Environment Claim")
+			return nil, domain.Conflict("AUTOMATION_ENVIRONMENT_CLAIM_DUPLICATED", "同一项目包含重复的自动化环境声明")
 		}
 		indexed[projectID] = claim
 	}
@@ -162,7 +162,7 @@ func normalizedSnapshotDigest(value string) string {
 }
 
 func newEnvironmentPreparationError(run domain.TaskRun, bundle environment.CreativeExecutionBundle, reason string, resolution any) error {
-	err := domain.Policy("ENVIRONMENT_PREPARATION_REQUIRED", "设备环境未满足 Automation TaskRun，领取前必须完成环境准备", "在没有活动 Run 的窗口完成 Environment doctor 和 Pack 安装后重试")
+	err := domain.Policy("ENVIRONMENT_PREPARATION_REQUIRED", "设备环境未满足自动化任务执行要求，领取前必须完成环境准备", "在没有活动执行记录时完成执行环境诊断和能力包安装，然后重试")
 	err.Details = map[string]any{"run_id": run.ID, "project_id": run.ProjectID, "bundle_id": bundle.BundleID, "reason": reason, "resolution": resolution}
 	return err
 }

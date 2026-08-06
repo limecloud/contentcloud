@@ -179,16 +179,16 @@ func Decode(reader io.Reader) (Fixture, error) {
 
 func (f Fixture) Validate() error {
 	if f.FixtureVersion != "3.0" {
-		return fmt.Errorf("fixture_version must be 3.0")
+		return fmt.Errorf("fixture_version 必须为 3.0")
 	}
 	if !validSHA256(f.EnvironmentDigest) {
-		return fmt.Errorf("environment_digest must be a prefixed SHA-256 digest")
+		return fmt.Errorf("environment_digest 必须是带前缀的 SHA-256 摘要")
 	}
 	if strings.TrimSpace(f.Project.BrandName) == "" || strings.TrimSpace(f.Project.ProductName) == "" {
-		return fmt.Errorf("project brand_name and product_name are required")
+		return fmt.Errorf("project 的 brand_name 和 product_name 必填")
 	}
 	if strings.TrimSpace(f.Workspace.TemplateID) == "" || strings.TrimSpace(f.Workspace.TemplateVersion) == "" || len(f.Workspace.Targets) == 0 {
-		return fmt.Errorf("workspace template and targets are required")
+		return fmt.Errorf("workspace 的 template 和 targets 必填")
 	}
 	if f.Scenario != nil {
 		if err := f.Scenario.Validate(); err != nil {
@@ -200,22 +200,22 @@ func (f Fixture) Validate() error {
 	seenTypes := map[string]bool{}
 	for _, submission := range f.Submissions {
 		if !allowedTypes[submission.SubmissionType] || seenTypes[submission.SubmissionType] {
-			return fmt.Errorf("invalid or duplicate submission_type %q", submission.SubmissionType)
+			return fmt.Errorf("submission_type %q 无效或重复", submission.SubmissionType)
 		}
 		seenTypes[submission.SubmissionType] = true
 		if !allowedOutcomes[submission.Outcome] {
-			return fmt.Errorf("invalid outcome %q for %s", submission.Outcome, submission.SubmissionType)
+			return fmt.Errorf("%s 的 outcome %q 无效", submission.SubmissionType, submission.Outcome)
 		}
 		if submission.Outcome == "changes_requested" && strings.TrimSpace(submission.ChangeReason) == "" {
-			return fmt.Errorf("changes_requested submission %s requires change_reason", submission.SubmissionType)
+			return fmt.Errorf("状态为 changes_requested 的提交 %s 必须提供 change_reason", submission.SubmissionType)
 		}
 		if len(submission.Objects) == 0 {
-			return fmt.Errorf("submission %s requires objects", submission.SubmissionType)
+			return fmt.Errorf("提交 %s 必须包含 objects", submission.SubmissionType)
 		}
 		seenObjects := map[string]bool{}
 		for _, object := range submission.Objects {
 			if strings.TrimSpace(object.ID) == "" || strings.TrimSpace(object.Type) == "" || object.Version < 1 || strings.TrimSpace(object.Path) == "" || !json.Valid(object.Content) || seenObjects[object.ID] {
-				return fmt.Errorf("submission %s contains an invalid object", submission.SubmissionType)
+				return fmt.Errorf("提交 %s 包含无效对象", submission.SubmissionType)
 			}
 			seenObjects[object.ID] = true
 		}
@@ -233,41 +233,41 @@ var requiredLayerNames = []string{"identity", "product", "market", "expression",
 
 func (s ScenarioSpec) Validate() error {
 	if s.GeneratedAt.IsZero() {
-		return fmt.Errorf("scenario generated_at is required")
+		return fmt.Errorf("scenario 的 generated_at 必填")
 	}
 	if len(s.Sources) != 20 {
-		return fmt.Errorf("scenario must contain exactly 20 sources")
+		return fmt.Errorf("scenario 必须正好包含 20 个来源")
 	}
 	sourceIDs := map[string]bool{}
 	fileNames := map[string]bool{}
 	for _, source := range s.Sources {
 		if strings.TrimSpace(source.ID) == "" || strings.TrimSpace(source.Title) == "" || strings.TrimSpace(source.SourceKind) == "" || strings.TrimSpace(source.Content) == "" {
-			return fmt.Errorf("scenario sources require id, title, source_kind, and content")
+			return fmt.Errorf("scenario 来源必须包含 id、title、source_kind 和 content")
 		}
 		if sourceIDs[source.ID] {
-			return fmt.Errorf("duplicate scenario source id %q", source.ID)
+			return fmt.Errorf("scenario 来源 ID %q 重复", source.ID)
 		}
 		if source.FileName == "" || filepath.Base(source.FileName) != source.FileName || strings.ContainsAny(source.FileName, `/\\`) || fileNames[source.FileName] {
-			return fmt.Errorf("invalid or duplicate scenario source file_name %q", source.FileName)
+			return fmt.Errorf("scenario 来源的 file_name %q 无效或重复", source.FileName)
 		}
 		sourceIDs[source.ID] = true
 		fileNames[source.FileName] = true
 	}
 	if strings.TrimSpace(s.Methodology.VersionID) == "" || len(s.Methodology.Dimensions) != len(requiredDimensionKeys) || len(s.Methodology.Stages) != 4 {
-		return fmt.Errorf("scenario methodology requires a version, 15 dimensions, and 4 stages")
+		return fmt.Errorf("scenario 方法论必须包含版本、15 个维度和 4 个阶段")
 	}
 	dimensionKeys := map[string]bool{}
 	layerCoverage := map[string]bool{}
 	stateCoverage := map[string]map[string]bool{"fact": {}, "claim": {}}
 	for _, dimension := range s.Methodology.Dimensions {
 		if !contains(requiredDimensionKeys, dimension.Key) || dimensionKeys[dimension.Key] {
-			return fmt.Errorf("invalid or duplicate methodology dimension %q", dimension.Key)
+			return fmt.Errorf("方法论维度 %q 无效或重复", dimension.Key)
 		}
 		if !sourceIDs[dimension.SourceID] || !contains(requiredLayerNames, dimension.Layer) {
-			return fmt.Errorf("dimension %q references an unknown source or layer", dimension.Key)
+			return fmt.Errorf("维度 %q 引用了未知来源或层级", dimension.Key)
 		}
 		if (dimension.Kind != "fact" && dimension.Kind != "claim") || strings.TrimSpace(dimension.Status) == "" || strings.TrimSpace(dimension.Label) == "" || strings.TrimSpace(dimension.Title) == "" || strings.TrimSpace(dimension.Statement) == "" {
-			return fmt.Errorf("dimension %q is incomplete", dimension.Key)
+			return fmt.Errorf("维度 %q 不完整", dimension.Key)
 		}
 		dimensionKeys[dimension.Key] = true
 		layerCoverage[dimension.Layer] = true
@@ -275,38 +275,38 @@ func (s ScenarioSpec) Validate() error {
 	}
 	for _, key := range requiredDimensionKeys {
 		if !dimensionKeys[key] {
-			return fmt.Errorf("scenario methodology is missing dimension %q", key)
+			return fmt.Errorf("scenario 方法论缺少维度 %q", key)
 		}
 	}
 	stageIDs := map[string]bool{}
 	for _, stage := range s.Methodology.Stages {
 		if strings.TrimSpace(stage.ID) == "" || strings.TrimSpace(stage.Title) == "" || strings.TrimSpace(stage.Status) == "" || stageIDs[stage.ID] {
-			return fmt.Errorf("scenario methodology contains an invalid stage")
+			return fmt.Errorf("scenario 方法论包含无效阶段")
 		}
 		stageIDs[stage.ID] = true
 	}
 	if strings.TrimSpace(s.KnowledgePack.ID) == "" || strings.TrimSpace(s.KnowledgePack.Name) == "" || strings.TrimSpace(s.KnowledgePack.ApprovedSnapshotID) == "" {
-		return fmt.Errorf("scenario knowledge_pack identity is required")
+		return fmt.Errorf("scenario 的 knowledge_pack 标识必填")
 	}
 	layers := append([]string(nil), s.KnowledgePack.Layers...)
 	sort.Strings(layers)
 	expectedLayers := append([]string(nil), requiredLayerNames...)
 	sort.Strings(expectedLayers)
 	if strings.Join(layers, "\x00") != strings.Join(expectedLayers, "\x00") {
-		return fmt.Errorf("scenario knowledge_pack must declare the seven canonical layers")
+		return fmt.Errorf("scenario 的 knowledge_pack 必须声明标准七层知识")
 	}
 	for _, layer := range requiredLayerNames {
 		if !layerCoverage[layer] {
-			return fmt.Errorf("scenario knowledge has no item in layer %q", layer)
+			return fmt.Errorf("scenario 知识在层级 %q 中没有对象", layer)
 		}
 	}
 	governanceIDs := map[string]bool{}
 	for _, item := range s.Governance {
 		if item.Kind != "asset" && item.Kind != "rights" && item.Kind != "conflict" {
-			return fmt.Errorf("scenario governance kind %q is unsupported", item.Kind)
+			return fmt.Errorf("scenario 治理类型 %q 不受支持", item.Kind)
 		}
 		if strings.TrimSpace(item.ID) == "" || strings.TrimSpace(item.Status) == "" || strings.TrimSpace(item.Title) == "" || strings.TrimSpace(item.Statement) == "" || governanceIDs[item.ID] {
-			return fmt.Errorf("scenario governance contains an invalid object")
+			return fmt.Errorf("scenario 治理数据包含无效对象")
 		}
 		governanceIDs[item.ID] = true
 		if stateCoverage[item.Kind] == nil {
@@ -316,11 +316,11 @@ func (s ScenarioSpec) Validate() error {
 	}
 	for _, kind := range []string{"fact", "claim", "asset", "rights", "conflict"} {
 		if len(stateCoverage[kind]) < 2 {
-			return fmt.Errorf("scenario %s objects must cover at least two states", kind)
+			return fmt.Errorf("scenario 的 %s 对象必须覆盖至少两种状态", kind)
 		}
 	}
 	if strings.TrimSpace(s.CompletedRun.ID) == "" || !strings.HasPrefix(s.CompletedRun.Intent, "intent:") {
-		return fmt.Errorf("scenario completed_run requires an id and intent:<name>")
+		return fmt.Errorf("scenario 的 completed_run 必须包含 id 和 intent:<name>")
 	}
 	if err := s.ContentBatch.validate(); err != nil {
 		return err
@@ -330,25 +330,25 @@ func (s ScenarioSpec) Validate() error {
 
 func (s ContentBatchSpec) validate() error {
 	if strings.TrimSpace(s.ID) == "" || len(s.Items) != 10 {
-		return fmt.Errorf("scenario content_batch requires an id and exactly 10 items")
+		return fmt.Errorf("scenario 的 content_batch 必须包含 id 和正好 10 个对象")
 	}
 	brief := s.Brief
 	if strings.TrimSpace(brief.ID) == "" || strings.TrimSpace(brief.ApprovedSnapshotID) == "" || strings.TrimSpace(brief.Objective) == "" || strings.TrimSpace(brief.Audience) == "" || strings.TrimSpace(brief.Scenario) == "" || strings.TrimSpace(brief.DemandMoment) == "" || strings.TrimSpace(brief.PainPoint) == "" || strings.TrimSpace(brief.PrimarySellingPoint) == "" || strings.TrimSpace(brief.Positioning) == "" || strings.TrimSpace(brief.Tone) == "" || strings.TrimSpace(brief.CTA) == "" {
-		return fmt.Errorf("scenario content_batch brief is incomplete")
+		return fmt.Errorf("scenario 的 content_batch 简报不完整")
 	}
 	direction := s.Direction
 	if strings.TrimSpace(direction.ID) == "" || strings.TrimSpace(direction.Title) == "" || strings.TrimSpace(direction.Angle) == "" || strings.TrimSpace(direction.HookType) == "" || strings.TrimSpace(direction.VisualMotif) == "" || len(direction.Narrative) == 0 || strings.TrimSpace(direction.Tone) == "" || strings.TrimSpace(direction.TargetEmotion) == "" {
-		return fmt.Errorf("scenario content_batch direction is incomplete")
+		return fmt.Errorf("scenario 的 content_batch 创意方向不完整")
 	}
 	reason := s.BlockedReason
 	if strings.TrimSpace(reason.Code) == "" || strings.TrimSpace(reason.Message) == "" || strings.TrimSpace(reason.OwnerRole) == "" || strings.TrimSpace(reason.NextAction) == "" {
-		return fmt.Errorf("scenario content_batch blocked_reason is incomplete")
+		return fmt.Errorf("scenario 的 content_batch 阻断原因不完整")
 	}
 	ids := map[string]bool{}
 	contentIDs := map[string]bool{}
 	for _, item := range s.Items {
 		if strings.TrimSpace(item.ID) == "" || strings.TrimSpace(item.ContentID) == "" || strings.TrimSpace(item.Title) == "" || strings.TrimSpace(item.MissingInput) == "" || ids[item.ID] || contentIDs[item.ContentID] {
-			return fmt.Errorf("scenario content_batch contains an invalid item")
+			return fmt.Errorf("scenario 的 content_batch 包含无效对象")
 		}
 		ids[item.ID] = true
 		contentIDs[item.ContentID] = true

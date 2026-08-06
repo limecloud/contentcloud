@@ -39,11 +39,11 @@ func BeginEnvironmentPreparation(root, preparationID string, now time.Time) (Env
 	}
 	defer release()
 	if !strings.HasPrefix(preparationID, "epp_") {
-		return EnvironmentPreparationLease{}, domain.Invalid("ENVIRONMENT_PREPARATION_ID_INVALID", "Environment preparation_id 无效")
+		return EnvironmentPreparationLease{}, domain.Invalid("ENVIRONMENT_PREPARATION_ID_INVALID", "环境准备标识（preparation_id）无效")
 	}
 	if existing, readErr := loadEnvironmentPreparationLease(resolved); readErr == nil {
 		if existing.ExpiresAt.After(at) {
-			conflict := domain.Conflict("ENVIRONMENT_PREPARATION_IN_PROGRESS", "另一个 Environment Preparation 正在执行")
+			conflict := domain.Conflict("ENVIRONMENT_PREPARATION_IN_PROGRESS", "另一个环境准备流程正在执行")
 			conflict.Details = map[string]any{"preparation_id": existing.PreparationID, "expires_at": existing.ExpiresAt}
 			return EnvironmentPreparationLease{}, conflict
 		}
@@ -58,7 +58,7 @@ func BeginEnvironmentPreparation(root, preparationID string, now time.Time) (Env
 		return EnvironmentPreparationLease{}, err
 	}
 	if len(claims) > 0 {
-		blocked := domain.Conflict("ENVIRONMENT_PREPARATION_RUN_ACTIVE", "存在活跃 RunClaim，禁止修改创作环境")
+		blocked := domain.Conflict("ENVIRONMENT_PREPARATION_RUN_ACTIVE", "存在有效的运行锁，禁止修改创作环境")
 		blocked.Details = claims
 		return EnvironmentPreparationLease{}, blocked
 	}
@@ -79,7 +79,7 @@ func FinishEnvironmentPreparation(root, token string) error {
 		return err
 	}
 	if token == "" || token != lease.Token {
-		return domain.Policy("ENVIRONMENT_PREPARATION_TOKEN_INVALID", "Environment Preparation token 无效", "只允许持有当前 preparation lease 的进程完成环境变更")
+		return domain.Policy("ENVIRONMENT_PREPARATION_TOKEN_INVALID", "环境准备凭据无效", "只允许持有当前环境准备租约的进程完成环境变更")
 	}
 	return os.Remove(environmentPreparationPath(resolved))
 }
@@ -92,7 +92,7 @@ func ensureEnvironmentPreparationIdle(root string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	blocked := domain.Conflict("ENVIRONMENT_PREPARATION_IN_PROGRESS", "Environment Preparation 期间不能 claim 或领取 Run")
+	blocked := domain.Conflict("ENVIRONMENT_PREPARATION_IN_PROGRESS", "环境准备期间不能加锁或领取任务运行")
 	blocked.Details = map[string]any{
 		"preparation_id": lease.PreparationID,
 		"expires_at":     lease.ExpiresAt,
@@ -151,13 +151,13 @@ func acquireEnvironmentCoordinationLock(root string, now time.Time) (func(), err
 		}
 		info, statErr := os.Stat(path)
 		if statErr != nil || localNow(now).Sub(info.ModTime()) <= time.Minute {
-			return nil, domain.Conflict("ENVIRONMENT_COORDINATION_BUSY", "另一个进程正在协调 RunClaim 或 Environment Preparation")
+			return nil, domain.Conflict("ENVIRONMENT_COORDINATION_BUSY", "另一个进程正在协调运行锁或环境准备")
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
 		if err := acquire(); err != nil {
-			return nil, domain.Conflict("ENVIRONMENT_COORDINATION_BUSY", "另一个进程正在协调 RunClaim 或 Environment Preparation")
+			return nil, domain.Conflict("ENVIRONMENT_COORDINATION_BUSY", "另一个进程正在协调运行锁或环境准备")
 		}
 	}
 	return func() { _ = os.Remove(path) }, nil
@@ -169,7 +169,7 @@ func loadEnvironmentPreparationLease(root string) (EnvironmentPreparationLease, 
 		return EnvironmentPreparationLease{}, err
 	}
 	if lease.SchemaVersion != "1.0" || !strings.HasPrefix(lease.PreparationID, "epp_") || lease.Token == "" || lease.StartedAt.IsZero() || !lease.ExpiresAt.After(lease.StartedAt) {
-		return EnvironmentPreparationLease{}, domain.Invalid("ENVIRONMENT_PREPARATION_LEASE_INVALID", "Environment Preparation lease 无效")
+		return EnvironmentPreparationLease{}, domain.Invalid("ENVIRONMENT_PREPARATION_LEASE_INVALID", "环境准备租约无效")
 	}
 	return lease, nil
 }

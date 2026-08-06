@@ -1,38 +1,38 @@
-# ContentCloud 与 Codex
+# Content Work OS 与 Codex
 
 状态：**可用**。
 
-Codex 是当前能力最完整的 ContentCloud 客户端，支持本地 Automation、Workspace 注册与初始化、交互式 Handoff 和受治理创作环境。
+Codex 是当前能力最完整的 Content Work OS 客户端，支持本地自动化、工作区注册与初始化、交互式任务交接和受治理创作环境。
 
 ## 可用能力
 
 | 能力 | 状态 |
 | --- | --- |
-| 本地 Automation | 可用 |
-| Workspace 注册 | 可用 |
-| Workspace 初始化 | 可用 |
-| 交互式 Handoff | 可用 |
+| 本地自动化 | 可用 |
+| 本地工作区注册 | 可用 |
+| 本地工作区初始化 | 可用 |
+| 交互式任务交接 | 可用 |
 | 创作环境 | 可用 |
 
 ## 接入方式
 
 1. 在具备本机配置权限的 Codex Desktop 或 Codex CLI 中运行。
-2. 登录 ContentCloud，在项目“接入与初始化”页创建 ConnectSession。
-3. 使用页面提供的固定 Prompt 或 bootstrap 计划连接 Workspace。
-4. 核对 Marketplace、Plugin、目标目录变化和 `plan_id` 后，再确认执行 apply。
-5. 初始化成功后，在同一 Workspace Root 新建 Codex 对话。
+2. 登录 Content Work OS，在项目“接入与初始化”页创建初始化会话（`ConnectSession`）。
+3. 使用页面提供的固定操作指令或初始化计划连接本地工作区。
+4. 核对插件市场（`Marketplace`）、插件、目标目录变化和 `plan_id` 后，再确认执行应用操作（`apply`）。
+5. 初始化成功后，在同一本地工作区根目录中新建 Codex 对话。
 6. 新对话先调用 `workspace_context`；仅在返回 `repair_required` 时调用 `workspace_doctor`。
 
-固定 Marketplace、Plugin 身份、命令和安全说明以兼容入口 [`/codex`](/codex) 为准。该入口继续提供浏览器 HTML 和 Agent 可读文本输出。
+固定的插件市场、插件身份、命令和安全说明以兼容入口 [`/codex`](/codex) 为准。该入口继续提供浏览器 HTML 和智能体可读文本输出。
 
 ## 日常使用
 
-- 使用 `workspace_context` 恢复当前项目、Run 和 Handoff。
-- 在写入前选择明确的 Run，并取得单写者 claim。
-- 使用内容形态对应的 Skill 生成或修订候选。
-- 在 publish 前运行本地 lint 和 `publish_preflight`。
-- 只在用户确认精确 `plan_id` 后执行 publish。
-- Web 退回后，通过“在 Agent 中修订”打开绑定精确 Revision 和 digest 的新对话。
+- 使用 `workspace_context` 恢复当前项目、执行记录（`Run`）和任务交接状态。
+- 在写入前选择明确的执行记录，并取得单写者声明（`claim`）。
+- 使用内容形态对应的技能生成或修订候选。
+- 在提交前运行本地检查（`lint`）和 `publish_preflight`。
+- 只在用户确认精确的 `plan_id` 后执行提交。
+- Web 工作台退回后，通过“在智能体客户端中修订”打开绑定精确内容版本和摘要的新对话。
 
 ## 当前内容形态
 

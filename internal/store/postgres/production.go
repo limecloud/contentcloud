@@ -44,7 +44,7 @@ func (s *Store) CreateRun(ctx context.Context, v domain.TaskRun) error {
 
 func (s *Store) CreateRunWithBundle(ctx context.Context, v domain.TaskRun, bundle environment.CreativeExecutionBundle) error {
 	if bundle.ProjectID != v.ProjectID || bundle.Subject.ID != v.InputSnapshotID {
-		return domain.Conflict("EXECUTION_BUNDLE_RUN_MISMATCH", "CreativeExecutionBundle 与 TaskRun 不匹配")
+		return domain.Conflict("EXECUTION_BUNDLE_RUN_MISMATCH", "创作执行包与任务不匹配")
 	}
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
 		if err := insertRun(ctx, tx, v); err != nil {
@@ -66,7 +66,7 @@ func (s *Store) ExecutionBundle(ctx context.Context, tenantID, runID string) (en
 		var body []byte
 		if err := tx.QueryRow(ctx, `SELECT payload FROM creative_execution_bundles WHERE tenant_id=$1 AND run_id=$2`, tenantID, runID).Scan(&body); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return domain.NotFound("CreativeExecutionBundle")
+				return domain.NotFound("创作执行包")
 			}
 			return err
 		}

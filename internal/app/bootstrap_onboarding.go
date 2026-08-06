@@ -74,7 +74,7 @@ func (s *Service) BootstrapAuthorizationView(ctx context.Context, actor Actor, p
 
 func (s *Service) StartBootstrapAuthorization(ctx context.Context, baseURL string, in StartBootstrapAuthorizationInput) (StartBootstrapAuthorizationResult, error) {
 	if _, err := uuid.Parse(strings.TrimSpace(in.SessionID)); err != nil || !bootstrapChallengePattern.MatchString(in.CodeChallenge) {
-		return StartBootstrapAuthorizationResult{}, domain.Invalid("BOOTSTRAP_AUTHORIZATION_INPUT_INVALID", "初始化授权缺少 session_id 或有效 code_challenge")
+		return StartBootstrapAuthorizationResult{}, domain.Invalid("BOOTSTRAP_AUTHORIZATION_INPUT_INVALID", "初始化授权缺少会话标识（session_id）或有效的校验值（code_challenge）")
 	}
 	if err := projectview.ValidateServerBase(baseURL); err != nil {
 		return StartBootstrapAuthorizationResult{}, err
@@ -179,7 +179,7 @@ func (s *Service) CompleteBootstrapAuthorization(ctx context.Context, in Complet
 	}
 	challenge := bootstrapCodeChallenge(in.CodeVerifier)
 	if subtle.ConstantTimeCompare([]byte(challenge), []byte(attempt.CodeChallenge)) != 1 {
-		return ConnectDeviceResult{}, domain.E("authentication", "bootstrap", "BOOTSTRAP_VERIFIER_INVALID", "初始化授权 verifier 不匹配", 3)
+		return ConnectDeviceResult{}, domain.E("authentication", "bootstrap", "BOOTSTRAP_VERIFIER_INVALID", "初始化授权校验值不匹配", 3)
 	}
 	deviceToken, deviceTokenHash, err := domain.NewOpaqueToken("dt_", 32)
 	if err != nil {
@@ -223,7 +223,7 @@ func (s *Service) AppendBootstrapProgress(ctx context.Context, attemptToken stri
 		event.OccurredAt = now
 	}
 	if event.OccurredAt.Before(now.Add(-30*time.Minute)) || event.OccurredAt.After(now.Add(5*time.Minute)) {
-		return event, domain.Invalid("BOOTSTRAP_PROGRESS_TIME_INVALID", "bootstrap progress occurred_at 超出允许范围")
+		return event, domain.Invalid("BOOTSTRAP_PROGRESS_TIME_INVALID", "初始化进度的发生时间（occurred_at）超出允许范围")
 	}
 	if err := domain.ValidateBootstrapEvent(event); err != nil {
 		return event, err
@@ -240,7 +240,7 @@ func (s *Service) CompleteBootstrapAttempt(ctx context.Context, attemptToken, st
 
 func (s *Service) UploadBootstrapDiagnostic(ctx context.Context, actor Actor, binding domain.WorkspaceBinding, summary domain.BootstrapDiagnosticSummary) (domain.BootstrapDiagnostic, error) {
 	if actor.Type != "workspace" || binding.ProjectID == "" {
-		return domain.BootstrapDiagnostic{}, domain.Policy("WORKSPACE_AUTH_REQUIRED", "上传诊断摘要需要工作区凭据", "在已初始化的 Workspace 中重试")
+		return domain.BootstrapDiagnostic{}, domain.Policy("WORKSPACE_AUTH_REQUIRED", "上传诊断摘要需要本地工作区凭据", "在已初始化的本地工作区中重试")
 	}
 	if err := domain.ValidateBootstrapDiagnostic(summary); err != nil {
 		return domain.BootstrapDiagnostic{}, err

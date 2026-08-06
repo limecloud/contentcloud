@@ -1,10 +1,10 @@
-# ContentCloud 多内容形态扩展方案
+# Content Work OS 多内容形态扩展方案
 
 状态：`方案草案，待产品与工程评审`。
 
 更新时间：2026-07-29。
 
-本文定义 ContentCloud 从“以营销视频为主的内容生产系统”扩展为“支持多种内容形态的本地优先创作与云端治理平台”的目标架构，并以微信公众号文章作为第一个非视频纵向切片。本文是架构与实施建议，不代表相关契约、命令、Skill、Web 页面或平台集成已经实现。
+本文定义 Content Work OS 从“以营销视频为主的内容生产系统”扩展为“支持多种内容形态的本地优先创作与云端治理平台”的目标架构，并以微信公众号文章作为第一个非视频纵向切片。本文是架构与实施建议，不代表相关契约、命令、Skill、Web 页面或平台集成已经实现。
 
 本文不替代现有 V3、V4、V5 路线图：
 
@@ -15,12 +15,12 @@
 
 ## 1. 执行摘要
 
-ContentCloud 可以扩展到公众号文章、Newsletter、社交媒体帖子、播客脚本、直播话术等更多内容形态，但不能通过“再增加一个 Prompt 或 Skill”完成。当前系统的治理外壳已经较通用，真正限制扩展的是 Brief、ContentItem、本地 lint、交付渲染和 Web 展现仍将内容等同于视频剧本。
+Content Work OS 可以扩展到公众号文章、邮件通讯、社交媒体帖子、播客脚本、直播话术等更多内容形态，但不能只靠“再增加一个提示或技能”完成。当前系统的治理外壳已经较通用，真正限制扩展的是 Brief、ContentItem、本地校验、交付渲染和 Web 展现仍将内容等同于视频剧本。
 
-目标不是复制多套 ContentCloud，而是形成一套稳定内核和可安装的内容能力包：
+目标不是复制多套 Content Work OS，而是形成一套稳定内核和可安装的内容能力包：
 
 ```text
-ContentCloud Core
+Content Work OS 核心
   Source / Evidence / Knowledge / Rights
   LocalRun / Handoff / Revision / Decision / Snapshot
   Delivery / Binding / Observation / Learning
@@ -93,7 +93,7 @@ ContentCloud Core
 
 1. 一个项目可以按 Intent 生产视频、文章和后续新增的其他内容形态。
 2. 每种内容形态拥有独立、版本化、可确定性校验的内容契约。
-3. 新增一种内容形态时，尽量不修改 ContentCloud Core 的状态机和服务端表结构。
+3. 新增一种内容形态时，尽量不修改 Content Work OS 核心的状态机和服务端表结构。
 4. 所有内容继续复用证据、知识、权利、审批、版本、交付和结果血缘。
 5. Skill、内容契约、渠道规则、Provider 适配器和结果指标各自有明确所有者。
 6. 同一语义内容可以派生不同渠道交付包，而不把渠道 HTML 或厂商语法写回领域正文。
@@ -147,7 +147,7 @@ Skill 可以生成和修订 candidate，但不能把 Fact 标为 verified、Clai
 
 ## 5. 目标分层
 
-### 5.1 ContentCloud Core
+### 5.1 Content Work OS 核心
 
 Core 负责：
 
@@ -751,7 +751,7 @@ README 至少包含：
 首版以人工发布为准：
 
 ```text
-ContentCloud/Codex             用户                   微信公众平台
+Content Work OS / Codex        用户                   微信公众平台
 生成 validated package
         |                        |
         +---- 交付清单 --------->|
@@ -819,7 +819,7 @@ Presentation Profile 必须由产品代码或可信 Registry 提供，不能执�
 
 ## 12. 执行边界
 
-| 动作 | Codex 本机 | ContentCloud 服务端 | 用户/微信平台 |
+| 动作 | Codex 本机 | Content Work OS 服务端 | 用户/微信平台 |
 | --- | --- | --- | --- |
 | 查询知识和创建 Brief | 执行 | 不读取本机候选 | 不参与 |
 | 生成/修订 ArticleItem | 执行 candidate | 未 publish 前不可见 | 不参与 |
@@ -919,7 +919,7 @@ MCP Tool 应围绕稳定业务动作提供类型化参数，不暴露任意 shel
 
 - Article/WeChat Pack 必须固定来源、版本、digest 和许可证。
 - 不直接复制无明确许可证的第三方 Skill。
-- 第三方写作方法只能作为调研证据，重新实现时保持 ContentCloud 的事实、权利和审批边界。
+- 第三方写作方法只能作为调研证据，重新实现时保持 Content Work OS 的事实、权利和审批边界。
 - Plugin 或 Skill 更新不得静默改变已批准文章或已导出的交付包。
 
 ## 16. 实施路线
@@ -1087,7 +1087,7 @@ MCP Tool 应围绕稳定业务动作提供类型化参数，不暴露任意 shel
 
 | ID | 决策 | 状态 |
 | --- | --- | --- |
-| D-CONTENT-01 | ContentCloud 采用稳定 Core + 内容 Pack + 渠道 Adapter | 建议接受 |
+| D-CONTENT-01 | Content Work OS 采用稳定核心 + 内容能力包 + 渠道适配器 | 建议接受 |
 | D-CONTENT-02 | 公众号复用 `content_batch/delivery/result` Submission 轨 | 建议接受 |
 | D-CONTENT-03 | ContentItem 使用稳定治理信封 + typed payload | 待工程评审 |
 | D-CONTENT-04 | payload Schema 只能来自签名 Environment/Registry | 建议接受 |
