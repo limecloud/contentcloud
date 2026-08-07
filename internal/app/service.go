@@ -316,6 +316,10 @@ func (s *Service) CreateConnectSession(ctx context.Context, actor Actor, project
 	if !canManage(actor.Role) {
 		return domain.ConnectSession{}, domain.Policy("ROLE_DENIED", "当前角色不能连接设备", "联系项目负责人")
 	}
+	return s.createConnectSession(ctx, actor, projectID, requestID)
+}
+
+func (s *Service) createConnectSession(ctx context.Context, actor Actor, projectID, requestID string) (domain.ConnectSession, error) {
 	if _, err := s.projectForWrite(ctx, actor, projectID); err != nil {
 		return domain.ConnectSession{}, err
 	}
@@ -547,6 +551,11 @@ func (s *Service) audit(ctx context.Context, actor Actor, projectID, action, sub
 }
 
 func canManage(role string) bool { return role == "tenant_admin" || role == "project_manager" }
+
+// canConnectStudioClient keeps customer self-service separate from team administration.
+func canConnectStudioClient(role string) bool {
+	return containsString([]string{"tenant_admin", "project_manager", "strategist", "editor"}, role)
+}
 func defaultString(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback

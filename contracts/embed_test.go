@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/limecloud/contentcloud/internal/agentadapter"
+	"gopkg.in/yaml.v3"
 )
 
 func TestEmbeddedSchemasAreValidJSON(t *testing.T) {
@@ -88,6 +89,40 @@ func TestEmbeddedProjectPageContractIsValidJSON(t *testing.T) {
 	for _, view := range contract.Order {
 		if len(contract.Views[view]) == 0 {
 			t.Fatalf("project page %q is missing from views", view)
+		}
+	}
+}
+
+func TestStudioOpenAPIContractKeepsProductBoundaries(t *testing.T) {
+	var document struct {
+		OpenAPI    string                    `yaml:"openapi"`
+		Paths      map[string]map[string]any `yaml:"paths"`
+		Components struct {
+			Schemas map[string]any `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(OpenAPIYAML, &document); err != nil {
+		t.Fatalf("openapi.yaml is invalid or contains duplicate YAML keys: %v", err)
+	}
+	if document.OpenAPI != "3.1.0" {
+		t.Fatalf("openapi version=%q, want 3.1.0", document.OpenAPI)
+	}
+	for _, path := range []string{
+		"/studio/execution-clients",
+		"/studio/projects/{project_id}/connect-sessions",
+		"/studio/connect-sessions/{session_id}",
+	} {
+		if _, ok := document.Paths[path]; !ok {
+			t.Fatalf("studio path %q is missing from OpenAPI", path)
+		}
+	}
+	for _, schema := range []string{
+		"StudioExecutionClientCatalogEnvelope",
+		"StudioConnectSessionEnvelope",
+		"StudioAssetItem",
+	} {
+		if _, ok := document.Components.Schemas[schema]; !ok {
+			t.Fatalf("studio schema %q is missing from OpenAPI", schema)
 		}
 	}
 }

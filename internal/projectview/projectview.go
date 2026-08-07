@@ -109,6 +109,20 @@ func Build(serverBase, projectID string, target Target) (Link, error) {
 	}, nil
 }
 
+func BuildStudioConnect(serverBase, sessionID string) (string, error) {
+	base, err := trustedServerBase(serverBase)
+	if err != nil {
+		return "", err
+	}
+	if !idPattern.MatchString(sessionID) {
+		return "", domain.Invalid("CONNECT_SESSION_ID_INVALID", "执行客户端连接会话标识无效")
+	}
+	base.Path = "/studio/connect"
+	base.RawPath = ""
+	base.RawQuery = url.Values{"session": []string{sessionID}}.Encode()
+	return base.String(), nil
+}
+
 func Validate(target Target) error {
 	page, ok := pages.Views[target.View]
 	if !ok {

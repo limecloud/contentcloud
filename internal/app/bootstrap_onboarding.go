@@ -110,15 +110,19 @@ func (s *Service) StartBootstrapAuthorization(ctx context.Context, baseURL strin
 	if _, err := s.store.AppendBootstrapProgress(ctx, attemptTokenHash, initial, now); err != nil {
 		return StartBootstrapAuthorizationResult{}, err
 	}
-	verificationLink, err := projectview.Build(baseURL, attempt.ProjectID, projectview.Target{View: "setup", Focus: &projectview.Focus{Kind: "bootstrap_attempt", ID: attempt.ID}})
+	verificationURL, err := projectview.BuildStudioConnect(baseURL, attempt.ConnectSessionID)
 	if err != nil {
 		return StartBootstrapAuthorizationResult{}, err
 	}
-	return StartBootstrapAuthorizationResult{AttemptID: attempt.ID, AttemptToken: attemptToken, UserCode: attempt.UserCode, SupportCode: attempt.SupportCode, VerificationURL: verificationLink.URL, ExpiresAt: attempt.ExpiresAt, IntervalSeconds: 3}, nil
+	return StartBootstrapAuthorizationResult{AttemptID: attempt.ID, AttemptToken: attemptToken, UserCode: attempt.UserCode, SupportCode: attempt.SupportCode, VerificationURL: verificationURL, ExpiresAt: attempt.ExpiresAt, IntervalSeconds: 3}, nil
 }
 
 func (s *Service) ApproveBootstrapAuthorization(ctx context.Context, actor Actor, sessionID, attemptID, requestID string) (domain.BootstrapAttempt, error) {
-	if !canManage(actor.Role) {
+	return s.approveBootstrapAuthorization(ctx, actor, sessionID, attemptID, requestID, false)
+}
+
+func (s *Service) approveBootstrapAuthorization(ctx context.Context, actor Actor, sessionID, attemptID, requestID string, allowCustomerRoles bool) (domain.BootstrapAttempt, error) {
+	if !canManage(actor.Role) && !(allowCustomerRoles && canConnectStudioClient(actor.Role)) {
 		return domain.BootstrapAttempt{}, domain.Policy("ROLE_DENIED", "当前角色不能批准初始化授权", "联系项目负责人")
 	}
 	attempt, err := s.store.BootstrapAttempt(ctx, actor.TenantID, attemptID)
@@ -139,7 +143,11 @@ func (s *Service) ApproveBootstrapAuthorization(ctx context.Context, actor Actor
 }
 
 func (s *Service) DenyBootstrapAuthorization(ctx context.Context, actor Actor, sessionID, attemptID, requestID string) (domain.BootstrapAttempt, error) {
-	if !canManage(actor.Role) {
+	return s.denyBootstrapAuthorization(ctx, actor, sessionID, attemptID, requestID, false)
+}
+
+func (s *Service) denyBootstrapAuthorization(ctx context.Context, actor Actor, sessionID, attemptID, requestID string, allowCustomerRoles bool) (domain.BootstrapAttempt, error) {
+	if !canManage(actor.Role) && !(allowCustomerRoles && canConnectStudioClient(actor.Role)) {
 		return domain.BootstrapAttempt{}, domain.Policy("ROLE_DENIED", "当前角色不能拒绝初始化授权", "联系项目负责人")
 	}
 	attempt, err := s.store.BootstrapAttempt(ctx, actor.TenantID, attemptID)

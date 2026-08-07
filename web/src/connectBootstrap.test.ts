@@ -7,7 +7,7 @@ describe('ContentCloud Agent bootstrap',()=>{
   it('builds a stable prompt with a public session ID and no secret',()=>{
     const prompt=buildBootstrapPrompt({serverURL:'https://content.example.com/',sessionID:waitingSession.id,projectName:'金陵古都香 / 古法线香'});
     expect(prompt).toBe(
-      '请读取 https://content.example.com/api/bootstrap，并按照其中的步骤在 Codex 中初始化这个 Content Work OS 项目。\n\nserver-url: https://content.example.com\nsession-id: 11111111-1111-4111-8111-111111111111\ncontentcloud-cli: npx --yes @limecloud/contentcloud@0.17.0\nproject: "金陵古都香 / 古法线香"'
+      '请读取 https://content.example.com/api/bootstrap，并按照其中的步骤在 Codex 中将这个执行客户端连接到 Content Work OS 项目。\n\nserver-url: https://content.example.com\nsession-id: 11111111-1111-4111-8111-111111111111\ncontentcloud-cli: npx --yes @limecloud/contentcloud@0.18.0\nproject: "金陵古都香 / 古法线香"'
     );
     expect(prompt).not.toMatch(/connect[-_]key|cck_|token|secret/i);
   });
@@ -20,7 +20,7 @@ describe('ContentCloud Agent bootstrap',()=>{
 
   it('provides fixed preflight, plan, resume, and diagnostic commands',()=>{
     const commands=buildBootstrapCommands({serverURL:'https://content.example.com/',sessionID:waitingSession.id,attemptID:'22222222-2222-4222-8222-222222222222'});
-    expect(commands.preflight).toBe("npx --yes @limecloud/contentcloud@0.17.0 bootstrap preflight . --server-url 'https://content.example.com' --json");
+    expect(commands.preflight).toBe("npx --yes @limecloud/contentcloud@0.18.0 bootstrap preflight . --server-url 'https://content.example.com' --json");
     expect(commands.plan).toContain("--session '11111111-1111-4111-8111-111111111111'");
     expect(commands.resume).toContain('bootstrap resume . --accept --json');
     expect(commands.diagnostics).toContain("--attempt '22222222-2222-4222-8222-222222222222'");
@@ -48,8 +48,8 @@ describe('ContentCloud Agent bootstrap',()=>{
 
   it('distinguishes active connection from completed registration',()=>{
     expect(isActiveConnectState('verifying')).toBe(true);
-    expect(connectStateCopy({...waitingSession,state:'verifying'}).title).toBe('正在初始化创作环境');
-    expect(connectStateCopy({...waitingSession,state:'connected'}).title).toBe('Codex 创作环境已就绪');
+    expect(connectStateCopy({...waitingSession,state:'verifying'}).title).toBe('正在连接执行客户端');
+    expect(connectStateCopy({...waitingSession,state:'connected'}).title).toBe('Codex 已连接');
     expect(connectStateCopy(waitingSession,true).title).toBe('仍在等待 Codex');
   });
 

@@ -2,7 +2,7 @@
 
 状态：`目标规范；配套脚手架和命令尚未实现`。
 
-更新时间：2026-08-05。
+更新时间：2026-08-07。
 
 ## 1. 目的
 
@@ -52,7 +52,7 @@
   -> 组合 SOP、能力和 Gate
   -> 增加确定性校验与 Fixture
   -> 映射客户步骤和结果呈现
-  -> 声明哪些保存/批准结果进入资产目录
+  -> 声明哪些生成结果进入资产目录及其确认门禁
   -> 本地验证与预览
   -> 契约/集成/体验测试
   -> 运营草稿与 lint
@@ -62,6 +62,23 @@
 ```
 
 只有下列情况才需要平台工程师修改 Runtime：现有公开契约无法表达一个已经由至少两条真实业务流证明的稳定执行语义。单一内容类型的字段、文案、Prompt、校验和展示差异不能成为 Runtime 变更理由。
+
+### 3.1 结果资产登记
+
+每个需要进入客户创作资产库的输出必须在业务包中显式声明：
+
+```text
+result_type
+subject type + version/digest mapping
+status source + confirmation gate
+customer presentation
+internal lineage
+reuse validation policy
+```
+
+首期 `result_type` 仅允许 `persona / script / storyboard / image / video`。来源、搜索结果、灵感、知识、参考素材和权利记录使用任务输入或项目参考契约；DeliveryPackage 使用交付契约。它们不能为了出现在客户页面而登记成结果资产。
+
+迁移期继续使用 `CreativeAssetCatalogItem` 作为技术契约名，其产品语义固定为结果目录项。除非命名 ADR 同时定义兼容窗口、major 版本和退场计划，不新增 `CreativeResultAssetCatalogItem` 平行类型。
 
 ## 4. 业务包工作区规范
 
@@ -233,7 +250,7 @@ correlation          request/job/node/attempt/support 引用
 8. Studio 和 Operations 是否读取同一事实的不同投影？
 9. Preview、Canary、指标、所有者和运行手册是否齐备？
 10. 文档是否明确区分目标能力与当前实现？
-11. 保存、批准或交付结果是否按显式规则进入资产目录，并固定底层对象版本与摘要？
+11. 生成结果是否按显式规则进入资产目录、由确认状态决定复用，并固定底层对象版本与摘要？
 
 ## 14. 禁止模式
 

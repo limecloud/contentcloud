@@ -19,6 +19,11 @@ WorkTask                              业务任务及其治理
       ├── 逻辑检查点 Checkpoint
       ├── 外部操作记录 SideEffectRecord
       └── 执行事件 JobEvent
+
+业务事实（不属于 Runtime 聚合）
+├── 输入快照 -> 任务输入 / 项目参考的固定引用
+├── JobOutputBinding -> 人物 / 剧本 / 分镜 / 图片 / 视频结果引用
+└── DeliveryPackage -> 交付视图引用
 ```
 
 所有对象都必须记录 `tenant_id`；项目内对象还要记录 `project_id`。服务端根据登录身份、`JobRun` 和租约计算对象归属，不能信任智能体上报的租户或项目编号。
@@ -33,7 +38,7 @@ WorkTask                              业务任务及其治理
 | `TaskRun` | V7 兼容执行记录 | 保留现有路径；不再作为 V8 NodeRun 的物理表 |
 | `RunAttempt` | V7 兼容执行尝试 | 只关联 `task_runs`，不参与 V8 Runtime 调度 |
 | `RuntimeAttempt` | V8 唯一权威执行尝试 | 独立 `runtime_attempts`，保存租约、能力快照、Harness 会话引用和结构化结果摘要 |
-| `TaskStageOutput` | 执行输出绑定（`JobOutputBinding`） | 保留物理名称；绑定 `NodeRun`/`Artifact` 时增加兼容字段 |
+| `TaskStageOutput` | 执行输出绑定（`JobOutputBinding`） | 保留物理名称；绑定 `NodeRun` 和已验证业务 `subject_ref` 时增加兼容字段，不限定为 `Artifact` |
 | `ContextSnapshot` | 输入快照基础 | `ContextView` 引用它，不改变历史快照 |
 | `CreativeExecutionBundle` | 执行包（`ExecutionBundle`） | 保留并扩展运行策略和执行配置引用 |
 | `MediaGenerationJob` | 服务商作业 | 保留；关联 `side_effect_id`，避免与 `JobRun` 混淆 |
@@ -372,4 +377,8 @@ StageRun.completed
 - 进入终态的 `JobRun`、`NodeRun` 和 `RuntimeAttempt` 不能回到非终态；相同结果摘要的重复终态上报返回幂等成功，不同摘要返回冲突。
 - 一个 `NodeRun` 同时最多有一个有效租约；过期令牌不能写入状态或输出。
 - `NodeRun` 成功必须满足输出契约；业务交付仍必须满足人工审批节点和正式产物（`Artifact`）要求。
+- 输入快照中的来源、灵感、知识和参考素材不能因执行成功而产生客户结果资产目录项。
+- Runtime 输出绑定只保存受控引用；人物原型、剧本、分镜、图片和视频类型及七项结果状态必须从业务事实投影。
+- `reusable=true` 只能从 `confirmed` 或 `delivered` 推导；`JobRun.succeeded` 不能越过确认门禁。
+- `DeliveryPackage` 只进入交付视图；投影重建不得将它复制为第二个结果资产。
 - `StageRun` 投影删除后可以从 `JobRun`、`NodeRun`、人工审批节点和输出重新构建。

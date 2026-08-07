@@ -11,11 +11,12 @@ describe('Content Work OS website',()=>{
   it('renders the product claim and routes the primary CTA to the authenticated workspace',()=>{
     const markup=renderHome();
     expect(markup).toContain('Content Work OS');
-    expect(markup).toContain('把资料、创作与交付组织成一个系统');
+    expect(markup).toContain('把任务输入、创作与交付组织成一个系统');
     expect(markup).toContain('class="marketing-home-scene"');
     expect(markup).toContain('href="/studio"');
     expect(markup).toContain('创作资产目录，不是另一个文件夹');
-    expect(markup).toContain('资产库参与每一次创作');
+    expect(markup).toContain('结果资产参与每一次创作');
+    expect(markup).not.toContain('品牌、灵感和已批准结果会继续服务下一次任务');
     expect(markup).toContain('客户页面保持简单，复杂能力留在平台底层');
     expect(markup).toContain('ContentCloud Agentic Job Runtime');
   });

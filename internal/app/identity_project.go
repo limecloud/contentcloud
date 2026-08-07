@@ -350,6 +350,10 @@ func (s *Service) CancelConnectSession(ctx context.Context, actor Actor, id, req
 	if !canManage(actor.Role) {
 		return domain.ConnectSession{}, domain.Policy("ROLE_DENIED", "当前角色不能取消连接", "联系项目负责人")
 	}
+	return s.cancelConnectSession(ctx, actor, id, requestID)
+}
+
+func (s *Service) cancelConnectSession(ctx context.Context, actor Actor, id, requestID string) (domain.ConnectSession, error) {
 	session, err := s.store.ConnectSessionByID(ctx, actor.TenantID, id)
 	if err != nil {
 		return session, err

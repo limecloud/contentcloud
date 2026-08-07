@@ -62,7 +62,7 @@ Operations & Audit 横切所有域，但不拥有其业务正文
 | Review & Approval | SubmissionRevision、TaskRevision、ReviewCycle、GateEvaluation、ApprovedSnapshot、ApprovalDecision | 自动生成内容和执行调度 |
 | Artifact & Delivery | Artifact、MediaGenerationJob、DeliveryPackage、TaskDelivery、完整性 | 外部平台真实发布结果，除非有回执 |
 | Performance & Learning | PerformanceObservation、RatingDecision、已批准学习候选 | 自动改写知识和 SOP |
-| Experience & Projection | CustomerJourneyProjection、CreativeAssetCatalogItem、RuntimeOperationsProjection、角色适配 DTO | 来源、权利、批准、产物、交付和执行权威状态 |
+| Experience & Projection | CustomerJourneyProjection、CreativeAssetCatalogItem（结果投影）、RuntimeOperationsProjection、角色适配 DTO | 来源、权利、批准、产物、交付和执行权威状态 |
 | Operations & Audit | AuditEvent、用量读模型、告警、支持关联 | 直接修改其他域权威状态 |
 
 ## 4. 核心聚合关系
@@ -125,7 +125,7 @@ WorkTask  用户想完成的一项工作
 | `Capability` / `capabilitycatalog` | 扩展为统一能力注册表，保持版本和摘要。 |
 | Environment Manifest / ExecutionBundle | 继续提供执行环境和绑定快照，不再创建第二套 Binding Manifest。 |
 | `ProjectProjection` / `projectview` | 复用投影模式，拆出 CustomerJourneyProjection；禁止平行维护独立任务状态。 |
-| `CreativeAssetCatalogItem` | 新建可重建只读投影，引用 Source、Asset、Knowledge、ApprovedSnapshot、Artifact 和 DeliveryPackage；不得成为统一写模型。 |
+| `CreativeAssetCatalogItem` | 新建可重建只读结果投影，面向客户只引用人物、剧本、分镜、图片和视频结果；输入、权利和交付由各自投影表达，不得成为统一写模型。 |
 
 ## 7. 事实所有权矩阵
 
@@ -139,7 +139,7 @@ WorkTask  用户想完成的一项工作
 | 批准决定 | Review & Approval | 等待、消费不可变决定引用 | 展示决定影响和生效版本 |
 | 文件产物 | Artifact & Delivery | 保存 ArtifactRef 和生成状态 | 预览或下载允许结果 |
 | 外部平台发布 | Delivery / Provider 回执 | 记录 Effect 和回执引用 | 只有真实回执才显示发布成功 |
-| 跨任务资产目录项 | Experience & Projection | 仅保存业务对象引用或输出引用 | 组合名称、预览、版本、权利和可复用状态 |
+| 跨任务结果资产目录项 | Experience & Projection | 仅保存生成结果引用或输出引用 | 组合结果类型、名称、预览、版本和可复用状态 |
 
 ## 8. 候选到正式输入的推进
 
@@ -159,19 +159,23 @@ Untrusted Input
 ## 9. 跨任务资产沉淀与复用
 
 ```text
-SourceRevision / Asset / KnowledgeObject
-ApprovedSnapshot / Artifact / DeliveryPackage
+SourceRevision / Asset / KnowledgeObject / RightsRecord
                     |
                     v
-       CreativeAssetCatalogItem 只读投影
+          WorkTask 输入与项目参考投影
+
+ApprovedSnapshot / TaskRevision / Artifact
+                    |
+                    v
+       CreativeAssetCatalogItem 结果只读投影
                     |
                     v
         CreativeAssetRef -> WorkTask input snapshot
 ```
 
-- 不是所有候选都进入目录；只有客户保存、选择、批准或正式交付的内容才沉淀。
-- 现有 `Asset` 继续表示受权利约束的参考素材，不承载批准内容、生产文件和交付包。
-- `CreativeAssetCatalogItem` 只保存显示摘要、受控预览和版本化事实引用；正文仍由拥有域提供。
+- 来源、灵感、知识、权利和任务输入不进入客户创作资产目录；它们保留在任务输入或项目参考投影。
+- `CreativeAssetCatalogItem` 只收录人物原型、剧本、分镜、图片和视频等流水线结果；正文仍由拥有域提供。
+- 结果状态决定是否可以复用，目录项只保存显示摘要、受控预览和版本化事实引用。
 - `CreativeAssetRef` 固定底层对象类型、ID、版本和摘要，Runtime 不以目录项作为权威输入。
 - 权利到期或来源失效阻止新任务使用，并通过 lineage 定位受影响下游；历史任务和交付不被静默改写。
 

@@ -68,7 +68,7 @@ export interface ConnectStateCopy {
   tone: 'waiting'|'progress'|'success'|'error';
 }
 
-export const CONTENTCLOUD_CLI='npx --yes @limecloud/contentcloud@0.17.0';
+export const CONTENTCLOUD_CLI='npx --yes @limecloud/contentcloud@0.18.0';
 export const BOOTSTRAP_PLAN_CONFIRMATION='Codex 会先展示只读计划和计划编号（plan_id）；确认后，apply 必须原样携带该 plan_id，状态变化时会要求重新确认。';
 
 const stageNames:Record<string,string>={
@@ -80,7 +80,7 @@ const stageNames:Record<string,string>={
 export function buildBootstrapPrompt({serverURL,sessionID,projectName}:BootstrapPromptInput):string {
   const origin=singleLine(serverURL.replace(/\/+$/,''));
   const safeProject=singleLine(projectName)||'Content Work OS 项目';
-  return `请读取 ${origin}/api/bootstrap，并按照其中的步骤在 Codex 中初始化这个 Content Work OS 项目。\n\nserver-url: ${origin}\nsession-id: ${singleLine(sessionID)}\ncontentcloud-cli: ${CONTENTCLOUD_CLI}\nproject: ${JSON.stringify(safeProject)}`;
+  return `请读取 ${origin}/api/bootstrap，并按照其中的步骤在 Codex 中将这个执行客户端连接到 Content Work OS 项目。\n\nserver-url: ${origin}\nsession-id: ${singleLine(sessionID)}\ncontentcloud-cli: ${CONTENTCLOUD_CLI}\nproject: ${JSON.stringify(safeProject)}`;
 }
 
 export function buildBootstrapCommands({serverURL,sessionID,attemptID}:Omit<BootstrapPromptInput,'projectName'>&{attemptID?:string}):BootstrapCommands {
@@ -105,18 +105,18 @@ export function connectStateCopy(session:ConnectSession,slow=false):ConnectState
     const stage=stageNames[progress.stage]||'初始化创作环境';
     if(progress.status==='failed')return {title:`${stage}未通过`,detail:progress.action?.body||progress.error_code||'请根据支持码联系支持人员。',tone:'error'};
     if(progress.status==='needs_action')return {title:progress.action?.title||stage,detail:progress.action?.body||'完成当前操作后，Codex 会自动继续。',tone:'waiting'};
-    if(session.state==='connected')return {title:'Codex 创作环境已就绪',detail:'插件与本地工作区已通过检查，并完成云端注册。',tone:'success'};
+    if(session.state==='connected')return {title:'Codex 已连接',detail:'本地工作区已通过检查，并完成项目连接。',tone:'success'};
     return {title:stage,detail:`正在执行第 ${progress.step} / ${progress.step_count} 步。`,tone:'progress'};
   }
   switch(session.state){
     case 'waiting_for_computer':
       return slow
         ? {title:'仍在等待 Codex',detail:'会话仍然有效。请确认操作指令已完整粘贴，并允许 Codex 执行只读检查。',tone:'waiting'}
-        : {title:'等待 Codex',detail:'复制操作指令，并粘贴到用于初始化这个项目的 Codex 会话。',tone:'waiting'};
+        : {title:'等待 Codex',detail:'复制操作指令，并粘贴到用于连接这个项目的 Codex 会话。',tone:'waiting'};
     case 'verifying':
-      return {title:'正在初始化创作环境',detail:'Codex 已获授权，正在验证插件、本地工作区与诊断结果。',tone:'progress'};
+      return {title:'正在连接执行客户端',detail:'Codex 已获授权，正在验证本地工作区与连接状态。',tone:'progress'};
     case 'connected':
-      return {title:'Codex 创作环境已就绪',detail:'插件与本地工作区已通过检查，并完成云端注册。',tone:'success'};
+      return {title:'Codex 已连接',detail:'本地工作区已通过检查，并完成项目连接。',tone:'success'};
     case 'expired':
       return {title:'初始化会话已过期',detail:'创建新的初始化会话后重试。',tone:'error'};
     case 'canceled':

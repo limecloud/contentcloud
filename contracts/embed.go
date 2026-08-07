@@ -91,3 +91,6 @@ var SeedancePromptPackageV1Schema []byte
 
 //go:embed published-creative-binding-1.0.schema.json
 var PublishedCreativeBindingV1Schema []byte
+
+//go:embed openapi.yaml
+var OpenAPIYAML []byte

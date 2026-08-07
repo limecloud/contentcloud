@@ -1,6 +1,6 @@
-import { Archive, ChevronDown, ClipboardCheck, LayoutDashboard, ListTodo, LogOut, Menu, PackageCheck, Sparkles, X } from 'lucide-react';
+import { Archive, ChevronDown, ClipboardCheck, LayoutDashboard, ListTodo, LogOut, Menu, MonitorUp, PackageCheck, Sparkles, X } from 'lucide-react';
 import { useState } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { BrandLockup, BrandMark } from '../components/Brand';
 import { IconButton } from '../components/ui';
 import { useStudio } from './StudioContext';
@@ -8,6 +8,7 @@ import './studio.css';
 
 const navItems=[
   {to:'/studio',end:true,label:'今天',icon:Sparkles},
+  {to:'/studio/connect',end:true,label:'连接创作电脑',icon:MonitorUp},
   {to:'/studio/tasks',end:false,label:'创作任务',icon:ListTodo},
   {to:'/studio/assets',end:false,label:'资产库',icon:Archive},
   {to:'/studio/deliveries',end:false,label:'交付',icon:PackageCheck},
@@ -17,10 +18,14 @@ export function CustomerStudioShell(){
   const {bootstrap,switchTenant,logout}=useStudio();
   const {session,tenants}=bootstrap;
   const navigate=useNavigate();
+  const location=useLocation();
   const [mobileOpen,setMobileOpen]=useState(false);
   const [accountOpen,setAccountOpen]=useState(false);
   const canOperate=session.can_view_operations&&Boolean(session.operations_path);
+  const activeProjects=bootstrap.projects.filter(project=>project.status!=='archived');
+  const needsConnection=session.can_create&&activeProjects.length>0&&activeProjects.every(project=>!project.execution_client_connected);
   const signOut=async()=>{await logout();navigate('/login',{replace:true})};
+  if(location.pathname==='/studio'&&needsConnection)return <Navigate to="/studio/connect" replace/>;
   return <div className="studio-shell">
     <header className="studio-mobile-header"><BrandMark/><strong>创作台</strong><IconButton label={mobileOpen?'关闭导航':'打开导航'} onClick={()=>setMobileOpen(value=>!value)}>{mobileOpen?<X size={20}/>:<Menu size={20}/>}</IconButton></header>
     <aside className={`studio-sidebar ${mobileOpen?'is-open':''}`}>

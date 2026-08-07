@@ -44,6 +44,16 @@ func TestBuildCreatesCanonicalProjectLinks(t *testing.T) {
 	}
 }
 
+func TestBuildStudioConnectCreatesCustomerConnectionLink(t *testing.T) {
+	target, err := BuildStudioConnect("https://content.example.com/", "11111111-1111-4111-8111-111111111111")
+	if err != nil || target != "https://content.example.com/studio/connect?session=11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("unexpected Studio connect link: target=%q error=%v", target, err)
+	}
+	if _, err := BuildStudioConnect("https://content.example.com", "../session"); err == nil {
+		t.Fatal("expected invalid connection session ID to be rejected")
+	}
+}
+
 func TestBuildRejectsUntrustedTargetsAndInvalidFocus(t *testing.T) {
 	digest := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	tests := []struct {

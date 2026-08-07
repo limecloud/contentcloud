@@ -204,6 +204,19 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
 - 测试键盘操作、`focus-visible`、提示文字和可访问名称，以及不依赖颜色识别状态。
 - 测试投影延迟、会话过期、未授权查看完整执行记录和未知事件的降级展示。
 
+### 8.7 产品边界契约测试
+
+- OpenAPI 必须能被 YAML 解析器无重复键加载，且所有 Studio 路由引用的 Envelope 和 DTO 都存在。
+- 客户执行客户端目录只能把完整具备 `workspace_bootstrap` 契约的客户端标成可连接；当前仅 Codex 可用，Claude Code 等客户端不得因具备部分自动化能力而进入客户选择面。
+- 新建客户任务必须按目标项目回源校验已连接执行客户端；一个项目的连接不能自动满足另一个项目的准入条件。
+- 客户创作资产 DTO 的 `result_type` 只允许 `persona / script / storyboard / image / video`，类型与状态是两个独立轴。
+- 结果状态只允许 `draft / pending_confirmation / changes_requested / confirmed / delivered / superseded / blocked`，且只有 `confirmed` 和 `delivered` 可复用。
+- 没有任何 `MediaReview` 的图片或视频 Artifact 必须投影为 `pending_confirmation`，不能通过“审核记录不存在”推导为 `confirmed`。
+- 新的灵感保存契约使用 `keep_as_project_reference` / `saved_as_project_reference`；旧 `save_for_reuse` 只作兼容输入，响应不得继续返回 `saved_for_reuse`。
+- 保留为项目参考的灵感只在当前任务或项目参考投影中出现，`GET /api/studio/assets` 不得返回它。
+- `DeliveryPackage` 只在交付视图中出现，客户资产目录不得增加 `delivery_package` 类型或复制交付正文。
+- 投影重建必须产生相同的结果类型、状态、复用门禁和底层引用，且不触发模型、执行者或外部服务。
+
 ## 9. 性能与容量验收
 
 首轮目标用于发现瓶颈，不宣传为通用规模上限：
@@ -227,8 +240,11 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
 4. 任意节点崩溃后都能继续执行；已经完成的节点不能重复调用模型或服务商。
 5. 主控智能体只能收到子节点摘要和引用，不能自动聚合原始完整执行记录。
 6. 汇聚操作必须按照已经冻结的 FanoutSet 和声明的策略完成，不能提前结束。
-7. 最终正式产物（`Artifact`）、`MediaReview`、`DeliveryPackage` 和所有上游摘要都可以反向追溯。
+7. 最终底层产物（`Artifact`）、`MediaReview`、`DeliveryPackage` 和所有上游摘要都可以反向追溯。
 8. 分支执行会创建新的 JobRun；旧 Run 和已经发生的外部操作继续保留完整审计记录。
+9. 搜索结果、灵感和参考素材保持为任务输入或项目参考，不出现在客户创作资产库。
+10. 人物原型、剧本、分镜、图片和视频生成结果能通过输出绑定追溯到 JobRun/NodeRun；只有已确认或已交付结果能加入新任务。
+11. 交付页可以引用同一结果与交付包，但不产生重复的资产正文。
 
 第二个文章复盘执行图必须复用同一套运行时表和调度器；只允许新增内容业务包、数据结构和人工审批节点。
 

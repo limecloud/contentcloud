@@ -30,6 +30,12 @@ func TestCustomerStudioProjectionAndTenantIsolation(t *testing.T) {
 	if bootstrap.Experiences[0].ProjectIDs[0] != bootstrap.Projects[0].ID {
 		t.Fatalf("experience is not bound to returned project: %#v", bootstrap.Experiences[0])
 	}
+	if !bootstrap.Projects[0].ExecutionClientConnected || bootstrap.Projects[0].ConnectedClientCount == 0 {
+		t.Fatalf("customer bootstrap did not expose the connected execution client state: %#v", bootstrap.Projects[0])
+	}
+	if got, want := strings.Join(bootstrap.Experiences[0].StepTitles, ","), "灵感采集,人物原型,营销剧本,视频分镜,候选成片,交付准备"; got != want {
+		t.Fatalf("customer experience leaked runtime stage names: got %q want %q", got, want)
+	}
 
 	raw := getStudioRaw(t, client, server.URL+"/api/studio/bootstrap")
 	for _, forbidden := range []string{`"tenant_id"`, `"sop_id"`, `"sop_digest"`, `"environment_id"`, `"stage_runs"`, `"executor_kind"`, `"capability_id"`, `"checks"`} {
@@ -69,6 +75,116 @@ func TestCustomerStudioProjectionAndTenantIsolation(t *testing.T) {
 	}
 }
 
+func TestCustomerStudioAssetsOnlyExposeGeneratedResults(t *testing.T) {
+	service := app.New(memory.New(), slog.Default(), app.WithPlatformAdminEmails("demo@contentcloud.local"))
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	clientJar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: clientJar}
+	mustStudioBootstrap(t, client, server.URL)
+
+	raw := getStudioRaw(t, client, server.URL+"/api/studio/assets")
+	var envelope struct {
+		Data struct {
+			Items []map[string]any `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Data.Items) == 0 {
+		t.Fatal("development fixture should expose generated customer assets")
+	}
+	allowedResultTypes := map[string]bool{"persona": true, "script": true, "storyboard": true, "image": true, "video": true}
+	foundResultTypes := map[string]bool{}
+	for _, item := range envelope.Data.Items {
+		resultType, _ := item["result_type"].(string)
+		if !allowedResultTypes[resultType] {
+			t.Fatalf("customer asset exposed non-result type %q: %#v", resultType, item)
+		}
+		if item["task_id"] == "" || item["task_title"] == "" {
+			t.Fatalf("customer asset lost its originating task: %#v", item)
+		}
+		if _, exists := item["category"]; exists {
+			t.Fatalf("customer asset still exposes the legacy category axis: %#v", item)
+		}
+		if _, exists := item["metadata"]; exists {
+			t.Fatalf("customer asset leaked internal governance metadata: %#v", item)
+		}
+		foundResultTypes[resultType] = true
+	}
+	for _, required := range []string{"persona", "script", "storyboard", "image", "video"} {
+		if !foundResultTypes[required] {
+			t.Fatalf("development fixture did not expose %s result assets: %#v", required, foundResultTypes)
+		}
+	}
+	for _, forbidden := range []string{`"kind":"source"`, `"kind":"knowledge"`, `source_revision:`, `"rights_record"`, `"source_type":"manual_inspiration"`} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("customer asset catalog leaked an input or governance object %s: %s", forbidden, raw)
+		}
+	}
+}
+
+func TestCustomerStudioInspirationUsesProjectReferenceBoundary(t *testing.T) {
+	service := app.New(memory.New(), slog.Default(), app.WithPlatformAdminEmails("demo@contentcloud.local"))
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	bootstrap := mustStudioBootstrap(t, client, server.URL)
+	task := callBFF[app.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks", app.StudioCreateTaskInput{
+		ExperienceID: bootstrap.Experiences[0].ID,
+		ProjectID:    bootstrap.Projects[0].ID,
+		Title:        "项目参考边界回归",
+		Goal:         "验证灵感不进入结果资产库",
+		AssetRefs:    []string{},
+	})
+
+	withReference := callBFF[app.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks/"+task.Task.ID+"/inspirations", app.StudioAddInspirationInput{
+		Title:                  "保留的观察",
+		Body:                   "只作为后续任务的项目参考。",
+		KeepAsProjectReference: true,
+	})
+	var projectReference *app.StudioInspiration
+	for index := range withReference.Inspirations {
+		if withReference.Inspirations[index].Title == "保留的观察" {
+			projectReference = &withReference.Inspirations[index]
+			break
+		}
+	}
+	if projectReference == nil || !projectReference.SavedAsProjectReference {
+		t.Fatalf("project reference flag was not projected: %#v", withReference.Inspirations)
+	}
+	rawTask := getStudioRaw(t, client, server.URL+"/api/studio/tasks/"+task.Task.ID)
+	if !strings.Contains(rawTask, `"saved_as_project_reference":true`) || strings.Contains(rawTask, `"saved_for_reuse"`) {
+		t.Fatalf("customer task exposed the wrong inspiration contract: %s", rawTask)
+	}
+	rawAssets := getStudioRaw(t, client, server.URL+"/api/studio/assets")
+	if strings.Contains(rawAssets, "保留的观察") || strings.Contains(rawAssets, `"saved_for_reuse"`) {
+		t.Fatalf("project reference leaked into result asset catalog: %s", rawAssets)
+	}
+
+	legacy := callBFF[app.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks/"+task.Task.ID+"/inspirations", map[string]any{
+		"title":          "旧客户端参考",
+		"body":           "旧字段仍应兼容为项目参考。",
+		"save_for_reuse": true,
+	})
+	var legacyReference *app.StudioInspiration
+	for index := range legacy.Inspirations {
+		if legacy.Inspirations[index].Title == "旧客户端参考" {
+			legacyReference = &legacy.Inspirations[index]
+			break
+		}
+	}
+	if legacyReference == nil || !legacyReference.SavedAsProjectReference {
+		t.Fatalf("legacy save_for_reuse was not mapped to project reference: %#v", legacy.Inspirations)
+	}
+	rawLegacy := getStudioRaw(t, client, server.URL+"/api/studio/tasks/"+task.Task.ID)
+	if strings.Contains(rawLegacy, `"saved_for_reuse"`) {
+		t.Fatalf("legacy field leaked into customer response: %s", rawLegacy)
+	}
+}
+
 func TestCustomerStudioExperienceRequiresTenantCapability(t *testing.T) {
 	service := app.New(memory.New(), slog.Default(), app.WithPlatformAdminEmails("demo@contentcloud.local"))
 	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
@@ -89,6 +205,103 @@ func TestCustomerStudioExperienceRequiresTenantCapability(t *testing.T) {
 	}
 	if len(bootstrap.Experiences) == 0 {
 		t.Fatal("fixture did not create a published experience")
+	}
+}
+
+func TestCustomerStudioExecutionClientHTTPFlow(t *testing.T) {
+	service := app.New(memory.New(), slog.Default())
+	session, err := service.Register(t.Context(), "studio-connect@example.com", "long-enough-password", "Studio Connect", "Studio Connect Tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, _, err := service.SessionActor(t.Context(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.CreateProject(t.Context(), actor, app.CreateProjectInput{BrandName: "连接品牌", ProductName: "连接产品", Channel: "douyin"}, "studio-connect-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), false, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	baseURL, _ := url.Parse(server.URL)
+	jar.SetCookies(baseURL, []*http.Cookie{{Name: "cc_session", Value: session.ID, Path: "/"}})
+	client := &http.Client{Jar: jar}
+
+	catalog := callBFF[struct {
+		Clients []struct {
+			ID        string `json:"id"`
+			Available bool   `json:"available"`
+		} `json:"clients"`
+	}](t, client, http.MethodGet, server.URL+"/api/studio/execution-clients", nil)
+	if len(catalog.Clients) == 0 || catalog.Clients[0].ID != "codex" || !catalog.Clients[0].Available {
+		t.Fatalf("unexpected execution client catalog: %#v", catalog)
+	}
+	for _, client := range catalog.Clients {
+		if client.ID != "codex" && client.Available {
+			t.Fatalf("customer bootstrap exposed an unsupported connection client: %#v", client)
+		}
+	}
+
+	connect := callBFF[app.StudioConnectSession](t, client, http.MethodPost, server.URL+"/api/studio/projects/"+project.ID+"/connect-sessions", map[string]any{})
+	if connect.ProjectID != project.ID || connect.Status != "waiting_for_computer" {
+		t.Fatalf("unexpected created connection session: %#v", connect)
+	}
+	waiting := callBFF[app.StudioConnectSession](t, client, http.MethodGet, server.URL+"/api/studio/connect-sessions/"+connect.ID, nil)
+	if waiting.Status != "waiting_for_computer" || waiting.RequiresConfirmation {
+		t.Fatalf("unexpected initial connection status: %#v", waiting)
+	}
+
+	started := callDispatch[app.StartBootstrapAuthorizationResult](t, client, server.URL, "", "bootstrap.authorization.start", app.StartBootstrapAuthorizationInput{
+		SessionID: connect.ID, CodeChallenge: strings.Repeat("a", 43), Platform: "darwin", Arch: "arm64", CLIVersion: "test",
+	})
+	confirmation := callBFF[app.StudioConnectSession](t, client, http.MethodGet, server.URL+"/api/studio/connect-sessions/"+connect.ID, nil)
+	if confirmation.Status != "confirmation_required" || !confirmation.RequiresConfirmation || confirmation.VerificationCode == "" {
+		t.Fatalf("client confirmation was not projected: %#v", confirmation)
+	}
+	approved := callBFF[app.StudioConnectSession](t, client, http.MethodPost, server.URL+"/api/studio/connect-sessions/"+connect.ID+"/approve", map[string]any{})
+	if approved.Status != "connecting" || approved.RequiresConfirmation {
+		t.Fatalf("approved connection status = %#v", approved)
+	}
+	if started.AttemptID == "" {
+		t.Fatal("bootstrap authorization did not return an attempt")
+	}
+
+	cancelSession := callBFF[app.StudioConnectSession](t, client, http.MethodPost, server.URL+"/api/studio/projects/"+project.ID+"/connect-sessions", map[string]any{})
+	canceled := callBFF[app.StudioConnectSession](t, client, http.MethodPost, server.URL+"/api/studio/connect-sessions/"+cancelSession.ID+"/cancel", map[string]any{})
+	if canceled.Status != "canceled" || canceled.ProjectID != project.ID {
+		t.Fatalf("canceled connection status = %#v", canceled)
+	}
+}
+
+func TestCustomerStudioTaskRequiresExecutionClient(t *testing.T) {
+	service := app.New(memory.New(), slog.Default())
+	session, err := service.Register(t.Context(), "studio-task-gate@example.com", "long-enough-password", "Studio Task Gate", "Studio Task Gate Tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, _, err := service.SessionActor(t.Context(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.CreateProject(t.Context(), actor, app.CreateProjectInput{BrandName: "未连接品牌", ProductName: "未连接产品", Channel: "douyin"}, "studio-task-gate-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), false, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	baseURL, _ := url.Parse(server.URL)
+	jar.SetCookies(baseURL, []*http.Cookie{{Name: "cc_session", Value: session.ID, Path: "/"}})
+	client := &http.Client{Jar: jar}
+	status, code := callStudioError(t, client, http.MethodPost, server.URL+"/api/studio/tasks", app.StudioCreateTaskInput{
+		ExperienceID: "not-used-before-connection", ProjectID: project.ID, Title: "未连接任务", Goal: "验证连接门禁",
+	})
+	if status != http.StatusConflict || code != "STUDIO_EXECUTION_CLIENT_REQUIRED" {
+		t.Fatalf("unconnected task creation status=%d code=%q, want 409/STUDIO_EXECUTION_CLIENT_REQUIRED", status, code)
 	}
 }
 
@@ -118,6 +331,29 @@ func TestCustomerStudioHonorsCustomerRole(t *testing.T) {
 	viewerBootstrap := callBFF[app.StudioBootstrap](t, viewerClient, http.MethodGet, server.URL+"/api/studio/bootstrap", nil)
 	if viewerBootstrap.Session.CanCreate {
 		t.Fatalf("viewer unexpectedly received create permission: %#v", viewerBootstrap.Session)
+	}
+	createInvite, err := service.CreateMembershipInvite(t.Context(), adminActor, "studio-editor@example.com", "editor", "studio-editor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	editorSession, err := service.RegisterWithInvite(t.Context(), "studio-editor@example.com", "long-enough-password", "内容编辑", createInvite.PlaintextToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	editorJar, _ := cookiejar.New(nil)
+	editorJar.SetCookies(baseURL, []*http.Cookie{{Name: "cc_session", Value: editorSession.ID, Path: "/"}})
+	editorClient := &http.Client{Jar: editorJar}
+	editorBootstrap := callBFF[app.StudioBootstrap](t, editorClient, http.MethodGet, server.URL+"/api/studio/bootstrap", nil)
+	if !editorBootstrap.Session.CanCreate || !editorBootstrap.Session.CanConnectClient {
+		t.Fatalf("editor should be able to start and connect customer work: %#v", editorBootstrap.Session)
+	}
+	connect := callBFF[app.StudioConnectSession](t, editorClient, http.MethodPost, server.URL+"/api/studio/projects/"+bootstrap.Projects[0].ID+"/connect-sessions", map[string]any{})
+	if connect.Status != "waiting_for_computer" {
+		t.Fatalf("editor could not create customer connection: %#v", connect)
+	}
+	canceled := callBFF[app.StudioConnectSession](t, editorClient, http.MethodPost, server.URL+"/api/studio/connect-sessions/"+connect.ID+"/cancel", map[string]any{})
+	if canceled.Status != "canceled" {
+		t.Fatalf("editor could not cancel customer connection: %#v", canceled)
 	}
 	payload := `{"experience_id":"` + bootstrap.Experiences[0].ID + `","project_id":"` + bootstrap.Projects[0].ID + `","title":"只读不应创建","goal":"验证角色边界","inspiration":"","asset_refs":[]}`
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/api/studio/tasks", strings.NewReader(payload))
@@ -169,6 +405,35 @@ func getStudioRaw(t *testing.T, client *http.Client, target string) string {
 		t.Fatalf("invalid studio envelope: %s", body)
 	}
 	return string(body)
+}
+
+func callStudioError(t *testing.T, client *http.Client, method, target string, input any) (int, string) {
+	t.Helper()
+	body, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequestWithContext(t.Context(), method, target, strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var envelope struct {
+		OK    bool          `json:"ok"`
+		Error *domain.Error `json:"error"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.OK || envelope.Error == nil {
+		t.Fatalf("expected studio error, got %#v", envelope)
+	}
+	return response.StatusCode, envelope.Error.Code
 }
 
 func sessionIDFromJar(t *testing.T, jar http.CookieJar, baseURL string) string {

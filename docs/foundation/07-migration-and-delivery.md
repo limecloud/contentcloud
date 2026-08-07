@@ -2,7 +2,7 @@
 
 状态：`目标实施计划；Runtime 第一批内核、存储、脱敏 BFF 和运营 Explorer 首版已落地，接管、动态执行图和生产排期仍需 ADR/POC`。
 
-更新时间：2026-08-05。
+更新时间：2026-08-07。
 
 ## 1. 迁移策略
 
@@ -65,9 +65,9 @@ Studio Shell -> Experience -> 灵感采集 -> 客户选择 -> 下游固定输入
 在 F1 的灵感采集闭环上增加跨任务资产沉淀：
 
 - 使用现有 Source、Asset、RightsRecord、ApprovedSnapshot、Artifact、DeliveryPackage 和 lineage 事实。
-- 旁路构建 `CreativeAssetCatalogItem` 只读投影，不改变拥有域写路径。
-- 客户“品牌资料”入口在试点租户演进为“资产库”，旧路由保持兼容。
-- 完成“保存灵感 -> 目录出现 -> 固定引用进入新任务 -> 批准结果再次沉淀”的闭环。
+- 旁路构建只收录人物原型、剧本、分镜、图片和视频结果的 `CreativeAssetCatalogItem` 只读投影，不改变拥有域写路径。
+- 客户“品牌资料”入口在试点租户演进为“资产库”，但旧品牌资料和输入型数据迁移到任务输入或项目参考，旧路由保持兼容读取。
+- 完成“结果生成 -> 客户确认 -> 资产目录出现 -> 固定引用进入新任务 -> 新结果再次沉淀”的闭环。
 - 运营侧处理权利待办、失效、重复组、投影延迟和影响范围。
 
 退出条件：真实试点客户完成一次跨任务复用；权利过期、来源失效、跨租户和陈旧投影均不能创建不安全的新引用；目录重建结果确定且无外部副作用。
@@ -200,11 +200,11 @@ FND-01 可以与 Runtime 基础并行，但只能使用已冻结契约，不能�
 | `Capability` / catalog | Extend | Catalog | 统一数据分类、副作用和执行模式 |
 | `ProjectTemplate` | Rename or Deprecate | Workspace | 与 ExperienceTemplate 消除语义冲突 |
 | `ProjectProjection` | Extend | Experience | CustomerJourneyProjection 可从权威对象重建 |
-| `Source` / `SourceRevision` | Reuse | Source | 目录只引用保存或选择的固定修订，不复制正文 |
-| `Asset` / `RightsRecord` | Reuse/Extend | Source | 保持参考素材语义，补足目录事件或窄 Query |
+| `Source` / `SourceRevision` | Reuse | Source | 进入任务输入或项目参考投影；只通过内部 lineage 影响结果可复用状态 |
+| `Asset` / `RightsRecord` | Reuse/Extend | Source | 保持参考素材和权利治理语义，不生成客户结果资产目录项 |
 | `ApprovedSnapshot` | Reuse | Review | 创建后自动进入目录，不新增批准状态 |
-| `Artifact` / `DeliveryPackage` | Reuse | Delivery | 提供受控预览和交付引用，不移动所有权 |
-| `CreativeAssetCatalogItem` | New Projection | Experience | 可从拥有域事实重建，禁止成为统一写模型 |
+| `Artifact` / `DeliveryPackage` | Reuse | Delivery | Artifact 可形成图片/视频结果；DeliveryPackage 只进入交付视图并推导交付状态 |
+| `CreativeAssetCatalogItem` | New Projection | Experience | 迁移期技术契约名，只投影生成结果；可重建，禁止成为统一写模型 |
 | `store.Store` | Deprecate | 各模块 ports | 所有方法迁移到窄接口后删除 |
 | `app.Service` | Deprecate | 各模块 application | 全局依赖清零后删除 |
 | `internal/domain` | Compat | 各业务模块 | 按聚合迁移且无反向导入 |

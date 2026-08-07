@@ -19,8 +19,8 @@ func TestBootstrapAuthorizationRequiresApprovalAndMatchingVerifier(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if started.VerificationURL != "https://content.example.com/projects/"+connect.ProjectID+"/setup?bootstrap_attempt="+started.AttemptID {
-		t.Fatalf("bootstrap verification URL did not use the shared setup contract: %q", started.VerificationURL)
+	if started.VerificationURL != "https://content.example.com/studio/connect?session="+connect.ID {
+		t.Fatalf("bootstrap verification URL did not use the customer connection route: %q", started.VerificationURL)
 	}
 	_, err = service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: verifier, Device: ConnectDeviceInput{Hostname: "test-mac"}})
 	assertBootstrapError(t, err, "BOOTSTRAP_AUTHORIZATION_PENDING")

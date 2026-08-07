@@ -91,8 +91,9 @@ ADR-0002-product-plane-separation.md
 | ADR-0008 | 外部副作用 | Effect 台账、unknown 对账、补偿不删除历史 | Provider 生产切流 |
 | ADR-0009 | 契约版本 | 显式 major/minor、摘要固定和兼容窗口 | 新 Schema 与业务包 |
 | ADR-0010 | 受限体验原语 | 运营组合批准原语，不建设任意低代码页面 | ExperienceTemplate |
-| [ADR-0011](./ADR-0011-creative-asset-catalog-projection.md) | 统一创作资产目录 | 使用只读投影引用现有事实对象，不扩张 `Asset` 语义 | 资产目录投影与复用契约 |
-| [ADR-0012](./ADR-0012-customer-asset-library-information-architecture.md) | 客户资产库信息架构 | “品牌资料”演进为跨任务资产库，交付保持独立入口 | 客户导航与旧路由迁移 |
+| [ADR-0011](./ADR-0011-creative-asset-catalog-projection.md) | 统一创作资产目录 | 使用只读投影引用生成结果，不扩张 `Asset` 语义；收录范围由 ADR-0013 修订 | 资产目录投影与复用契约 |
+| [ADR-0012](./ADR-0012-customer-asset-library-information-architecture.md) | 客户资产库信息架构（历史） | “品牌资料”演进为跨任务资产库，已由 ADR-0013 取代客户分类 | 旧路由兼容与历史迁移 |
+| [ADR-0013](./ADR-0013-customer-result-asset-boundary.md) | 客户创作资产边界 | 创作资产只展示流水线生成结果；输入和治理对象留在任务与运营面 | 客户资产 DTO、目录收录与复用门禁 |
 
 候选编号在正式创建 ADR 文件时确认。若已有项目 ADR 编号体系，应迁入现有体系而不是并行编号。
 

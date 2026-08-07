@@ -80,6 +80,12 @@ func (s *Server) Handler() http.Handler {
 	r.Route("/api/studio", func(r chi.Router) {
 		r.Use(s.requireSession)
 		r.Get("/bootstrap", s.customerStudioBootstrap)
+		r.Get("/execution-clients", s.customerStudioExecutionClients)
+		r.Post("/projects/{projectID}/connect-sessions", s.createCustomerStudioConnectSession)
+		r.Get("/connect-sessions/{sessionID}", s.customerStudioConnectSession)
+		r.Post("/connect-sessions/{sessionID}/approve", s.approveCustomerStudioConnectSession)
+		r.Post("/connect-sessions/{sessionID}/deny", s.denyCustomerStudioConnectSession)
+		r.Post("/connect-sessions/{sessionID}/cancel", s.cancelCustomerStudioConnectSession)
 		r.Post("/session/switch", s.switchTenant)
 		r.Post("/session/logout", s.logout)
 		r.Get("/tasks", s.customerStudioTasks)

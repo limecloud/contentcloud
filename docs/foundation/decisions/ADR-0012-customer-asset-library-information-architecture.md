@@ -1,12 +1,14 @@
 # ADR-0012：客户“品牌资料”演进为“创作资产库”
 
-状态：Proposed
+状态：`Superseded by ADR-0013`
 
 日期：2026-08-05
 
 决策者：产品、设计、内容运营与平台工程联合评审
 
 关联：[创作资产库产品需求](../../product/creative-asset-library/01-product-requirements.md)
+
+> 本 ADR 保留原始“资产库与交付分离”的决策记录。客户资产的类型边界和分类方案已由 [ADR-0013](./ADR-0013-customer-result-asset-boundary.md) 取代。
 
 ## 背景
 

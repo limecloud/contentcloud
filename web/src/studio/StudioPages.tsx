@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleHelp,
+  Clipboard,
   ClipboardCheck,
   Clock3,
   Download,
@@ -17,13 +18,16 @@ import {
   Globe2,
   Library,
   Lightbulb,
+  ListTodo,
   LoaderCircle,
+  MonitorUp,
   PackageCheck,
   Pause,
   Play,
   Plus,
   RefreshCw,
   Search,
+  ShieldCheck,
   Sparkles,
   TerminalSquare,
   Video,
@@ -34,6 +38,7 @@ import {
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button, IconButton } from '../components/ui';
+import { buildBootstrapPrompt } from '../connectBootstrap';
 import { contentTypeLabel, deliveryDestinationLabel, statusLabel } from '../uiLabels';
 import { studioApi } from './studioApi';
 import { customerTaskTone, studioStepStateLabel } from './studioData';
@@ -41,45 +46,158 @@ import { useStudio } from './StudioContext';
 import type {
   StudioAssetCatalog,
   StudioAssetItem,
+  StudioConnectSession,
   StudioCustomerStep,
   StudioDecision,
   StudioExperience,
+  StudioExecutionClient,
   StudioProject,
   StudioTaskSummary,
   StudioTaskView,
 } from './studioTypes';
 
 type TaskFilter='active'|'attention'|'completed';
-type AssetCategory='all'|'source'|'inspiration'|'persona'|'knowledge'|'media'|'approved';
+type AssetCategory='all'|'persona'|'script'|'storyboard'|'image'|'video';
+type AssetView='all'|'usable'|'attention'|'history';
+type AssetStatus='all'|'draft'|'pending_confirmation'|'changes_requested'|'confirmed'|'delivered'|'superseded'|'blocked';
 
 const filterLabels:Record<TaskFilter,string>={active:'进行中',attention:'等待处理',completed:'已完成'};
-const assetCategoryLabels:Record<AssetCategory,string>={all:'全部',source:'资料',inspiration:'灵感',persona:'人物',knowledge:'知识',media:'媒体',approved:'已确认成果'};
+const assetViewLabels:Record<AssetView,string>={all:'全部结果',usable:'可直接使用',attention:'需要处理',history:'历史版本'};
+const assetCategoryLabels:Record<AssetCategory,string>={all:'所有结果',persona:'人物原型',script:'剧本',storyboard:'分镜',image:'图片',video:'视频'};
+const assetStatusLabels:Record<AssetStatus,string>={all:'全部状态',draft:'草稿',pending_confirmation:'待确认',changes_requested:'需修改',confirmed:'已确认',delivered:'已交付',superseded:'已被替代',blocked:'已阻止'};
 const attentionStatuses=['waiting_gate','needs_input','blocked'];
 const completedStatuses=['delivered','cancelled','canceled'];
+const marketingCustomerStepTitles=['灵感采集','人物原型','营销剧本','视频分镜','候选成片','交付准备'];
 
 export function StudioHomePage(){
   const {bootstrap}=useStudio();
-  const navigate=useNavigate();
   const {tasks,loading,error,reload}=useTasks();
   const attention=tasks.filter(task=>attentionStatuses.includes(task.status));
   const recent=tasks.slice(0,4);
   const firstName=bootstrap.session.user.display_name.trim().split(/\s+/)[0]||bootstrap.session.user.display_name;
 
   return <div className="studio-view studio-home">
-    <PageHeading eyebrow="今天" title={`${firstName}，今天想创作什么？`} detail="选择一个创作目标，资料、步骤和确认节点会在同一个任务里展开。"/>
+    <PageHeading eyebrow="今天" title={`${firstName}，今天想推进哪一部分？`} detail="从一个工作面板开始；流程、版本和执行方式由 Content Work OS 在后台承接。"/>
     {error&&<StudioNotice kind="error" onRetry={reload}>{error}</StudioNotice>}
-    {bootstrap.experiences.length===0?<CompactEmpty icon={<CircleHelp size={22}/>} title="当前还没有可用的创作流水线" detail="运营人员完成项目、能力和流程发布后，创作入口会自动出现在这里。"/>:bootstrap.experiences.map(experience=>{
-      const hasProject=experience.project_ids.length>0;
-      return <section className="studio-create-band" aria-labelledby={`experience-${experience.id}`} key={experience.id}>
-        <div className="studio-create-copy"><span><WandSparkles size={16}/>已发布创作流水线</span><h2 id={`experience-${experience.id}`}>{experience.name}</h2><p>{experience.description}</p><div>{experience.step_titles.map(title=><b key={title}>{title}</b>)}</div></div>
-        <button type="button" className="studio-create-action" disabled={!hasProject||!bootstrap.session.can_create} onClick={()=>navigate(`/studio/tasks/new?experience=${encodeURIComponent(experience.id)}`)}><span><Video size={24}/></span><strong>{!hasProject?'需要先配置项目':bootstrap.session.can_create?'开始创作':'当前角色仅可查看'}</strong><small>{!hasProject?'请联系运营人员完成项目配置':bootstrap.session.can_create?'只需填写这次的业务目标':'需要创作权限时请联系团队管理员'}</small><ArrowRight size={18}/></button>
-      </section>;
-    })}
+    {bootstrap.experiences.length===0?<StudioUnavailableWorkbench tasks={tasks} operationsPath={bootstrap.session.can_view_operations?bootstrap.session.operations_path:undefined}/>:bootstrap.experiences.map(experience=><StudioExperienceWorkbench key={experience.id} experience={experience} tasks={tasks} canCreate={bootstrap.session.can_create}/>)}
     <div className="studio-home-grid">
       <section className="studio-section"><SectionHeading icon={<ClipboardCheck size={17}/>} title="等待你处理" count={attention.length}/>{loading?<StudioLoading label="正在整理待办…"/>:attention.length===0?<CompactEmpty icon={<CheckCircle2 size={21}/>} title="当前没有待确认事项" detail="需要补资料或确认的任务会显示在这里。"/>:<div className="studio-task-stack">{attention.slice(0,4).map(task=><TaskRow key={task.id} task={task}/>)}</div>}</section>
       <section className="studio-section"><SectionHeading icon={<Clock3 size={17}/>} title="最近任务" count={recent.length} action={<Link to="/studio/tasks">查看全部 <ArrowRight size={14}/></Link>}/>{loading?<StudioLoading label="正在读取任务…"/>:recent.length===0?<CompactEmpty icon={<Sparkles size={21}/>} title="还没有创作任务" detail="从上方选择一个创作目标开始。"/>:<div className="studio-task-stack">{recent.map(task=><TaskRow key={task.id} task={task}/>)}</div>}</section>
     </div>
   </div>;
+}
+
+export function StudioConnectPage(){
+  const {bootstrap,refresh}=useStudio();
+  const navigate=useNavigate();
+  const [searchParams]=useSearchParams();
+  const requestedSession=searchParams.get('session')||'';
+  const requestedProject=searchParams.get('project')||'';
+  const activeProjects=bootstrap.projects.filter(project=>project.status!=='archived');
+  const initiallySelected=activeProjects.find(project=>project.id===requestedProject)||activeProjects.find(project=>!project.execution_client_connected)||activeProjects[0];
+  const [projectID,setProjectID]=useState(initiallySelected?.id||'');
+  const [clients,setClients]=useState<StudioExecutionClient[]>([]);
+  const [clientsLoaded,setClientsLoaded]=useState(false);
+  const [session,setSession]=useState<StudioConnectSession>();
+  const [loading,setLoading]=useState(Boolean(requestedSession));
+  const [busy,setBusy]=useState('');
+  const [error,setError]=useState('');
+  const [copied,setCopied]=useState(false);
+  const [configurationError,setConfigurationError]=useState('');
+  const project=activeProjects.find(item=>item.id===projectID);
+  const client=clients.find(item=>item.id==='codex'&&item.available);
+  const connectedCount=activeProjects.reduce((sum,item)=>sum+item.connected_client_count,0);
+  const hasConnectionContract=Object.prototype.hasOwnProperty.call(bootstrap.session,'can_connect_execution_client');
+
+  useEffect(()=>{let active=true;studioApi.executionClients().then(value=>{if(active)setClients(value.clients)}).catch(value=>{if(!active)return;if((value as {status?:number}).status===404){setConfigurationError('当前创作台与服务版本不一致，请刷新页面或重启开发服务后重试。');setClients([])}else setError(value instanceof Error?value.message:'连接服务暂不可用')}).finally(()=>{if(active)setClientsLoaded(true)});return()=>{active=false}},[]);
+  useEffect(()=>{
+    if(!requestedSession){setLoading(false);return}
+    let active=true;setLoading(true);setError('');
+    studioApi.connectSession(requestedSession).then(value=>{if(active){setSession(value);setProjectID(value.project_id)}}).catch(value=>{if(active)setError(value instanceof Error?value.message:'连接状态读取失败')}).finally(()=>{if(active)setLoading(false)});
+    return()=>{active=false};
+  },[requestedSession]);
+  useEffect(()=>{
+    if(!session||['connected','failed','expired','canceled'].includes(session.status))return;
+    let active=true;
+    const timer=window.setInterval(()=>{studioApi.connectSession(session.id).then(value=>{if(active)setSession(value)}).catch(()=>{})},2000);
+    return()=>{active=false;window.clearInterval(timer)};
+  },[session?.id,session?.status]);
+  useEffect(()=>{if(session?.status==='connected')void refresh()},[refresh,session?.status]);
+
+  const start=async()=>{
+    if(!project||!client)return;
+    setBusy('start');setError('');
+    try{const value=await studioApi.createConnectSession(project.id);setSession(value);navigate(`/studio/connect?session=${encodeURIComponent(value.id)}`,{replace:true})}
+    catch(value){setError(value instanceof Error?value.message:'创作电脑连接发起失败')}
+    finally{setBusy('')}
+  };
+  const decide=async(decision:'approve'|'deny')=>{
+    if(!session)return;setBusy(decision);setError('');
+    try{setSession(decision==='approve'?await studioApi.approveConnectSession(session.id):await studioApi.denyConnectSession(session.id))}
+    catch(value){setError(value instanceof Error?value.message:'连接确认失败')}
+    finally{setBusy('')}
+  };
+  const cancel=async()=>{
+    if(!session)return;setBusy('cancel');setError('');
+    try{await studioApi.cancelConnectSession(session.id);setSession(undefined);navigate(project?`/studio/connect?project=${encodeURIComponent(project.id)}`:'/studio/connect',{replace:true})}
+    catch(value){setError(value instanceof Error?value.message:'取消连接失败')}
+    finally{setBusy('')}
+  };
+  const reset=()=>{setSession(undefined);setError('');navigate(project?`/studio/connect?project=${encodeURIComponent(project.id)}`:'/studio/connect',{replace:true})};
+  const prompt=session&&project?buildBootstrapPrompt({serverURL:window.location.origin,sessionID:session.id,projectName:`${project.brand_name} / ${project.product_name}`}):'';
+  const copyPrompt=async()=>{try{await navigator.clipboard.writeText(prompt);setCopied(true);window.setTimeout(()=>setCopied(false),1600)}catch{setError('无法访问剪贴板，请检查浏览器权限后重试')}};
+
+  if(activeProjects.length===0)return <div className="studio-view"><PageHeading eyebrow="开始创作" title="项目准备好后即可开始" detail="当前还没有可用的创作项目。"/><CompactEmpty icon={<MonitorUp size={22}/>} title="等待项目准备" detail="项目创建完成后，这里会自动出现开始入口。" action={bootstrap.session.can_view_operations?<Link className="studio-secondary-link" to={bootstrap.session.operations_path||'/workspace'}>前往运营与管理</Link>:undefined}/></div>;
+  return <div className="studio-view studio-connect-view">
+    <PageHeading eyebrow="开始创作" title={session?'连接创作电脑':connectedCount>0?'管理已连接电脑':'连接你的创作电脑'} detail="连接完成后，就可以直接使用团队已经配置好的创作流水线。" actions={connectedCount>0?<span className="studio-connected-count"><CheckCircle2 size={16}/>{connectedCount} 台已连接</span>:undefined}/>
+    {error&&<StudioNotice kind="error" onClose={()=>setError('')}>{error}</StudioNotice>}
+    {loading?<StudioLoading label="正在读取连接状态…"/>:session?<section className={`studio-connection-state is-${session.status}`}>
+      <header><span>{session.status==='connected'?<CheckCircle2 size={24}/>:session.status==='confirmation_required'?<ShieldCheck size={24}/>:session.status==='failed'||session.status==='expired'||session.status==='canceled'?<AlertCircle size={24}/>:<LoaderCircle className={session.status==='connecting'?'is-spinning':''} size={24}/>}</span><div><small>{project?.brand_name} · {client?.display_name||'Codex'}</small><h2>{connectionTitle(session.status)}</h2><p>{session.message}</p></div></header>
+      {session.status==='waiting_for_computer'&&<div className="studio-connect-instruction"><ol><li><span>1</span><div><strong>打开 Codex</strong><p>新建一个会话，并选择用于这个项目的本地目录。</p></div></li><li><span>2</span><div><strong>发送连接指令</strong><p>Codex 会先检查环境，再请你回到此页确认电脑。</p></div></li></ol><pre><code>{prompt}</code></pre><div><Button onClick={()=>void copyPrompt()}>{copied?<Check size={16}/>:<Clipboard size={16}/>} {copied?'已复制':'复制连接指令'}</Button><Button variant="secondary" disabled={busy==='cancel'} onClick={()=>void cancel()}>取消</Button></div></div>}
+      {session.status==='confirmation_required'&&<div className="studio-connect-confirm"><span>核对代码</span><code>{session.verification_code}</code><p>只有 Codex 中显示相同代码时，才确认连接。</p><div><Button variant="danger" disabled={Boolean(busy)} onClick={()=>void decide('deny')}>不是这台电脑</Button><Button disabled={Boolean(busy)} onClick={()=>void decide('approve')}><ShieldCheck size={16}/>{busy==='approve'?'确认中…':'确认连接'}</Button></div></div>}
+      {session.status==='connecting'&&<div className="studio-connect-wait"><LoaderCircle className="is-spinning" size={19}/><span>连接完成后会自动更新。{session.support_code&&<> 支持编号 <code>{session.support_code}</code></>}</span></div>}
+      {session.status==='connected'&&<div className="studio-connect-success"><div><CheckCircle2 size={18}/><span><strong>可以开始创作</strong><small>不同步骤仍会按流水线选择本地客户端、平台能力、外部服务或人工处理。</small></span></div><Button onClick={()=>navigate('/studio',{replace:true})}>进入创作台<ArrowRight size={15}/></Button></div>}
+      {['failed','expired','canceled'].includes(session.status)&&<div className="studio-connect-recovery">{session.support_code&&<span>支持编号 <code>{session.support_code}</code></span>}<Button onClick={reset}><RefreshCw size={15}/>重新连接</Button></div>}
+    </section>:<section className="studio-connect-setup">
+      {activeProjects.length>1&&<div className="studio-connect-field"><span>选择创作项目</span><select value={projectID} onChange={event=>setProjectID(event.target.value)}>{activeProjects.map(item=><option value={item.id} key={item.id}>{item.brand_name} · {item.product_name}{item.execution_client_connected?` · 已连接 ${item.connected_client_count}`:''}</option>)}</select></div>}
+      {!clientsLoaded&&<StudioLoading label="正在准备连接…"/>}
+      {configurationError&&!session&&<StudioNotice kind="error">{configurationError}</StudioNotice>}
+      <div className="studio-connect-action"><div><ShieldCheck size={19}/><span><strong>只连接你确认过的电脑</strong><small>当前使用 Codex 完成项目连接；连接后，系统会按需分配本地步骤，其余工作仍由平台自动完成。</small></span></div>{!hasConnectionContract||configurationError?<span className="studio-connect-permission">连接服务暂不可用，请刷新后重试</span>:clientsLoaded&&!client?<span className="studio-connect-permission">当前还没有可用的 Codex 连接方式</span>:bootstrap.session.can_connect_execution_client?<Button disabled={!project||!client||!clientsLoaded||Boolean(busy)} onClick={()=>void start()}><MonitorUp size={16}/>{busy?'正在发起…':'连接我的创作电脑'}</Button>:<span className="studio-connect-permission">当前账号暂不能连接，请联系团队负责人</span>}</div>
+    </section>}
+  </div>;
+}
+
+function StudioExperienceWorkbench({experience,tasks,canCreate}:{experience:StudioExperience;tasks:StudioTaskSummary[];canCreate:boolean}){
+  const {bootstrap}=useStudio();
+  const scopedTasks=tasks.filter(task=>task.experience_id===experience.id);
+  const activeTasks=scopedTasks.filter(task=>!completedStatuses.includes(task.status));
+  const primaryTask=activeTasks.find(task=>attentionStatuses.includes(task.status))||activeTasks[0];
+  const hasProject=experience.project_ids.length>0;
+  const hasConnectedProject=bootstrap.projects.some(project=>experience.project_ids.includes(project.id)&&project.execution_client_connected&&project.status!=='archived');
+  const newTaskPath=`/studio/tasks/new?experience=${encodeURIComponent(experience.id)}`;
+  const startPath=hasConnectedProject?newTaskPath:'/studio/connect';
+  const stepTitles=experience.content_type==='marketing_video'?marketingCustomerStepTitles:experience.step_titles;
+  const stepTitle=(index:number,fallback:string)=>stepTitles[index]||fallback;
+  const panels=[
+    {id:'direction',title:'灵感与人物',detail:'收集可信参考，确认人物定位、受众关系和表达边界。',tone:'source',icon:<Lightbulb size={19}/>,stepIDs:['inspiration','persona'],steps:[stepTitle(0,'灵感采集'),stepTitle(1,'人物原型')],href:startPath,label:hasConnectedProject?'开始策划':'连接创作电脑'},
+    {id:'production',title:'剧本与分镜',detail:'确认营销剧本版本，锁定镜头、画面、素材和连续性。',tone:'strategy',icon:<FileText size={19}/>,stepIDs:['script','storyboard'],steps:[stepTitle(2,'营销剧本'),stepTitle(3,'视频分镜')],href:'/studio/tasks',label:'选择创作任务'},
+    {id:'delivery',title:'成片与交付',detail:'选择候选成片，完成最终确认并下载固定交付包。',tone:'production',icon:<Video size={19}/>,stepIDs:['media','delivery'],steps:[stepTitle(4,'候选成片'),stepTitle(5,'交付准备')],href:'/studio/deliveries',label:'查看成片与交付'},
+    {id:'assets',title:'资产复用',detail:'从已确认的人物原型、剧本、分镜、图片或视频结果开始下一次创作。',tone:'knowledge',icon:<Archive size={19}/>,stepIDs:[],steps:['固定版本','跨任务复用'],href:'/studio/assets',label:'打开资产库'},
+  ];
+  return <section className="studio-workbench" aria-labelledby={`experience-${experience.id}`}>
+    <header className="studio-workbench-header"><div><span><WandSparkles size={15}/>已发布创作流水线</span><h2 id={`experience-${experience.id}`}>{experience.name}</h2><p>{experience.description}</p></div><div>{primaryTask&&<Link className="studio-secondary-link" to={`/studio/tasks/${encodeURIComponent(primaryTask.id)}`}><Play size={15}/>继续当前任务</Link>}{canCreate&&hasProject?<Link className="studio-primary-link" to={hasConnectedProject?newTaskPath:'/studio/connect'}>{hasConnectedProject?<Plus size={15}/>:<MonitorUp size={15}/>} {hasConnectedProject?'新建创作任务':'连接创作电脑'}</Link>:<span className="studio-workbench-unavailable">{!hasProject?'等待运营绑定项目':'当前角色仅可查看'}</span>}</div></header>
+    <div className="studio-workbench-panels">{panels.map(panel=>{
+      const currentTask=activeTasks.find(task=>panel.stepIDs.includes(task.current_step_id));
+      const href=currentTask?`/studio/tasks/${encodeURIComponent(currentTask.id)}`:panel.href;
+      const label=currentTask?'继续当前任务':panel.label;
+      return <article className={`studio-work-panel is-${panel.tone}`} key={panel.id}><header><span>{panel.icon}</span><div><small>创作面板</small><h3>{panel.title}</h3></div>{currentTask&&<StatusBadge task={currentTask}/>}</header><p>{panel.detail}</p><div className="studio-work-panel-steps">{panel.steps.map((step,index)=><span key={step}><b>{String(index+1).padStart(2,'0')}</b>{step}</span>)}</div><Link to={href}>{label}<ArrowRight size={14}/></Link></article>;
+    })}</div>
+  </section>;
+}
+
+function StudioUnavailableWorkbench({tasks,operationsPath}:{tasks:StudioTaskSummary[];operationsPath?:string}){
+  const activeTask=tasks.find(task=>!completedStatuses.includes(task.status));
+  return <section className="studio-workbench is-unavailable"><header className="studio-workbench-header"><div><span><CircleHelp size={15}/>暂时不能新建任务</span><h2>先继续已有工作，新的创作场景准备好后会出现在这里</h2><p>你仍然可以处理任务、复用资产和下载已经确认的交付结果。</p></div>{operationsPath&&<Link className="studio-secondary-link" to={operationsPath}>前往运营工作台<ArrowRight size={14}/></Link>}</header><div className="studio-recovery-actions">{activeTask&&<Link to={`/studio/tasks/${encodeURIComponent(activeTask.id)}`}><Play size={17}/><span><strong>继续当前任务</strong><small>{activeTask.title} · {activeTask.next_action}</small></span><ArrowRight size={14}/></Link>}<Link to="/studio/tasks"><ListTodo size={17}/><span><strong>查看创作任务</strong><small>继续已有任务或处理待确认事项</small></span><ArrowRight size={14}/></Link><Link to="/studio/assets"><Archive size={17}/><span><strong>打开资产库</strong><small>查找可复用的固定版本内容</small></span><ArrowRight size={14}/></Link><Link to="/studio/deliveries"><PackageCheck size={17}/><span><strong>查看交付</strong><small>下载交付包并核对发布记录</small></span><ArrowRight size={14}/></Link></div></section>;
 }
 
 export function StudioTasksPage(){
@@ -92,11 +210,12 @@ export function StudioTasksPage(){
     const matchesFilter=filter==='attention'?attentionStatuses.includes(task.status):filter==='completed'?completedStatuses.includes(task.status):!completedStatuses.includes(task.status);
     return matchesFilter&&(!query.trim()||task.title.toLowerCase().includes(query.trim().toLowerCase()));
   });
+  const canStartNewTask=bootstrap.projects.some(project=>project.status!=='archived'&&project.execution_client_connected);
   return <div className="studio-view">
-    <PageHeading eyebrow="创作任务" title="所有创作任务" detail="按需要处理的状态查看，不必理解底层执行过程。" actions={bootstrap.session.can_create?<Link className="studio-primary-link" to="/studio/tasks/new"><Plus size={16}/>新建任务</Link>:undefined}/>
+    <PageHeading eyebrow="创作任务" title="所有创作任务" detail="按需要处理的状态查看即可。" actions={bootstrap.session.can_create?<Link className="studio-primary-link" to={canStartNewTask?'/studio/tasks/new':'/studio/connect'}>{canStartNewTask?<Plus size={16}/>:<MonitorUp size={16}/>} {canStartNewTask?'新建任务':'连接创作电脑'}</Link>:undefined}/>
     {error&&<StudioNotice kind="error" onRetry={reload}>{error}</StudioNotice>}
     <div className="studio-toolbar"><div className="studio-segments" role="tablist" aria-label="任务筛选">{(Object.keys(filterLabels) as TaskFilter[]).map(id=><button type="button" role="tab" aria-selected={filter===id} className={filter===id?'is-active':''} key={id} onClick={()=>setFilter(id)}>{filterLabels[id]}<span>{counts[id]}</span></button>)}</div><label className="studio-search"><Search size={16}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="搜索任务" aria-label="搜索任务"/></label></div>
-    <section className="studio-section studio-task-list" aria-label={`${filterLabels[filter]}任务`}>{loading?<StudioLoading label="正在读取创作任务…"/>:visible.length===0?<CompactEmpty icon={<FileSearch size={22}/>} title={tasks.length?'没有匹配的任务':'还没有创作任务'} detail={tasks.length?'换一个筛选条件或搜索词。':'从一个明确的创作目标开始。'} action={!tasks.length&&bootstrap.session.can_create?<Link className="studio-secondary-link" to="/studio/tasks/new"><Plus size={15}/>新建任务</Link>:undefined}/>:visible.map(task=><TaskRow key={task.id} task={task} roomy/>)}</section>
+    <section className="studio-section studio-task-list" aria-label={`${filterLabels[filter]}任务`}>{loading?<StudioLoading label="正在读取创作任务…"/>:visible.length===0?<CompactEmpty icon={<FileSearch size={22}/>} title={tasks.length?'没有匹配的任务':'还没有创作任务'} detail={tasks.length?'换一个筛选条件或搜索词。':'从一个明确的创作目标开始。'} action={!tasks.length&&bootstrap.session.can_create?<Link className="studio-secondary-link" to={canStartNewTask?'/studio/tasks/new':'/studio/connect'}>{canStartNewTask?<Plus size={15}/>:<MonitorUp size={15}/>} {canStartNewTask?'新建任务':'连接创作电脑'}</Link>:undefined}/>:visible.map(task=><TaskRow key={task.id} task={task} roomy/>)}</section>
   </div>;
 }
 
@@ -104,11 +223,13 @@ export function StudioNewTaskPage(){
   const {bootstrap}=useStudio();
   const navigate=useNavigate();
   const [searchParams]=useSearchParams();
+  const requestedProject=searchParams.get('project')||'';
+  const requestedAssetRef=searchParams.get('asset_ref')||'';
   const initialExperience=bootstrap.experiences.find(item=>item.id===searchParams.get('experience'))||bootstrap.experiences[0];
   const [experienceID,setExperienceID]=useState(initialExperience?.id||'');
   const experience=bootstrap.experiences.find(item=>item.id===experienceID);
   const projects=bootstrap.projects.filter(project=>experience?.project_ids.includes(project.id));
-  const [projectID,setProjectID]=useState(projects[0]?.id||'');
+  const [projectID,setProjectID]=useState(projects.find(item=>item.id===requestedProject)?.id||projects.find(item=>item.execution_client_connected)?.id||projects[0]?.id||'');
   const [title,setTitle]=useState('');
   const [goal,setGoal]=useState('');
   const [inspiration,setInspiration]=useState('');
@@ -121,9 +242,9 @@ export function StudioNewTaskPage(){
 
   useEffect(()=>{
     const nextProjects=bootstrap.projects.filter(item=>bootstrap.experiences.find(value=>value.id===experienceID)?.project_ids.includes(item.id));
-    if(!nextProjects.some(item=>item.id===projectID))setProjectID(nextProjects[0]?.id||'');
-  },[bootstrap.experiences,bootstrap.projects,experienceID,projectID]);
-  useEffect(()=>{setSelectedRefs([]);setCatalog(undefined);if(projectID)void studioApi.assets(projectID).then(setCatalog).catch(value=>setError(value instanceof Error?value.message:'资产加载失败'))},[projectID]);
+    if(!nextProjects.some(item=>item.id===projectID))setProjectID(nextProjects.find(item=>item.id===requestedProject)?.id||nextProjects.find(item=>item.execution_client_connected)?.id||nextProjects[0]?.id||'');
+  },[bootstrap.experiences,bootstrap.projects,experienceID,projectID,requestedProject]);
+  useEffect(()=>{setSelectedRefs([]);setCatalog(undefined);if(projectID)void studioApi.assets(projectID).then(nextCatalog=>{setCatalog(nextCatalog);if(requestedAssetRef&&nextCatalog.items.some(item=>item.ref===requestedAssetRef&&item.reusable))setSelectedRefs([requestedAssetRef])}).catch(value=>setError(value instanceof Error?value.message:'资产加载失败'))},[projectID,requestedAssetRef]);
 
   const submit=async(event:FormEvent)=>{
     event.preventDefault();
@@ -136,7 +257,8 @@ export function StudioNewTaskPage(){
   };
 
   if(!bootstrap.session.can_create)return <div className="studio-view"><PageHeading eyebrow="新建任务" title="当前账号没有创作权限" detail="你仍可以查看任务、资产和交付结果。"/><CompactEmpty icon={<CircleHelp size={22}/>} title="需要创作权限" detail="请联系团队管理员调整当前账号的角色。" action={<Link className="studio-secondary-link" to="/studio">返回今天</Link>}/></div>;
-  if(!experience||!project)return <div className="studio-view"><PageHeading eyebrow="新建任务" title="需要一个已发布的创作流水线" detail="项目归属、内容能力和创作流水线由运营人员维护。"/><CompactEmpty icon={<CircleHelp size={22}/>} title="当前没有可用配置" detail="请联系运营人员完成项目、租户能力和流程发布。"/></div>;
+  if(!experience||!project)return <div className="studio-view"><PageHeading eyebrow="新建任务" title="当前还不能开始新的创作" detail="新的创作场景准备好后，会自动出现在今天页面。"/><CompactEmpty icon={<CircleHelp size={22}/>} title="暂时没有可用场景" detail="请联系团队负责人，或先继续已有任务。" action={<Link className="studio-secondary-link" to="/studio/tasks">查看已有任务</Link>}/></div>;
+  if(!project.execution_client_connected)return <div className="studio-view"><PageHeading eyebrow="新建任务" title="先连接你的创作电脑" detail="连接完成后即可开始新的创作，已有任务、资产和交付仍可查看。"/><CompactEmpty icon={<MonitorUp size={22}/>} title={`${project.brand_name} 尚未连接创作电脑`} detail="连接完成后，就可以使用团队已经配置好的创作流水线。" action={<Link className="studio-primary-link" to={`/studio/connect?project=${encodeURIComponent(project.id)}`}><MonitorUp size={15}/>连接创作电脑</Link>}/></div>;
 
   const reusableAssets=(catalog?.items||[]).filter(item=>item.reusable);
   return <div className="studio-view studio-new-task">
@@ -189,9 +311,9 @@ export function StudioTaskPage(){
       <main>
         <section className="studio-current-work"><header><span>当前步骤</span><h2>{current.title}</h2><p>{current.outcome_description}</p></header>{current.id==='inspiration'?<InspirationStage taskID={task.id} inspirations={view.inspirations} experience={experience} canAdd={bootstrap.session.can_create} onChanged={setView}/>:view.pending_decisions.length?<DecisionPanel decisions={view.pending_decisions} busy={busy} onDecision={(decisionID,decision)=>void run(`decision-${decisionID}-${decision}`,()=>studioApi.decide(task.id,decisionID,decision),decision==='approved'?'已确认，任务会继续进入下一步。':'修改意见已记录。')}/>:<CurrentStepSummary task={task} step={current}/>}</section>
         <section className="studio-section studio-results"><SectionHeading icon={<FileCheck2 size={17}/>} title="当前成果" count={view.results.length}/>{view.results.length===0?<CompactEmpty icon={<Workflow size={21}/>} title="成果正在形成" detail="每个需要你判断的版本都会固定保存在这里。"/>:<div className="studio-result-list">{view.results.map(result=><ResultRow key={result.id} result={result}/>)}</div>}</section>
-        <section className="studio-section studio-attached-assets"><SectionHeading icon={<Archive size={17}/>} title="本次使用的资产" count={view.attached_assets.length} action={<Link to={`/studio/assets?task_id=${encodeURIComponent(task.id)}`}>加入资产 <Plus size={14}/></Link>}/>{view.attached_assets.length===0?<CompactEmpty icon={<Archive size={20}/>} title="还没有复用已有资产" detail="可以从资产库加入已固定版本的资料、人物和历史成果。"/>:<div>{view.attached_assets.map(item=><AssetRow key={item.ref} item={item}/>)}</div>}</section>
+        <section className="studio-section studio-attached-assets"><SectionHeading icon={<Archive size={17}/>} title="本次使用的创作结果" count={view.attached_assets.length} action={<Link to={`/studio/assets?task_id=${encodeURIComponent(task.id)}`}>加入结果 <Plus size={14}/></Link>}/>{view.attached_assets.length===0?<CompactEmpty icon={<Archive size={20}/>} title="还没有复用已有结果" detail="可以从资产库加入已确认的人物原型、剧本、分镜、图片或视频。"/>:<div>{view.attached_assets.map(item=><AssetRow key={item.ref} item={item}/>)}</div>}</section>
       </main>
-      <aside className="studio-task-aside"><span>下一步</span><strong>{task.next_action}</strong><p>{task.status==='waiting_gate'?'你的决定会固定当前版本，并决定流水线下一步。':'系统会在需要补资料或确认时通知你。'}</p><dl><div><dt>当前项目</dt><dd>{task.project.brand_name}</dd></div><div><dt>最近更新</dt><dd>{formatDate(task.updated_at)}</dd></div><div><dt>创作资产</dt><dd>{task.asset_count} 项</dd></div></dl><Link to={`/studio/assets?task_id=${encodeURIComponent(task.id)}`}><Archive size={15}/>从资产库加入</Link></aside>
+      <aside className="studio-task-aside"><span>下一步</span><strong>{task.next_action}</strong><p>{task.status==='waiting_gate'?'你的决定会固定当前版本，并决定流水线下一步。':'系统会在需要补资料或确认时通知你。'}</p><dl><div><dt>当前项目</dt><dd>{task.project.brand_name}</dd></div><div><dt>最近更新</dt><dd>{formatDate(task.updated_at)}</dd></div><div><dt>创作结果</dt><dd>{task.asset_count} 项</dd></div></dl><Link to={`/studio/assets?task_id=${encodeURIComponent(task.id)}`}><Archive size={15}/>从资产库加入</Link></aside>
     </div>
   </div>;
 }
@@ -203,7 +325,9 @@ export function StudioAssetsPage(){
   const [tasks,setTasks]=useState<StudioTaskSummary[]>([]);
   const [selected,setSelected]=useState<StudioAssetItem>();
   const [targetTaskID,setTargetTaskID]=useState(requestedTaskID);
+  const [view,setView]=useState<AssetView>('all');
   const [category,setCategory]=useState<AssetCategory>('all');
+  const [status,setStatus]=useState<AssetStatus>('all');
   const [query,setQuery]=useState('');
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState(false);
@@ -211,16 +335,25 @@ export function StudioAssetsPage(){
   const [notice,setNotice]=useState('');
   const load=useCallback(async()=>{setLoading(true);setError('');try{const [nextCatalog,nextTasks]=await Promise.all([studioApi.assets(),studioApi.tasks()]);setCatalog(nextCatalog);setTasks(nextTasks);if(requestedTaskID&&nextTasks.some(task=>task.id===requestedTaskID))setTargetTaskID(requestedTaskID)}catch(value){setError(value instanceof Error?value.message:'资产库加载失败')}finally{setLoading(false)}},[requestedTaskID]);
   useEffect(()=>{void load()},[load]);
-  const visible=(catalog?.items||[]).filter(item=>(category==='all'||item.category===category)&&(!query.trim()||`${item.title} ${item.summary} ${item.project_name}`.toLowerCase().includes(query.trim().toLowerCase())));
+  const items=catalog?.items||[];
+  const counts:Record<AssetView,number>={all:items.length,usable:items.filter(item=>item.reusable).length,attention:items.filter(item=>['draft','pending_confirmation','changes_requested','blocked'].includes(item.status)).length,history:items.filter(item=>item.status==='superseded').length};
+  const visible=items.filter(item=>{
+    const matchesView=view==='usable'?item.reusable:view==='attention'?['draft','pending_confirmation','changes_requested','blocked'].includes(item.status):view==='history'?item.status==='superseded':true;
+    const matchesCategory=category==='all'||item.result_type===category;
+    const matchesStatus=status==='all'||item.status===status;
+    const matchesQuery=!query.trim()||`${item.title} ${item.summary} ${item.project_name}`.toLowerCase().includes(query.trim().toLowerCase());
+    return matchesView&&matchesCategory&&matchesStatus&&matchesQuery;
+  });
   const targetTask=tasks.find(task=>task.id===targetTaskID);
+  const reusableTasks=selected?tasks.filter(task=>task.project.id===selected.project_id&&!completedStatuses.includes(task.status)):[];
   const canAttach=Boolean(selected?.reusable&&targetTask&&targetTask.project.id===selected.project_id&&!completedStatuses.includes(targetTask.status));
   const attach=async()=>{if(!selected||!targetTask||!canAttach)return;setBusy(true);setError('');try{await studioApi.attachAssets(targetTask.id,[selected.ref]);setNotice(`“${selected.title}”已加入“${targetTask.title}”。`)}catch(value){setError(value instanceof Error?value.message:'资产加入失败')}finally{setBusy(false)}};
 
   return <div className="studio-view studio-assets">
-    <PageHeading eyebrow="资产库" title="把经过确认的内容继续用起来" detail="每一项资产都保留来源、固定版本和使用状态；不可复用的内容会说明原因。"/>
+    <PageHeading eyebrow="资产库" title="下一次创作，从这里开始" detail="先看哪些生成结果可以直接使用，再按类型找到人物原型、剧本、分镜、图片和视频。"/>
     {error&&<StudioNotice kind="error" onRetry={load}>{error}</StudioNotice>}{notice&&<StudioNotice kind="success" onClose={()=>setNotice('')}>{notice}</StudioNotice>}
-    <div className="studio-toolbar"><div className="studio-segments" role="tablist" aria-label="资产分类">{(Object.keys(assetCategoryLabels) as AssetCategory[]).map(id=><button type="button" role="tab" aria-selected={category===id} className={category===id?'is-active':''} key={id} onClick={()=>setCategory(id)}>{assetCategoryLabels[id]}<span>{catalog?.counts[id]||0}</span></button>)}</div><label className="studio-search"><Search size={16}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="搜索资产" aria-label="搜索资产"/></label></div>
-    {loading?<StudioLoading label="正在整理资产目录…"/>:<div className="studio-asset-browser-layout"><section className="studio-section studio-asset-list">{visible.length===0?<CompactEmpty icon={<Library size={22}/>} title="没有匹配的资产" detail="换一个分类或搜索词。"/>:visible.map(item=><button type="button" className={selected?.ref===item.ref?'is-selected':''} key={`${item.kind}:${item.project_id}:${item.ref||item.title}`} onClick={()=>setSelected(item)}><span className={`studio-asset-kind is-${item.category}`}><AssetIcon category={item.category}/></span><span><strong>{item.title}</strong><small>{item.summary} · {item.project_name}</small></span><b className={item.reusable?'is-reusable':'is-blocked'}>{item.reusable?'可复用':item.blocked_reason||'不可复用'}</b><ChevronRight size={15}/></button>)}</section><aside className={`studio-asset-detail ${selected?'is-open':''}`}>{selected?<><header><span className={`studio-asset-kind is-${selected.category}`}><AssetIcon category={selected.category}/></span><div><small>{assetCategoryLabels[selected.category as AssetCategory]||'创作资产'}</small><h2>{selected.title}</h2></div><IconButton label="关闭详情" onClick={()=>setSelected(undefined)}><X size={16}/></IconButton></header><p>{selected.summary}</p><dl><div><dt>所属项目</dt><dd>{selected.project_name}</dd></div><div><dt>固定版本</dt><dd>{selected.version}</dd></div><div><dt>当前状态</dt><dd>{selected.reusable?'可以复用':selected.blocked_reason||statusLabel(selected.status)}</dd></div></dl>{selected.reusable&&<div className="studio-asset-attach"><label><span>加入创作任务</span><select value={targetTaskID} onChange={event=>setTargetTaskID(event.target.value)}><option value="">选择一个任务</option>{tasks.filter(task=>task.project.id===selected.project_id&&!completedStatuses.includes(task.status)).map(task=><option value={task.id} key={task.id}>{task.title}</option>)}</select></label><Button disabled={!canAttach||busy} onClick={()=>void attach()}><Plus size={15}/>{busy?'正在加入…':'加入当前任务'}</Button></div>}</>:<CompactEmpty icon={<Archive size={22}/>} title="选择一项资产查看详情" detail="这里会显示固定版本、可用状态和可加入的创作任务。"/>}</aside></div>}
+    <div className="studio-asset-toolbar"><div className="studio-asset-views" role="tablist" aria-label="结果状态视图">{(Object.keys(assetViewLabels) as AssetView[]).map(id=><button type="button" role="tab" aria-selected={view===id} className={view===id?'is-active':''} key={id} onClick={()=>setView(id)}>{assetViewLabels[id]}<span>{counts[id]}</span></button>)}</div><div className="studio-asset-filters"><label className="studio-asset-type-filter"><span>结果类型</span><select value={category} onChange={event=>setCategory(event.target.value as AssetCategory)}>{(Object.keys(assetCategoryLabels) as AssetCategory[]).map(id=><option value={id} key={id}>{assetCategoryLabels[id]}{id==='all'?'':` · ${catalog?.counts[id]||0}`}</option>)}</select></label><label className="studio-asset-type-filter"><span>结果状态</span><select value={status} onChange={event=>setStatus(event.target.value as AssetStatus)}>{(Object.keys(assetStatusLabels) as AssetStatus[]).map(id=><option value={id} key={id}>{assetStatusLabels[id]}</option>)}</select></label><label className="studio-search"><Search size={16}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="搜索结果名称或内容" aria-label="搜索创作结果"/></label></div></div>
+    {loading?<StudioLoading label="正在整理结果资产目录…"/>:<div className="studio-asset-browser-layout"><section className="studio-section studio-asset-list">{visible.length===0?<CompactEmpty icon={<Library size={22}/>} title="没有符合条件的结果" detail="换一个状态、结果类型或搜索词。"/>:visible.map(item=><button type="button" className={selected?.ref===item.ref?'is-selected':''} key={`${item.result_type}:${item.project_id}:${item.ref||item.title}`} onClick={()=>setSelected(item)}><span className={`studio-asset-kind is-${item.result_type}`}><AssetIcon resultType={item.result_type}/></span><span><strong>{item.title}</strong><small>{assetCategoryLabels[item.result_type]} · {item.summary} · {item.project_name}</small></span><b className={item.reusable?'is-reusable':'is-blocked'}>{assetUseLabel(item)}</b><ChevronRight size={15}/></button>)}</section><aside className={`studio-asset-detail ${selected?'is-open':''}`}>{selected?<><header><span className={`studio-asset-kind is-${selected.result_type}`}><AssetIcon resultType={selected.result_type}/></span><div><small>{assetCategoryLabels[selected.result_type]}</small><h2>{selected.title}</h2><b className={`studio-asset-detail-state ${selected.reusable?'is-reusable':'is-blocked'}`}>{assetUseLabel(selected)}</b></div><IconButton label="关闭详情" onClick={()=>setSelected(undefined)}><X size={16}/></IconButton></header><p>{selected.summary}</p><dl><div><dt>结果类型</dt><dd>{assetCategoryLabels[selected.result_type]}</dd></div><div><dt>所属项目</dt><dd>{selected.project_name}</dd></div><div><dt>当前版本</dt><dd>{selected.version}</dd></div></dl>{selected.reusable?(reusableTasks.length>0?<div className="studio-asset-attach"><label><span>加入已有创作</span><select value={targetTaskID} onChange={event=>setTargetTaskID(event.target.value)}><option value="">选择一个进行中的任务</option>{reusableTasks.map(task=><option value={task.id} key={task.id}>{task.title}</option>)}</select></label><Button disabled={!canAttach||busy} onClick={()=>void attach()}><Plus size={15}/>{busy?'正在加入…':'加入当前任务'}</Button></div>:<div className="studio-asset-start"><strong>还没有进行中的创作任务</strong><p>可以直接用这项结果开始一次新的创作。</p><Link className="studio-primary-link" to={`/studio/tasks/new?asset_ref=${encodeURIComponent(selected.ref)}&project=${encodeURIComponent(selected.project_id)}`}><Sparkles size={15}/>用它开始新创作</Link></div>):<div className="studio-asset-blocked"><strong>暂时不能用于新创作</strong><p>{selected.blocked_reason||assetStatusLabels[selected.status as AssetStatus]||'这项结果还需要完成确认。'}</p><span>完成相关确认后，状态会自动更新。</span></div>}</>:<CompactEmpty icon={<Archive size={22}/>} title="选择一项结果" detail="查看它是否可以使用，以及如何加入下一次创作。"/>}</aside></div>}
   </div>;
 }
 
@@ -236,12 +369,12 @@ export function StudioDeliveriesPage(){
 function InspirationStage({taskID,inspirations,experience,canAdd,onChanged}:{taskID:string;inspirations:StudioTaskView['inspirations'];experience?:StudioExperience;canAdd:boolean;onChanged:(view:StudioTaskView)=>void}){
   const [title,setTitle]=useState('');
   const [body,setBody]=useState('');
-  const [saveForReuse,setSaveForReuse]=useState(true);
+  const [keepAsProjectReference,setKeepAsProjectReference]=useState(true);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const available=new Set(experience?.available_collection_methods||[]);
-  const submit=async(event:FormEvent)=>{event.preventDefault();if(!title.trim()||!body.trim())return;setBusy(true);setError('');try{onChanged(await studioApi.addInspiration(taskID,{title:title.trim(),body:body.trim(),save_for_reuse:saveForReuse,idempotency_key:createIdempotencyKey()}));setTitle('');setBody('')}catch(value){setError(value instanceof Error?value.message:'灵感保存失败')}finally{setBusy(false)}};
-  return <div className="studio-inspiration"><div className="studio-collection-methods"><CollectionMethod icon={<Globe2 size={18}/>} title="平台搜索" detail="搜索 API 与垂直数据源" available={available.has('platform_search')}/><CollectionMethod icon={<FileSearch size={18}/>} title="受控采集" detail="网页采集与来源留痕" available={available.has('controlled_fetch')}/><CollectionMethod icon={<TerminalSquare size={18}/>} title="本地工具" detail="Codex、Claude Code 或 MCP" available={available.has('local_agent')} href="/docs/clients/codex"/></div>{canAdd&&<form className="studio-inspiration-form" onSubmit={submit}><header><Lightbulb size={18}/><div><strong>人工补充一条灵感</strong><span>链接、观察和人物方向都会作为任务输入保留。</span></div></header><label><span>一句话标题</span><input value={title} onChange={event=>setTitle(event.target.value)} placeholder="例如：真实主理人的一天"/></label><label><span>灵感内容</span><textarea value={body} onChange={event=>setBody(event.target.value)} rows={4} placeholder="写下观察、参考链接、可借鉴的表达，或需要继续验证的问题。"/></label><label className="studio-checkbox"><input type="checkbox" checked={saveForReuse} onChange={event=>setSaveForReuse(event.target.checked)}/><span>保存到资产库，供后续任务复用</span></label><Button disabled={busy||!title.trim()||!body.trim()}><Plus size={15}/>{busy?'保存中…':'加入当前任务'}</Button>{error&&<StudioNotice kind="error">{error}</StudioNotice>}</form>}<div className="studio-inspiration-list"><SectionHeading icon={<Archive size={16}/>} title="已收集灵感" count={inspirations.length}/>{inspirations.length===0?<CompactEmpty icon={<Lightbulb size={20}/>} title="还没有灵感记录" detail={canAdd?'先手动补充，或从已配置的采集方式导入。':'有权限的团队成员补充后会显示在这里。'}/>:inspirations.map(item=><article key={item.id}><Lightbulb size={16}/><div><strong>{item.title}</strong><p>{item.summary}</p><small>{item.source_label} · {item.saved_for_reuse?'已保存复用':'仅用于本次任务'} · {formatDate(item.created_at)}</small></div></article>)}</div></div>;
+  const submit=async(event:FormEvent)=>{event.preventDefault();if(!title.trim()||!body.trim())return;setBusy(true);setError('');try{onChanged(await studioApi.addInspiration(taskID,{title:title.trim(),body:body.trim(),keep_as_project_reference:keepAsProjectReference,idempotency_key:createIdempotencyKey()}));setTitle('');setBody('')}catch(value){setError(value instanceof Error?value.message:'灵感保存失败')}finally{setBusy(false)}};
+  return <div className="studio-inspiration"><div className="studio-collection-methods"><CollectionMethod icon={<Globe2 size={18}/>} title="平台搜索" detail="搜索 API 与垂直数据源" available={available.has('platform_search')}/><CollectionMethod icon={<FileSearch size={18}/>} title="受控采集" detail="网页采集与来源留痕" available={available.has('controlled_fetch')}/><CollectionMethod icon={<TerminalSquare size={18}/>} title="本地工具" detail="Codex、Claude Code 或 MCP" available={available.has('local_agent')} href="/docs/clients/codex"/></div>{canAdd&&<form className="studio-inspiration-form" onSubmit={submit}><header><Lightbulb size={18}/><div><strong>人工补充一条灵感</strong><span>灵感会作为当前任务输入保存，不会进入创作结果资产库。</span></div></header><label><span>一句话标题</span><input value={title} onChange={event=>setTitle(event.target.value)} placeholder="例如：真实主理人的一天"/></label><label><span>灵感内容</span><textarea value={body} onChange={event=>setBody(event.target.value)} rows={4} placeholder="写下观察、参考链接、可借鉴的表达，或需要继续验证的问题。"/></label><label className="studio-checkbox"><input type="checkbox" checked={keepAsProjectReference} onChange={event=>setKeepAsProjectReference(event.target.checked)}/><span>保留为项目参考，供后续任务选择</span></label><Button disabled={busy||!title.trim()||!body.trim()}><Plus size={15}/>{busy?'保存中…':'加入当前任务'}</Button>{error&&<StudioNotice kind="error">{error}</StudioNotice>}</form>}<div className="studio-inspiration-list"><SectionHeading icon={<Archive size={16}/>} title="已收集灵感" count={inspirations.length}/>{inspirations.length===0?<CompactEmpty icon={<Lightbulb size={20}/>} title="还没有灵感记录" detail={canAdd?'先手动补充，或从已配置的采集方式导入。':'有权限的团队成员补充后会显示在这里。'}/>:inspirations.map(item=><article key={item.id}><Lightbulb size={16}/><div><strong>{item.title}</strong><p>{item.summary}</p><small>{item.source_label} · {item.saved_as_project_reference?'已保留为项目参考':'仅用于本次任务'} · {formatDate(item.created_at)}</small></div></article>)}</div></div>;
 }
 
 function DecisionPanel({decisions,busy,onDecision}:{decisions:StudioDecision[];busy:string;onDecision:(decisionID:string,decision:'approved'|'changes_requested')=>void}){return <div className="studio-gate-panel"><header><ClipboardCheck size={20}/><div><strong>当前结果等待确认</strong><span>确认会固定当前版本；要求修改会把意见送回创作流水线。</span></div></header>{decisions.map(decision=><article key={decision.id}><div><strong>{decision.title}</strong><span>{decision.summary} · {decision.result_count} 项结果</span></div>{decision.can_decide?<div><Button variant="secondary" disabled={Boolean(busy)} onClick={()=>onDecision(decision.id,'changes_requested')}><X size={15}/>需要修改</Button><Button disabled={Boolean(busy)} onClick={()=>onDecision(decision.id,'approved')}><Check size={15}/>确认并继续</Button></div>:<span className="studio-gate-waiting">等待指定确认人处理</span>}</article>)}</div>}
@@ -249,10 +382,11 @@ function DecisionPanel({decisions,busy,onDecision}:{decisions:StudioDecision[];b
 function CurrentStepSummary({task,step}:{task:StudioTaskSummary;step:StudioCustomerStep}){const copy=task.status==='running'?'创作流水线正在处理当前步骤。结果准备好后，会在这里请你确认。':task.status==='blocked'?'当前步骤需要协助，运营人员会看到详细原因并处理。':task.status==='delivered'?'任务已经完成，交付成果已固定。':'当前步骤尚未开始。';return <div className={`studio-step-summary ${customerTaskTone(task.status)}`}><span><Workflow size={20}/></span><div><strong>{task.next_action}</strong><p>{copy}</p><small>{step.title} · {task.status_label}</small></div></div>}
 function CustomerProgress({steps}:{steps:StudioCustomerStep[]}){return <ol className="studio-progress" aria-label="创作进度">{steps.map((step,index)=><li key={step.id} className={`is-${step.status}`}><span>{step.status==='completed'?<Check size={14}/>:String(index+1).padStart(2,'0')}</span><div><strong>{step.title}</strong><small>{studioStepStateLabel(step.status)}</small></div></li>)}</ol>}
 function CollectionMethod({icon,title,detail,available,href}:{icon:ReactNode;title:string;detail:string;available:boolean;href?:string}){const enabled=available&&Boolean(href);const body=<><span>{icon}</span><div><strong>{title}</strong><small>{detail}</small></div><b>{available?'可用':'待运营配置'}</b>{enabled&&<ChevronRight size={15}/>}</>;return enabled?<Link className="studio-collection-method" to={href||''}>{body}</Link>:<div className={`studio-collection-method ${available?'':'is-disabled'}`} aria-disabled={!available}>{body}</div>}
-function AssetPicker({items,selectedRefs,onChange}:{items:StudioAssetItem[];selectedRefs:string[];onChange:(refs:string[])=>void}){return <fieldset className="studio-asset-picker"><legend>从资产库带入 <em>可选</em></legend><p>选择固定版本的人物、资料或历史成果，创建后会作为本次任务的正式输入。</p>{items.length===0?<small>当前项目还没有可复用资产。</small>:<div>{items.slice(0,8).map(item=><label key={item.ref}><input type="checkbox" checked={selectedRefs.includes(item.ref)} onChange={event=>onChange(event.target.checked?[...selectedRefs,item.ref]:selectedRefs.filter(ref=>ref!==item.ref))}/><span><strong>{item.title}</strong><small>{item.summary} · {item.version}</small></span></label>)}</div>}</fieldset>}
+function AssetPicker({items,selectedRefs,onChange}:{items:StudioAssetItem[];selectedRefs:string[];onChange:(refs:string[])=>void}){return <fieldset className="studio-asset-picker"><legend>从资产库带入 <em>可选</em></legend><p>选择已确认的人物原型、剧本、分镜、图片或视频结果，创建后会作为本次任务的正式输入。</p>{items.length===0?<small>当前还没有可复用的创作结果。</small>:<div>{items.slice(0,8).map(item=><label key={item.ref}><input type="checkbox" checked={selectedRefs.includes(item.ref)} onChange={event=>onChange(event.target.checked?[...selectedRefs,item.ref]:selectedRefs.filter(ref=>ref!==item.ref))}/><span><strong>{item.title}</strong><small>{assetCategoryLabels[item.result_type]} · {item.summary} · {item.version}</small></span></label>)}</div>}</fieldset>}
 function ResultRow({result}:{result:StudioTaskView['results'][number]}){const icon=result.kind==='delivery_package'?<PackageCheck size={17}/>:result.kind==='approved_result'?<CheckCircle2 size={17}/>:<FileText size={17}/>;return <article><span>{icon}</span><div><small>{resultKindLabel(result.kind)}</small><strong>{result.title}</strong><p>{result.summary} · {formatDate(result.created_at)}</p>{result.downloads.map(file=><a href={file.href} download key={file.id}><Download size={13}/>{file.file_name}</a>)}</div></article>}
-function AssetIcon({category}:{category:string}){return category==='media'?<Video size={18}/>:category==='inspiration'?<Lightbulb size={18}/>:category==='approved'?<CheckCircle2 size={18}/>:category==='knowledge'||category==='persona'?<Library size={18}/>:<FileText size={18}/>}
-function AssetRow({item}:{item:StudioAssetItem}){return <article><div><strong>{item.title}</strong><small>{item.summary} · {item.version}</small></div><span>{item.project_name}</span><b>{item.reusable?'可复用':item.blocked_reason||'不可复用'}</b></article>}
+function assetUseLabel(item:StudioAssetItem){if(item.reusable)return item.status==='delivered'?'已交付，可复用':'已确认，可复用';return assetStatusLabels[item.status as AssetStatus]||item.blocked_reason||'暂不可用'}
+function AssetIcon({resultType}:{resultType:StudioAssetItem['result_type']}){return resultType==='video'?<Video size={18}/>:resultType==='image'?<FileText size={18}/>:resultType==='storyboard'?<Clipboard size={18}/>:resultType==='script'?<FileCheck2 size={18}/>:<Library size={18}/>}
+function AssetRow({item}:{item:StudioAssetItem}){return <article><div><strong>{item.title}</strong><small>{assetCategoryLabels[item.result_type]} · {item.summary} · {item.version}</small></div><span>{item.project_name}</span><b>{assetUseLabel(item)}</b></article>}
 function useTasks(){const [tasks,setTasks]=useState<StudioTaskSummary[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const reload=useCallback(async()=>{setLoading(true);setError('');try{setTasks(await studioApi.tasks())}catch(value){setError(value instanceof Error?value.message:'任务加载失败')}finally{setLoading(false)}},[]);useEffect(()=>{void reload()},[reload]);return {tasks,loading,error,reload}}
 function PageHeading({eyebrow,title,detail,actions}:{eyebrow:string;title:string;detail:string;actions?:ReactNode}){return <header className="studio-page-heading"><div><span>{eyebrow}</span><h1>{title}</h1><p>{detail}</p></div>{actions&&<div>{actions}</div>}</header>}
 function SectionHeading({icon,title,count,action}:{icon:ReactNode;title:string;count?:number;action?:ReactNode}){return <header className="studio-section-heading"><div>{icon}<h2>{title}</h2>{count!==undefined&&<span>{count}</span>}</div>{action}</header>}
@@ -264,4 +398,5 @@ function CompactEmpty({icon,title,detail,action}:{icon:ReactNode;title:string;de
 function formatDate(value?:string){if(!value)return'未记录';const date=new Date(value);return Number.isNaN(date.getTime())?'未知时间':new Intl.DateTimeFormat('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).format(date)}
 function formatBytes(value:number){if(value<1024)return`${value} B`;if(value<1024*1024)return`${(value/1024).toFixed(1)} KB`;return`${(value/(1024*1024)).toFixed(1)} MB`}
 function resultKindLabel(kind:string){return {content_revision:'内容版本',approved_result:'已确认结果',delivery_package:'交付包'}[kind]||'创作成果'}
+function connectionTitle(status:StudioConnectSession['status']){return {waiting_for_computer:'在 Codex 中继续',connecting:'正在完成连接',confirmation_required:'确认这台电脑',connected:'创作电脑已连接',failed:'连接未完成',expired:'连接已过期',canceled:'连接已取消'}[status]}
 function createIdempotencyKey(){return typeof crypto!=='undefined'&&'randomUUID'in crypto?crypto.randomUUID():`${Date.now()}-${Math.random().toString(36).slice(2)}`}

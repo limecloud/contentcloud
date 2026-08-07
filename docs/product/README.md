@@ -2,7 +2,7 @@
 
 状态：`目标产品需求索引；不代表相关能力已经上线`。
 
-更新时间：2026-08-05。
+更新时间：2026-08-07。
 
 本目录保存建立在 [ContentCloud 平台基线](../foundation/README.md) 之上的场景产品需求。平台基线定义产品平面、事实所有权、Runtime、代码边界、契约、安全和迁移规范；本目录只定义具体客户如何使用这些能力，不建立第二套领域模型或执行状态。
 
@@ -11,8 +11,8 @@
 | 文档或目录 | 定位 | 状态 |
 | --- | --- | --- |
 | [00-product-narrative.md](./00-product-narrative.md) | 客户叙事图、平台架构图、工具示例和分层表达规范 | 目标产品叙事 |
-| [customer-creation-studio](./customer-creation-studio/README.md) | 简单客户创作台、运营流水线产品层和首个灵感采集纵向切片 | 产品架构与需求草案 |
-| [creative-asset-library](./creative-asset-library/README.md) | 跨任务创作资产积累、统一目录、复用引用与运营治理 | 目标产品需求，尚未实现 |
+| [customer-creation-studio](./customer-creation-studio/README.md) | 简单客户创作台、运营流水线产品层和首个灵感采集纵向切片 | 客户首切片已实现，完整分层持续迁移 |
+| [creative-asset-library](./creative-asset-library/README.md) | 跨任务创作资产积累、统一目录、复用引用与运营治理 | 客户结果目录首切片已实现，持久化投影与运营治理待完成 |
 
 ## 文档规则
 

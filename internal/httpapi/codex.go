@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	codexGuideVersion       = "0.17.0"
+	codexGuideVersion       = "0.18.0"
 	codexGuideSchemaVersion = "contentcloud.codex-guide/1.0"
 	codexGuideVary          = "Accept, Sec-Fetch-Mode, Sec-Fetch-Dest"
 )
@@ -104,7 +104,7 @@ func newCodexGuide() codexGuide {
 			{
 				Number:  4,
 				Title:   "连接项目工作区",
-				Summary: "在 Content Work OS 中选择或创建项目，从项目的“接入与初始化”页面取得公开连接会话 ID，再执行同一个可核对的初始化事务。",
+				Summary: "在 Content Work OS 中选择或创建项目，从项目的“执行客户端”页面取得公开连接会话 ID，再执行同一个可核对的初始化事务。",
 				Commands: []string{
 					fmt.Sprintf("curl -fsS -H 'Accept: text/markdown' <CONTENTCLOUD_ORIGIN>%s", bootstrapPath),
 					fmt.Sprintf("%s --server-url <CONTENTCLOUD_ORIGIN> --json bootstrap preflight <WORKSPACE_DIRECTORY>", cli),

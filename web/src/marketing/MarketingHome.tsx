@@ -101,8 +101,8 @@ export function MarketingHome() {
       <section className="marketing-hero" id="overview">
         <div className="marketing-shell marketing-hero-content">
           <span className="marketing-overline"><CircleDot size={13}/> CONTENT WORK OS</span>
-          <h1><span>Content Work OS</span><strong>把资料、创作与交付组织成一个系统</strong></h1>
-          <p>带入已有资料和创作资产，选择要完成的内容。系统在背后组织流水线、人工确认和不同执行者，让每次成果都能继续编辑、交付和复用。</p>
+          <h1><span>Content Work OS</span><strong>把任务输入、创作与交付组织成一个系统</strong></h1>
+          <p>带入任务输入和项目参考，也可以复用已确认的人物原型、剧本、分镜、图片或视频结果。系统在背后组织流水线、人工确认和不同执行者，让每次成果都能继续编辑、交付和复用。</p>
           <div className="marketing-hero-actions">
             <Link className="marketing-primary-button" to={consolePath.studio}><Sparkles size={17}/>开始一项创作</Link>
             <a className="marketing-secondary-button" href="#system"><Workflow size={17}/>查看系统怎么工作</a>
@@ -115,7 +115,7 @@ export function MarketingHome() {
           <header className="marketing-section-heading">
             <span>客户创作台</span>
             <h2>客户只看当前任务，<br/>不需要理解底层系统</h2>
-            <p>资料、已有资产、当前进度、需要确认的选择和可以带走的结果，都收敛在一个创作任务里。</p>
+            <p>任务输入、项目参考、当前进度、需要确认的选择和可以带走的结果，都收敛在一个创作任务里。</p>
           </header>
           <div className="marketing-workspace-preview" aria-label="Content Work OS 客户创作任务预览">
             <div className="marketing-preview-topbar">
@@ -127,7 +127,7 @@ export function MarketingHome() {
               <header className="marketing-task-heading">
                 <div><span>创作任务 / 内容策略</span><h3>确认这版核心受众</h3></div>
                 <strong>等待你确认</strong>
-                <p>系统已经整理好品牌资料、历史内容和本次灵感。确认后，流水线会继续生成剧本方案。</p>
+                <p>系统已经整理好项目参考、已确认的人物原型和本次灵感。确认后，流水线会继续生成剧本方案。</p>
               </header>
               <ol className="marketing-task-progress" aria-label="营销视频创作进度">
                 {creationStages.map(([index,title,status,state])=><li className={state} key={index}><i>{index}</i><span>{title}</span><strong>{status}</strong></li>)}
@@ -136,8 +136,8 @@ export function MarketingHome() {
                 <section className="marketing-task-sources">
                   <header><div><FileSearch size={17}/><span><strong>本次创作输入</strong><small>所有引用都保留来源和固定版本</small></span></div><b>8 项</b></header>
                   <div><span><Lightbulb size={15}/>灵感观察</span><strong>春日居家放松场景</strong><small>人工补充</small></div>
-                  <div><span><Archive size={15}/>品牌资产</span><strong>线香品牌规范与人物原型</strong><small>资产库</small></div>
-                  <div><span><FileText size={15}/>历史成果</span><strong>高互动脚本 03 与已批准分镜</strong><small>已批准</small></div>
+                  <div><span><Archive size={15}/>项目参考</span><strong>线香品牌规范与产品边界</strong><small>项目参考</small></div>
+                  <div><span><FileText size={15}/>已有创作结果</span><strong>核心人物原型与高互动脚本 03</strong><small>已确认</small></div>
                 </section>
                 <aside className="marketing-next-action">
                   <span>下一步</span>
@@ -148,7 +148,7 @@ export function MarketingHome() {
                 </aside>
               </div>
               <footer className="marketing-task-assets">
-                <Archive size={19}/><span><strong>资产库参与每一次创作</strong><small>品牌、人物、灵感和已批准结果会继续服务下一次任务。</small></span><a href="#system">查看资产闭环 <ArrowRight size={14}/></a>
+                <Archive size={19}/><span><strong>结果资产参与每一次创作</strong><small>人物、剧本、分镜、图片和视频结果会继续服务下一次任务。</small></span><a href="#system">查看资产闭环 <ArrowRight size={14}/></a>
               </footer>
             </div>
           </div>

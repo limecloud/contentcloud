@@ -12,9 +12,9 @@ const statusLabels: Record<string, string> = {
   retry_wait: '等待重试', retryable_failed: '失败，可重试', review_ready: '可审核', review_required: '待复核',
   revision_requested: '待修订', revoked: '已撤销', routed: '已转负责人', running: '运行中', seed_candidate: '小范围测试候选',
   script_only: '仅剧本', source_missing: '缺少来源', submitted: '已提交', submitting: '提交中', succeeded: '已完成', superseded: '已替代',
-  suspended: '已停用', task_created: '已创建任务', task_merged: '已并入任务', untriaged: '待分流', valid: '有效',
+  suspended: '已停用', planned: '即将支持', task_created: '已创建任务', task_merged: '已并入任务', untriaged: '待分流', valid: '有效',
   validated: '已核验', validating: '校验中', verified: '已核验', verifying: '接入初始化中',
-  waiting_for_computer: '等待接入初始化', waiting_gate: '待审核决定', waived: '已豁免'
+  waiting_for_computer: '等待执行客户端', waiting_gate: '待审核决定', waived: '已豁免'
 };
 
 const roleLabels: Record<string, string> = {

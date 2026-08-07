@@ -7,13 +7,66 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/app"
 )
+
+type studioExecutionClient struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	Available   bool   `json:"available"`
+}
+
+type studioExecutionClientCatalog struct {
+	Clients []studioExecutionClient `json:"clients"`
+}
 
 func (s *Server) customerStudioBootstrap(w http.ResponseWriter, r *http.Request) {
 	actor, user := auth(r)
 	value, err := s.service.CustomerStudioBootstrap(r.Context(), actor, user)
 	s.dispatchResult(w, r, "studio.bootstrap", value, err)
+}
+
+func (s *Server) customerStudioExecutionClients(w http.ResponseWriter, r *http.Request) {
+	clients := agentadapter.Clients()
+	result := studioExecutionClientCatalog{Clients: make([]studioExecutionClient, 0, len(clients))}
+	for _, client := range clients {
+		result.Clients = append(result.Clients, studioExecutionClient{
+			ID: string(client.ID), DisplayName: client.DisplayName,
+			Available: client.CapabilityStatus(agentadapter.CapabilityWorkspaceBootstrap) == agentadapter.SupportAvailable,
+		})
+	}
+	s.dispatchResult(w, r, "studio.execution_client.list", result, nil)
+}
+
+func (s *Server) createCustomerStudioConnectSession(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.CreateCustomerStudioConnectSession(r.Context(), actor, chi.URLParam(r, "projectID"), middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "studio.execution_client.connect", value, err)
+}
+
+func (s *Server) customerStudioConnectSession(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.CustomerStudioConnectSession(r.Context(), actor, chi.URLParam(r, "sessionID"))
+	s.dispatchResult(w, r, "studio.execution_client.connection", value, err)
+}
+
+func (s *Server) approveCustomerStudioConnectSession(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.ApproveCustomerStudioConnectSession(r.Context(), actor, chi.URLParam(r, "sessionID"), middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "studio.execution_client.approve", value, err)
+}
+
+func (s *Server) denyCustomerStudioConnectSession(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.DenyCustomerStudioConnectSession(r.Context(), actor, chi.URLParam(r, "sessionID"), middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "studio.execution_client.deny", value, err)
+}
+
+func (s *Server) cancelCustomerStudioConnectSession(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.CancelCustomerStudioConnectSession(r.Context(), actor, chi.URLParam(r, "sessionID"), middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "studio.execution_client.cancel", value, err)
 }
 
 func (s *Server) customerStudioTasks(w http.ResponseWriter, r *http.Request) {

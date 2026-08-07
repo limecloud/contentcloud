@@ -14,6 +14,7 @@ export interface StudioSession {
   role:string;
   operations_path?:string;
   can_create:boolean;
+  can_connect_execution_client:boolean;
   can_manage_team:boolean;
   can_view_operations:boolean;
 }
@@ -25,6 +26,31 @@ export interface StudioProject {
   content_type:string;
   channel:string;
   status:string;
+  execution_client_connected:boolean;
+  connected_client_count:number;
+}
+
+export interface StudioExecutionClient {
+  id:string;
+  display_name:string;
+  available:boolean;
+}
+
+export interface StudioExecutionClientCatalog {
+  clients:StudioExecutionClient[];
+}
+
+export type StudioConnectionStatus='waiting_for_computer'|'connecting'|'confirmation_required'|'connected'|'failed'|'expired'|'canceled';
+
+export interface StudioConnectSession {
+  id:string;
+  project_id:string;
+  status:StudioConnectionStatus;
+  message:string;
+  requires_confirmation:boolean;
+  verification_code?:string;
+  support_code?:string;
+  expires_at:string;
 }
 
 export interface StudioExperience {
@@ -80,7 +106,7 @@ export interface StudioInspiration {
   summary:string;
   source_type:string;
   source_label:string;
-  saved_for_reuse:boolean;
+  saved_as_project_reference:boolean;
   created_at:string;
 }
 
@@ -112,17 +138,18 @@ export interface StudioResult {
 
 export interface StudioAssetItem {
   ref:string;
-  kind:string;
-  category:string;
+  result_type:'persona'|'script'|'storyboard'|'image'|'video';
   project_id:string;
   project_name:string;
+  task_id:string;
+  task_title:string;
   title:string;
   summary:string;
   version:string;
   status:string;
   reusable:boolean;
   blocked_reason?:string;
-  metadata:Record<string,unknown>;
+  downloads:StudioDownload[];
   created_at:string;
 }
 

@@ -2,6 +2,19 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.18.0] - 2026-08-07
+
+### Added
+
+- 增强 Customer Studio 客户创作台，补齐创作电脑连接、项目参考、任务资产和交付下载状态。
+- 收敛项目、资产与交付边界，新增客户结果资产边界决策记录 ADR-0013。
+
+### Changed
+
+- 改进 Runtime 创作流程、首次引导、工作区路由、官网导航和页面布局。
+- 更新 API/OpenAPI 合同、项目视图和对应 Go/Web 回归测试。
+- Server、Worker、Web、CLI、Plugin、MCP 和 Environment Profile 统一升级到 `0.18.0`。
+
 ## [0.17.0] - 2026-08-04
 
 ### Added

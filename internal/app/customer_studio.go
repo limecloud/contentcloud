@@ -34,17 +34,31 @@ type StudioSession struct {
 	Role              string       `json:"role"`
 	OperationsPath    string       `json:"operations_path,omitempty"`
 	CanCreate         bool         `json:"can_create"`
+	CanConnectClient  bool         `json:"can_connect_execution_client"`
 	CanManageTeam     bool         `json:"can_manage_team"`
 	CanViewOperations bool         `json:"can_view_operations"`
 }
 
 type StudioProject struct {
-	ID          string `json:"id"`
-	BrandName   string `json:"brand_name"`
-	ProductName string `json:"product_name"`
-	ContentType string `json:"content_type"`
-	Channel     string `json:"channel"`
-	Status      string `json:"status"`
+	ID                       string `json:"id"`
+	BrandName                string `json:"brand_name"`
+	ProductName              string `json:"product_name"`
+	ContentType              string `json:"content_type"`
+	Channel                  string `json:"channel"`
+	Status                   string `json:"status"`
+	ExecutionClientConnected bool   `json:"execution_client_connected"`
+	ConnectedClientCount     int    `json:"connected_client_count"`
+}
+
+type StudioConnectSession struct {
+	ID                   string    `json:"id"`
+	ProjectID            string    `json:"project_id"`
+	Status               string    `json:"status"`
+	Message              string    `json:"message"`
+	RequiresConfirmation bool      `json:"requires_confirmation"`
+	VerificationCode     string    `json:"verification_code,omitempty"`
+	SupportCode          string    `json:"support_code,omitempty"`
+	ExpiresAt            time.Time `json:"expires_at"`
 }
 
 type StudioExperience struct {
@@ -96,13 +110,13 @@ type StudioTaskSummary struct {
 }
 
 type StudioInspiration struct {
-	ID            string    `json:"id"`
-	Title         string    `json:"title"`
-	Summary       string    `json:"summary"`
-	SourceType    string    `json:"source_type"`
-	SourceLabel   string    `json:"source_label"`
-	SavedForReuse bool      `json:"saved_for_reuse"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID                      string    `json:"id"`
+	Title                   string    `json:"title"`
+	Summary                 string    `json:"summary"`
+	SourceType              string    `json:"source_type"`
+	SourceLabel             string    `json:"source_label"`
+	SavedAsProjectReference bool      `json:"saved_as_project_reference"`
+	CreatedAt               time.Time `json:"created_at"`
 }
 
 type StudioDecision struct {
@@ -153,10 +167,11 @@ type StudioCreateTaskInput struct {
 }
 
 type StudioAddInspirationInput struct {
-	Title          string `json:"title"`
-	Body           string `json:"body"`
-	SaveForReuse   bool   `json:"save_for_reuse"`
-	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	Title                  string `json:"title"`
+	Body                   string `json:"body"`
+	KeepAsProjectReference bool   `json:"keep_as_project_reference"`
+	SaveForReuse           bool   `json:"save_for_reuse,omitempty"` // 兼容旧客户端，语义等同于项目参考
+	IdempotencyKey         string `json:"idempotency_key,omitempty"`
 }
 
 type StudioAttachAssetsInput struct {
@@ -164,19 +179,21 @@ type StudioAttachAssetsInput struct {
 }
 
 type StudioAssetItem struct {
-	Ref           string         `json:"ref"`
-	Kind          string         `json:"kind"`
-	Category      string         `json:"category"`
-	ProjectID     string         `json:"project_id"`
-	ProjectName   string         `json:"project_name"`
-	Title         string         `json:"title"`
-	Summary       string         `json:"summary"`
-	Version       string         `json:"version"`
-	Status        string         `json:"status"`
-	Reusable      bool           `json:"reusable"`
-	BlockedReason string         `json:"blocked_reason,omitempty"`
-	Metadata      map[string]any `json:"metadata"`
-	CreatedAt     time.Time      `json:"created_at"`
+	Ref           string           `json:"ref"`
+	InputRef      string           `json:"-"`
+	ResultType    string           `json:"result_type"`
+	ProjectID     string           `json:"project_id"`
+	ProjectName   string           `json:"project_name"`
+	TaskID        string           `json:"task_id"`
+	TaskTitle     string           `json:"task_title"`
+	Title         string           `json:"title"`
+	Summary       string           `json:"summary"`
+	Version       string           `json:"version"`
+	Status        string           `json:"status"`
+	Reusable      bool             `json:"reusable"`
+	BlockedReason string           `json:"blocked_reason,omitempty"`
+	Downloads     []StudioDownload `json:"downloads"`
+	CreatedAt     time.Time        `json:"created_at"`
 }
 
 type StudioAssetCatalog struct {
@@ -222,11 +239,12 @@ func (s *Service) CustomerStudioBootstrap(ctx context.Context, actor Actor, user
 	}
 	result := StudioBootstrap{
 		Session: StudioSession{
-			User:          StudioUser{ID: user.ID, DisplayName: user.DisplayName},
-			Tenant:        StudioTenant{ID: tenant.ID, Name: tenant.Name},
-			Role:          actor.Role,
-			CanCreate:     canCreateStudioTask(actor.Role),
-			CanManageTeam: actor.Role == "tenant_admin",
+			User:             StudioUser{ID: user.ID, DisplayName: user.DisplayName},
+			Tenant:           StudioTenant{ID: tenant.ID, Name: tenant.Name},
+			Role:             actor.Role,
+			CanCreate:        canCreateStudioTask(actor.Role),
+			CanConnectClient: canConnectStudioClient(actor.Role),
+			CanManageTeam:    actor.Role == "tenant_admin",
 		},
 		Projects:    make([]StudioProject, 0, len(projects)),
 		Tenants:     make([]StudioTenant, 0, len(tenants)),
@@ -286,7 +304,7 @@ func (s *Service) customerStudioExperiences(ctx context.Context, actor Actor, pr
 				ID: id, Version: version, SOPID: sop.SOPID, SOPVersion: sop.Version,
 				TemplateKey: summary.Definition.TemplateKey, Name: summary.Definition.Name,
 				Description: summary.Definition.Description, ContentType: project.ContentType,
-				Status: "published", ProjectIDs: []string{}, StepTitles: []string{},
+				Status: "published", ProjectIDs: []string{}, StepTitles: customerStudioExperienceStepTitles(sop),
 				AvailableMethods:   []string{"manual"},
 				UnavailableMethods: []string{"platform_search", "controlled_fetch", "local_agent"},
 			}
@@ -295,7 +313,6 @@ func (s *Service) customerStudioExperiences(ctx context.Context, actor Actor, pr
 				experience.Description = "从灵感、人物原型和营销剧本，继续到视频分镜、候选成片与交付准备。"
 			}
 			for _, stage := range sop.Stages {
-				experience.StepTitles = append(experience.StepTitles, stage.Name)
 				for _, mode := range stage.ExecutionModes {
 					if mode == "agent" {
 						experience.AvailableMethods = appendUnique(experience.AvailableMethods, "local_agent")
@@ -402,6 +419,9 @@ func (s *Service) CreateCustomerStudioTask(ctx context.Context, actor Actor, inp
 	project, err := s.store.Project(ctx, actor.TenantID, strings.TrimSpace(input.ProjectID))
 	if err != nil {
 		return StudioTaskView{}, err
+	}
+	if project.ConnectedDevices == 0 {
+		return StudioTaskView{}, domain.Conflict("STUDIO_EXECUTION_CLIENT_REQUIRED", "开始新的创作前，需要先连接你的创作电脑")
 	}
 	experience, _, sop, err := s.customerStudioExperienceSOP(ctx, actor, project, strings.TrimSpace(input.ExperienceID))
 	if err != nil {
@@ -528,10 +548,11 @@ func (s *Service) AddCustomerStudioInspiration(ctx context.Context, actor Actor,
 	if task.Status == domain.TaskStatusDelivered || task.Status == domain.TaskStatusCancelled {
 		return StudioTaskView{}, domain.Conflict("STUDIO_TASK_INPUT_CLOSED", "已完成或已取消的任务不能继续添加灵感")
 	}
+	keepAsProjectReference := input.KeepAsProjectReference || input.SaveForReuse
 	item, err := s.CreateInputItem(ctx, actor, CreateInputItemInput{
 		ProjectID: task.ProjectID, SourceType: "manual_inspiration", Title: strings.TrimSpace(input.Title),
 		Summary: strings.TrimSpace(input.Body), Body: strings.TrimSpace(input.Body), Disclosure: "project", IdempotencyKey: strings.TrimSpace(input.IdempotencyKey),
-		Metadata: map[string]any{"collection_method": "manual", "stage": "inspiration", "saved_for_reuse": input.SaveForReuse},
+		Metadata: map[string]any{"collection_method": "manual", "stage": "inspiration", "saved_as_project_reference": keepAsProjectReference},
 	}, requestID)
 	if err != nil {
 		return StudioTaskView{}, err
@@ -611,7 +632,7 @@ func (s *Service) CustomerStudioAssets(ctx context.Context, actor Actor, project
 	}
 	sort.Slice(result.Items, func(i, j int) bool { return result.Items[i].CreatedAt.After(result.Items[j].CreatedAt) })
 	for _, item := range result.Items {
-		result.Counts[item.Category]++
+		result.Counts[item.ResultType]++
 		if item.Reusable {
 			result.Counts["reusable"]++
 		}
@@ -622,99 +643,221 @@ func (s *Service) CustomerStudioAssets(ctx context.Context, actor Actor, project
 
 func (s *Service) customerStudioProjectAssets(ctx context.Context, actor Actor, project domain.Project) ([]StudioAssetItem, error) {
 	result := []StudioAssetItem{}
-	sources, err := s.Sources(ctx, actor, project.ID)
+	tasks, err := s.WorkTasks(ctx, actor, project.ID)
 	if err != nil {
 		return nil, err
 	}
-	for _, source := range sources {
-		if strings.TrimSpace(source.LatestRevision) == "" {
-			result = append(result, StudioAssetItem{
-				Kind: "source", Category: "source", ProjectID: project.ID, ProjectName: project.BrandName,
-				Title: source.Name, Summary: sourceTypeLabel(source.SourceType), Version: "暂无版本", Status: source.Status,
-				Reusable: false, BlockedReason: "来源还没有可固定的资料版本", Metadata: map[string]any{}, CreatedAt: source.CreatedAt,
-			})
-			continue
+	for _, task := range tasks {
+		view, viewErr := s.WorkTask(ctx, actor, task.ID)
+		if viewErr != nil {
+			return nil, viewErr
 		}
-		revision, revisionErr := s.store.SourceRevision(ctx, actor.TenantID, source.LatestRevision)
-		if revisionErr != nil {
-			return nil, revisionErr
-		}
-		reusable := source.Status != "revoked" && revision.ProcessingStatus == "ready"
-		blocked := ""
-		if !reusable {
-			blocked = "来源尚未完成处理或已失效"
-		}
-		result = append(result, StudioAssetItem{
-			Ref: "source_revision:" + revision.ID + "@sha256:" + strings.TrimPrefix(revision.SHA256, "sha256:"), Kind: "source", Category: "source",
-			ProjectID: project.ID, ProjectName: project.BrandName, Title: source.Name, Summary: sourceTypeLabel(source.SourceType),
-			Version: fmt.Sprintf("第 %d 版", source.RevisionCount), Status: revision.ProcessingStatus, Reusable: reusable, BlockedReason: blocked,
-			Metadata: map[string]any{"file_name": revision.FileName, "media_type": revision.DetectedMIME}, CreatedAt: revision.CreatedAt,
-		})
-	}
-	physicalAssets, err := s.Assets(ctx, actor, project.ID)
-	if err != nil {
-		return nil, err
-	}
-	eligible, err := s.EligibleAssets(ctx, actor, project.ID, project.Channel)
-	if err != nil {
-		return nil, err
-	}
-	eligibleByID := map[string]domain.AssetBundle{}
-	for _, bundle := range eligible {
-		eligibleByID[bundle.Asset.ID] = bundle
-	}
-	for _, asset := range physicalAssets {
-		bundle, reusable := eligibleByID[asset.ID]
-		ref := ""
-		version := "权利待确认"
-		blocked := "权利未批准、已过期或不适用于当前渠道"
-		if reusable {
-			ref = fmt.Sprintf("asset:%s@source_revision:%s#rights:%s:v%d", asset.ID, asset.SourceRevisionID, bundle.Rights.ID, bundle.Rights.RowVersion)
-			version = "权利已固定"
-			blocked = ""
-		}
-		result = append(result, StudioAssetItem{Ref: ref, Kind: "media_asset", Category: "media", ProjectID: project.ID, ProjectName: project.BrandName, Title: asset.Name, Summary: assetTypeLabel(asset.AssetType), Version: version, Status: asset.Status, Reusable: reusable, BlockedReason: blocked, Metadata: map[string]any{"usage_mode": asset.UsageMode}, CreatedAt: asset.CreatedAt})
-	}
-	knowledge, err := s.KnowledgeObjects(ctx, actor, project.ID)
-	if err != nil {
-		return nil, err
-	}
-	latest := map[string]KnowledgeObjectView{}
-	for _, item := range knowledge {
-		if current, ok := latest[item.ID]; !ok || item.Version > current.Version {
-			latest[item.ID] = item
-		}
-	}
-	for _, item := range latest {
-		reusable := knowledgeObjectStatusEligible(item.Status) && (item.ExpiresAt == nil || item.ExpiresAt.After(s.now().UTC())) && len(item.ConflictRefs) == 0
-		blocked := ""
-		ref := ""
-		if reusable {
-			ref = fmt.Sprintf("knowledge:%s@v%d#%s", item.ID, item.Version, item.Digest)
-		} else {
-			blocked = "知识尚未批准、已过期或存在冲突"
-		}
-		result = append(result, StudioAssetItem{Ref: ref, Kind: "knowledge", Category: knowledgeCategory(item.ObjectType), ProjectID: project.ID, ProjectName: project.BrandName, Title: item.Title, Summary: item.Statement, Version: fmt.Sprintf("v%d", item.Version), Status: item.Status, Reusable: reusable, BlockedReason: blocked, Metadata: map[string]any{"object_type": item.ObjectType}, CreatedAt: item.CreatedAt})
-	}
-	snapshots, err := s.ApprovedSnapshots(ctx, actor, project.ID, "")
-	if err != nil {
-		return nil, err
-	}
-	for _, snapshot := range snapshots {
-		result = append(result, StudioAssetItem{Ref: "approved_snapshot:" + snapshot.ID + "@" + snapshot.SubjectHash, Kind: "approved_result", Category: "approved", ProjectID: project.ID, ProjectName: project.BrandName, Title: snapshotTypeLabel(snapshot.SubmissionType), Summary: fmt.Sprintf("%d 个关联文件，已通过客户确认", len(snapshot.Artifacts)), Version: "固定版本", Status: "approved", Reusable: true, Metadata: map[string]any{"submission_type": snapshot.SubmissionType}, CreatedAt: snapshot.CreatedAt})
-	}
-	inputs, err := s.InputItems(ctx, actor, InputItemQuery{ProjectID: project.ID})
-	if err != nil {
-		return nil, err
-	}
-	for _, item := range inputs {
-		saved, _ := item.Metadata["saved_for_reuse"].(bool)
-		if item.SourceType != "manual_inspiration" || !saved || item.Status == domain.InputItemArchived {
-			continue
-		}
-		result = append(result, StudioAssetItem{Ref: fmt.Sprintf("input:%s@v%d", item.ID, item.RowVersion), Kind: "inspiration", Category: "inspiration", ProjectID: project.ID, ProjectName: project.BrandName, Title: item.Title, Summary: item.Summary, Version: fmt.Sprintf("v%d", item.RowVersion), Status: "saved", Reusable: true, Metadata: map[string]any{"source_type": item.SourceType}, CreatedAt: item.CreatedAt})
+		result = append(result, customerStudioTaskAssets(view)...)
 	}
 	return result, nil
+}
+
+func customerStudioTaskAssets(view WorkTaskView) []StudioAssetItem {
+	result := []StudioAssetItem{}
+	base := func(id, resultType, inputRef, title, summary, version, status string, createdAt time.Time) StudioAssetItem {
+		reusable := status == "confirmed" || status == "delivered"
+		return StudioAssetItem{
+			Ref: "result:" + id, InputRef: inputRef, ResultType: resultType,
+			ProjectID: view.Project.ID, ProjectName: view.Project.BrandName, TaskID: view.Task.ID, TaskTitle: view.Task.Title,
+			Title: title, Summary: summary, Version: version, Status: status, Reusable: reusable,
+			BlockedReason: studioAssetBlockedReason(status), Downloads: []StudioDownload{}, CreatedAt: createdAt,
+		}
+	}
+
+	personaSnapshotIDs := map[string]bool{}
+	for _, output := range view.StageOutputs {
+		if output.OutputType == domain.StageOutputKnowledgeSnapshot && studioOutputCustomerStep(view, output.StageRunID) == "persona" {
+			personaSnapshotIDs[output.ObjectID] = true
+		}
+	}
+	for _, snapshot := range view.KnowledgeSnapshots {
+		if !personaSnapshotIDs[snapshot.ID] {
+			continue
+		}
+		result = append(result, base(
+			snapshot.ID, "persona", "knowledge_snapshot:"+snapshot.ID+"@"+snapshot.Digest,
+			view.Task.Title+" · 人物原型", fmt.Sprintf("%d 个人物与受众要点已固定", len(snapshot.Objects)), fmt.Sprintf("v%d", snapshot.PackVersion), "confirmed", snapshot.CreatedAt,
+		))
+	}
+
+	revisionHashes := map[string]bool{}
+	for _, revision := range view.Revisions {
+		status := studioRevisionAssetStatus(revision.Status)
+		inputRef := fmt.Sprintf("task_revision:%s@%s", revision.ID, revision.ContentHash)
+		result = append(result, base(
+			revision.ID, "script", inputRef, taskRevisionTitle(revision),
+			fmt.Sprintf("来自“%s”的第 %d 版剧本", view.Task.Title, revision.RevisionNo), fmt.Sprintf("v%d", revision.RevisionNo), status, revision.CreatedAt,
+		))
+		revisionHashes[revision.ContentHash] = true
+	}
+
+	for _, snapshot := range view.ApprovedSnapshots {
+		if revisionHashes[snapshot.ContentHash] {
+			continue
+		}
+		resultType := studioSnapshotResultType(view, snapshot)
+		if resultType == "" {
+			continue
+		}
+		result = append(result, base(
+			snapshot.ID, resultType, "approved_snapshot:"+snapshot.ID+"@"+snapshot.SubjectHash,
+			view.Task.Title+" · "+studioResultTypeLabel(resultType),
+			fmt.Sprintf("来自“%s”的%s结果已经确认", view.Task.Title, studioResultTypeLabel(resultType)), "固定版本", "confirmed", snapshot.CreatedAt,
+		))
+	}
+
+	finalArtifacts := map[string]bool{}
+	for _, output := range view.StageOutputs {
+		if output.OutputType == domain.StageOutputArtifact && output.Role == domain.StageOutputRoleFinal {
+			finalArtifacts[output.ObjectID] = true
+		}
+	}
+	seenArtifacts := map[string]bool{}
+	for _, artifact := range view.Artifacts {
+		if seenArtifacts[artifact.ID] || artifact.Purpose == "delivery" || artifact.Kind == "delivery" || (artifact.Visibility != "" && artifact.Visibility != "client") {
+			continue
+		}
+		resultType := studioArtifactResultType(artifact)
+		if resultType == "" {
+			continue
+		}
+		seenArtifacts[artifact.ID] = true
+		status := studioArtifactAssetStatus(view, artifact, finalArtifacts[artifact.ID])
+		titleSuffix := studioResultTypeLabel(resultType)
+		version := "生成结果"
+		if finalArtifacts[artifact.ID] {
+			titleSuffix = "最终" + titleSuffix
+			version = "最终版本"
+		}
+		item := base(
+			artifact.ID, resultType, "artifact:"+artifact.ID+"@sha256:"+strings.TrimPrefix(artifact.SHA256, "sha256:"),
+			view.Task.Title+" · "+titleSuffix, defaultString(artifact.FileName, "由创作流水线生成的"+studioResultTypeLabel(resultType)), version, status, artifact.CreatedAt,
+		)
+		item.Downloads = []StudioDownload{studioDownload(artifact)}
+		result = append(result, item)
+	}
+	return result
+}
+
+func studioOutputCustomerStep(view WorkTaskView, stageRunID string) string {
+	for _, run := range view.StageRuns {
+		if run.ID == stageRunID {
+			return studioCustomerStepID(run.StageID, view.SOP)
+		}
+	}
+	return ""
+}
+
+func studioRevisionAssetStatus(status string) string {
+	switch status {
+	case domain.TaskRevisionAccepted:
+		return "confirmed"
+	case domain.TaskRevisionRejected:
+		return "changes_requested"
+	case domain.TaskRevisionSuperseded:
+		return "superseded"
+	case domain.TaskRevisionDraft:
+		return "draft"
+	default:
+		return "pending_confirmation"
+	}
+}
+
+func studioSnapshotResultType(view WorkTaskView, snapshot domain.ApprovedSnapshot) string {
+	for _, output := range view.StageOutputs {
+		if output.ObjectID != snapshot.ID {
+			continue
+		}
+		switch studioOutputCustomerStep(view, output.StageRunID) {
+		case "persona":
+			return "persona"
+		case "script":
+			return "script"
+		case "storyboard":
+			return "storyboard"
+		}
+	}
+	switch snapshot.SubmissionType {
+	case "strategy", "offer":
+		return "persona"
+	case "brief", "content_batch":
+		return "script"
+	case "storyboard":
+		return "storyboard"
+	case "asset_batch":
+		return "image"
+	default:
+		return ""
+	}
+}
+
+func studioArtifactResultType(artifact domain.Artifact) string {
+	switch {
+	case strings.HasPrefix(artifact.MediaType, "image/"):
+		return "image"
+	case strings.HasPrefix(artifact.MediaType, "video/"):
+		return "video"
+	default:
+		return ""
+	}
+}
+
+func studioArtifactAssetStatus(view WorkTaskView, artifact domain.Artifact, final bool) string {
+	if final && view.Task.Status == domain.TaskStatusDelivered {
+		return "delivered"
+	}
+	hasReview, pending, changesRequested, approved := false, false, false, false
+	for _, review := range view.MediaReviews {
+		if review.SubjectArtifactID != artifact.ID {
+			continue
+		}
+		hasReview = true
+		switch review.Status {
+		case domain.MediaReviewPending:
+			pending = true
+		case domain.MediaReviewChanges, domain.MediaReviewRejected:
+			changesRequested = true
+		case domain.MediaReviewApproved:
+			approved = true
+		}
+	}
+	if changesRequested {
+		return "changes_requested"
+	}
+	if pending {
+		return "pending_confirmation"
+	}
+	if hasReview && !approved {
+		return "pending_confirmation"
+	}
+	if !hasReview {
+		return "pending_confirmation"
+	}
+	return "confirmed"
+}
+
+func studioAssetBlockedReason(status string) string {
+	switch status {
+	case "draft":
+		return "草稿结果需要先提交确认"
+	case "pending_confirmation":
+		return "当前结果确认后即可用于新的创作"
+	case "changes_requested":
+		return "当前结果需要完成修改并重新确认"
+	case "superseded":
+		return "已有更新版本，请使用最新确认结果"
+	default:
+		return ""
+	}
+}
+
+func studioResultTypeLabel(resultType string) string {
+	return map[string]string{"persona": "人物原型", "script": "剧本", "storyboard": "分镜", "image": "图片", "video": "视频"}[resultType]
 }
 
 func (s *Service) resolveCustomerStudioAssetRefs(ctx context.Context, actor Actor, projectID string, refs []string) ([]string, error) {
@@ -725,18 +868,19 @@ func (s *Service) resolveCustomerStudioAssetRefs(ctx context.Context, actor Acto
 	if err != nil {
 		return nil, err
 	}
-	allowed := map[string]bool{}
+	allowed := map[string]string{}
 	for _, item := range catalog.Items {
-		if item.Reusable && item.Ref != "" {
-			allowed[item.Ref] = true
+		if item.Reusable && item.Ref != "" && item.InputRef != "" {
+			allowed[item.Ref] = item.InputRef
 		}
 	}
 	result := []string{}
 	for _, ref := range uniqueNonEmpty(refs) {
-		if !allowed[ref] {
-			return nil, domain.Policy("STUDIO_ASSET_NOT_REUSABLE", "所选资产已失效、权利不足或不属于当前项目", "刷新资产库并重新选择可复用版本")
+		inputRef, ok := allowed[ref]
+		if !ok {
+			return nil, domain.Policy("STUDIO_ASSET_NOT_REUSABLE", "所选创作结果尚未确认或不属于当前项目", "刷新资产库并选择已确认的创作结果")
 		}
-		result = append(result, ref)
+		result = append(result, inputRef)
 	}
 	return result, nil
 }
@@ -795,8 +939,8 @@ func (s *Service) customerStudioTaskView(actor Actor, view WorkTaskView, items [
 		if item.TargetTaskID != view.Task.ID && !containsString(view.Task.InputRefs, "input:"+item.ID) && !containsStringPrefix(view.Task.InputRefs, "input:"+item.ID+"@") {
 			continue
 		}
-		saved, _ := item.Metadata["saved_for_reuse"].(bool)
-		result.Inspirations = append(result.Inspirations, StudioInspiration{ID: item.ID, Title: item.Title, Summary: defaultString(item.Summary, item.Body), SourceType: item.SourceType, SourceLabel: inputSourceLabel(item.SourceType), SavedForReuse: saved, CreatedAt: item.CreatedAt})
+		saved := metadataBool(item.Metadata, "saved_as_project_reference") || metadataBool(item.Metadata, "saved_for_reuse")
+		result.Inspirations = append(result.Inspirations, StudioInspiration{ID: item.ID, Title: item.Title, Summary: defaultString(item.Summary, item.Body), SourceType: item.SourceType, SourceLabel: inputSourceLabel(item.SourceType), SavedAsProjectReference: saved, CreatedAt: item.CreatedAt})
 	}
 	currentTitle := studioStepTitle(result.Task.CurrentStepID)
 	if currentTitle == "" {
@@ -835,23 +979,141 @@ func (s *Service) customerStudioTaskView(actor Actor, view WorkTaskView, items [
 		attached[ref] = true
 	}
 	for _, item := range catalog.Items {
-		if attached[item.Ref] {
+		if attached[item.InputRef] {
 			result.AttachedAssets = append(result.AttachedAssets, item)
 		}
 	}
 	return result
 }
 
+func metadataBool(metadata map[string]any, key string) bool {
+	value, ok := metadata[key]
+	if !ok {
+		return false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(typed))
+		return err == nil && parsed
+	default:
+		return false
+	}
+}
+
 func studioProject(project domain.Project) StudioProject {
-	return StudioProject{ID: project.ID, BrandName: project.BrandName, ProductName: project.ProductName, ContentType: project.ContentType, Channel: project.Channel, Status: project.Status}
+	return StudioProject{
+		ID: project.ID, BrandName: project.BrandName, ProductName: project.ProductName,
+		ContentType: project.ContentType, Channel: project.Channel, Status: project.Status,
+		ExecutionClientConnected: project.ConnectedDevices > 0, ConnectedClientCount: project.ConnectedDevices,
+	}
+}
+
+func (s *Service) CreateCustomerStudioConnectSession(ctx context.Context, actor Actor, projectID, requestID string) (StudioConnectSession, error) {
+	if !canConnectStudioClient(actor.Role) {
+		return StudioConnectSession{}, domain.Policy("ROLE_DENIED", "当前账号不能连接创作电脑", "请联系团队负责人开通创作权限")
+	}
+	session, err := s.createConnectSession(ctx, actor, strings.TrimSpace(projectID), requestID)
+	return studioConnectSession(session), err
+}
+
+func (s *Service) CustomerStudioConnectSession(ctx context.Context, actor Actor, sessionID string) (StudioConnectSession, error) {
+	session, err := s.ConnectSession(ctx, actor, strings.TrimSpace(sessionID))
+	return studioConnectSession(session), err
+}
+
+func (s *Service) ApproveCustomerStudioConnectSession(ctx context.Context, actor Actor, sessionID, requestID string) (StudioConnectSession, error) {
+	session, err := s.ConnectSession(ctx, actor, strings.TrimSpace(sessionID))
+	if err != nil {
+		return StudioConnectSession{}, err
+	}
+	if session.Progress == nil || session.Progress.AttemptID == "" || session.Progress.UserCode == "" {
+		return studioConnectSession(session), domain.Conflict("STUDIO_CLIENT_CONFIRMATION_NOT_READY", "Codex 尚未发起连接确认")
+	}
+	if !canConnectStudioClient(actor.Role) {
+		return studioConnectSession(session), domain.Policy("ROLE_DENIED", "当前账号不能确认创作电脑连接", "请联系团队负责人开通创作权限")
+	}
+	if _, err := s.approveBootstrapAuthorization(ctx, actor, session.ID, session.Progress.AttemptID, requestID, true); err != nil {
+		return studioConnectSession(session), err
+	}
+	session, err = s.ConnectSession(ctx, actor, session.ID)
+	return studioConnectSession(session), err
+}
+
+func (s *Service) DenyCustomerStudioConnectSession(ctx context.Context, actor Actor, sessionID, requestID string) (StudioConnectSession, error) {
+	session, err := s.ConnectSession(ctx, actor, strings.TrimSpace(sessionID))
+	if err != nil {
+		return StudioConnectSession{}, err
+	}
+	if session.Progress == nil || session.Progress.AttemptID == "" || session.Progress.UserCode == "" {
+		return studioConnectSession(session), domain.Conflict("STUDIO_CLIENT_CONFIRMATION_NOT_READY", "Codex 尚未发起连接确认")
+	}
+	if !canConnectStudioClient(actor.Role) {
+		return studioConnectSession(session), domain.Policy("ROLE_DENIED", "当前账号不能拒绝创作电脑连接", "请联系团队负责人开通创作权限")
+	}
+	if _, err := s.denyBootstrapAuthorization(ctx, actor, session.ID, session.Progress.AttemptID, requestID, true); err != nil {
+		return studioConnectSession(session), err
+	}
+	session, err = s.ConnectSession(ctx, actor, session.ID)
+	return studioConnectSession(session), err
+}
+
+func (s *Service) CancelCustomerStudioConnectSession(ctx context.Context, actor Actor, sessionID, requestID string) (StudioConnectSession, error) {
+	if !canConnectStudioClient(actor.Role) {
+		return StudioConnectSession{}, domain.Policy("ROLE_DENIED", "当前账号不能取消创作电脑连接", "请联系团队负责人开通创作权限")
+	}
+	session, err := s.cancelConnectSession(ctx, actor, strings.TrimSpace(sessionID), requestID)
+	return studioConnectSession(session), err
+}
+
+func studioConnectSession(session domain.ConnectSession) StudioConnectSession {
+	view := StudioConnectSession{
+		ID: session.ID, ProjectID: session.ProjectID, Status: session.State,
+		Message: "等待创作电脑开始连接", ExpiresAt: session.ExpiresAt,
+	}
+	switch session.State {
+	case "verifying":
+		view.Status = "connecting"
+		view.Message = "正在完成本地环境检查和项目连接"
+	case "connected":
+		view.Message = "创作电脑已连接，可以开始新的创作任务"
+	case "expired":
+		view.Message = "本次连接已过期，请重新发起"
+	case "canceled":
+		view.Message = "本次连接已取消"
+	case "failed":
+		view.Message = "创作电脑连接失败，请重新发起"
+	}
+	if session.Progress == nil {
+		return view
+	}
+	view.SupportCode = session.Progress.SupportCode
+	if session.Progress.Status == "failed" {
+		view.Status = "failed"
+		view.Message = "连接未完成，请重新发起；需要协助时可提供支持编号"
+		return view
+	}
+	if session.Progress.Stage == "authorizing" && session.Progress.Status == "needs_action" && session.Progress.UserCode != "" {
+		view.Status = "confirmation_required"
+		view.Message = "请核对 Codex 中显示的代码，再确认连接这台电脑"
+		view.RequiresConfirmation = true
+		view.VerificationCode = session.Progress.UserCode
+		return view
+	}
+	if session.State != "connected" {
+		view.Status = "connecting"
+		view.Message = "创作电脑正在完成连接，请保持当前页面打开"
+	}
+	return view
 }
 
 func studioTaskSummary(task domain.WorkTask, project domain.Project, sop domain.SOPVersion) StudioTaskSummary {
 	return StudioTaskSummary{ID: task.ID, Project: studioProject(project), ExperienceID: studioExperienceIDForSOP(sop), Title: task.Title, Intent: task.Intent, ContentType: task.ContentType, Status: task.Status, StatusLabel: studioTaskStatusLabel(task.Status), CurrentStepID: studioCustomerStepID(task.CurrentStageID, sop), NextAction: studioNextAction(task), AssetCount: len(task.InputRefs), CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
 }
 
-func studioCustomerSteps(task domain.WorkTask, sop domain.SOPVersion) []StudioCustomerStep {
-	templates := []StudioCustomerStep{
+func marketingStudioCustomerStepTemplates() []StudioCustomerStep {
+	return []StudioCustomerStep{
 		{ID: "inspiration", Title: "灵感采集", Outcome: "选出值得继续的人物方向和可信参考"},
 		{ID: "persona", Title: "人物原型", Outcome: "确认人物定位、受众关系和表达边界"},
 		{ID: "script", Title: "营销剧本", Outcome: "确认可制作的内容方向和剧本版本"},
@@ -859,6 +1121,26 @@ func studioCustomerSteps(task domain.WorkTask, sop domain.SOPVersion) []StudioCu
 		{ID: "media", Title: "候选成片", Outcome: "选择通过技术和内容检查的候选结果"},
 		{ID: "delivery", Title: "交付准备", Outcome: "生成正式交付包并登记后续结果"},
 	}
+}
+
+func customerStudioExperienceStepTitles(sop domain.SOPVersion) []string {
+	if isMarketingStudioSOP(sop) {
+		templates := marketingStudioCustomerStepTemplates()
+		result := make([]string, 0, len(templates))
+		for _, template := range templates {
+			result = append(result, template.Title)
+		}
+		return result
+	}
+	result := make([]string, 0, len(sop.Stages))
+	for _, stage := range sop.Stages {
+		result = append(result, defaultString(strings.TrimSpace(stage.Name), "创作步骤"))
+	}
+	return result
+}
+
+func studioCustomerSteps(task domain.WorkTask, sop domain.SOPVersion) []StudioCustomerStep {
+	templates := marketingStudioCustomerStepTemplates()
 	if !isMarketingStudioSOP(sop) {
 		templates = make([]StudioCustomerStep, 0, len(sop.Stages))
 		for index, stage := range sop.Stages {

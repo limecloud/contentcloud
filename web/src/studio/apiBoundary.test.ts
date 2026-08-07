@@ -15,4 +15,9 @@ describe('customer studio boundary',()=>{
   it.each(['WorkTaskView','StageRun','GateEvaluation','SOPVersion','executor_kind','capability_id'])('does not import or expose %s',(term)=>{
     expect(studioSources).not.toContain(term);
   });
+
+  it('keeps input references out of the customer result-asset language',()=>{
+    expect(studioSources).not.toContain('从人物、灵感、历史剧本和已批准成果开始下一次创作');
+    expect(studioSources).not.toContain('保存到资产库');
+  });
 });

@@ -2,12 +2,10 @@ import { AlertTriangle, ArrowRight, BookOpen, CheckCircle2, Clock3, EyeOff, Lapt
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { capabilityStatus, loadAgentClients, loadProjectAgentHandoff, loadReviewFeedbackAgentHandoff, normalizeDigest as normalizeHandoffDigest, type AgentClient, type AgentHandoff } from '../agentHandoff';
-import { api, post } from '../api';
+import { api } from '../api';
 import { ContinueInAgentModal } from '../components/ContinueInCodexModal';
-import { InitializeWorkspaceModal } from '../components/InitializeWorkspaceModal';
 import { ProjectPageState } from '../components/ProjectPageState';
 import { Banner, Button, Empty, IconButton, Loading, Status } from '../components/ui';
-import { connectStateCopy, isActiveConnectState, type BootstrapAttempt, type BootstrapAuthorizationView, type ConnectSession } from '../connectBootstrap';
 import { consolePath } from '../consoleRoutes';
 import type { ProjectProjection, ProjectionAction, ProjectionSection, ProjectionSnapshot, ProjectionSubmission, SubmissionRevisionView } from '../types';
 import { submissionTypeLabel } from '../uiLabels';
@@ -25,7 +23,7 @@ export function V3ProjectPage({view}:{view:ProjectView}) {
   const {projectID}=useParams();
   const navigate=useNavigate();
   const location=useLocation();
-  const {session,dashboard,refresh:refreshWorkspace}=useWorkspace();
+  const {dashboard}=useWorkspace();
   const project=dashboard.projects.find(item=>item.id===projectID);
   const contract=projectPageContracts[view];
   const [projection,setProjection]=useState<ProjectProjection>();
@@ -33,9 +31,6 @@ export function V3ProjectPage({view}:{view:ProjectView}) {
   const [loading,setLoading]=useState(true);
   const [refreshing,setRefreshing]=useState(false);
   const [error,setError]=useState('');
-  const [connect,setConnect]=useState<ConnectSession>();
-  const [connectOpen,setConnectOpen]=useState(false);
-  const [connectBusy,setConnectBusy]=useState('');
   const [focusedRevision,setFocusedRevision]=useState<SubmissionRevisionView>();
   const [focusLoading,setFocusLoading]=useState(false);
   const [focusIssue,setFocusIssue]=useState<ProjectPageIssue>();
@@ -60,19 +55,13 @@ export function V3ProjectPage({view}:{view:ProjectView}) {
     finally{setLoading(false);setRefreshing(false)}
   },[project?.id,projectID]);
 
-  useEffect(()=>{setProjection(undefined);setConnect(undefined);setConnectOpen(false);setAgentHandoff(undefined);setAgentHandoffKind(undefined);void load()},[load]);
+  useEffect(()=>{setProjection(undefined);setAgentHandoff(undefined);setAgentHandoffKind(undefined);void load()},[load]);
   useEffect(()=>{
     if(agentClients)return;
     let active=true;
     loadAgentClients().then(value=>{if(active)setAgentClients(value)}).catch(()=>{});
     return()=>{active=false};
   },[agentClients]);
-  useEffect(()=>{
-    if(view!=='setup'||!projectID)return;
-    const attemptID=focusKind==='bootstrap_attempt'?focusID:'';
-    if(!attemptID)return;
-    api<BootstrapAuthorizationView>(`/api/bff/projects/${projectID}/bootstrap-attempts/${encodeURIComponent(attemptID)}`).then(value=>{setConnect(value.session);setConnectOpen(true)}).catch(value=>setError(message(value,'无法读取初始化授权')));
-  },[focusID,focusKind,projectID,view]);
   useEffect(()=>{
     setFocusedRevision(undefined);setFocusIssue(undefined);setFocusLoading(false);
     if(view!=='review'||focusKind!=='submission_revision'||!focusID||!projectID||pageFocus.error)return;
@@ -84,42 +73,6 @@ export function V3ProjectPage({view}:{view:ProjectView}) {
       .finally(()=>{if(active)setFocusLoading(false)});
     return()=>{active=false};
   },[focusID,focusKind,focusReload,projectID,view,pageFocus.error?.code]);
-  useEffect(()=>{
-    if(!connect||!isActiveConnectState(connect.state))return;
-    const timer=window.setInterval(async()=>{
-      try{
-        const next=await api<ConnectSession>(`/api/bff/connect-sessions/${connect.id}`);
-        setConnect(next);
-        if(next.state==='connected'){void load(true);void refreshWorkspace()}
-      }catch{/* 下一次轮询会重试。 */}
-    },2000);
-    return()=>window.clearInterval(timer);
-  },[connect?.id,connect?.state,load,refreshWorkspace]);
-
-  const createConnect=async()=>{
-    if(!projectID)return;
-    setConnectBusy('connect');setError('');
-    try{const next=await post<ConnectSession>(`/api/bff/projects/${projectID}/connect-sessions`);setConnect(next);setConnectOpen(true)}
-    catch(value){setError(message(value,'创建初始化会话失败'))}
-    finally{setConnectBusy('')}
-  };
-  const cancelConnect=async()=>{
-    if(!connect)return;
-    setConnectBusy('cancel');
-    try{setConnect(await post<ConnectSession>(`/api/bff/connect-sessions/${connect.id}/cancel`));setConnectOpen(false)}
-    catch(value){setError(message(value,'取消初始化失败'));setConnectOpen(false)}
-    finally{setConnectBusy('')}
-  };
-  const decideAuthorization=async(decision:'approve'|'deny')=>{
-    if(!connect?.progress?.attempt_id)return;
-    setConnectBusy(decision);setError('');
-    try{
-      await post<BootstrapAttempt>(`/api/bff/connect-sessions/${connect.id}/attempts/${connect.progress.attempt_id}/${decision}`);
-      setConnect(await api<ConnectSession>(`/api/bff/connect-sessions/${connect.id}`));
-    }catch(value){setError(message(value,decision==='approve'?'批准初始化失败':'拒绝初始化失败'))}
-    finally{setConnectBusy('')}
-  };
-
   const navigateTarget=(target:ProjectNavigationTarget)=>{
     if(!projectID)return;
     const path=consolePath.projectNavigation(projectID,target);
@@ -153,8 +106,6 @@ export function V3ProjectPage({view}:{view:ProjectView}) {
   const section=contract.section?projection?.sections[contract.section]||emptySection:aggregateSections(projection);
   const submissions=(projection?.submissions||[]).filter(item=>contract.submissionTypes.includes(item.type));
   const snapshots=(projection?.snapshots||[]).filter(item=>contract.snapshotTypes.includes(item.type));
-  const canManage=session.role==='tenant_admin'||session.role==='project_manager';
-  const initialize=canManage&&project.status!=='archived'?createConnect:undefined;
   const actualFocusDigest=focusedRevision?normalizeDigest(focusedRevision.revision.content_hash):'';
   const staleFocus=Boolean(focusDigest&&actualFocusDigest&&focusDigest!==actualFocusDigest);
 
@@ -171,8 +122,7 @@ export function V3ProjectPage({view}:{view:ProjectView}) {
     {focusedRevision&&<FocusedRevision value={focusedRevision} expectedDigest={focusDigest} stale={staleFocus} handoffBusy={Boolean(agentHandoffBusy)} onContinue={openReviewHandoff}/>}
     {view==='setup'&&focusKind==='environment_health'&&<Banner kind="info">当前焦点：创作环境健康状态。云端状态只反映已上报事实；本地写入检查和环境锁定状态仍以工作区诊断结果为准。</Banner>}
     {projection&&projection.schema_version!=='contentcloud.project-projection/3.0'&&<Banner kind="error">服务端返回了不受支持的项目投影版本：{projection.schema_version}</Banner>}
-    {view==='setup'?<SetupView projection={projection} connect={connect} clients={agentClients} canInitialize={Boolean(initialize)} busy={connectBusy==='connect'} onInitialize={initialize} onNavigate={navigateTarget}/>:view==='overview'?<Overview projection={projection} onNavigate={next=>navigate(consolePath.project(project.id,next))} onNavigateTarget={navigateTarget}/>:<DomainView view={view} section={section} submissions={submissions} snapshots={snapshots} projection={projection} onNavigate={next=>navigate(consolePath.project(project.id,next))} onNavigateTarget={navigateTarget}/>}
-    {connect&&connectOpen&&<InitializeWorkspaceModal session={connect} projectName={`${project.brand_name} / ${project.product_name}`} serverURL={window.location.origin} canceling={connectBusy==='cancel'} retrying={connectBusy==='connect'} approving={connectBusy==='approve'} denying={connectBusy==='deny'} onClose={()=>setConnectOpen(false)} onCancel={cancelConnect} onRetry={createConnect} onApprove={()=>decideAuthorization('approve')} onDeny={()=>decideAuthorization('deny')}/>}
+    {view==='setup'?<SetupView projection={projection} clients={agentClients} onOpenCustomerConnect={()=>navigate(`/studio/connect?project=${encodeURIComponent(project.id)}`)}/>:view==='overview'?<Overview projection={projection} onNavigate={next=>navigate(consolePath.project(project.id,next))} onNavigateTarget={navigateTarget}/>:<DomainView view={view} section={section} submissions={submissions} snapshots={snapshots} projection={projection} onNavigate={next=>navigate(consolePath.project(project.id,next))} onNavigateTarget={navigateTarget}/>}
     {agentHandoffKind&&<ContinueInAgentModal clients={agentClients} handoff={agentHandoff} kind={agentHandoffKind} loading={Boolean(agentHandoffBusy)} error={agentHandoffError} onSelect={selectAgent} onBack={()=>{setAgentHandoff(undefined);setAgentHandoffError('')}} onClose={()=>{setAgentHandoff(undefined);setAgentHandoffKind(undefined);setAgentHandoffError('')}}/>}
   </div>;
 }
@@ -191,22 +141,14 @@ function FocusedRevision({value,expectedDigest,stale,handoffBusy,onContinue}:{va
   </section></>;
 }
 
-function SetupView({projection,connect,clients,canInitialize,busy,onInitialize,onNavigate}:{projection?:ProjectProjection;connect?:ConnectSession;clients?:AgentClient[];canInitialize:boolean;busy:boolean;onInitialize?:()=>Promise<void>;onNavigate:(target:ProjectNavigationTarget)=>void}) {
-  const connected=(projection?.sections.onboarding?.count||0)>0;
-  const steps=[
-    {label:'云端项目',detail:'项目与角色边界已建立',done:Boolean(projection)},
-    {label:'本地工作区',detail:connected?'至少一台设备已经绑定':'点击开始接入初始化',done:connected,current:!connected},
-    {label:'可信知识',detail:'形成可审核的知识版本',done:(projection?.sections.knowledge?.count||0)>0,current:connected&&(projection?.sections.knowledge?.count||0)===0},
-    {label:'内容生产',detail:'以批准快照启动内容批次',done:(projection?.sections.creative?.count||0)>0}
-  ];
-  return <>
-    {connect&&isActiveConnectState(connect.state)&&<Banner kind="info"><b>{connectStateCopy(connect).title}</b>：{connectStateCopy(connect).detail}</Banner>}
-    <section className="v3-steps" aria-label="初始化进度">{steps.map((step,index)=><article key={step.label} className={`${step.done?'is-done':''} ${step.current?'is-current':''}`}><span>{step.done?<CheckCircle2 size={16}/>:index+1}</span><div><strong>{step.label}</strong><small>{step.detail}</small></div></article>)}</section>
-    <div className="v3-two-column v3-setup-columns">
-      <section className="v3-panel"><header><div><span className="section-kicker">本地工作区绑定</span><h2>{connected?'创作环境已连接':'等待接入初始化'}</h2></div><Status value={connected?'connected':'waiting_for_computer'}/></header><div className="v3-panel-body v3-setup-state">{connected?<ShieldCheck size={28}/>:<Laptop2 size={28}/>}<div><strong>{connected?`${projection?.sections.onboarding.count} 台设备已绑定`:'接入本地创作工作区'}</strong><p>{connected?'本地负责创作，服务端负责任务分配、内容提交、审核决定和正式快照。':'点击开始接入初始化，随后将操作指令复制到 Codex；云端不会自动读取本地文件。'}</p></div></div>{!connected&&clients&&<div className="v3-agent-reservation">{clients.map(client=>{const available=capabilityStatus(client,'workspace_bootstrap')==='available';return <a href={`/docs/clients/${client.id}`} target="_blank" rel="noreferrer" key={client.id} className={available?'is-available':''}><b>{client.display_name}</b><small>{available?'可用':'即将支持'}</small></a>})}</div>}{!connected&&<footer><a className="button button-ghost" href="/docs/clients/codex" target="_blank" rel="noreferrer"><BookOpen size={15}/>接入指南</a><Button disabled={!canInitialize||busy} onClick={()=>void onInitialize?.()}>{busy?<LoaderCircle className="is-spinning" size={16}/>:<Laptop2 size={16}/>} 开始接入初始化</Button></footer>}</section>
-      <NextActions actions={projection?.next_actions||[]} onNavigate={onNavigate} onInitialize={onInitialize}/>
-    </div>
-  </>;
+function SetupView({projection,clients,onOpenCustomerConnect}:{projection?:ProjectProjection;clients?:AgentClient[];onOpenCustomerConnect:()=>void}) {
+  const connectedCount=projection?.sections.onboarding?.count||0;
+  const connected=connectedCount>0;
+  const customerClients=(clients||[]).filter(client=>client.id==='codex'||client.id==='claude-code');
+  return <div className="v3-connection-layout">
+    <section className="v3-panel v3-connection-status"><header><div><span className="section-kicker">项目连接状态</span><h2>执行客户端</h2></div><Status value={connected?'connected':'waiting_for_computer'}/></header><div className="v3-panel-body v3-setup-state">{connected?<ShieldCheck size={28}/>:<Laptop2 size={28}/>}<div><strong>{connected?`${connectedCount} 个执行客户端已连接`:'尚未连接执行客户端'}</strong><p>{connected?'本地客户端可以接收分配给它的创作步骤；平台 Worker、外部服务和人工节点仍按流水线配置独立执行。':'客户需要先在创作台连接至少一个执行客户端，之后才能开始新的创作任务。'}</p></div></div><footer><a className="button button-ghost" href="/docs/clients/codex" target="_blank" rel="noreferrer"><BookOpen size={15}/>连接文档</a><Button onClick={onOpenCustomerConnect}><MonitorUp size={16}/>{connected?'管理客户连接':'打开客户连接引导'}</Button></footer></section>
+    <section className="v3-panel v3-connection-capabilities"><header><div><span className="section-kicker">能力覆盖</span><h2>可连接客户端</h2></div></header><div>{customerClients.map(client=>{const bootstrap=capabilityStatus(client,'workspace_bootstrap')==='available';const automation=capabilityStatus(client,'local_automation')==='available';return <article key={client.id}><span><MonitorUp size={18}/></span><div><strong>{client.display_name}</strong><small>{bootstrap?'客户可自助连接':'连接适配器待发布'} · {automation?'支持本地执行':'本地执行待接入'}</small></div><Status value={bootstrap?'active':'planned'}/></article>})}</div><footer><p>运营后台负责查看连接、能力绑定和异常；连接确认由客户在独立创作台完成。</p></footer></section>
+  </div>;
 }
 
 function Overview({projection,onNavigate,onNavigateTarget}:{projection?:ProjectProjection;onNavigate:(view:ProjectView)=>void;onNavigateTarget:(target:ProjectNavigationTarget)=>void}) {
@@ -250,12 +192,11 @@ function SnapshotList({values}:{values:ProjectionSnapshot[]}) {
   return <section className="v3-panel"><header><div><span className="section-kicker">正式事实</span><h2>批准快照</h2></div><ShieldCheck size={18}/></header>{values.length===0?<Empty title="暂无正式快照" detail="只有绑定明确内容版本的人工批准，才能形成正式事实。"/>:<div className="v3-snapshot-list">{values.map(item=><article key={item.id}><CheckCircle2 size={18}/><div><strong>{submissionTypeLabel(item.type)}</strong><small>{shortID(item.id)} · {item.eligible_count} 个可用对象</small></div><time>{formatDate(item.created_at)}</time></article>)}</div>}</section>;
 }
 
-function NextActions({actions,onNavigate,onInitialize}:{actions:ProjectionAction[];onNavigate:(target:ProjectNavigationTarget)=>void;onInitialize?:()=>Promise<void>}) {
+function NextActions({actions,onNavigate}:{actions:ProjectionAction[];onNavigate:(target:ProjectNavigationTarget)=>void}) {
   const action=actions[0];
   if(!action)return <section className="v3-panel v3-next-action"><Clock3 size={22}/><div><span className="section-kicker">下一步</span><h2>等待新的正式状态</h2><p>当前没有服务端生成的下一步操作。</p></div></section>;
-  const run=()=>{if(action.id==='initialize-workspace'&&onInitialize){void onInitialize();return}onNavigate(action.navigation)};
-  const label=action.id==='initialize-workspace'?'开始接入初始化':action.label;
-  return <section className="v3-panel v3-next-action"><ArrowRight size={22}/><div><span className="section-kicker">下一步</span><h2>{label}</h2><p>{action.id==='initialize-workspace'?'创建接入会话，将操作指令复制到 Codex，完成本机检查和工作区登记。':action.reason||actionDescription(action)}</p>{action.enabled&&<Button onClick={run}>{label}<ArrowRight size={15}/></Button>}</div></section>;
+  const label=action.id==='initialize-workspace'?'连接执行客户端':action.label;
+  return <section className="v3-panel v3-next-action"><ArrowRight size={22}/><div><span className="section-kicker">下一步</span><h2>{label}</h2><p>{action.id==='initialize-workspace'?'客户连接执行客户端后，项目即可接收需要本地环境的创作步骤。':action.reason||actionDescription(action)}</p>{action.enabled&&<Button onClick={()=>onNavigate(action.navigation)}>{label}<ArrowRight size={15}/></Button>}</div></section>;
 }
 
 function Metric({label,value,detail,tone}:{label:string;value:number;detail:string;tone:'source'|'warning'|'danger'|'success'}) {return <article className={`v3-metric is-${tone}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>}

@@ -144,6 +144,7 @@ require_command() {
 
 require_command go
 require_command pnpm
+require_command curl
 
 if [ ! -d "${ROOT_DIR}/web/node_modules" ]; then
   echo "Frontend dependencies are missing. Run 'pnpm install' from ${ROOT_DIR}." >&2
@@ -299,7 +300,27 @@ fi
     CONTENTCLOUD_WEB_DIST="${CONTENTCLOUD_WEB_DIST:-web/dist}" \
     go run ./cmd/contentcloud-server
 ) &
-PIDS+=("$!")
+BACKEND_PID="$!"
+PIDS+=("${BACKEND_PID}")
+
+wait_for_backend() {
+  local attempt
+  for ((attempt = 0; attempt < 100; attempt++)); do
+    if curl --fail --silent --show-error --max-time 1 "${BACKEND_URL}/healthz" >/dev/null 2>&1; then
+      return
+    fi
+    if ! kill -0 "${BACKEND_PID}" >/dev/null 2>&1; then
+      echo "ContentCloud API exited before becoming ready." >&2
+      wait "${BACKEND_PID}" || true
+      exit 1
+    fi
+    sleep 0.1
+  done
+  echo "ContentCloud API did not become ready within 10 seconds: ${BACKEND_URL}/healthz" >&2
+  exit 1
+}
+
+wait_for_backend
 
 (
   cd "${ROOT_DIR}/web"

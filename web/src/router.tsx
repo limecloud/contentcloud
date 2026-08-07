@@ -60,6 +60,7 @@ export const appRoutes: RouteObject[] = [
   ]),
   protectedStudioRoute('/studio', [
     {index: true, lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioHomePage})},
+    {path: 'connect', lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioConnectPage})},
     {path: 'tasks/new', lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioNewTaskPage})},
     {path: 'tasks/:taskID', lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioTaskPage})},
     {path: 'tasks', lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioTasksPage})},
@@ -109,6 +110,9 @@ function protectedStudioRoute(path:string, children:RouteObject[]):RouteObject {
 
 function projectRoutes():RouteObject[] {
   return projectViewIDs.map(view=>{
+    if(view==='overview'){
+      return {path:projectRoute(view),element:<Navigate to="/studio" replace/>};
+    }
     if(view==='knowledge'){
       return {path:projectRoute(view),lazy:async()=>({Component:(await import('./workspace/workOS')).WorkOSKnowledgePage})};
     }

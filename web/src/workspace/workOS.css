@@ -78,3 +78,4 @@
 .knowledge-governance-state.is-governed{border-color:#bfe1d4;color:var(--success);background:var(--success-soft)}
 .knowledge-governance-state.is-reviewable,.knowledge-governance-state.is-evidence_required,.knowledge-governance-state.is-requires_resolution{border-color:#ead6b7;color:var(--warning);background:var(--warning-soft)}
 .knowledge-drawer-content>.field{margin:0}
+@media(max-width:760px){.workos-header-actions .button,.command-links button{min-height:44px}.workos-header-actions .button{flex:1}}

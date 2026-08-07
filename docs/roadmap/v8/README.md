@@ -2,7 +2,7 @@
 
 状态：V8 目标方案；Runtime 第一批内核、独立 RuntimeAttempt、FakeHarness 调度闭环、脱敏 REST BFF 和运营 Explorer 首版已进入代码，尚未达到生产上线条件。
 
-更新时间：2026-08-06
+更新时间：2026-08-07
 
 > 这份 README 先用一项实际任务说明 V8。只想了解产品方向，读到“为什么叫 Agentic Job Runtime”即可；工程设计和官方证据放在后续文档中。
 
@@ -12,7 +12,7 @@ V8 是 [ContentCloud 平台基线](../../foundation/README.md) 下的 Runtime �
 
 客户创作台的首个线性纵向切片可以复用当前 WorkTask、StageRun、TaskRun、SOP 和 Gate 能力提前交付，不等待 V8 动态执行图、共享状态和完整恢复能力全部完成。切片不得建立平行任务状态；后续通过平台基线定义的兼容投影、旁路比较和分阶段切流接入 V8。
 
-当前实现边界：客户 Studio 创建任务时会固定已发布 SOP，并幂等启动 JobRun；运营侧可以在 `/admin/runtime` 查看 JobRun、节点、脱敏 Agent/ContextView 摘要、事件、外部副作用和检查点，并执行刷新、取消或恢复。Runtime 已具备独立 `runtime_attempts` 权威模型、Node/RuntimeAttempt/ContextView/AgentInstance/JobEvent 原子准备与终态收敛、进程级 HarnessRegistry、FakeHarness 结构化事件执行、联合心跳和租约过期恢复；引用型 ContextView 与 AgentInstance 已通过 RLS 和复合外键持久化，父子工具/预算/深度/派生额度也已收敛。Codex/Claude 目前仍是 legacy CLI 适配器，真实 SDK 会话恢复、等待条件下的主动让出/恢复、资源预留、真实媒体服务商闭环、检查点分支、GraphPatch 持久化/Fanout/Join、PostgreSQL 并发压测和 Canary 仍属于后续工作包，不能据此宣称 V8 已完成。
+当前实现边界：客户 Studio 创建任务时会固定已发布 SOP，并幂等启动 JobRun；新任务准入还要求目标项目已经连接受支持的本地执行客户端，当前客户连接协议只发布 Codex。运营侧可以在 `/admin/runtime` 查看 JobRun、节点、脱敏 Agent/ContextView 摘要、事件、外部副作用和检查点，并执行刷新、取消或恢复。Runtime 已具备独立 `runtime_attempts` 权威模型、Node/RuntimeAttempt/ContextView/AgentInstance/JobEvent 原子准备与终态收敛、进程级 HarnessRegistry、FakeHarness 结构化事件执行、联合心跳和租约过期恢复；引用型 ContextView 与 AgentInstance 已通过 RLS 和复合外键持久化，父子工具/预算/深度/派生额度也已收敛。Codex/Claude 目前仍是 legacy CLI 适配器，真实 SDK 会话恢复、等待条件下的主动让出/恢复、资源预留、真实媒体服务商闭环、检查点分支、GraphPatch 持久化/Fanout/Join、PostgreSQL 并发压测和 Canary 仍属于后续工作包，不能据此宣称 V8 已完成。
 
 ## 先用一句话说明
 
@@ -61,6 +61,33 @@ V8 上线后，客户仍在简单的 ContentCloud 创作台中提交任务、审
 
 V8 不会取消人工审核。资料是否可信、素材是否可以使用、费用是否可以接受，以及内容方向和最终交付，仍需由人工决定。系统负责排队、记录、提醒，并在规则允许时只重新处理受影响的部分。
 
+## 先区分：项目参考、创作资产与交付
+
+V8 调度的每个步骤都会读取输入并产生输出，但 Runtime 不因此拥有客户资产或交付状态。客户产品面固定区分三类对象：
+
+| 客户概念 | 包含内容 | Runtime 的责任 |
+| --- | --- | --- |
+| 任务输入 / 项目参考 | 来源资料、搜索结果、灵感、知识、参考素材和权利记录 | 在输入快照和 `ContextView` 中保存固定版本引用，不写入客户创作资产库 |
+| 创作资产 | 流水线生成的人物原型、剧本、分镜、图片和视频结果 | 保存输出引用和执行血缘；由业务事实和目录投影决定类型、状态与是否可复用 |
+| 交付作品 | 已整理、核对并可下载的 `DeliveryPackage` 和交付文件 | 记录相关步骤与外部操作，不把交付包复制成第二份资产 |
+
+```text
+任务输入 / 项目参考
+          |
+          v
+WorkTask -> JobRun -> NodeRun
+                       |
+                       v
+          人物 / 剧本 / 分镜 / 图片 / 视频
+                       |
+               +-------+-------+
+               |               |
+               v               v
+         客户创作资产库      独立交付视图
+```
+
+只有 `confirmed` 和 `delivered` 的生成结果可作为新任务的正式复用输入。`draft`、`pending_confirmation`、`changes_requested`、`superseded` 和 `blocked` 是独立的结果状态，不是资产类型。完整决策见 [ADR-0013：客户创作资产以生成结果为中心](../../foundation/decisions/ADR-0013-customer-result-asset-boundary.md)。
+
 ## 先区分：当前已经有什么，V8 还要增加什么
 
 下面的“当前”指 2026-08-06 的仓库实现；V8 一栏是尚未完成的目标能力。
@@ -69,7 +96,9 @@ V8 不会取消人工审核。资料是否可信、素材是否可以使用、�
 | --- | --- | --- |
 | 用户任务、流程阶段和人工审核 | 已能创建任务、推进阶段和记录审核 | 保留现有入口，增加一次完整执行的进度和历史 |
 | 单个后台步骤的运行 | 已能启动、监控和取消本地执行 | 将每个步骤纳入整项任务的进度和历史 |
-| 内容资料与交付结果 | 已能管理资料、内容、媒体文件和交付结果 | 沿用这些内容，并把它们与每次执行关联起来 |
+| 任务输入与项目参考 | 已能管理来源、知识、素材和任务内灵感 | 只固定输入版本和最小上下文引用，不将它们投影为客户创作资产 |
+| 生成结果资产 | 已能投影人物原型、剧本、分镜、图片和视频结果 | 关联执行输出与血缘，不接管结果类型、审批和复用状态 |
+| 交付结果 | 已能管理媒体文件和交付包 | 关联每次执行和外部操作，交付决定继续由业务域拥有 |
 | 同一任务重新执行或换一条路线 | 还没有独立的一次执行记录 | 新执行保留旧历史，不在原记录上覆盖 |
 | 同时推进并根据结果调整步骤 | 当前主要按预先安排的阶段顺序执行 | 允许多个方向同时推进，并根据审核或执行结果增加、取消或汇总后续工作 |
 | 多个步骤共享进度和业务数据 | 还没有带固定格式、权限和版本保护的专用记录 | 增加同一次执行内的共享状态，防止并发修改互相覆盖 |
@@ -152,6 +181,7 @@ Codex / Claude Code：完成适合由智能体处理的具体步骤
 | [07-web-console-observability-and-operations.md](./07-web-console-observability-and-operations.md) | 用户怎样查看进度、失败和费用，以及怎样暂停、恢复和核对 |
 | [08-migration-testing-and-acceptance.md](./08-migration-testing-and-acceptance.md) | 如何兼容现有实现、分阶段启用并完成验收 |
 | [PLAN.md](./PLAN.md) | 实施顺序、依赖、阶段门槛和主要风险 |
+| [外部参考架构与 ContentCloud 边界](../../foundation/09-reference-patterns.md) | Camunda、Dify、Temporal、Adobe、Runway 和 Frame.io 对产品分层、可恢复执行和结果资产的启发 |
 
 ## 决策记录
 
@@ -164,3 +194,4 @@ Codex / Claude Code：完成适合由智能体处理的具体步骤
 | 2026-08-06 | V8 使用独立 `RuntimeAttempt`，旧 `RunAttempt` 只服务 V7 兼容路径 | 两者关联的执行实例和状态机不同，复用会形成错误外键和双重事实源 |
 | 2026-08-06 | Harness 由进程级 Registry 显式注入 | Fake/CLI 会话保存在适配器实例中，每次选择时重建会导致会话引用不可恢复 |
 | 2026-08-06 | 外部 Harness 调用采用 Prepare/Start/Activate/Finalize 协议 | 数据库事务不能包住外部进程；分阶段原子提交和租约恢复可以覆盖每个崩溃窗口 |
+| 2026-08-07 | Runtime 只引用任务输入、生成结果与交付事实 | 防止执行状态、客户资产状态和交付状态形成平行事实源 |

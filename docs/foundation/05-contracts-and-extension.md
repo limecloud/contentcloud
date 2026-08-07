@@ -2,7 +2,7 @@
 
 状态：`目标规范`。
 
-更新时间：2026-08-05。
+更新时间：2026-08-07。
 
 ## 1. 目的
 
@@ -90,18 +90,18 @@ ExperienceTemplateVersion
 
 体验原语首阶段限制为：表单输入、资料选择、候选列表、版本比较、人工确认、媒体预览和交付下载。超出原语的复杂体验通过版本化业务 feature 实现，不扩展成任意页面配置语言。
 
-## 5. 创作资产目录与引用
+## 5. 创作结果资产目录与引用
 
-`CreativeAssetCatalogItem` 是客户和运营查询使用的可重建读模型：
+`CreativeAssetCatalogItem` 是现有兼容契约名称，语义由 ADR-0013 收紧为“客户创作结果目录项”。它是 `CreativeResultAssetProjection` 的可重建行模型，不得再收录来源、灵感、知识、参考素材、权利记录或交付包，也不得并行创建语义相同的 `CreativeResultAssetCatalogItem` 第二套契约。
 
 ```text
 CreativeAssetCatalogItem
-├── catalog_item_id / primary_category / collections[] / display
+├── catalog_item_id / result_type / display
+├── project_ref / source_task_ref
 ├── subject_ref + version + digest
-├── origin_refs[] / rights_summary
-├── reuse_state / blocking_reasons[]
+├── status / reusable / blocking_reasons[]
 ├── visibility / preview_ref
-└── generated_at / projection_cursor
+└── internal_lineage_ref / generated_at / projection_cursor
 ```
 
 `CreativeAssetRef` 是任务输入契约：
@@ -117,13 +117,18 @@ CreativeAssetRef
 
 规则：
 
-- 目录项只引用拥有域事实，不复制正文或媒体。
-- 内容主分类与“已批准/已交付”集合分离，同一事实不能因出现在多个客户视图而生成重复目录项。
+- 目录项只收录人物原型、剧本、分镜、图片和视频等流水线生成结果；只引用拥有域事实，不复制正文或媒体。
+- `result_type` 与 `status` 是两个独立维度。类型固定为 `persona / script / storyboard / image / video`；状态使用有限集合 `draft / pending_confirmation / changes_requested / confirmed / delivered / superseded / blocked`。
+- 只有 `confirmed` 和 `delivered` 结果可以被新任务正式复用；浏览器提交的 `reusable` 不可信，服务端必须重新计算。
+- 来源、灵感、知识、参考素材和权利记录使用 `InputRef` 或项目参考契约；交付包使用交付投影。三者不能复用结果资产类型字段。
 - Runtime 和 WorkTask 使用 `subject_*` 和摘要，不把目录项状态作为权威。
 - 创建任务时回源校验租户、版本、权利、用途和敏感等级。
-- 各对象版本映射必须确定：SourceRevision/Artifact 使用 SHA-256，KnowledgeObject 使用 Version/Digest，ApprovedSnapshot 使用 ContentHash；DeliveryPackage 在进入目录前必须具有可复算的规范化 Manifest 摘要。
+- 结果对象版本映射必须确定：KnowledgeSnapshot 使用 Digest，TaskRevision 和 ApprovedSnapshot 使用 ContentHash，Artifact 使用 SHA-256。DeliveryPackage 只用于交付视图和推导 `delivered` 状态，不进入结果目录成为新资产类型。
+- SourceRevision、Asset、KnowledgeObject 和 RightsRecord 只作为内部 lineage、权利校验或项目参考事实，不生成客户结果目录项。
 - 目录投影 Schema 与引用 Schema 分别版本化；目录展示字段 minor 变更不能改变引用语义。
 - 新增可收录对象类型前必须定义事实所有者、版本、失效、权限和重建规则。
+
+若已发布旧版目录 Schema 曾允许输入型对象，停止收录属于语义收紧，必须通过新的 major、兼容读取映射和明确退场指标迁移，不能静默改变旧消费者行为。
 
 ## 6. SOP 与 JobPlanRevision
 
@@ -318,7 +323,7 @@ NodeResult
 5. 实现或批准业务包和连接器
 6. 编译 JobPlanRevision 并运行静态检查
 7. 用 Fixture 完成契约和故障测试
-8. 定义哪些保存或批准结果进入统一资产目录
+8. 定义哪些生成结果进入统一资产目录，以及确认门禁和复用状态如何推导
 9. 建立 ExperienceTemplate 客户投影
 10. 运营预览 -> Canary -> 租户启用
 11. 观测客户价值、资产复用、成本和故障后扩大范围

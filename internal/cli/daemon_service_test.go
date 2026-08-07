@@ -89,9 +89,9 @@ func TestLaunchdDaemonStartIsIdempotentAndVersionAware(t *testing.T) {
 		t.Fatalf("idempotent start restarted daemon: state=%#v error=%v calls=%#v", state, err, calls)
 	}
 
-	upgraded := &launchdDaemonService{home: home, executable: "/opt/contentcloud-0.17.0", version: "0.17.0", uid: 501, now: func() time.Time { return now.Add(time.Hour) }, run: runner, environment: launchEnvironment}
+	upgraded := &launchdDaemonService{home: home, executable: "/opt/contentcloud-0.18.0", version: "0.18.0", uid: 501, now: func() time.Time { return now.Add(time.Hour) }, run: runner, environment: launchEnvironment}
 	state, err = upgraded.Start()
-	if err != nil || state.Version != "0.17.0" || state.Executable != "/opt/contentcloud-0.17.0" || !state.Running {
+	if err != nil || state.Version != "0.18.0" || state.Executable != "/opt/contentcloud-0.18.0" || !state.Running {
 		t.Fatalf("version-aware start did not reload daemon: state=%#v error=%v", state, err)
 	}
 	wantTail := [][]string{
@@ -105,7 +105,7 @@ func TestLaunchdDaemonStartIsIdempotentAndVersionAware(t *testing.T) {
 		t.Fatalf("upgrade restart sequence=%#v", calls)
 	}
 	metadata, err := os.ReadFile(filepath.Join(home, "Library", "Application Support", "ContentCloud", "daemon.json"))
-	if err != nil || !strings.Contains(string(metadata), `"version": "0.17.0"`) {
+	if err != nil || !strings.Contains(string(metadata), `"version": "0.18.0"`) {
 		t.Fatalf("daemon metadata was not upgraded: error=%v body=%s", err, metadata)
 	}
 }
@@ -139,7 +139,7 @@ func TestLaunchdDaemonStatusKeepsLastRuntimeStateWhenStopped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tracker.recordPoll(app.DaemonRuntimePolicy{CurrentVersion: "0.10.0", LatestVersion: "0.17.0", UpdateAvailable: true}, false, nil)
+	tracker.recordPoll(app.DaemonRuntimePolicy{CurrentVersion: "0.10.0", LatestVersion: "0.18.0", UpdateAvailable: true}, false, nil)
 	service := &launchdDaemonService{
 		home: t.TempDir(), executable: "/opt/contentcloud", version: "0.10.0", uid: 501, now: func() time.Time { return now },
 		run: func(string, ...string) ([]byte, error) { return nil, errors.New("service not loaded") },

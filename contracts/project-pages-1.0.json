@@ -17,10 +17,10 @@
   "views": {
     "setup": {
       "route": "setup",
-      "label": "接入与初始化",
-      "eyebrow": "本地创作环境",
-      "title": "连接本地创作工作区",
-      "description": "检查项目绑定、智能客户端创作环境和本地工作区是否就绪。",
+      "label": "执行客户端",
+      "eyebrow": "执行客户端",
+      "title": "管理执行客户端连接",
+      "description": "查看客户连接的执行客户端，以及本地客户端、平台 Worker、外部服务和人工节点的执行边界。",
       "section": "onboarding",
       "submission_types": [],
       "snapshot_types": [],

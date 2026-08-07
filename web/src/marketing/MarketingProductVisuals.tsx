@@ -2,7 +2,6 @@ import {
   Archive,
   ArrowDown,
   ArrowRight,
-  BookOpen,
   Boxes,
   CheckCircle2,
   Cloud,
@@ -25,18 +24,19 @@ import {
 } from 'lucide-react';
 import { BrandMark } from '../components/Brand';
 
-const stageLabels = ['资料准备', '内容策略', '脚本方案', '分镜素材', '审核交付'] as const;
+const stageLabels = ['项目参考', '人物原型', '剧本与分镜', '媒体结果', '交付'] as const;
 
 const assets = [
-  [Images, '产品视觉规范', '品牌资产', '已批准'],
-  [Users, '核心人物原型', '人物资产', 'v3'],
-  [FileText, '高互动脚本 03', '历史成果', '已批准'],
-  [Video, '春日品牌片', '交付成片', '可复用'],
+  [Users, '核心人物原型', '人物原型', '已确认'],
+  [FileText, '高互动脚本 03', '剧本', '已确认'],
+  [Boxes, '第 02 版镜头表', '分镜', '待确认'],
+  [Images, '春日产品视觉', '图片', '已确认'],
+  [Video, '春日品牌片候选', '视频', '已交付'],
 ] as const;
 
 export function HeroWorkCanvas() {
-  return <div className="marketing-home-scene" role="img" aria-label="资料和已有资产进入一次创作任务，经过确认后形成可交付结果">
-    <div className="marketing-scene-source is-brand"><Archive size={17}/><span><strong>品牌资产</strong><small>产品 · 规范 · 人物</small></span></div>
+  return <div className="marketing-home-scene" role="img" aria-label="任务输入和项目参考进入一次创作任务，经过确认后形成创作结果与交付">
+    <div className="marketing-scene-source is-brand"><Archive size={17}/><span><strong>项目参考</strong><small>品牌 · 产品 · 权利</small></span></div>
     <div className="marketing-scene-source is-research"><FileSearch size={17}/><span><strong>可信资料</strong><small>搜索 · 知识 · 本地文件</small></span></div>
     <div className="marketing-scene-source is-idea"><Lightbulb size={17}/><span><strong>灵感观察</strong><small>主题 · 场景 · 业务判断</small></span></div>
 
@@ -63,7 +63,7 @@ function AssetCatalogVisual() {
     <header className="marketing-evidence-heading">
       <span>01 / 03</span>
       <h3>创作资产目录，不是另一个文件夹</h3>
-      <p>品牌、人物、灵感、脚本和已批准成果按来源、版本、权利与使用状态统一呈现。</p>
+      <p>人物、剧本、分镜、图片和视频结果按版本、确认状态与使用关系统一呈现。</p>
     </header>
     <div className="marketing-asset-browser" aria-label="创作资产目录界面示意">
       <aside>
@@ -71,11 +71,11 @@ function AssetCatalogVisual() {
         <span><Sparkles size={14}/>创作</span>
         <span className="is-current"><Archive size={14}/>资产</span>
         <span><Workflow size={14}/>任务</span>
-        <span><BookOpen size={14}/>知识</span>
+        <span><PackageCheck size={14}/>交付</span>
       </aside>
       <div className="marketing-asset-browser-main">
-        <header><div><small>资产库</small><strong>团队创作资产</strong></div><button type="button" tabIndex={-1}><Search size={14}/>搜索资产</button></header>
-        <nav aria-label="资产类型示意"><b>全部</b><span>品牌</span><span>人物</span><span>脚本</span><span>媒体</span></nav>
+        <header><div><small>资产库</small><strong>团队创作结果</strong></div><button type="button" tabIndex={-1}><Search size={14}/>搜索结果</button></header>
+        <nav aria-label="资产类型示意"><b>全部</b><span>人物</span><span>剧本</span><span>分镜</span><span>图片</span><span>视频</span></nav>
         <div className="marketing-asset-tiles">
           {assets.map(([Icon,title,type,status])=><article key={title}>
             <div><Icon size={20}/><small>{type}</small></div>
@@ -93,25 +93,25 @@ function AssetReuseVisual() {
   return <section className="marketing-evidence-panel marketing-reuse-panel">
     <header className="marketing-evidence-heading">
       <span>02 / 03</span>
-      <h3>一次批准，持续服务后续创作</h3>
-      <p>资产库同时是创作起点和结果归档点，复用的是固定版本和来源关系，不是复制粘贴正文。</p>
+      <h3>确认结果，持续服务后续创作</h3>
+      <p>资产库只收录生成结果，复用的是固定版本和来源关系，不是复制粘贴正文。</p>
     </header>
     <div className="marketing-reuse-map" aria-label="创作资产复用关系示意">
       <div className="marketing-reuse-side is-input">
-        <span><Archive size={15}/><b>品牌规范</b><small>来源资产</small></span>
-        <span><Users size={15}/><b>人物原型</b><small>批准版本</small></span>
-        <span><Lightbulb size={15}/><b>历史灵感</b><small>人工观察</small></span>
+        <span><Archive size={15}/><b>项目参考</b><small>任务输入</small></span>
+        <span><Users size={15}/><b>人物原型</b><small>已确认结果</small></span>
+        <span><FileText size={15}/><b>剧本方案</b><small>已确认结果</small></span>
       </div>
       <ArrowRight className="marketing-reuse-arrow" size={18}/>
       <div className="marketing-reuse-core"><BrandMark/><strong>创作任务</strong><small>固定引用与版本</small></div>
       <ArrowRight className="marketing-reuse-arrow" size={18}/>
       <div className="marketing-reuse-side is-output">
-        <span><FileText size={15}/><b>剧本方案</b><small>等待确认</small></span>
-        <span><Video size={15}/><b>分镜素材</b><small>继续制作</small></span>
-        <span><PackageCheck size={15}/><b>批准成果</b><small>回到资产库</small></span>
+        <span><FileText size={15}/><b>分镜方案</b><small>等待确认</small></span>
+        <span><Video size={15}/><b>图片与视频</b><small>继续制作</small></span>
+        <span><PackageCheck size={15}/><b>交付结果</b><small>回到交付</small></span>
       </div>
     </div>
-    <div className="marketing-reuse-loop"><Archive size={16}/><span>已有资产</span><ArrowRight size={14}/><span>新创作任务</span><ArrowRight size={14}/><span>批准结果</span><ArrowRight size={14}/><strong>下一次复用</strong></div>
+    <div className="marketing-reuse-loop"><Archive size={16}/><span>任务输入与项目参考</span><ArrowRight size={14}/><span>新创作任务</span><ArrowRight size={14}/><span>已确认结果</span><ArrowRight size={14}/><strong>下一次复用</strong></div>
   </section>;
 }
 

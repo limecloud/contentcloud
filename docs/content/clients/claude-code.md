@@ -18,7 +18,7 @@ Content Work OS 已实现 Claude Code 的本地自动化适配器，并支持本
 
 ## 当前限制
 
-- Web 工作台的“接入与初始化”暂不能用 Claude Code 完成完整初始化。
+- Web 工作台的“执行客户端”暂不能用 Claude Code 完成完整连接。
 - Web 工作台的“在智能体客户端中继续”暂不会为 Claude Code 生成恢复入口。
 - 当前没有“Claude Code × 营销视频”的完整场景教程。
 - 不应套用 Codex 的插件、深度链接或任务交接命令。

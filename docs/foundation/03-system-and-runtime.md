@@ -230,10 +230,12 @@ process / agent stops
 ### 6.5 资产沉淀与复用
 
 ```text
-Source / ApprovedSnapshot / Artifact / DeliveryPackage changed
-  -> owning domain persists fact and emits event/ref
-  -> CreativeAssetCatalog projector updates read model
-  -> customer selects catalog item for a target task
+Task input / project reference changed
+  -> owning domain persists input fact -> input/project reference projection
+
+Generated result changed
+  -> owning domain persists result fact -> CreativeResultAssetProjection
+  -> customer selects a result asset for a target task
   -> owning domains revalidate tenant + version + rights + usage
   -> Work domain freezes CreativeAssetRef into input snapshot
   -> Runtime receives subject ref + version + digest
@@ -311,4 +313,4 @@ Source / ApprovedSnapshot / Artifact / DeliveryPackage changed
 6. 两条结构不同的业务流不增加专用调度状态。
 7. 客户、运营和 Runtime API 具有独立契约和权限测试。
 8. 所有运行对象和业务事实都能通过引用与摘要追溯。
-9. 同一批准结果可以通过资产目录进入新任务，但 Runtime 不依赖目录项作为权威正文。
+9. 同一已确认结果可以通过结果资产目录进入新任务，但 Runtime 不依赖目录项作为权威正文；任务输入仍从输入/项目参考投影固定。

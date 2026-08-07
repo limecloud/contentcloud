@@ -164,7 +164,7 @@ func (s *Service) projectionNextActions(ctx context.Context, tenantID string, pr
 		return projectionActions(domain.ProjectionAction{ID: "project-archived", Kind: "project", Label: "项目已归档", Enabled: false, Reason: "恢复项目后才能创建新的任务或内容提交", Navigation: navigation("overview", "next_action", "project-archived", "")})
 	}
 	if sections["onboarding"].Count == 0 {
-		return projectionActions(domain.ProjectionAction{ID: "initialize-workspace", Kind: "onboarding", Label: "初始化创作环境", Enabled: true, Navigation: navigation("setup", "", "", "")})
+		return projectionActions(domain.ProjectionAction{ID: "initialize-workspace", Kind: "onboarding", Label: "连接执行客户端", Enabled: true, Navigation: navigation("setup", "", "", "")})
 	}
 	if sections["knowledge"].Count == 0 {
 		return projectionActions(domain.ProjectionAction{ID: "collect-knowledge", Kind: "assignment", Label: "创建资料与知识任务", Enabled: true, Navigation: navigation("knowledge", "", "", "")})

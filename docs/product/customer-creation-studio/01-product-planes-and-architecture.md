@@ -1,8 +1,8 @@
 # 产品平面与总体架构
 
-状态：`目标架构，待评审`。
+状态：`目标架构；客户与运营产品面边界已进入实现，完整模块迁移待完成`。
 
-更新时间：2026-08-05。
+更新时间：2026-08-07。
 
 上位规范：[ContentCloud 平台基线](../../foundation/README.md)。如本文与基线的产品平面、事实所有权或 Runtime 边界冲突，以基线和对应 ADR 为准。
 
@@ -22,17 +22,17 @@
 客户不先看下面的 Runtime 架构，而先理解一个稳定闭环：
 
 ```text
-品牌、资料与已有资产
+任务输入与项目参考
           |
           v
 Content Work OS 创作任务
 场景选择 · 当前进度 · 结果预览 · 人工确认
           |
           v
-剧本、分镜、媒体、交付包与后续专业工具
+人物原型、剧本、分镜、图片、视频、交付包与后续专业工具
           |
           v
-已批准结果继续进入资产库
+已确认结果继续进入创作资产库
 ```
 
 中心不能命名为“ContentCloud Agent”。Content Work OS 是客户产品品牌；ContentCloud Agentic Job Runtime 是中心背后的技术执行内核。完整表达规则见[产品叙事规范](../00-product-narrative.md)。
@@ -50,7 +50,15 @@ Content Work OS 创作任务
 - 当前做到哪一步。
 - 现在需要补充或确认什么。
 - 已经得到哪些可预览、可审核或可交付的结果。
-- 已有的哪些品牌、人物、灵感和批准成果可以直接复用。
+- 已有的哪些人物原型、剧本、分镜、图片和视频结果可以直接复用。
+
+创作输入、项目参考和创作资产必须在客户产品面分开：
+
+| 客户概念 | 示例 | 入口 | 是否属于创作资产 |
+| --- | --- | --- | --- |
+| 任务输入/项目参考 | 来源资料、灵感、知识、参考素材、权利记录 | 当前任务、项目参考 | 否 |
+| 创作资产 | 人物原型、剧本、分镜、图片、视频 | 创作资产库 | 是 |
+| 交付作品 | 已整理的交付包和正式下载文件 | 交付 | 不是新的资产类型 |
 
 客户默认不看到：
 
@@ -115,13 +123,13 @@ Runtime 不理解客户页面布局，也不把“人物原型”“公众号文
 ┌────────────────────────────────────────────────────────────┐
 │ 客户体验与流水线产品层                                      │
 │ ExperienceTemplate · Published SOP · Input/Output Contract │
-│ 客户步骤映射 · 资产目录投影 · 动作映射 · 租户可用性         │
+│ 客户步骤映射 · 结果资产投影 · 动作映射 · 租户可用性         │
 └──────────────────────────┬─────────────────────────────────┘
                            │ JobPlanRevision / Commands
                            v
 ┌────────────────────────────────────────────────────────────┐
 │ ContentCloud Agentic Job Runtime                            │
-│ WorkTask · JobRun · NodeRun · Gate · State · ArtifactRef    │
+│ WorkTask · JobRun · NodeRun · Gate · State · ResultAssetRef  │
 │ Scheduler · Lease · Budget · Effect · Audit · Projection    │
 └─────────────┬────────────────┬────────────────┬─────────────┘
               │                │                │
@@ -235,14 +243,14 @@ supported_execution_modes:
       +--> CustomerJourneyProjection
       |      客户步骤、业务阻断、客户动作、结果预览
       |
-      +--> CreativeAssetCatalogProjection
-      |      跨任务资产、来源、版本、权利摘要、复用状态
+      +--> CreativeResultAssetProjection
+      |      跨任务生成结果、来源任务、版本、复用状态
       |
       +--> RuntimeOperationsProjection
              节点、尝试、执行者、事件、费用、外部操作、诊断
 ```
 
-`CreativeAssetCatalogProjection` 与客户任务投影都不是写模型。它组合 Source、Asset、Knowledge、ApprovedSnapshot、Artifact、DeliveryPackage 和 lineage 引用；任何修复都必须调用事实拥有域命令。Runtime 只消费固定底层对象版本和摘要，不把目录项当作业务正文。
+`CreativeResultAssetProjection` 与客户任务投影都不是写模型。它投影人物原型、剧本、分镜、图片和视频等结果，并保留到输入、任务、批准和交付的内部 lineage 引用。Source、Knowledge、RightsRecord 等输入和治理对象只在任务输入或运营投影中显示；任何修复都必须调用事实拥有域命令。Runtime 只消费固定底层对象版本和摘要，不把目录项当作业务正文。
 
 同一个底层事实或状态应翻译成不同语言：
 
@@ -250,10 +258,10 @@ supported_execution_modes:
 | --- | --- | --- |
 | `waiting(resource)` | 正在等待可用处理能力 | 服务商配额已满，预计继续等待 |
 | `waiting(human_gate)` | 有一项结果等待你确认 | Gate `persona_approval` 等待客户审批人 |
-| `blocked` + rights check | 参考素材缺少使用授权 | `rights.references` 检查失败 |
+| `blocked` + rights check | 任务输入缺少使用授权 | `rights.references` 检查失败 |
 | local agent offline | 需要连接本地创作工具 | Codex workspace binding offline |
 | external effect unknown | 正在核对外部处理结果 | Provider 请求结果不明，禁止自动重试 |
-| asset rights expired | 该资产当前不可用于新创作 | RightsRecord 过期，显示影响范围和修复入口 |
+| result reuse blocked | 该结果当前不可用于新创作 | 输入权利或批准条件失效，显示影响范围和修复入口 |
 
 客户错误必须说明用户能做什么；运营错误必须保留可定位、可审计的技术原因。
 
@@ -288,7 +296,7 @@ WorkTask
 ├── runtime/                  执行内核
 ├── pipeline/                 SOP 编译与能力绑定
 ├── customer-bff/             客户业务投影和业务命令
-├── experience-projection/    CustomerJourney 和 CreativeAssetCatalog
+├── experience-projection/    CustomerJourney 和 CreativeResultAsset
 ├── admin-control-plane/      运营配置、发布和诊断
 └── web/
     ├── studio/               客户创作台
@@ -311,7 +319,7 @@ WorkTask
 - 执行者只获得当前节点的 ContextView、短期凭据、允许工具和预算。
 - 外部写操作必须登记、幂等并处理结果不明，不能因网络超时直接重复提交。
 - 完整智能体对话和本地文件不是权威业务状态，默认不进入客户页面或普通运营日志。
-- 资产库预览继承底层数据分类；正式复用在命令时重新校验租户、版本、权利和用途。
+- 结果资产预览继承底层数据分类；正式复用时服务端重新校验租户、版本、输入权利和用途。
 
 ## 9. 非目标
 
@@ -333,4 +341,4 @@ WorkTask
 5. 客户页面和运营控制台对同一权威状态显示一致但角色适配的文案。
 6. 新模板发布、停用和回退不会改写进行中的任务。
 7. Runtime、客户 BFF 和运营控制台各自有独立的契约测试和权限测试。
-8. 客户能从资产库复用批准结果；目录可重建，且不会形成第二套正文、权利或批准状态。
+8. 客户能从资产库复用已确认结果；目录可重建，且不会形成第二套正文、权利或批准状态。

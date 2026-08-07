@@ -122,6 +122,92 @@ paths:
           content:
             application/json: {schema: {$ref: '#/components/schemas/StudioBootstrapEnvelope'}}
         '401': {$ref: '#/components/responses/Error'}
+  /studio/execution-clients:
+    get:
+      tags: [Studio BFF]
+      operationId: listStudioExecutionClients
+      summary: List supported local execution clients for customer workspace connection
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Supported execution client catalog
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioExecutionClientCatalogEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+  /studio/projects/{project_id}/connect-sessions:
+    parameters: [{name: project_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Studio BFF]
+      operationId: createStudioConnectSession
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Created customer execution-client connection session
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioConnectSessionEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /studio/connect-sessions/{session_id}:
+    parameters: [{name: session_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      tags: [Studio BFF]
+      operationId: getStudioConnectSession
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Current customer execution-client connection state
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioConnectSessionEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /studio/connect-sessions/{session_id}/approve:
+    parameters: [{name: session_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Studio BFF]
+      operationId: approveStudioConnectSession
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Approved customer execution-client connection
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioConnectSessionEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /studio/connect-sessions/{session_id}/deny:
+    parameters: [{name: session_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Studio BFF]
+      operationId: denyStudioConnectSession
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Denied customer execution-client connection
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioConnectSessionEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /studio/connect-sessions/{session_id}/cancel:
+    parameters: [{name: session_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Studio BFF]
+      operationId: cancelStudioConnectSession
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Canceled customer execution-client connection
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioConnectSessionEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /studio/session/switch:
     post:
       tags: [Studio BFF]
@@ -1257,19 +1343,20 @@ components:
     StudioSession:
       type: object
       additionalProperties: false
-      required: [user, tenant, role, can_create, can_manage_team, can_view_operations]
+      required: [user, tenant, role, can_create, can_connect_execution_client, can_manage_team, can_view_operations]
       properties:
         user: {$ref: '#/components/schemas/StudioUser'}
         tenant: {$ref: '#/components/schemas/StudioTenant'}
         role: {type: string}
         operations_path: {type: string}
         can_create: {type: boolean}
+        can_connect_execution_client: {type: boolean}
         can_manage_team: {type: boolean}
         can_view_operations: {type: boolean}
     StudioProject:
       type: object
       additionalProperties: false
-      required: [id, brand_name, product_name, content_type, channel, status]
+      required: [id, brand_name, product_name, content_type, channel, status, execution_client_connected, connected_client_count]
       properties:
         id: {type: string, format: uuid}
         brand_name: {type: string}
@@ -1277,6 +1364,35 @@ components:
         content_type: {type: string}
         channel: {type: string}
         status: {type: string}
+        execution_client_connected: {type: boolean}
+        connected_client_count: {type: integer, minimum: 0}
+    StudioExecutionClient:
+      type: object
+      additionalProperties: false
+      required: [id, display_name, available]
+      properties:
+        id: {type: string, enum: [codex, claude-code, workspace-adapter]}
+        display_name: {type: string}
+        available: {type: boolean}
+    StudioExecutionClientCatalog:
+      type: object
+      additionalProperties: false
+      required: [clients]
+      properties:
+        clients: {type: array, items: {$ref: '#/components/schemas/StudioExecutionClient'}}
+    StudioConnectSession:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, status, message, requires_confirmation, expires_at]
+      properties:
+        id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        status: {type: string, enum: [waiting_for_computer, connecting, confirmation_required, connected, failed, expired, canceled]}
+        message: {type: string}
+        requires_confirmation: {type: boolean}
+        verification_code: {type: string}
+        support_code: {type: string}
+        expires_at: {type: string, format: date-time}
     StudioExperience:
       type: object
       additionalProperties: false
@@ -1333,14 +1449,14 @@ components:
     StudioInspiration:
       type: object
       additionalProperties: false
-      required: [id, title, summary, source_type, source_label, saved_for_reuse, created_at]
+      required: [id, title, summary, source_type, source_label, saved_as_project_reference, created_at]
       properties:
         id: {type: string, format: uuid}
         title: {type: string}
         summary: {type: string}
         source_type: {type: string}
         source_label: {type: string}
-        saved_for_reuse: {type: boolean}
+        saved_as_project_reference: {type: boolean}
         created_at: {type: string, format: date-time}
     StudioDecision:
       type: object
@@ -1377,20 +1493,21 @@ components:
     StudioAssetItem:
       type: object
       additionalProperties: false
-      required: [ref, kind, category, project_id, project_name, title, summary, version, status, reusable, metadata, created_at]
+      required: [ref, result_type, project_id, project_name, task_id, task_title, title, summary, version, status, reusable, downloads, created_at]
       properties:
         ref: {type: string}
-        kind: {type: string}
-        category: {type: string, enum: [source, inspiration, persona, knowledge, media, approved]}
+        result_type: {type: string, enum: [persona, script, storyboard, image, video]}
         project_id: {type: string, format: uuid}
         project_name: {type: string}
+        task_id: {type: string, format: uuid}
+        task_title: {type: string}
         title: {type: string}
         summary: {type: string}
         version: {type: string}
-        status: {type: string}
+        status: {type: string, enum: [draft, pending_confirmation, changes_requested, confirmed, delivered, superseded, blocked]}
         reusable: {type: boolean}
         blocked_reason: {type: string}
-        metadata: {type: object}
+        downloads: {type: array, items: {$ref: '#/components/schemas/StudioDownload'}}
         created_at: {type: string, format: date-time}
     StudioTaskView:
       type: object
@@ -1456,11 +1573,15 @@ components:
     StudioAddInspirationInput:
       type: object
       additionalProperties: false
-      required: [title, body, save_for_reuse]
+      required: [title, body, keep_as_project_reference]
       properties:
         title: {type: string, minLength: 1}
         body: {type: string, minLength: 1}
-        save_for_reuse: {type: boolean}
+        keep_as_project_reference: {type: boolean}
+        save_for_reuse:
+          type: boolean
+          deprecated: true
+          description: Compatibility input only; interpreted as keep_as_project_reference and never creates a result asset.
         idempotency_key: {type: string, maxLength: 128}
     StudioBootstrapEnvelope:
       type: object
@@ -1470,6 +1591,24 @@ components:
         command: {const: studio.bootstrap}
         request_id: {type: string}
         data: {$ref: '#/components/schemas/StudioBootstrap'}
+        meta: {type: object}
+    StudioExecutionClientCatalogEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: studio.execution_client.list}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/StudioExecutionClientCatalog'}
+        meta: {type: object}
+    StudioConnectSessionEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {type: string, pattern: '^studio\\.execution_client\\.'}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/StudioConnectSession'}
         meta: {type: object}
     StudioTaskListEnvelope:
       type: object

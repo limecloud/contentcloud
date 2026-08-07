@@ -17,7 +17,7 @@ Codex 是当前能力最完整的 Content Work OS 客户端，支持本地自动
 ## 接入方式
 
 1. 在具备本机配置权限的 Codex Desktop 或 Codex CLI 中运行。
-2. 登录 Content Work OS，在项目“接入与初始化”页创建初始化会话（`ConnectSession`）。
+2. 登录 Content Work OS，在项目“执行客户端”页创建连接会话（`ConnectSession`）。
 3. 使用页面提供的固定操作指令或初始化计划连接本地工作区。
 4. 核对插件市场（`Marketplace`）、插件、目标目录变化和 `plan_id` 后，再确认执行应用操作（`apply`）。
 5. 初始化成功后，在同一本地工作区根目录中新建 Codex 对话。
