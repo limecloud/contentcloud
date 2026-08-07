@@ -139,7 +139,7 @@ func TestConversationContextCarriesBootstrapHandoffUntilWorkStarts(t *testing.T)
 func TestConversationContextExposesOneBusinessNextStep(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "workspace")
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
-	if _, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", Target: "codex-plugin", CLIVersion: "0.18.0", Now: now}); err != nil {
+	if _, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", Target: "codex-plugin", CLIVersion: "0.19.0", Now: now}); err != nil {
 		t.Fatal(err)
 	}
 	context, err := ConversationContext(root, "", now)

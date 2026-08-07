@@ -75,53 +75,59 @@ func TestCustomerStudioProjectionAndTenantIsolation(t *testing.T) {
 	}
 }
 
-func TestCustomerStudioAssetsOnlyExposeGeneratedResults(t *testing.T) {
+func TestCustomerStudioAssetSurfaceSeparatesWorkspaceMaterialsAndCreativeResults(t *testing.T) {
 	service := app.New(memory.New(), slog.Default(), app.WithPlatformAdminEmails("demo@contentcloud.local"))
 	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
 	defer server.Close()
 	clientJar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: clientJar}
-	mustStudioBootstrap(t, client, server.URL)
+	bootstrap := mustStudioBootstrap(t, client, server.URL)
 
-	raw := getStudioRaw(t, client, server.URL+"/api/studio/assets")
-	var envelope struct {
-		Data struct {
-			Items []map[string]any `json:"items"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if len(envelope.Data.Items) == 0 {
+	surface := callBFF[app.CustomerAssetSurface](t, client, http.MethodGet, server.URL+"/api/studio/assets", nil)
+	if len(surface.CreativeResults.Items) == 0 {
 		t.Fatal("development fixture should expose generated customer assets")
 	}
+	if len(surface.Workspace.Materials) == 0 || len(surface.Workspace.Folders) == 0 {
+		t.Fatalf("development fixture should expose an explicit workspace material: %#v", surface.Workspace)
+	}
+	initialMaterialCount, initialFolderCount := len(surface.Workspace.Materials), len(surface.Workspace.Folders)
 	allowedResultTypes := map[string]bool{"persona": true, "script": true, "storyboard": true, "image": true, "video": true}
 	foundResultTypes := map[string]bool{}
-	for _, item := range envelope.Data.Items {
-		resultType, _ := item["result_type"].(string)
-		if !allowedResultTypes[resultType] {
-			t.Fatalf("customer asset exposed non-result type %q: %#v", resultType, item)
+	for _, item := range surface.CreativeResults.Items {
+		if !allowedResultTypes[item.ResultType] {
+			t.Fatalf("customer result exposed non-result type %q: %#v", item.ResultType, item)
 		}
-		if item["task_id"] == "" || item["task_title"] == "" {
+		if item.TaskID == "" || item.TaskTitle == "" {
 			t.Fatalf("customer asset lost its originating task: %#v", item)
 		}
-		if _, exists := item["category"]; exists {
-			t.Fatalf("customer asset still exposes the legacy category axis: %#v", item)
-		}
-		if _, exists := item["metadata"]; exists {
-			t.Fatalf("customer asset leaked internal governance metadata: %#v", item)
-		}
-		foundResultTypes[resultType] = true
+		foundResultTypes[item.ResultType] = true
 	}
 	for _, required := range []string{"persona", "script", "storyboard", "image", "video"} {
 		if !foundResultTypes[required] {
 			t.Fatalf("development fixture did not expose %s result assets: %#v", required, foundResultTypes)
 		}
 	}
-	for _, forbidden := range []string{`"kind":"source"`, `"kind":"knowledge"`, `source_revision:`, `"rights_record"`, `"source_type":"manual_inspiration"`} {
+	raw := getStudioRaw(t, client, server.URL+"/api/studio/assets")
+	for _, forbidden := range []string{`"tenant_id"`, `"source_revision_id"`, `"object_key"`, `"kind":"source"`, `"kind":"knowledge"`, `source_revision:`, `"rights_record"`, `"source_type":"manual_inspiration"`} {
 		if strings.Contains(raw, forbidden) {
-			t.Fatalf("customer asset catalog leaked an input or governance object %s: %s", forbidden, raw)
+			t.Fatalf("customer asset surface leaked an internal or governance object %s: %s", forbidden, raw)
 		}
+	}
+
+	folder := callBFF[app.WorkspaceFolderItem](t, client, http.MethodPost, server.URL+"/api/studio/asset-folders", app.CreateWorkspaceFolderInput{ProjectID: bootstrap.Projects[0].ID, Name: "品牌资料"})
+	material := callMultipartBFF[app.WorkspaceMaterialItem](t, client, server.URL+"/api/studio/materials", "brand-brief.txt", []byte("品牌语气与产品卖点"), map[string]string{"project_id": bootstrap.Projects[0].ID, "folder_ref": folder.Ref, "file_type": "text/plain"})
+	if material.MaterialKind != domain.WorkspaceMaterialDocument || material.FolderRef != folder.Ref || material.ProjectID != bootstrap.Projects[0].ID {
+		t.Fatalf("unexpected workspace material projection: %#v", material)
+	}
+	withMaterial := callBFF[app.CustomerAssetSurface](t, client, http.MethodGet, server.URL+"/api/studio/assets", nil)
+	if len(withMaterial.Workspace.Materials) != initialMaterialCount+1 || len(withMaterial.Workspace.Folders) != initialFolderCount+1 || len(withMaterial.CreativeResults.Items) != len(surface.CreativeResults.Items) {
+		t.Fatalf("workspace material changed the creative result projection: %#v", withMaterial)
+	}
+	task := callBFF[app.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks", app.StudioCreateTaskInput{ExperienceID: bootstrap.Experiences[0].ID, ProjectID: bootstrap.Projects[0].ID, Title: "资料加入创作", Goal: "验证固定版本工作区资料可以加入任务", AssetRefs: []string{}, MaterialRefs: []string{}})
+	callBFF[app.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks/"+task.Task.ID+"/materials", app.StudioAttachMaterialsInput{MaterialRefs: []string{material.Ref}})
+	recent := callBFF[app.CustomerAssetSurface](t, client, http.MethodGet, server.URL+"/api/studio/assets", nil)
+	if len(recent.Recent.Materials) == 0 || recent.Recent.Materials[0].Ref != material.Ref || recent.Recent.Materials[0].LastUsedAt == nil {
+		t.Fatalf("attached workspace material did not enter the recent projection: %#v", recent.Recent.Materials)
 	}
 }
 
@@ -164,25 +170,6 @@ func TestCustomerStudioInspirationUsesProjectReferenceBoundary(t *testing.T) {
 		t.Fatalf("project reference leaked into result asset catalog: %s", rawAssets)
 	}
 
-	legacy := callBFF[app.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks/"+task.Task.ID+"/inspirations", map[string]any{
-		"title":          "旧客户端参考",
-		"body":           "旧字段仍应兼容为项目参考。",
-		"save_for_reuse": true,
-	})
-	var legacyReference *app.StudioInspiration
-	for index := range legacy.Inspirations {
-		if legacy.Inspirations[index].Title == "旧客户端参考" {
-			legacyReference = &legacy.Inspirations[index]
-			break
-		}
-	}
-	if legacyReference == nil || !legacyReference.SavedAsProjectReference {
-		t.Fatalf("legacy save_for_reuse was not mapped to project reference: %#v", legacy.Inspirations)
-	}
-	rawLegacy := getStudioRaw(t, client, server.URL+"/api/studio/tasks/"+task.Task.ID)
-	if strings.Contains(rawLegacy, `"saved_for_reuse"`) {
-		t.Fatalf("legacy field leaked into customer response: %s", rawLegacy)
-	}
 }
 
 func TestCustomerStudioExperienceRequiresTenantCapability(t *testing.T) {

@@ -1,6 +1,6 @@
 # Content Work OS 使用文档
 
-Content Work OS 是本地优先的内容生产与云端治理系统。你可以在受支持的智能体客户端中完成资料整理、可信知识、策略、创作简报和内容创作，再把明确选择的版本提交到 Web 工作台进行审核、批准和交付。
+Content Work OS 是 Studio-first 的内容生产与云端治理系统。客户默认在 Web 创作台中选择场景、提交资料、查看进度、确认结果和取得交付；受支持的智能体客户端可作为资料整理、研究、策略和创意修订的执行者，再把明确选择的版本提交到 Web 工作台进行审核、批准和交付。
 
 本文档同时服务两种阅读方式：
 
@@ -11,7 +11,7 @@ Content Work OS 是本地优先的内容生产与云端治理系统。你可以�
 
 ## 从哪里开始
 
-1. 阅读[开始使用](getting-started.md)，了解如何选择客户端和内容形态。
+1. 阅读[开始使用](getting-started.md)，了解如何从 Web 创作台开始任务，以及何时连接执行客户端。
 2. 阅读[受治理的内容工作流](concepts/governed-workflow.md)，理解本地候选、云端内容版本和批准快照之间的区别。
 3. 按客户端查看接入状态，或按内容形态查看当前支持范围。
 4. 只有找到明确标记为“可用”的场景指南后，才执行对应流程。
@@ -49,4 +49,6 @@ Content Work OS 是本地优先的内容生产与云端治理系统。你可以�
 - **有限支持**：部分底层能力可用，但不能完成完整初始化、交接或内容生产流程。
 - **即将支持**：已进入兼容设计，尚无可执行实现。
 
-遇到本地工作区、初始化或任务交接问题时，查看[故障排查](troubleshooting/workspace-and-handoff.md)。
+遇到任务、执行客户端连接、本地工作区或任务交接问题时，查看[故障排查](troubleshooting/workspace-and-handoff.md)。
+
+产品分层、运营后台和 Runtime 目标架构见 [`docs/foundation`](../foundation/README.md)、[`docs/product`](../product/README.md) 和 [`docs/roadmap/v8`](../roadmap/v8/README.md)；本目录只描述已经验证、可执行的客户能力。

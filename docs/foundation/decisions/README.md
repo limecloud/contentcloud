@@ -2,7 +2,7 @@
 
 状态：`规范已定义；候选 ADR 待联合评审后逐项接受`。
 
-更新时间：2026-08-05。
+更新时间：2026-08-07。
 
 ## 1. 目的
 
@@ -71,7 +71,7 @@ ADR-0002-product-plane-separation.md
 - Studio-first 产品定位和本地客户端角色变化。
 - 客户、租户管理、平台运营和 Runtime Explorer 产品面变化。
 - 业务事实所有权或聚合边界变化。
-- WorkTask、StageRun、TaskRun、JobRun、NodeRun、RunAttempt 的处置。
+- WorkTask、StageRun、V7 TaskRun/RunAttempt 与 V8 JobRun/NodeRun/RuntimeAttempt 的处置。
 - 模块化单体与独立服务边界变化。
 - Schema major、事件排序、摘要或幂等语义变化。
 - 新执行模式、能力绑定、数据披露和外部副作用类型。
@@ -92,8 +92,9 @@ ADR-0002-product-plane-separation.md
 | ADR-0009 | 契约版本 | 显式 major/minor、摘要固定和兼容窗口 | 新 Schema 与业务包 |
 | ADR-0010 | 受限体验原语 | 运营组合批准原语，不建设任意低代码页面 | ExperienceTemplate |
 | [ADR-0011](./ADR-0011-creative-asset-catalog-projection.md) | 统一创作资产目录 | 使用只读投影引用生成结果，不扩张 `Asset` 语义；收录范围由 ADR-0013 修订 | 资产目录投影与复用契约 |
-| [ADR-0012](./ADR-0012-customer-asset-library-information-architecture.md) | 客户资产库信息架构（历史） | “品牌资料”演进为跨任务资产库，已由 ADR-0013 取代客户分类 | 旧路由兼容与历史迁移 |
-| [ADR-0013](./ADR-0013-customer-result-asset-boundary.md) | 客户创作资产边界 | 创作资产只展示流水线生成结果；输入和治理对象留在任务与运营面 | 客户资产 DTO、目录收录与复用门禁 |
+| [ADR-0012](./ADR-0012-customer-asset-library-information-architecture.md) | 客户资产库信息架构（历史） | “品牌资料”演进为跨任务资产库，已由 ADR-0013/0014 取代分类与入口设计 | 旧路由兼容与历史迁移 |
+| [ADR-0013](./ADR-0013-customer-result-asset-boundary.md) | 客户创作结果边界 | 冻结五类生成结果、结果状态与复用门禁；客户入口范围由 ADR-0014 扩展 | 结果 DTO、目录收录与复用门禁 |
+| [ADR-0014](./ADR-0014-customer-asset-surface.md) | 客户资产入口 | 一个“资产”入口组合工作区资料与创作结果两个专用投影，不创建超级 Asset | 客户信息架构、资料契约与 BFF 组合 |
 
 候选编号在正式创建 ADR 文件时确认。若已有项目 ADR 编号体系，应迁入现有体系而不是并行编号。
 

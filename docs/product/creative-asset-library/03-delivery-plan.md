@@ -1,6 +1,6 @@
-# 创作资产库交付计划
+# 客户资产交付计划
 
-状态：`实施中；客户结果目录首切片已落地，持久化投影、运营治理与 Canary 待完成`。
+状态：`实施中；“我的资产”上传首切片与客户结果目录已落地，连接器导入、结果持久化 Projector、运营治理与 Canary 待完成`。
 
 更新时间：2026-08-07。
 
@@ -11,25 +11,27 @@
 | 能力 | 当前状态 | 后续收口 |
 | --- | --- | --- |
 | 五类生成结果目录 | 已实现；查询时从现有 `WorkTask` 事实动态组装 | 迁移到可重建的持久化投影，并保持 DTO 兼容 |
+| 我的资产工作区 | 首切片已实现 | 已交付文件夹、上传、预览、固定引用、加入任务与最近使用；连接器导入、外链、移动/删除和 AI 理解待完成 |
+| 最近使用 | 未实现 | 从工作区资料和创作结果访问事件派生，不建立第三套资产事实 |
 | 结果类型与七项状态 | 已实现客户契约和筛选；只有 `confirmed`、`delivered` 可复用 | 补齐状态推导的领域契约与边界测试 |
 | 结果加入任务 | 已实现同项目、进行中任务的服务端门禁和固定事实引用 | 补齐权利、陈旧页面、失效传播和并发校验 |
 | 项目参考边界 | 已实现 `keep_as_project_reference`；旧 `save_for_reuse` 仅作兼容读取 | 兼容期结束后删除旧字段，不生成输入型资产目录项 |
 | 运营治理与发布验证 | 未实现 | 完成目录重建、影响查询、指标、Canary 和回退演练 |
 
-当前动态组装是迁移期实现，不新增第二套目录模型。A1 的持久化 Projector 验证完成后，应以同一 `CreativeAssetCatalogItem` 契约替换查询实现。
+当前动态组装是迁移期的“创作结果”实现，不新增第二套结果目录模型。A1 的持久化 Projector 验证完成后，应以同一 `CreativeAssetCatalogItem` 契约替换查询实现。“我的资产”走独立窄契约，不扩张现有结果 DTO。
 
 ## 1. 交付策略
 
-资产库不等待新 Runtime 全部完成，也不先建设一个独立 DAM。首期使用现有事实对象和 `ProjectProjection` 模式，交付一个可验证的跨任务复用闭环。
+资产入口不等待新 Runtime 全部完成，也不先建设一个独立 DAM。使用现有事实对象和 `ProjectProjection` 模式，分两个可独立交付的闭环推进：先稳定创作结果复用，再补齐工作区资料管理。
 
 ```text
-生成结果事实与 lineage
-        |
-        v
-结果资产投影 -> 客户资产库 -> 加入 WorkTask -> 新结果沉淀
-        |
-        v
-输入权利、版本和失效治理
+客户上传/导入资料 --------> WorkspaceMaterialProjection --+
+                                                          |
+生成结果事实与 lineage ---> CreativeResultAssetProjection +-> 客户资产入口
+                                                          |
+                                     加入 WorkTask <-------+
+                                            |
+                              版本、权利和失效治理
 ```
 
 ## 2. 纵向切片
@@ -39,7 +41,7 @@
 ```text
 人物原型或剧本结果
   -> 客户确认一个结果版本
-  -> 资产库出现人物原型或剧本目录项
+  -> “创作结果”出现人物原型或剧本目录项
   -> 客户从结果开始新的 IP 人设营销视频任务
   -> WorkTask 固定 result ref + digest，并重新校验输入权利
   -> 新的人物、剧本、分镜、图片或视频结果继续沉淀
@@ -51,11 +53,12 @@
 
 ### A0：契约和事实冻结
 
-- 接受或修订 ADR-0011、ADR-0012 与 ADR-0013。
+- 接受或修订 ADR-0011、ADR-0012、ADR-0013 与 ADR-0014。
 - 核对 Source、Asset、Rights、ApprovedSnapshot、Artifact、Delivery 和 lineage 的当前 API 与存储事实。
 - 冻结 `CreativeAssetCatalogItem`、`CreativeAssetRef`、结果类型和有限状态集合；前者是迁移期技术契约名，产品语义为 `CreativeResultAssetProjection`，不创建平行目录类型。
 - 冻结各事实对象的版本/摘要映射，并补齐 DeliveryPackage 规范化 Manifest 摘要契约。
 - 明确目录投影游标、重建和延迟阈值。
+- 冻结 `WorkspaceFolderItem`、`WorkspaceMaterialItem`、上传/导入命令和资料引用契约；禁止扩张 `StudioAssetItem`。
 
 退出条件：目录不是新事实所有者；每类收录对象和失效来源都有唯一拥有域。
 
@@ -68,9 +71,18 @@
 
 退出条件：相同事实重放结果一致；临时候选不进入目录；投影重建不产生外部副作用。
 
+### A1B：我的资产最小工作区
+
+- 建立工作区资料与文件夹的写入拥有者、只读投影和租户/项目权限边界。
+- 支持创建文件夹、本地上传、受控导入、稳定版本/摘要、基础预览和处理状态。
+- 支持把固定资料版本加入 WorkTask 或保留为项目参考。
+- OCR、转写、摘要和标签建议作为派生任务，不覆盖原文件，也不生成结果确认状态。
+
+退出条件：客户可以完成“上传或导入 -> 整理 -> 预览 -> 加入创作”；搜索候选、来源证据和临时执行文件不会自动进入工作区。
+
 ### A2：客户复用闭环
 
-- 客户资产库导航、分类、搜索、筛选、列表、详情和空错误状态。
+- 客户资产入口的“我的资产 / 创作结果 / 最近使用”视图、搜索、筛选、列表、详情和空错误状态。
 - 从资产加入现有任务或开始新任务。
 - WorkTask 输入固定底层对象版本和摘要。
 - 资产详情展示最近使用和来源追溯。
@@ -107,6 +119,10 @@
 | ASSET-05 | Operations governance | ASSET-01、ASSET-04 | 权利、失效、重复、影响和重建 |
 | ASSET-06 | Studio experience | ASSET-02、ASSET-03 | 客户简单资产库页面 |
 | ASSET-07 | Quality and rollout | 全部 | 测试、指标、Canary、回退和运行手册 |
+| ASSET-08 | Workspace material contracts | ASSET-00 | Folder/Material DTO、上传/导入和固定引用契约 |
+| ASSET-09 | Workspace material projection | ASSET-08 | 我的资产列表、文件夹、处理状态和权限裁剪 |
+| ASSET-10 | Workspace material commands | ASSET-08、ASSET-09 | 上传/导入、移动、资料加入任务与派生理解任务 |
+| ASSET-11 | Customer asset surface | ASSET-02、ASSET-06、ASSET-09 | 我的资产/创作结果/最近使用组合查询和页面 |
 
 ## 5. 代码落点建议
 
@@ -114,19 +130,28 @@
 
 ```text
 internal/experience/studio/creativeassets/      客户目录 Query 与 DTO
+internal/experience/studio/workspacematerials/  我的资产 Query、DTO 与应用命令
 internal/experience/operations/creativeassets/  运营目录 Query 与治理协调
 internal/experience/projection/creativeassets/  Projector、游标和重建
+internal/experience/projection/workspacematerials/ 工作区资料 Projector
 contracts/business/creative-asset-catalog/      CatalogItem 与 CreativeAssetRef Schema
-web/src/studio/assets/                           客户资产库 feature
+contracts/business/workspace-materials/          Folder、Material 与 MaterialRef Schema
+web/src/studio/assets/                           客户资产 feature
 web/src/admin/assets/                            运营治理 feature
 ```
 
-实际迁移期可以在现有 `internal/app`、`internal/domain/projection.go` 和 Web Shell 中以窄接口实现，不要求先创建完整目标目录。新代码不得继续扩大全局 `Store` 和 `Service`；若暂时使用兼容接口，必须登记退场条件。
+实际迁移期可以在现有 `internal/app`、`internal/domain/projection.go` 和 Web Shell 中以窄接口实现，不要求先创建完整目标目录。新代码不得继续扩大全局 `Store`、`Service` 或现有 `StudioAssetItem`；若暂时使用兼容接口，必须登记退场条件。
 
 ## 6. 测试路径
 
 ```text
 CODE PATHS                                      USER FLOWS
+工作区资料                                      客户整理并使用资料
+├── 明确上传/导入 -> 出现                        ├── 新建文件夹 -> 上传 -> 预览 [E2E]
+├── 搜索候选/来源证据 -> 不自动出现              ├── 处理失败 -> 重试或移除 [E2E]
+├── 移动文件夹 -> 不改变版本/权利                 └── 加入当前创作 -> 固定引用 [E2E]
+└── OCR/转写/摘要 -> 派生结果不覆盖原件
+
 目录收录                                        客户查找并复用
 ├── 确认结果 -> 出现                             ├── 搜索 -> 详情 -> 加入任务 [E2E]
 ├── 图片/视频 Artifact -> 出现                   ├── 陈旧页面 -> 服务端拒绝并刷新 [E2E]
@@ -140,14 +165,15 @@ CODE PATHS                                      USER FLOWS
 └── Restricted preview -> 拒绝
 ```
 
-发布前至少覆盖：领域单元测试、Memory/PostgreSQL 投影契约测试、BFF 权限与冲突集成测试，以及一条“确认结果 -> 资产库 -> 新任务”的 E2E。
+发布前至少覆盖：领域单元测试、Memory/PostgreSQL 投影契约测试、BFF 权限与冲突集成测试，以及“上传资料 -> 加入任务”和“确认结果 -> 资产 -> 新任务”两条 E2E。
 
 ## 7. Feature Flag 和回退
 
-至少拆分三个开关：
+至少拆分四个开关：
 
 - 目录投影是否旁路构建。
-- 客户资产库是否可见。
+- 客户资产入口是否可见。
+- 我的资产视图和上传/导入命令是否可见。
 - 新任务是否允许从目录引用输入。
 
 回退时先关闭新引用命令，再隐藏客户入口；目录投影可以继续旁路对账。已创建的 WorkTask 引用和历史目录审计必须保留，不能通过回退删除。
@@ -170,8 +196,10 @@ CODE PATHS                                      USER FLOWS
 | 风险 | 级别 | 缓解 |
 | --- | --- | --- |
 | 目录成为第二套正文 | P0 | 只保存引用和摘要，重建测试阻断发布 |
+| 为了统一页面扩张 `StudioAssetItem` | P0 | 冻结 Folder/Material/Result 三个窄契约，BFF 显式组合 |
 | 现有 `Asset` 语义被扩大 | P0 | ADR 冻结其参考素材语义 |
-| 所有搜索结果污染资产库 | P1 | 只收录流水线生成结果，项目参考和临时候选留在任务范围 |
+| 所有搜索结果污染资产库 | P1 | 只有客户明确上传/导入的资料进入我的资产，项目参考和临时候选留在任务范围 |
+| 恶意或超大文件拖垮处理链 | P0 | 大小/MIME/内容扫描、隔离存储、异步处理和资源上限 |
 | 权利状态陈旧仍被使用 | P0 | 危险命令回源校验，投影延迟超阈值禁用动作 |
 | 相似内容被错误合并 | P1 | 首期只提示重复，不自动合并事实对象 |
 | 客户仍不知道从哪里开始 | P1 | 资产详情只保留一个主要动作并可直接启动场景 |
@@ -179,7 +207,7 @@ CODE PATHS                                      USER FLOWS
 
 ## 10. NOT in scope
 
-- 通用企业 DAM 或网盘替代品：不阻断跨任务创作复用闭环。
+- 通用企业 DAM 或网盘替代品：当前只做文件夹、上传/导入、预览和加入创作的最小工作区。
 - 全盘同步和桌面文件监听：数据权限和冲突成本过高。
 - 向量数据库和自动语义聚类：先用确定性字段验证查找价值。
 - 任意关系图和资产编排画布：现有 lineage 查询足够支撑追溯与影响。
@@ -188,9 +216,11 @@ CODE PATHS                                      USER FLOWS
 
 ## 11. 完成定义
 
-1. 客户可以浏览、理解并复用人物原型、剧本、分镜、图片和视频结果。
-2. 每个正式引用固定底层对象版本和摘要，并能追溯使用历史。
-3. 已确认结果自动沉淀，项目参考和临时候选不会污染客户资产目录。
-4. 权利、来源、租户和敏感性变化能阻止不安全的新使用。
-5. 投影可重建、可对账、无外部副作用，客户与运营读取独立契约。
-6. 真实试点证明资产复用降低重复采集、生成或审核成本。
+1. 客户可以在“我的资产”管理文件夹和上传/导入资料，并把固定资料版本加入创作。
+2. 客户可以在“创作结果”浏览、理解并复用人物原型、剧本、分镜、图片和视频结果。
+3. 每个正式引用固定底层对象版本和摘要，并能追溯使用历史。
+4. 已确认结果自动沉淀；项目参考、来源证据和临时候选不会自动污染两个资产投影。
+5. 工作区资料与创作结果使用独立契约、状态和命令，客户 BFF 只做组合查询。
+6. 权利、来源、租户和敏感性变化能阻止不安全的新使用。
+7. 投影可重建、可对账、无外部副作用，客户与运营读取独立契约。
+8. 真实试点证明资产工作区与结果复用降低重复采集、上传、生成或审核成本。

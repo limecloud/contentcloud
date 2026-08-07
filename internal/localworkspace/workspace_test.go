@@ -118,7 +118,7 @@ func TestInitializeCodexPluginUsesPluginDeliveryWithoutProjectDuplicates(t *test
 
 func TestInitializeCodexMCPUsesPinnedNPXLauncher(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
-	if _, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", CLIVersion: "0.18.0", Target: "codex"}); err != nil {
+	if _, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", CLIVersion: "0.19.0", Target: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{".contentcloud/mcp/contentcloud-local.json", ".codex/config.toml"} {
@@ -129,7 +129,7 @@ func TestInitializeCodexMCPUsesPinnedNPXLauncher(t *testing.T) {
 		if !strings.Contains(string(body), `"command": "npx"`) && !strings.Contains(string(body), `command = "npx"`) {
 			t.Fatalf("%s does not use npx: %s", path, body)
 		}
-		if !strings.Contains(string(body), "@limecloud/contentcloud@0.18.0") || !strings.Contains(string(body), "mcp") || !strings.Contains(string(body), "serve") {
+		if !strings.Contains(string(body), "@limecloud/contentcloud@0.19.0") || !strings.Contains(string(body), "mcp") || !strings.Contains(string(body), "serve") {
 			t.Fatalf("%s does not pin the MCP launcher: %s", path, body)
 		}
 	}

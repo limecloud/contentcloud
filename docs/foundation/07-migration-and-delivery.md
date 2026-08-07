@@ -38,12 +38,12 @@ Studio Shell -> Experience -> 灵感采集 -> 客户选择 -> 下游固定输入
 交付：
 
 - 核心对象生命周期和事实所有权矩阵。
-- WorkTask、StageRun、TaskRun、JobRun、NodeRun、RunAttempt 处置 ADR。
+- WorkTask、StageRun、V7 TaskRun/RunAttempt 与 V8 JobRun/NodeRun/RuntimeAttempt 处置 ADR。
 - Studio-first 定位和旧客户入口迁移 ADR。
 - 当前 API、表、契约、路由、投影和执行路径事实地图。
 - 基线指标、Feature Flag 和回退责任人。
 
-退出条件：任何新 Runtime 表或新 Studio 权威状态出现前，上述 ADR 已批准；每个现有对象标记 `Reuse / Extend / Rename / Compat / Deprecate / Retire`。
+退出条件：任何新 Runtime 表或新 Studio 权威状态出现前，上述 ADR 已批准；每个现有对象标记 `current / compat / deprecated / dead`，并单独记录目标动作、所有者和退出门槛。
 
 ### F1：首个客户价值切片
 
@@ -66,11 +66,23 @@ Studio Shell -> Experience -> 灵感采集 -> 客户选择 -> 下游固定输入
 
 - 使用现有 Source、Asset、RightsRecord、ApprovedSnapshot、Artifact、DeliveryPackage 和 lineage 事实。
 - 旁路构建只收录人物原型、剧本、分镜、图片和视频结果的 `CreativeAssetCatalogItem` 只读投影，不改变拥有域写路径。
-- 客户“品牌资料”入口在试点租户演进为“资产库”，但旧品牌资料和输入型数据迁移到任务输入或项目参考，旧路由保持兼容读取。
+- 客户入口先增加独立“创作结果”视图，只展示五类生成结果；旧品牌资料和输入型数据仍由资料或任务参考路径读取，不进入结果状态机。
 - 完成“结果生成 -> 客户确认 -> 资产目录出现 -> 固定引用进入新任务 -> 新结果再次沉淀”的闭环。
 - 运营侧处理权利待办、失效、重复组、投影延迟和影响范围。
 
 退出条件：真实试点客户完成一次跨任务复用；权利过期、来源失效、跨租户和陈旧投影均不能创建不安全的新引用；目录重建结果确定且无外部副作用。
+
+### F1B：客户“我的资产”工作区切片
+
+在 F1A 已验证的结果复用边界旁增加客户资料工作区，不修改结果目录契约：
+
+- 冻结 `WorkspaceFolderItem`、`WorkspaceMaterialItem`、上传/导入命令和固定资料引用。
+- 支持文件夹、文档、图片、视频、音频、表格和其他文件的最小管理能力。
+- 对上传/导入、预览、OCR、转写和摘要使用独立处理状态；不复用结果确认状态。
+- 客户 BFF 组合“我的资产 / 创作结果 / 最近使用”，但不创建超级 `Asset` 写模型。
+- 搜索候选、来源证据、知识和权利记录只有在客户明确导入时才建立工作区资料引用。
+
+退出条件：真实试点客户完成“上传或导入 -> 整理 -> 预览 -> 加入创作”；关闭工作区开关不会影响已有创作结果复用。
 
 ### F2：逻辑模块和窄接口
 
@@ -102,8 +114,8 @@ Studio Shell -> Experience -> 灵感采集 -> 客户选择 -> 下游固定输入
 顺序：
 
 1. 新 JobRun 成为一次完整执行记录。
-2. 根据 ADR 将现有 TaskRun 扩展/重命名为 NodeRun，或通过有限兼容映射迁移。
-3. RunAttempt 关联 NodeRun，并保留原租约和心跳能力。
+2. V8 NodeRun 和独立 RuntimeAttempt 接管新路径，V7 TaskRun/RunAttempt 只服务存量兼容任务。
+3. StageRun 只通过单向投影表达客户阶段，不与 NodeRun 双写权威状态。
 4. 状态、ContextView、预算和 Effect 台账上线。
 5. 先对试点租户、单一低风险能力切流。
 6. 观测完整窗口后扩大能力和租户。
@@ -148,12 +160,13 @@ draft -> linted -> preview -> canary -> published -> deprecated -> retired
 | FND-00 | 事实地图与 ADR | - | 对象、表、API、路由、状态和所有权清单 |
 | FND-01 | Studio 客户切片 | FND-00 | Shell、Experience、灵感采集、客户 Gate |
 | FND-01A | 创作资产目录闭环 | FND-00、FND-01 | 统一目录投影、资产库、固定引用、失效治理 |
+| FND-01B | 我的资产工作区 | FND-00、FND-01A | Folder/Material 契约、上传/导入、处理状态和组合入口 |
 | FND-02 | 产品目录与发布 | FND-00 | Experience 生命周期、租户启用、版本固定 |
 | FND-03 | 模块边界与窄端口 | FND-00 | Work/Catalog/Studio/Runtime 端口与架构检查 |
 | FND-04 | Runtime 旁路编译 | FND-00、V8 W8-02/03 | JobRun、JobPlanRevision、对账报告 |
 | FND-05 | 线性 Runtime 切流 | FND-03、FND-04、V8 W8-04 | Node/Attempt 映射、调度与回退 |
 | FND-06 | Context 与 Effect | FND-05、V8 W8-05/07 | 最小上下文、状态、外部操作与对账 |
-| FND-07 | 运营控制面 | FND-01A、FND-02、FND-05/06 | 发布、资产治理、Canary、诊断、费用和运行手册 |
+| FND-07 | 运营控制面 | FND-01A/01B、FND-02、FND-05/06 | 发布、资产治理、Canary、诊断、费用和运行手册 |
 | FND-08 | 第二业务流 | FND-05/06/07 | 无业务硬编码的通用性证据 |
 | FND-09 | 动态图与容量 | FND-06、FND-08、V8 W8-09/10 | 受限动态 DAG、检查点和规模门禁 |
 | FND-10 | 兼容退场 | 所有前置 | 删除旧路径、物理目录收敛、文档更新 |
@@ -162,7 +175,7 @@ draft -> linted -> preview -> canary -> published -> deprecated -> retired
 
 ```text
 FND-00
-├── FND-01 -> FND-01A -------------------┐
+├── FND-01 -> FND-01A -> FND-01B ------┐
 ├── FND-02 ------------------------------┤
 ├── FND-03 -----------┐                  │
 └── FND-04 -----------+-> FND-05 -> FND-06
@@ -190,30 +203,33 @@ FND-01 可以与 Runtime 基础并行，但只能使用已冻结契约，不能�
 
 ## 7. 现有对象与模块处置矩阵
 
-| 对象或模块 | 状态 | 目标所有者 | 删除/完成条件 |
-| --- | --- | --- | --- |
-| `WorkTask` | Extend | Work | 增加体验和 Job 引用，保持用户工作语义 |
-| `StageRun` | Compat | Work projection / Runtime adapter | Node 投影等价并停止旧写入 |
-| `TaskRun` | Proposed Rename/Extend or Compat | Runtime | ADR 冻结，不允许永久双状态 |
-| `RunAttempt` | Extend | Runtime | 关联 NodeRun，原历史可读 |
-| `SOPVersion` / Stage / Gate | Reuse/Extend | Catalog | 编译器可直接消费 |
-| `Capability` / catalog | Extend | Catalog | 统一数据分类、副作用和执行模式 |
-| `ProjectTemplate` | Rename or Deprecate | Workspace | 与 ExperienceTemplate 消除语义冲突 |
-| `ProjectProjection` | Extend | Experience | CustomerJourneyProjection 可从权威对象重建 |
-| `Source` / `SourceRevision` | Reuse | Source | 进入任务输入或项目参考投影；只通过内部 lineage 影响结果可复用状态 |
-| `Asset` / `RightsRecord` | Reuse/Extend | Source | 保持参考素材和权利治理语义，不生成客户结果资产目录项 |
-| `ApprovedSnapshot` | Reuse | Review | 创建后自动进入目录，不新增批准状态 |
-| `Artifact` / `DeliveryPackage` | Reuse | Delivery | Artifact 可形成图片/视频结果；DeliveryPackage 只进入交付视图并推导交付状态 |
-| `CreativeAssetCatalogItem` | New Projection | Experience | 迁移期技术契约名，只投影生成结果；可重建，禁止成为统一写模型 |
-| `store.Store` | Deprecate | 各模块 ports | 所有方法迁移到窄接口后删除 |
-| `app.Service` | Deprecate | 各模块 application | 全局依赖清零后删除 |
-| `internal/domain` | Compat | 各业务模块 | 按聚合迁移且无反向导入 |
-| `internal/httpapi` | Compat | Transport | Studio/Admin/Agent/Public handler 拆分 |
-| `agentadapter` | Extend/Rename | Integration Agent | 支持 Node contract 和恢复能力 |
-| `environment` | Split | Catalog/Runtime/Integration | 配置、绑定、信任各归其主 |
-| `mediapipeline` | Split | Delivery/Provider | 业务状态与 SDK 调用分离 |
-| Workspace Shell | Compat/Deprecate | Studio | 关键流程迁移且旧路由访问量归零 |
-| Admin Shell | Reuse/Extend | Operations | 增加 Experience 发布和 Runtime Explorer |
+| 对象或模块 | 状态 | 目标动作 | 目标所有者 | 删除/完成条件 |
+| --- | --- | --- | --- | --- |
+| `WorkTask` | `current` | 保持业务语义，增加体验和 Job 引用 | Work | 不吸收 Runtime 节点状态 |
+| `StageRun` | `compat` | 收敛为客户阶段投影 | Work projection / Runtime adapter | Node 投影等价并停止旧权威写入 |
+| `TaskRun` / `RunAttempt` | `compat` | 只服务 V7 线性执行历史与存量任务 | Runtime | V8 切流、活跃旧任务归零且历史可读 |
+| `JobRun` / `NodeRun` / `RuntimeAttempt` | `current` | 继续完善 V8 执行、租约和恢复 | Runtime | 生产门禁通过；不与 V7 执行状态双写 |
+| `SOPVersion` / Stage / Gate | `current` | 增量扩展并由编译器直接消费 | Catalog | 不创建平行业务流水线定义 |
+| `Capability` / catalog | `current` | 统一数据分类、副作用和执行模式 | Catalog | 发布和准入使用同一版本化契约 |
+| `ProjectTemplate` | `compat` | 与 ExperienceTemplate 消除命名和职责冲突 | Workspace | 新项目入口不再依赖重叠语义 |
+| `ProjectProjection` | `current` | 扩展 CustomerJourneyProjection | Experience | 可从权威对象确定性重建 |
+| `Source` / `SourceRevision` | `current` | 保持来源事实，仅通过 lineage 影响结果 | Source | 不直接写客户结果状态 |
+| `Asset` / `RightsRecord` | `current` | 保持参考素材与权利治理语义 | Source | 上传资料可进入工作区投影，但不进入结果状态机 |
+| `ApprovedSnapshot` | `current` | 保持批准事实并驱动结果投影 | Review | 不新增重复批准状态 |
+| `Artifact` / `DeliveryPackage` | `current` | 保持交付事实；分别投影媒体结果和交付视图 | Delivery | 不复制资产或交付正文 |
+| `CreativeAssetCatalogItem` | `current` | 仅投影五类生成结果 | Experience | 可重建，禁止成为统一写模型 |
+| `WorkspaceFolderItem` / `WorkspaceMaterialItem` | `current` | 独立表达资料组织、摘要和处理状态 | Experience / Workspace | 不扩张结果目录契约 |
+| `store.Store` | `deprecated` | 迁移到各模块窄端口 | 各模块 ports | 所有方法迁移且新增依赖为零后删除 |
+| `app.Service` | `deprecated` | 拆分为各模块 application service | 各模块 application | 全局依赖清零后删除 |
+| `internal/domain` | `compat` | 按聚合迁移到业务模块 | 各业务模块 | 无反向导入且旧包引用归零 |
+| `internal/httpapi` | `compat` | 拆分 Studio/Admin/Agent/Public transport | Transport | 旧聚合 handler 引用归零 |
+| `agentadapter` | `current` | 收敛命名并支持 Node contract 与恢复 | Integration Agent | 通过适配器一致性测试 |
+| `environment` | `compat` | 拆分配置、绑定与信任职责 | Catalog / Runtime / Integration | 旧聚合入口引用归零 |
+| `mediapipeline` | `compat` | 拆分业务状态与 Provider SDK 调用 | Delivery / Provider | 新旧服务商路径完成对账并切流 |
+| Workspace Shell | `compat` | 迁移客户关键流程到 Studio | Studio | 旧路由访问量归零且兼容期结束 |
+| Admin Shell | `current` | 扩展 Experience 发布和 Runtime Explorer | Operations | 权限、审计和诊断门禁通过 |
+| `REDESIGN_PLAN.md` | `dead` | 删除 | Documentation | 无引用，内容已被 `DESIGN.md` 和现有实现取代 |
+| `docs/roadmap/content-work-os`、`plugin`、`v1-v7` | `dead` | 删除旧主动路线图 | Documentation | 当前文档无链接、实现与迁移证据已由代码、ADR、Foundation、V8 和变更记录承接 |
 
 ## 8. Feature Flag 与权威切换
 
@@ -231,7 +247,7 @@ FND-01 可以与 Runtime 基础并行，但只能使用已冻结契约，不能�
 
 ```text
 旧权威写入
-  -> Compat event/ref
+  -> compat event/ref
   -> 新模型 shadow apply
   -> digest comparison
        ├── equal -> metric success
@@ -268,6 +284,7 @@ FND-01 可以与 Runtime 基础并行，但只能使用已冻结契约，不能�
 | M0 基线冻结 | FND-00 | ADR、事实地图、指标和处置矩阵完成 |
 | M1 客户验证 | FND-01 | 灵感采集真实闭环和价值指标可用 |
 | M1A 资产复用 | FND-01A | 跨任务复用闭环、失效治理和目录重建通过 |
+| M1B 资料工作区 | FND-01B | 上传/导入、文件夹、资料处理和加入创作闭环通过 |
 | M2 模块边界 | FND-02/03 | 新代码不扩大旧宽接口，契约测试通过 |
 | M3 Shadow Runtime | FND-04 | SOP 旁路编译和投影摘要一致 |
 | M4 Runtime 接管 | FND-05/06 | 线性切流、Effect、恢复、回退通过 |
@@ -283,8 +300,9 @@ FND-01 可以与 Runtime 基础并行，但只能使用已冻结契约，不能�
 | Run 对象形成第三套状态 | P0 | FND-00 ADR 先于数据库实现 |
 | Runtime 吞并业务事实 | P0 | 事实所有权、引用契约和模块依赖检查 |
 | 资产目录成为第二套业务事实 | P0 | 只读投影、固定 subject ref、回源校验和重建测试 |
-| 原始候选污染资产库 | P1 | 只收录保存、选择、批准和正式交付内容 |
-| 新旧长期共存 | P0 | Compat owner、指标、最晚阶段和退场门槛 |
+| 原始候选污染资产库 | P1 | 搜索候选只保留为任务参考；进入我的资产必须有明确导入动作 |
+| 工作区资料与结果 DTO 合并 | P0 | 冻结 Folder/Material/Result 窄契约，由客户 BFF 组合 |
+| 新旧长期共存 | P0 | compat owner、指标、最晚阶段和退场门槛 |
 | 目录搬迁导致大范围冲突 | P1 | 先端口后移动，一次迁移一个模块 |
 | 运营配置空间不可测试 | P1 | 受限体验原语、批准组合、lint 和 Canary |
 | Agent 宿主恢复能力不稳定 | P1 | 可选执行者，Fake/Worker 基本路径，不阻塞 Studio |

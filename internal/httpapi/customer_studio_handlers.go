@@ -1,7 +1,10 @@
 package httpapi
 
 import (
+	"fmt"
 	"net/http"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -137,10 +140,61 @@ func (s *Server) attachCustomerStudioAssets(w http.ResponseWriter, r *http.Reque
 	s.dispatchResult(w, r, "studio.task_assets.attach", value, err)
 }
 
+func (s *Server) attachCustomerStudioMaterials(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input app.StudioAttachMaterialsInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.AttachCustomerWorkspaceMaterials(r.Context(), actor, chi.URLParam(r, "taskID"), input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "studio.task_materials.attach", value, err)
+}
+
+func (s *Server) createCustomerStudioFolder(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input app.CreateWorkspaceFolderInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.CreateCustomerWorkspaceFolder(r.Context(), actor, input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "studio.workspace_folder.create", value, err)
+}
+
+func (s *Server) uploadCustomerStudioMaterial(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	data, fileName, err := multipartSourceFile(w, r)
+	if err != nil {
+		s.fail(w, r, "studio.workspace_material.upload", err)
+		return
+	}
+	value, err := s.service.UploadCustomerWorkspaceMaterial(r.Context(), actor, strings.TrimSpace(r.FormValue("project_id")), strings.TrimSpace(r.FormValue("folder_ref")), strings.TrimSpace(r.FormValue("title")), fileName, r.FormValue("file_type"), data, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "studio.workspace_material.upload", value, err)
+}
+
+func (s *Server) downloadCustomerStudioMaterial(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	material, data, err := s.service.CustomerWorkspaceMaterialBytes(r.Context(), actor, chi.URLParam(r, "id"))
+	if err != nil {
+		s.fail(w, r, "studio.workspace_material.download", err)
+		return
+	}
+	w.Header().Set("Content-Type", material.MIMEType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", strings.ReplaceAll(filepath.Base(material.FileName), "\"", "")))
+	w.Header().Set("Content-Length", strconv.FormatInt(material.ByteSize, 10))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
 func (s *Server) customerStudioAssets(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	value, err := s.service.CustomerStudioAssets(r.Context(), actor, strings.TrimSpace(r.URL.Query().Get("project_id")))
 	s.dispatchResult(w, r, "studio.asset.list", value, err)
+}
+
+func (s *Server) customerStudioCreativeResult(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.CustomerStudioCreativeResult(r.Context(), actor, strings.TrimSpace(r.URL.Query().Get("task_id")), chi.URLParam(r, "resultID"))
+	s.dispatchResult(w, r, "studio.asset.show", value, err)
 }
 
 func (s *Server) customerStudioDeliveries(w http.ResponseWriter, r *http.Request) {

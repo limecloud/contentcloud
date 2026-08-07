@@ -8,7 +8,7 @@
 
 关联：[创作资产库产品需求](../../product/creative-asset-library/01-product-requirements.md)
 
-> 本 ADR 保留原始“资产库与交付分离”的决策记录。客户资产的类型边界和分类方案已由 [ADR-0013](./ADR-0013-customer-result-asset-boundary.md) 取代。
+> 本 ADR 保留原始“资产库与交付分离”的决策记录。生成结果边界由 [ADR-0013](./ADR-0013-customer-result-asset-boundary.md) 冻结，客户资产入口的最终信息架构由 [ADR-0014](./ADR-0014-customer-asset-surface.md) 取代。
 
 ## 背景
 

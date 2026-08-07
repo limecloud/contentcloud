@@ -58,7 +58,7 @@ Operations & Audit 横切所有域，但不拥有其业务正文
 | Source & Knowledge | Source、SourceRevision、EvidenceSpan、KnowledgeObject、KnowledgeSnapshot、RightsRecord | 任务调度和批准决定 |
 | Creative Product Catalog | ExperienceTemplate、SOPVersion、StageDefinition、GateDefinition、Capability、发布与租户启用 | 进行中任务状态 |
 | Work Management | WorkTask、客户意图、请求输出、当前业务阶段摘要 | 节点租约和执行尝试 |
-| Runtime Execution | JobRun、JobPlanRevision、NodeRun、RunAttempt、Lease、State、Effect、执行事件 | 来源正文、批准正文和交付正文 |
+| Runtime Execution | JobRun、JobPlanRevision、NodeRun、RuntimeAttempt、Lease、State、Effect、执行事件 | 来源正文、批准正文和交付正文 |
 | Review & Approval | SubmissionRevision、TaskRevision、ReviewCycle、GateEvaluation、ApprovedSnapshot、ApprovalDecision | 自动生成内容和执行调度 |
 | Artifact & Delivery | Artifact、MediaGenerationJob、DeliveryPackage、TaskDelivery、完整性 | 外部平台真实发布结果，除非有回执 |
 | Performance & Learning | PerformanceObservation、RatingDecision、已批准学习候选 | 自动改写知识和 SOP |
@@ -79,7 +79,7 @@ WorkTask  用户想完成的一项工作
                      +-- fixes --> JobPlanRevision
                      +-- has many --> NodeRun
                                         |
-                                        +-- has many --> RunAttempt
+                                        +-- has many --> RuntimeAttempt
                                         +-- refs --> business inputs/outputs
                                         +-- may wait --> GateEvaluation
 ```
@@ -96,22 +96,23 @@ WorkTask  用户想完成的一项工作
 
 表示固定 JobPlanRevision 中一个可调度节点的执行状态。NodeRun 拥有依赖、状态、输入输出引用和门禁等待，但不保存大正文。
 
-### 4.4 RunAttempt
+### 4.4 RuntimeAttempt
 
-表示某个执行者取得节点租约后的一次尝试。现有 `domain.RunAttempt` 直接扩展以关联 NodeRun；执行进程重启或租约过期创建新 Attempt，不覆盖旧尝试。
+表示某个执行者取得 NodeRun 租约后的一次尝试。V8 已使用独立 `RuntimeAttempt` 权威模型关联 NodeRun、ContextView 和 AgentInstance；执行进程重启或租约过期创建新 Attempt，不覆盖旧尝试。V7 `RunAttempt` 只服务旧 TaskRun 兼容路径，不与 RuntimeAttempt 双写。
 
 ## 5. 现有运行对象处置
 
-当前仓库同时存在 `WorkTask`、`StageRun`、`TaskRun` 和 `RunAttempt`。V8 计划引入 `JobRun` 与 `NodeRun`。实施前必须通过 ADR 冻结下列关系：
+当前仓库同时存在 V7 的 `WorkTask`、`StageRun`、`TaskRun`、`RunAttempt`，以及 V8 的 `JobRun`、`NodeRun` 和 `RuntimeAttempt`。新旧关系必须按以下状态治理，不允许用名称相似性进行双写或猜测迁移：
 
-| 当前对象 | 当前语义 | 目标处置 | 退场或保留条件 |
-| --- | --- | --- | --- |
-| `WorkTask` | 用户工作对象 | `Extend` | 永久保留，去除底层执行细节 |
-| `StageRun` | SOP 业务阶段进度 | `Compat` 或业务投影 | NodeRun 能确定性生成同等阶段状态后停止权威写入 |
-| `TaskRun` | 单能力、可租赁执行 | `Rename/Extend` 为 NodeRun，或作为兼容执行记录 | 必须选择一个方向，禁止与 NodeRun 永久双写 |
-| `RunAttempt` | 执行租约和尝试 | `Extend` | 关联 NodeRun，继续保留历史 |
-| `JobRun` | 尚未实现的整项执行 | `New` | 成为 WorkTask 下完整执行聚合 |
-| `NodeRun` | 尚未实现的执行节点 | `New or Rename` | 与 TaskRun 的关系由 ADR 决定 |
+| 当前对象 | 当前语义 | 状态 | 目标动作 | 退场或保留条件 |
+| --- | --- | --- | --- | --- |
+| `WorkTask` | 用户工作对象 | `current` | 保持业务事实，继续固定体验、SOP 和 Job 引用 | 永久保留，不吸收底层执行状态 |
+| `StageRun` | SOP 业务阶段进度 | `compat` | 收敛为客户业务投影 | NodeRun 能确定性生成同等阶段状态后停止权威写入 |
+| `TaskRun` | V7 单能力、可租赁执行 | `compat` | 只服务 V7 线性执行路径 | V8 切流完成、活跃旧任务归零且历史可读后停止写入 |
+| `RunAttempt` | V7 TaskRun 的执行租约和尝试 | `compat` | 保留旧历史，不关联 V8 NodeRun | TaskRun 停止写入并满足历史读取保留策略后退场 |
+| `JobRun` | 一项 WorkTask 的完整执行 | `current` | 继续作为 V8 执行聚合演进 | 永久保留执行历史和版本引用 |
+| `NodeRun` | 固定 JobPlanRevision 中的执行节点 | `current` | 继续作为 V8 节点权威状态演进 | 永久保留节点执行历史 |
+| `RuntimeAttempt` | V8 NodeRun 的独立执行尝试 | `current` | 继续完善租约、恢复和执行适配器 | 永久保留尝试审计；不与 V7 RunAttempt 双写 |
 
 禁止先创建新表和接口，再在实现后解释这些对象的关系。
 
@@ -156,10 +157,12 @@ Untrusted Input
 
 任何推进都必须保留上游引用和摘要。客户选择只表示业务意向，不自动批准事实、营销主张、版权或平台合规。
 
-## 9. 跨任务资产沉淀与复用
+## 9. 客户资料与创作结果沉淀
 
 ```text
-SourceRevision / Asset / KnowledgeObject / RightsRecord
+客户明确上传 / 导入的资料 ---> WorkspaceMaterialProjection
+
+搜索候选 / SourceRevision / KnowledgeObject / RightsRecord
                     |
                     v
           WorkTask 输入与项目参考投影
@@ -173,10 +176,12 @@ ApprovedSnapshot / TaskRevision / Artifact
         CreativeAssetRef -> WorkTask input snapshot
 ```
 
-- 来源、灵感、知识、权利和任务输入不进入客户创作资产目录；它们保留在任务输入或项目参考投影。
+- 客户明确上传或导入的资料可以进入 `WorkspaceMaterialProjection`；文件夹只负责组织，不拥有正文或权利状态。
+- 搜索候选、来源证据、灵感、知识、权利和任务输入不自动进入客户资产；它们保留在任务输入或项目参考投影。
 - `CreativeAssetCatalogItem` 只收录人物原型、剧本、分镜、图片和视频等流水线结果；正文仍由拥有域提供。
 - 结果状态决定是否可以复用，目录项只保存显示摘要、受控预览和版本化事实引用。
 - `CreativeAssetRef` 固定底层对象类型、ID、版本和摘要，Runtime 不以目录项作为权威输入。
+- `WorkspaceMaterialRef` 固定资料对象、版本和摘要；普通文件处理状态不复用生成结果状态机。
 - 权利到期或来源失效阻止新任务使用，并通过 lineage 定位受影响下游；历史任务和交付不被静默改写。
 
 详细规范见 [`docs/product/creative-asset-library/02-domain-and-projection.md`](../product/creative-asset-library/02-domain-and-projection.md)。

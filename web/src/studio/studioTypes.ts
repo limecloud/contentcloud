@@ -159,6 +159,71 @@ export interface StudioAssetCatalog {
   generated_at:string;
 }
 
+export interface StudioAssetMedia {
+  asset_ref:string;
+  shot_id?:string;
+  role?:string;
+  file:StudioDownload;
+}
+
+export interface StudioCreativeResultDetail {
+  item:StudioAssetItem;
+  content_format:StudioAssetItem['result_type'];
+  content:unknown;
+  media:StudioAssetMedia[];
+  read_only:true;
+}
+
+export interface WorkspaceFolderItem {
+  folder_ref:string;
+  parent_ref?:string;
+  project_id:string;
+  project_name:string;
+  name:string;
+  child_count:number;
+  created_at:string;
+  updated_at:string;
+}
+
+export type WorkspaceMaterialKind='document'|'image'|'video'|'audio'|'table'|'other';
+export type WorkspaceMaterialOrigin='uploaded'|'imported'|'linked';
+export type WorkspaceMaterialUsage='project_material'|'project_reference';
+export type WorkspaceMaterialProcessingState='uploading'|'processing'|'ready'|'failed';
+
+export interface WorkspaceMaterialItem {
+  material_ref:string;
+  folder_ref?:string;
+  project_id:string;
+  project_name:string;
+  material_kind:WorkspaceMaterialKind;
+  origin:WorkspaceMaterialOrigin;
+  usage:WorkspaceMaterialUsage;
+  title:string;
+  file_name:string;
+  mime_type:string;
+  byte_size:number;
+  preview_ref?:string;
+  processing_state:WorkspaceMaterialProcessingState;
+  rights_summary:string;
+  created_at:string;
+  updated_at:string;
+  last_used_at?:string;
+}
+
+export interface WorkspaceMaterialProjection {
+  folders:WorkspaceFolderItem[];
+  materials:WorkspaceMaterialItem[];
+  counts:Record<string,number>;
+  generated_at:string;
+}
+
+export interface StudioAssetSurface {
+  workspace:WorkspaceMaterialProjection;
+  creative_results:StudioAssetCatalog;
+  recent:{materials:WorkspaceMaterialItem[];results:StudioAssetItem[]};
+  generated_at:string;
+}
+
 export interface StudioTaskView {
   task:StudioTaskSummary;
   steps:StudioCustomerStep[];
@@ -199,5 +264,6 @@ export interface StudioCreateTaskInput {
   goal:string;
   inspiration:string;
   asset_refs:string[];
+  material_refs:string[];
   idempotency_key?:string;
 }

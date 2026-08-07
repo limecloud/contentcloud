@@ -136,7 +136,7 @@ Agent、模型、搜索、网页和服务商输出默认是候选。客户选择
 
 - 一次性搬迁全部目录、表和 API。
 - 通用拖拽工作流编辑器。
-- 通用 DAM、全盘同步网盘、三维资产画布或任意关系图。
+- 企业级 DAM、全盘同步网盘、三维资产画布或任意关系图；客户资产入口所需的最小文件夹、上传/导入和基础预览属于明确产品范围。
 - 客户上传执行代码或自定义爬虫。
 - 无人工门禁的事实、权利、费用和最终交付批准。
 - 在没有真实平台回执时宣称已经发布到抖音或公众号。
@@ -144,6 +144,6 @@ Agent、模型、搜索、网页和服务商输出默认是候选。客户选择
 
 ## 9. 已有能力基础
 
-当前仓库已经具备可复用的 WorkTask、StageRun、TaskRun、RunAttempt、SOPVersion、StageDefinition、GateDefinition、Capability、Source、EvidenceSpan、Knowledge、SubmissionRevision、ApprovedSnapshot、Artifact、DeliveryPackage、项目投影、管理员 Shell 和客户工作台。
+当前仓库已经具备可复用的 WorkTask、StageRun、V7 TaskRun/RunAttempt、V8 JobRun/NodeRun/RuntimeAttempt、SOPVersion、StageDefinition、GateDefinition、Capability、Source、EvidenceSpan、Knowledge、SubmissionRevision、ApprovedSnapshot、Artifact、DeliveryPackage、项目投影、管理员 Shell 和客户工作台。
 
-这些对象已经构成创作资产库的事实基础。本轮目标是澄清所有权、收紧依赖并补齐产品层、统一目录投影与 Runtime 关系，不重建这些业务对象，也不把现有 `Asset` 扩张成超级聚合。
+这些对象已经构成客户资产入口的事实基础。本轮目标是澄清工作区资料、创作结果与治理对象的所有权，收紧依赖并补齐产品层与 Runtime 关系，不重建这些业务对象，也不把现有 `Asset` 扩张成超级聚合。

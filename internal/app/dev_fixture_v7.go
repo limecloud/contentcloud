@@ -92,6 +92,9 @@ func (s *Service) EnsureMarketingVideoDemoFixture(ctx context.Context, actor Act
 	if err != nil {
 		return MarketingVideoDemoFixtureResult{}, err
 	}
+	if err := s.createMarketingVideoDemoWorkspaceMaterial(ctx, actor, project, sourceRevision); err != nil {
+		return MarketingVideoDemoFixtureResult{}, err
+	}
 	knowledgeSnapshot, knowledgeIDs, rightsID, err := s.createMarketingVideoDemoKnowledge(ctx, actor, project, sourceRevision, evidenceIDs)
 	if err != nil {
 		return MarketingVideoDemoFixtureResult{}, err
@@ -308,6 +311,16 @@ func (s *Service) createMarketingVideoDemoSource(ctx context.Context, actor Acto
 		ids = append(ids, id)
 	}
 	return revision, ids, nil
+}
+
+func (s *Service) createMarketingVideoDemoWorkspaceMaterial(ctx context.Context, actor Actor, project domain.Project, revision domain.SourceRevision) error {
+	now := s.now().UTC()
+	folder := domain.WorkspaceFolder{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, Name: "品牌与产品资料", CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now}
+	if err := s.store.CreateWorkspaceFolder(ctx, folder); err != nil {
+		return err
+	}
+	material := domain.WorkspaceMaterial{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, FolderID: folder.ID, SourceID: revision.SourceID, SourceRevisionID: revision.ID, MaterialKind: domain.WorkspaceMaterialDocument, Origin: domain.WorkspaceMaterialUploaded, Usage: domain.WorkspaceMaterialProjectMaterial, Title: "金陵古都香项目资料", CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now}
+	return s.store.CreateWorkspaceMaterial(ctx, material)
 }
 
 func (s *Service) createMarketingVideoDemoKnowledge(ctx context.Context, actor Actor, project domain.Project, source domain.SourceRevision, evidenceIDs []string) (domain.KnowledgeSnapshot, []string, string, error) {

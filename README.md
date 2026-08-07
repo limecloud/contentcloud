@@ -1,6 +1,6 @@
 # Content Work OS
 
-Content Work OS 是面向 AI 内容营销团队的本地优先创作与云端治理系统。客户可在本机 Codex、Claude Code 等成熟智能体客户端中完成资料整理、知识工程、策略、创作简报和剧本；服务端负责项目、不可变提交、人工审核、审计和可选的自动化调度。
+Content Work OS 是面向 AI 内容营销团队的 Studio-first 创作与云端治理系统。客户默认在简单的 Web 创作台中选择场景、提交资料、查看进度、确认结果和取得交付；Codex、Claude Code、ContentCloud Worker、外部服务商和人工是可按任务能力选择的执行者。
 
 当前版本覆盖从输入收集、知识治理、剧本、分镜素材、视频生成、成片审核到正式交付的完整生产链。
 
@@ -9,7 +9,7 @@ Content Work OS 是面向 AI 内容营销团队的本地优先创作与云端治
 - 云端不执行客户上传的代码，也不保存本地智能体或模型凭据。
 - 智能体、技能、渲染器、脚本和 CI 的所有程序化服务通信只经过 `contentcloud` 命令行工具。
 - 使用者工作台只访问同源 `/api/bff`，独立系统后台只访问 `/api/v1/admin`；这些内部 HTTP、token 和对象存储协议都不是公共 SDK。
-- 客户先在工作台创建项目，再把一次性智能体提示词粘贴到 Codex 或 Claude，由智能体初始化本地工作区、项目级技能和 MCP。
+- 客户先在工作台创建项目并连接受支持的执行客户端；连接动作是当前首切片的技术准入，不是客户必须理解的产品模型。
 - 普通本地操作不创建自动化任务；只有显式启用的远程、事件或定时自动化使用后台服务。
 - 客户审批绑定不可变提交版本的内容摘要，不会自动跟随“最新版本”。
 
@@ -23,14 +23,17 @@ migrations/             PostgreSQL schema、RLS 与 runtime role
 skills/                  随 CLI 内嵌的本地 Agent Skill
 packages/contentcloud/   零依赖 npm 校验安装器
 web/                     React + TypeScript 工作台与客户审批页
-docs/roadmap/v2/         V2 产品、架构、流程、安全、计划与实现状态
+docs/foundation/         平台基线、分层规范、迁移与工程门禁
+docs/product/             客户产品需求与平台叙事
+docs/roadmap/v8/          Agentic Job Runtime 专项路线图
+docs/content/              已验证、可执行的客户使用文档
 ```
 
 ## 使用文档
 
 多客户端、多内容形态的用户指南以 [`docs/content/README.md`](docs/content/README.md) 为单一事实源。运行服务后可通过公开 `/docs` 文档中心查看；Agent 可使用 `Accept: text/markdown` 读取同源页面。内部扩展架构稿位于 `docs/content/internal/`，不会进入公开文档 API。
 
-下一阶段的目标架构与产品需求分别位于 [平台基线](docs/foundation/README.md) 和 [产品需求索引](docs/product/README.md)，统一表达见[产品叙事规范](docs/product/00-product-narrative.md)。这些文档定义 Studio-first、独立运营控制台、Agentic Job Runtime、[创作资产库](docs/product/creative-asset-library/README.md)和创作流水线扩展方向，均为待评审/待实现目标，不改变本 README 所述当前能力边界；Runtime 专项实施路线见 [V8](docs/roadmap/v8/README.md)。
+平台基线与产品需求分别位于 [平台基线](docs/foundation/README.md) 和 [产品需求索引](docs/product/README.md)，统一表达见[产品叙事规范](docs/product/00-product-narrative.md)。这些文档定义 Studio-first、独立运营控制台、Agentic Job Runtime、[创作资产库](docs/product/creative-asset-library/README.md)和创作流水线扩展方向；其中已落地部分会明确标注，目标部分不得当作当前能力。Runtime 专项实施路线见 [V8](docs/roadmap/v8/README.md)。
 
 ## 本地开发
 
@@ -153,4 +156,8 @@ pnpm check:plugin
 
 设置 `CONTENTCLOUD_TEST_DATABASE_URL` 后，`go test ./...` 会额外执行真实 PostgreSQL migration、runtime-role RLS 隔离和来源处理生命周期测试。
 
-完整范围和当前实现事实见 [V2 路线图](docs/roadmap/v2/README.md) 与 [V2 实现状态](docs/roadmap/v2/14-implementation-status.md)。
+## 当前实现事实
+
+当前实现事实以代码、数据库迁移、契约、自动化测试、`CHANGELOG.md` 和 [`docs/content`](docs/content/README.md) 中标记为“可用”的页面为准。平台基线和 V8 记录迁移目标与差距；历史路线图仅作为背景和兼容证据，不再作为当前能力入口。
+
+已经落地的客户入口包括客户创作台、项目级执行客户端连接、任务与交付页面，以及资产入口中的“我的资产 / 创作结果 / 最近使用”首切片。资产首切片支持客户上传、文件夹、受控预览、固定资料引用和结果复用门禁；连接器导入、完整结果持久化投影和运营治理仍在迁移中。

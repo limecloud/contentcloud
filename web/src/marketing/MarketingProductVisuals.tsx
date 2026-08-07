@@ -74,8 +74,8 @@ function AssetCatalogVisual() {
         <span><PackageCheck size={14}/>交付</span>
       </aside>
       <div className="marketing-asset-browser-main">
-        <header><div><small>资产库</small><strong>团队创作结果</strong></div><button type="button" tabIndex={-1}><Search size={14}/>搜索结果</button></header>
-        <nav aria-label="资产类型示意"><b>全部</b><span>人物</span><span>剧本</span><span>分镜</span><span>图片</span><span>视频</span></nav>
+        <header><div><small>资产</small><strong>资料与创作结果</strong></div><button type="button" tabIndex={-1}><Search size={14}/>搜索资产</button></header>
+        <nav aria-label="资产视图示意"><b>我的资产</b><span>创作结果</span><span>最近使用</span></nav>
         <div className="marketing-asset-tiles">
           {assets.map(([Icon,title,type,status])=><article key={title}>
             <div><Icon size={20}/><small>{type}</small></div>
@@ -94,7 +94,7 @@ function AssetReuseVisual() {
     <header className="marketing-evidence-heading">
       <span>02 / 03</span>
       <h3>确认结果，持续服务后续创作</h3>
-      <p>资产库只收录生成结果，复用的是固定版本和来源关系，不是复制粘贴正文。</p>
+      <p>客户资料与生成结果使用独立投影；加入创作时固定版本、摘要和来源关系，不复制正文。</p>
     </header>
     <div className="marketing-reuse-map" aria-label="创作资产复用关系示意">
       <div className="marketing-reuse-side is-input">
@@ -123,7 +123,7 @@ function PlatformArchitectureVisual() {
       <p>客户创作台与运营控制台完全分离，Runtime 通过版本化契约组织不同执行者，候选结果经过人工门禁才成为正式事实。</p>
     </header>
     <div className="marketing-architecture-map" aria-label="Content Work OS 平台分层架构示意">
-      <div className="marketing-architecture-plane is-customer"><Users size={18}/><span><strong>客户创作台与资产库</strong><small>输入 · 进度 · 预览 · 确认 · 交付</small></span></div>
+      <div className="marketing-architecture-plane is-customer"><Users size={18}/><span><strong>客户创作台与资产</strong><small>资料 · 任务 · 预览 · 确认 · 交付</small></span></div>
       <div className="marketing-architecture-plane is-operations"><SlidersHorizontal size={18}/><span><strong>平台运营控制台</strong><small>流水线 · 能力 · 租户 · 诊断 · 回退</small></span></div>
       <div className="marketing-architecture-down is-left"><ArrowDown size={17}/><small>客户体验投影</small></div>
       <div className="marketing-architecture-down is-right"><ArrowDown size={17}/><small>运营投影</small></div>

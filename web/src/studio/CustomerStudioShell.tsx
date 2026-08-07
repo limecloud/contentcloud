@@ -10,7 +10,7 @@ const navItems=[
   {to:'/studio',end:true,label:'今天',icon:Sparkles},
   {to:'/studio/connect',end:true,label:'连接创作电脑',icon:MonitorUp},
   {to:'/studio/tasks',end:false,label:'创作任务',icon:ListTodo},
-  {to:'/studio/assets',end:false,label:'资产库',icon:Archive},
+  {to:'/studio/assets',end:false,label:'资产',icon:Archive},
   {to:'/studio/deliveries',end:false,label:'交付',icon:PackageCheck},
 ] as const;
 

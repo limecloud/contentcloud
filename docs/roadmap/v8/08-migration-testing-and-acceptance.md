@@ -4,12 +4,12 @@
 
 ## 1. 当前基线对账
 
-截至 2026-08-06：
+截至 2026-08-07：
 
-- 当前版本为 `v0.17.0`。Runtime 第一批实现已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
-- V7 的类型化 Stage 输出、媒体领域、MediaReview、最终 Artifact、DeliveryPackage 和 Web 投影已在 `v0.16.0/v0.17.0` 落地。
+- 当前版本为 `v0.18.0`。Runtime 第一批实现与客户资产首切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
+- V7 的类型化 Stage 输出、媒体领域、MediaReview、最终 Artifact、DeliveryPackage 和 Web 投影已在 `v0.16.0/v0.17.0` 落地；工作区资料文件夹、上传和资料引用已在 `v0.18.0` 首次落地。
 - V8 已落地 JobRun/NodeRun/JobEvent、独立 RuntimeAttempt、状态 CAS、ContextView/AgentInstance 持久化、FakeHarness 调度闭环、联合租约和首版 Runtime Explorer；各文档必须继续区分已实现内核与生产能力。
-- 根 `README.md` 已指向平台基线、产品需求和 V8 路线图；历史 V2/V7 路线图不再作为当前能力事实源。
+- 根 `README.md`、平台基线、产品需求和 V8 路线图已互相指向；历史 V1-V7 路线图不再作为当前能力事实源。
 - 真实媒体服务商、可持久化的轮询和回调、完整的媒体租约恢复、受限的流式下载和确定性后期处理仍未完成。
 - Codex/Claude 适配器当前仍使用 legacy CLI 进程，不保存可跨 ContentCloud 进程恢复的宿主会话；HarnessRegistry 只解决单进程实例复用，不等于真实 SDK 恢复已经完成。
 
@@ -209,12 +209,13 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
 - OpenAPI 必须能被 YAML 解析器无重复键加载，且所有 Studio 路由引用的 Envelope 和 DTO 都存在。
 - 客户执行客户端目录只能把完整具备 `workspace_bootstrap` 契约的客户端标成可连接；当前仅 Codex 可用，Claude Code 等客户端不得因具备部分自动化能力而进入客户选择面。
 - 新建客户任务必须按目标项目回源校验已连接执行客户端；一个项目的连接不能自动满足另一个项目的准入条件。
-- 客户创作资产 DTO 的 `result_type` 只允许 `persona / script / storyboard / image / video`，类型与状态是两个独立轴。
+- 客户“创作结果” DTO 的 `result_type` 只允许 `persona / script / storyboard / image / video`，类型与状态是两个独立轴。
+- 客户“我的资产”必须使用独立 Folder/Material DTO；普通资料类型和 `processing_state` 不得加入现有结果 DTO。
 - 结果状态只允许 `draft / pending_confirmation / changes_requested / confirmed / delivered / superseded / blocked`，且只有 `confirmed` 和 `delivered` 可复用。
 - 没有任何 `MediaReview` 的图片或视频 Artifact 必须投影为 `pending_confirmation`，不能通过“审核记录不存在”推导为 `confirmed`。
 - 新的灵感保存契约使用 `keep_as_project_reference` / `saved_as_project_reference`；旧 `save_for_reuse` 只作兼容输入，响应不得继续返回 `saved_for_reuse`。
-- 保留为项目参考的灵感只在当前任务或项目参考投影中出现，`GET /api/studio/assets` 不得返回它。
-- `DeliveryPackage` 只在交付视图中出现，客户资产目录不得增加 `delivery_package` 类型或复制交付正文。
+- 保留为项目参考的灵感只在当前任务或项目参考投影中出现；它不得出现在“创作结果”，也不得在没有明确导入动作时出现在“我的资产”。
+- `DeliveryPackage` 只在交付视图中出现；工作区资料和创作结果 DTO 都不得增加 `delivery_package` 类型或复制交付正文。
 - 投影重建必须产生相同的结果类型、状态、复用门禁和底层引用，且不触发模型、执行者或外部服务。
 
 ## 9. 性能与容量验收
@@ -242,9 +243,10 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
 6. 汇聚操作必须按照已经冻结的 FanoutSet 和声明的策略完成，不能提前结束。
 7. 最终底层产物（`Artifact`）、`MediaReview`、`DeliveryPackage` 和所有上游摘要都可以反向追溯。
 8. 分支执行会创建新的 JobRun；旧 Run 和已经发生的外部操作继续保留完整审计记录。
-9. 搜索结果、灵感和参考素材保持为任务输入或项目参考，不出现在客户创作资产库。
-10. 人物原型、剧本、分镜、图片和视频生成结果能通过输出绑定追溯到 JobRun/NodeRun；只有已确认或已交付结果能加入新任务。
-11. 交付页可以引用同一结果与交付包，但不产生重复的资产正文。
+9. 搜索结果、灵感和来源证据保持为任务输入或项目参考；只有客户明确导入后才建立“我的资产”资料引用。
+10. 客户上传/导入资料、任务参考、创作结果和交付使用独立 DTO 与状态轴，Runtime 只保留固定引用。
+11. 人物原型、剧本、分镜、图片和视频生成结果能通过输出绑定追溯到 JobRun/NodeRun；只有已确认或已交付结果能加入新任务。
+12. 交付页可以引用同一结果与交付包，但不产生重复的资产正文。
 
 第二个文章复盘执行图必须复用同一套运行时表和调度器；只允许新增内容业务包、数据结构和人工审批节点。
 

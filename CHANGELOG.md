@@ -2,6 +2,20 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.19.0] - 2026-08-07
+
+### Added
+
+- 增加 WorkspaceMaterial 领域模型、项目文件夹、资料上传、检索与使用记录，并提供 Memory/PostgreSQL 存储及迁移 `00017`。
+- 增加 Customer Studio「我的资产」工作区资料视图，支持按项目、文件夹和资料类型组织创作输入。
+
+### Changed
+
+- 将客户资产界面收敛为「我的资产」与「创作结果」两类事实来源，任务创建可同时绑定资料和已确认创作结果。
+- 更新 Customer Studio API/OpenAPI、服务层、Web 交互和测试，明确资料输入、结果复用与交付边界。
+- 收敛产品与基础文档到当前事实源，移除已被取代的历史 roadmap 和旧重设计计划。
+- Server、Worker、Web、CLI、Plugin、MCP 和 Environment Profile 统一升级到 `0.19.0`。
+
 ## [0.18.0] - 2026-08-07
 
 ### Added

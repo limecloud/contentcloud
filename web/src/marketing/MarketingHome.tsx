@@ -193,7 +193,7 @@ export function MarketingHome() {
 
     <footer className="marketing-footer">
       <div className="marketing-shell marketing-footer-grid">
-        <div><a className="marketing-brand is-footer" href="#overview"><BrandMark className="marketing-brand-mark"/><span><strong>Content Work OS</strong><small>内容运营系统</small></span></a><p>资料进入创作任务，结果回到资产库，团队在确认后继续交付。</p></div>
+        <div><a className="marketing-brand is-footer" href="#overview"><BrandMark className="marketing-brand-mark"/><span><strong>Content Work OS</strong><small>内容运营系统</small></span></a><p>资料进入工作区，生成结果持续复用，团队在确认后继续交付。</p></div>
         <nav aria-label="产品链接"><strong>产品</strong><a href="#product">客户创作台</a><a href="#system">资产系统</a><a href="#architecture">运行架构</a></nav>
         <nav aria-label="资源链接"><strong>资源</strong><Link to="/docs">使用文档</Link><Link to="/docs/clients/codex">Codex 接入</Link><Link to="/docs/content/wechat-article">公众号文章</Link></nav>
         <nav aria-label="账户链接"><strong>账户</strong><Link to="/login">登录</Link><Link to="/register">注册</Link><Link to={consolePath.studio}>创作台</Link></nav>

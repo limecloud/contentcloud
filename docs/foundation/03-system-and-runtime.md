@@ -79,7 +79,7 @@ Runtime 负责：
 - 为 WorkTask 创建一次 JobRun 并固定 JobPlanRevision。
 - 判断节点依赖、资源、权限、预算和 Gate 是否满足。
 - 为执行者发放最小权限租约和 ContextView。
-- 保存 NodeRun、RunAttempt、StateMutation、Effect 和有序事件。
+- 保存 NodeRun、RuntimeAttempt、StateMutation、Effect 和有序事件；V7 RunAttempt 只保留在兼容路径。
 - 处理取消、重试、租约过期、中断恢复、检查点和执行分支。
 - 对外部副作用执行登记、幂等、结果核对和补偿流程。
 - 生成客户与运营运行投影。

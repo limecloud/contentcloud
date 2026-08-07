@@ -10,7 +10,7 @@
 
 关联：[创作资产目录领域与投影规范](../../product/creative-asset-library/02-domain-and-projection.md)
 
-> 本 ADR 的“跨域只读投影”模式继续有效；客户目录的收录范围已由 [ADR-0013](./ADR-0013-customer-result-asset-boundary.md) 收紧为流水线生成结果。来源、灵感、知识、参考素材、权利记录和交付包不生成客户资产目录项。
+> 本 ADR 的“跨域只读投影”模式继续有效；本目录契约的收录范围由 [ADR-0013](./ADR-0013-customer-result-asset-boundary.md) 收紧为流水线生成结果。客户统一资产入口已由 [ADR-0014](./ADR-0014-customer-asset-surface.md) 扩展为工作区资料与创作结果两个专用投影；来源候选、治理对象和交付包仍不生成结果目录项。
 
 ## 背景
 

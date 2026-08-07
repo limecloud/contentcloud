@@ -13,8 +13,8 @@
 | 类型 | 示例 | 兼容责任 |
 | --- | --- | --- |
 | 业务 Schema | InspirationQuery、Persona、Script、StoryboardPackage | 业务包所有者 |
-| 产品契约 | ExperienceTemplate、CustomerStep、CustomerAction、CreativeAssetCatalogItem | Studio / Experience 所有者 |
-| 业务引用契约 | SourceRevisionRef、ApprovedSnapshotRef、ArtifactRef、CreativeAssetRef | 对应事实拥有域 + 使用方 |
+| 产品契约 | ExperienceTemplate、CustomerStep、CustomerAction、WorkspaceFolderItem、WorkspaceMaterialItem、CreativeAssetCatalogItem | Studio / Experience 所有者 |
+| 业务引用契约 | SourceRevisionRef、WorkspaceMaterialRef、ApprovedSnapshotRef、ArtifactRef、CreativeAssetRef | 对应事实拥有域 + 使用方 |
 | 流水线契约 | SOPVersion、StageDefinition、GateDefinition | Catalog 所有者 |
 | Runtime 契约 | JobPlanRevision、NodeResult、StateMutation、Effect | Runtime 所有者 |
 | 执行契约 | TaskContract、ContextView、Lease、Heartbeat | Runtime + Integration 所有者 |
@@ -90,7 +90,38 @@ ExperienceTemplateVersion
 
 体验原语首阶段限制为：表单输入、资料选择、候选列表、版本比较、人工确认、媒体预览和交付下载。超出原语的复杂体验通过版本化业务 feature 实现，不扩展成任意页面配置语言。
 
-## 5. 创作结果资产目录与引用
+## 5. 客户资产入口契约
+
+客户 BFF 组合 `WorkspaceMaterialProjection` 与 `CreativeResultAssetProjection`，但两套契约分别版本化。文件夹、文件处理、结果确认和交付不能塞进一个包含大量可空字段的通用 `AssetItem`。
+
+```text
+WorkspaceFolderItem
+├── folder_ref / parent_ref
+├── name / project_scope / child_count
+└── created_at / updated_at
+
+WorkspaceMaterialItem
+├── material_ref / folder_ref
+├── material_kind / origin / usage
+├── title / mime_type / size / preview_ref
+├── processing_state / rights_summary
+└── created_at / updated_at
+
+WorkspaceMaterialRef
+├── material_ref / version / digest
+├── usage_intent / target_task_ref
+└── validation_snapshot
+```
+
+工作区资料规则：
+
+- `material_kind`、`origin`、`usage` 和 `processing_state` 是独立维度。
+- 文件夹只表达组织关系，不能作为任务输入或权利事实。
+- 上传、导入和登记必须产生稳定资料身份；加入任务时固定具体版本和摘要。
+- OCR、转写、摘要和标签是可重建派生物，不覆盖原文件，不自动产生权利或批准结论。
+- 当前 `CreativeAssetCatalogItem` / `StudioAssetItem` 不增加这些字段。
+
+### 5.1 创作结果目录与引用
 
 `CreativeAssetCatalogItem` 是现有兼容契约名称，语义由 ADR-0013 收紧为“客户创作结果目录项”。它是 `CreativeResultAssetProjection` 的可重建行模型，不得再收录来源、灵感、知识、参考素材、权利记录或交付包，也不得并行创建语义相同的 `CreativeResultAssetCatalogItem` 第二套契约。
 
@@ -120,11 +151,11 @@ CreativeAssetRef
 - 目录项只收录人物原型、剧本、分镜、图片和视频等流水线生成结果；只引用拥有域事实，不复制正文或媒体。
 - `result_type` 与 `status` 是两个独立维度。类型固定为 `persona / script / storyboard / image / video`；状态使用有限集合 `draft / pending_confirmation / changes_requested / confirmed / delivered / superseded / blocked`。
 - 只有 `confirmed` 和 `delivered` 结果可以被新任务正式复用；浏览器提交的 `reusable` 不可信，服务端必须重新计算。
-- 来源、灵感、知识、参考素材和权利记录使用 `InputRef` 或项目参考契约；交付包使用交付投影。三者不能复用结果资产类型字段。
+- 搜索候选、灵感、知识、来源证据和权利记录使用 `InputRef` 或项目参考契约；客户明确上传/导入的资料使用 `WorkspaceMaterialRef`；交付包使用交付投影。它们不能复用结果资产类型字段。
 - Runtime 和 WorkTask 使用 `subject_*` 和摘要，不把目录项状态作为权威。
 - 创建任务时回源校验租户、版本、权利、用途和敏感等级。
 - 结果对象版本映射必须确定：KnowledgeSnapshot 使用 Digest，TaskRevision 和 ApprovedSnapshot 使用 ContentHash，Artifact 使用 SHA-256。DeliveryPackage 只用于交付视图和推导 `delivered` 状态，不进入结果目录成为新资产类型。
-- SourceRevision、Asset、KnowledgeObject 和 RightsRecord 只作为内部 lineage、权利校验或项目参考事实，不生成客户结果目录项。
+- SourceRevision、KnowledgeObject 和 RightsRecord 只作为内部 lineage、权利校验或项目参考事实，不生成客户结果目录项。客户明确上传/导入形成的 Asset 引用可以进入工作区资料投影，但仍不能伪装成生成结果。
 - 目录投影 Schema 与引用 Schema 分别版本化；目录展示字段 minor 变更不能改变引用语义。
 - 新增可收录对象类型前必须定义事实所有者、版本、失效、权限和重建规则。
 

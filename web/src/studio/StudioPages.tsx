@@ -13,14 +13,22 @@ import {
   Download,
   ExternalLink,
   FileCheck2,
+  File,
   FileSearch,
+  FileSpreadsheet,
   FileText,
+  Folder,
+  FolderPlus,
   Globe2,
+  Image as ImageIcon,
+  LayoutGrid,
   Library,
   Lightbulb,
   ListTodo,
   LoaderCircle,
+  MoreHorizontal,
   MonitorUp,
+  Music2,
   PackageCheck,
   Pause,
   Play,
@@ -30,12 +38,13 @@ import {
   ShieldCheck,
   Sparkles,
   TerminalSquare,
+  Upload,
   Video,
   WandSparkles,
   Workflow,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button, IconButton } from '../components/ui';
 import { buildBootstrapPrompt } from '../connectBootstrap';
@@ -46,6 +55,7 @@ import { useStudio } from './StudioContext';
 import type {
   StudioAssetCatalog,
   StudioAssetItem,
+  StudioAssetSurface,
   StudioConnectSession,
   StudioCustomerStep,
   StudioDecision,
@@ -54,17 +64,19 @@ import type {
   StudioProject,
   StudioTaskSummary,
   StudioTaskView,
+  WorkspaceFolderItem,
+  WorkspaceMaterialItem,
 } from './studioTypes';
 
 type TaskFilter='active'|'attention'|'completed';
 type AssetCategory='all'|'persona'|'script'|'storyboard'|'image'|'video';
-type AssetView='all'|'usable'|'attention'|'history';
 type AssetStatus='all'|'draft'|'pending_confirmation'|'changes_requested'|'confirmed'|'delivered'|'superseded'|'blocked';
+type MaterialCategory='all'|'folder'|WorkspaceMaterialItem['material_kind'];
 
 const filterLabels:Record<TaskFilter,string>={active:'进行中',attention:'等待处理',completed:'已完成'};
-const assetViewLabels:Record<AssetView,string>={all:'全部结果',usable:'可直接使用',attention:'需要处理',history:'历史版本'};
 const assetCategoryLabels:Record<AssetCategory,string>={all:'所有结果',persona:'人物原型',script:'剧本',storyboard:'分镜',image:'图片',video:'视频'};
 const assetStatusLabels:Record<AssetStatus,string>={all:'全部状态',draft:'草稿',pending_confirmation:'待确认',changes_requested:'需修改',confirmed:'已确认',delivered:'已交付',superseded:'已被替代',blocked:'已阻止'};
+const materialCategoryLabels:Record<MaterialCategory,string>={all:'全部',folder:'文件夹',document:'文档',image:'图片',video:'视频',audio:'音频',table:'表格',other:'其他'};
 const attentionStatuses=['waiting_gate','needs_input','blocked'];
 const completedStatuses=['delivered','cancelled','canceled'];
 const marketingCustomerStepTitles=['灵感采集','人物原型','营销剧本','视频分镜','候选成片','交付准备'];
@@ -182,7 +194,7 @@ function StudioExperienceWorkbench({experience,tasks,canCreate}:{experience:Stud
     {id:'direction',title:'灵感与人物',detail:'收集可信参考，确认人物定位、受众关系和表达边界。',tone:'source',icon:<Lightbulb size={19}/>,stepIDs:['inspiration','persona'],steps:[stepTitle(0,'灵感采集'),stepTitle(1,'人物原型')],href:startPath,label:hasConnectedProject?'开始策划':'连接创作电脑'},
     {id:'production',title:'剧本与分镜',detail:'确认营销剧本版本，锁定镜头、画面、素材和连续性。',tone:'strategy',icon:<FileText size={19}/>,stepIDs:['script','storyboard'],steps:[stepTitle(2,'营销剧本'),stepTitle(3,'视频分镜')],href:'/studio/tasks',label:'选择创作任务'},
     {id:'delivery',title:'成片与交付',detail:'选择候选成片，完成最终确认并下载固定交付包。',tone:'production',icon:<Video size={19}/>,stepIDs:['media','delivery'],steps:[stepTitle(4,'候选成片'),stepTitle(5,'交付准备')],href:'/studio/deliveries',label:'查看成片与交付'},
-    {id:'assets',title:'资产复用',detail:'从已确认的人物原型、剧本、分镜、图片或视频结果开始下一次创作。',tone:'knowledge',icon:<Archive size={19}/>,stepIDs:[],steps:['固定版本','跨任务复用'],href:'/studio/assets',label:'打开资产库'},
+    {id:'assets',title:'资产复用',detail:'整理自有资料，并从已确认的人物原型、剧本、分镜、图片或视频结果开始下一次创作。',tone:'knowledge',icon:<Archive size={19}/>,stepIDs:[],steps:['我的资产','创作结果'],href:'/studio/assets',label:'打开资产'},
   ];
   return <section className="studio-workbench" aria-labelledby={`experience-${experience.id}`}>
     <header className="studio-workbench-header"><div><span><WandSparkles size={15}/>已发布创作流水线</span><h2 id={`experience-${experience.id}`}>{experience.name}</h2><p>{experience.description}</p></div><div>{primaryTask&&<Link className="studio-secondary-link" to={`/studio/tasks/${encodeURIComponent(primaryTask.id)}`}><Play size={15}/>继续当前任务</Link>}{canCreate&&hasProject?<Link className="studio-primary-link" to={hasConnectedProject?newTaskPath:'/studio/connect'}>{hasConnectedProject?<Plus size={15}/>:<MonitorUp size={15}/>} {hasConnectedProject?'新建创作任务':'连接创作电脑'}</Link>:<span className="studio-workbench-unavailable">{!hasProject?'等待运营绑定项目':'当前角色仅可查看'}</span>}</div></header>
@@ -197,7 +209,7 @@ function StudioExperienceWorkbench({experience,tasks,canCreate}:{experience:Stud
 
 function StudioUnavailableWorkbench({tasks,operationsPath}:{tasks:StudioTaskSummary[];operationsPath?:string}){
   const activeTask=tasks.find(task=>!completedStatuses.includes(task.status));
-  return <section className="studio-workbench is-unavailable"><header className="studio-workbench-header"><div><span><CircleHelp size={15}/>暂时不能新建任务</span><h2>先继续已有工作，新的创作场景准备好后会出现在这里</h2><p>你仍然可以处理任务、复用资产和下载已经确认的交付结果。</p></div>{operationsPath&&<Link className="studio-secondary-link" to={operationsPath}>前往运营工作台<ArrowRight size={14}/></Link>}</header><div className="studio-recovery-actions">{activeTask&&<Link to={`/studio/tasks/${encodeURIComponent(activeTask.id)}`}><Play size={17}/><span><strong>继续当前任务</strong><small>{activeTask.title} · {activeTask.next_action}</small></span><ArrowRight size={14}/></Link>}<Link to="/studio/tasks"><ListTodo size={17}/><span><strong>查看创作任务</strong><small>继续已有任务或处理待确认事项</small></span><ArrowRight size={14}/></Link><Link to="/studio/assets"><Archive size={17}/><span><strong>打开资产库</strong><small>查找可复用的固定版本内容</small></span><ArrowRight size={14}/></Link><Link to="/studio/deliveries"><PackageCheck size={17}/><span><strong>查看交付</strong><small>下载交付包并核对发布记录</small></span><ArrowRight size={14}/></Link></div></section>;
+  return <section className="studio-workbench is-unavailable"><header className="studio-workbench-header"><div><span><CircleHelp size={15}/>暂时不能新建任务</span><h2>先继续已有工作，新的创作场景准备好后会出现在这里</h2><p>你仍然可以处理任务、整理资料、复用创作结果和下载已经确认的交付文件。</p></div>{operationsPath&&<Link className="studio-secondary-link" to={operationsPath}>前往运营工作台<ArrowRight size={14}/></Link>}</header><div className="studio-recovery-actions">{activeTask&&<Link to={`/studio/tasks/${encodeURIComponent(activeTask.id)}`}><Play size={17}/><span><strong>继续当前任务</strong><small>{activeTask.title} · {activeTask.next_action}</small></span><ArrowRight size={14}/></Link>}<Link to="/studio/tasks"><ListTodo size={17}/><span><strong>查看创作任务</strong><small>继续已有任务或处理待确认事项</small></span><ArrowRight size={14}/></Link><Link to="/studio/assets"><Archive size={17}/><span><strong>打开资产</strong><small>整理资料并查找可复用结果</small></span><ArrowRight size={14}/></Link><Link to="/studio/deliveries"><PackageCheck size={17}/><span><strong>查看交付</strong><small>下载交付包并核对发布记录</small></span><ArrowRight size={14}/></Link></div></section>;
 }
 
 export function StudioTasksPage(){
@@ -225,6 +237,7 @@ export function StudioNewTaskPage(){
   const [searchParams]=useSearchParams();
   const requestedProject=searchParams.get('project')||'';
   const requestedAssetRef=searchParams.get('asset_ref')||'';
+  const requestedMaterialRef=searchParams.get('material_ref')||'';
   const initialExperience=bootstrap.experiences.find(item=>item.id===searchParams.get('experience'))||bootstrap.experiences[0];
   const [experienceID,setExperienceID]=useState(initialExperience?.id||'');
   const experience=bootstrap.experiences.find(item=>item.id===experienceID);
@@ -234,7 +247,9 @@ export function StudioNewTaskPage(){
   const [goal,setGoal]=useState('');
   const [inspiration,setInspiration]=useState('');
   const [catalog,setCatalog]=useState<StudioAssetCatalog>();
+  const [materials,setMaterials]=useState<WorkspaceMaterialItem[]>([]);
   const [selectedRefs,setSelectedRefs]=useState<string[]>([]);
+  const [selectedMaterialRefs,setSelectedMaterialRefs]=useState<string[]>([]);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const project=projects.find(item=>item.id===projectID);
@@ -244,14 +259,14 @@ export function StudioNewTaskPage(){
     const nextProjects=bootstrap.projects.filter(item=>bootstrap.experiences.find(value=>value.id===experienceID)?.project_ids.includes(item.id));
     if(!nextProjects.some(item=>item.id===projectID))setProjectID(nextProjects.find(item=>item.id===requestedProject)?.id||nextProjects.find(item=>item.execution_client_connected)?.id||nextProjects[0]?.id||'');
   },[bootstrap.experiences,bootstrap.projects,experienceID,projectID,requestedProject]);
-  useEffect(()=>{setSelectedRefs([]);setCatalog(undefined);if(projectID)void studioApi.assets(projectID).then(nextCatalog=>{setCatalog(nextCatalog);if(requestedAssetRef&&nextCatalog.items.some(item=>item.ref===requestedAssetRef&&item.reusable))setSelectedRefs([requestedAssetRef])}).catch(value=>setError(value instanceof Error?value.message:'资产加载失败'))},[projectID,requestedAssetRef]);
+  useEffect(()=>{setSelectedRefs([]);setSelectedMaterialRefs([]);setCatalog(undefined);setMaterials([]);if(projectID)void studioApi.assets(projectID).then(nextSurface=>{const nextCatalog=nextSurface.creative_results;setCatalog(nextCatalog);setMaterials(nextSurface.workspace.materials);if(requestedAssetRef&&nextCatalog.items.some(item=>item.ref===requestedAssetRef&&item.reusable))setSelectedRefs([requestedAssetRef]);if(requestedMaterialRef&&nextSurface.workspace.materials.some(item=>item.material_ref===requestedMaterialRef&&item.processing_state!=='failed'))setSelectedMaterialRefs([requestedMaterialRef])}).catch(value=>setError(value instanceof Error?value.message:'资产加载失败'))},[projectID,requestedAssetRef,requestedMaterialRef]);
 
   const submit=async(event:FormEvent)=>{
     event.preventDefault();
     if(!experience||!project||!canSubmit)return;
     setBusy(true);setError('');
     try{
-      const created=await studioApi.createTask({experience_id:experience.id,project_id:project.id,title:title.trim(),goal:goal.trim(),inspiration:inspiration.trim(),asset_refs:selectedRefs,idempotency_key:createIdempotencyKey()});
+      const created=await studioApi.createTask({experience_id:experience.id,project_id:project.id,title:title.trim(),goal:goal.trim(),inspiration:inspiration.trim(),asset_refs:selectedRefs,material_refs:selectedMaterialRefs,idempotency_key:createIdempotencyKey()});
       navigate(`/studio/tasks/${encodeURIComponent(created.task.id)}`);
     }catch(value){setError(value instanceof Error?value.message:'任务创建失败')}finally{setBusy(false)}
   };
@@ -261,6 +276,7 @@ export function StudioNewTaskPage(){
   if(!project.execution_client_connected)return <div className="studio-view"><PageHeading eyebrow="新建任务" title="先连接你的创作电脑" detail="连接完成后即可开始新的创作，已有任务、资产和交付仍可查看。"/><CompactEmpty icon={<MonitorUp size={22}/>} title={`${project.brand_name} 尚未连接创作电脑`} detail="连接完成后，就可以使用团队已经配置好的创作流水线。" action={<Link className="studio-primary-link" to={`/studio/connect?project=${encodeURIComponent(project.id)}`}><MonitorUp size={15}/>连接创作电脑</Link>}/></div>;
 
   const reusableAssets=(catalog?.items||[]).filter(item=>item.reusable);
+  const reusableMaterials=materials.filter(item=>item.processing_state!=='failed');
   return <div className="studio-view studio-new-task">
     <button className="studio-back" type="button" onClick={()=>navigate(-1)}><ArrowLeft size={15}/>返回</button>
     <PageHeading eyebrow="新建创作任务" title={`制作一条${experience.name}`} detail="先说清楚这次想实现的业务目标，其余执行细节由创作流水线承接。"/>
@@ -271,6 +287,7 @@ export function StudioNewTaskPage(){
         <label className="studio-field"><span>任务名称</span><input value={title} onChange={event=>setTitle(event.target.value)} placeholder="例如：春季新品主理人人设短片" autoFocus/><small>用团队一眼能识别的名称。</small></label>
         <label className="studio-field"><span>这次想达成什么？</span><textarea value={goal} onChange={event=>setGoal(event.target.value)} rows={5} placeholder="例如：让第一次接触品牌的用户认识主理人，并愿意收藏或咨询。"/><small>写业务结果、目标受众和必须遵守的边界即可。</small></label>
         <label className="studio-field"><span>已有灵感或参考 <em>可选</em></span><textarea value={inspiration} onChange={event=>setInspiration(event.target.value)} rows={4} placeholder="粘贴链接、描述一个人物、写下观察，或说明想参考的内容方向。"/></label>
+        <MaterialPicker items={reusableMaterials} selectedRefs={selectedMaterialRefs} onChange={setSelectedMaterialRefs}/>
         <AssetPicker items={reusableAssets} selectedRefs={selectedRefs} onChange={setSelectedRefs}/>
         <div className="studio-form-actions"><Button variant="secondary" type="button" onClick={()=>navigate(-1)}>取消</Button><Button type="submit" disabled={!canSubmit||busy}><Sparkles size={16}/>{busy?'正在创建…':'创建并进入任务'}</Button></div>
         {error&&<StudioNotice kind="error">{error}</StudioNotice>}
@@ -311,51 +328,115 @@ export function StudioTaskPage(){
       <main>
         <section className="studio-current-work"><header><span>当前步骤</span><h2>{current.title}</h2><p>{current.outcome_description}</p></header>{current.id==='inspiration'?<InspirationStage taskID={task.id} inspirations={view.inspirations} experience={experience} canAdd={bootstrap.session.can_create} onChanged={setView}/>:view.pending_decisions.length?<DecisionPanel decisions={view.pending_decisions} busy={busy} onDecision={(decisionID,decision)=>void run(`decision-${decisionID}-${decision}`,()=>studioApi.decide(task.id,decisionID,decision),decision==='approved'?'已确认，任务会继续进入下一步。':'修改意见已记录。')}/>:<CurrentStepSummary task={task} step={current}/>}</section>
         <section className="studio-section studio-results"><SectionHeading icon={<FileCheck2 size={17}/>} title="当前成果" count={view.results.length}/>{view.results.length===0?<CompactEmpty icon={<Workflow size={21}/>} title="成果正在形成" detail="每个需要你判断的版本都会固定保存在这里。"/>:<div className="studio-result-list">{view.results.map(result=><ResultRow key={result.id} result={result}/>)}</div>}</section>
-        <section className="studio-section studio-attached-assets"><SectionHeading icon={<Archive size={17}/>} title="本次使用的创作结果" count={view.attached_assets.length} action={<Link to={`/studio/assets?task_id=${encodeURIComponent(task.id)}`}>加入结果 <Plus size={14}/></Link>}/>{view.attached_assets.length===0?<CompactEmpty icon={<Archive size={20}/>} title="还没有复用已有结果" detail="可以从资产库加入已确认的人物原型、剧本、分镜、图片或视频。"/>:<div>{view.attached_assets.map(item=><AssetRow key={item.ref} item={item}/>)}</div>}</section>
+        <section className="studio-section studio-attached-assets"><SectionHeading icon={<Archive size={17}/>} title="本次使用的创作结果" count={view.attached_assets.length} action={<Link to={`/studio/assets?task_id=${encodeURIComponent(task.id)}`}>加入资产 <Plus size={14}/></Link>}/>{view.attached_assets.length===0?<CompactEmpty icon={<Archive size={20}/>} title="还没有复用已有结果" detail="可以从资产入口加入工作区资料，或复用已确认的创作结果。"/>:<div>{view.attached_assets.map(item=><AssetRow key={item.ref} item={item}/>)}</div>}</section>
       </main>
-      <aside className="studio-task-aside"><span>下一步</span><strong>{task.next_action}</strong><p>{task.status==='waiting_gate'?'你的决定会固定当前版本，并决定流水线下一步。':'系统会在需要补资料或确认时通知你。'}</p><dl><div><dt>当前项目</dt><dd>{task.project.brand_name}</dd></div><div><dt>最近更新</dt><dd>{formatDate(task.updated_at)}</dd></div><div><dt>创作结果</dt><dd>{task.asset_count} 项</dd></div></dl><Link to={`/studio/assets?task_id=${encodeURIComponent(task.id)}`}><Archive size={15}/>从资产库加入</Link></aside>
+      <aside className="studio-task-aside"><span>下一步</span><strong>{task.next_action}</strong><p>{task.status==='waiting_gate'?'你的决定会固定当前版本，并决定流水线下一步。':'系统会在需要补资料或确认时通知你。'}</p><dl><div><dt>当前项目</dt><dd>{task.project.brand_name}</dd></div><div><dt>最近更新</dt><dd>{formatDate(task.updated_at)}</dd></div><div><dt>任务输入</dt><dd>{task.asset_count} 项</dd></div></dl><Link to={`/studio/assets?task_id=${encodeURIComponent(task.id)}`}><Archive size={15}/>加入资料或结果</Link></aside>
     </div>
   </div>;
 }
 
 export function StudioAssetsPage(){
+  const {bootstrap}=useStudio();
   const [searchParams]=useSearchParams();
   const requestedTaskID=searchParams.get('task_id')||'';
-  const [catalog,setCatalog]=useState<StudioAssetCatalog>();
-  const [tasks,setTasks]=useState<StudioTaskSummary[]>([]);
-  const [selected,setSelected]=useState<StudioAssetItem>();
-  const [targetTaskID,setTargetTaskID]=useState(requestedTaskID);
-  const [view,setView]=useState<AssetView>('all');
+  const [surface,setSurface]=useState<StudioAssetSurface>();
+  const [view,setView]=useState<'mine'|'results'|'recent'>('mine');
+  const [materialCategory,setMaterialCategory]=useState<MaterialCategory>('all');
   const [category,setCategory]=useState<AssetCategory>('all');
   const [status,setStatus]=useState<AssetStatus>('all');
   const [query,setQuery]=useState('');
+  const [projectID,setProjectID]=useState(bootstrap.projects.find(project=>project.status!=='archived')?.id||'');
+  const [folderRef,setFolderRef]=useState('');
+  const [folderName,setFolderName]=useState('');
+  const [showFolderForm,setShowFolderForm]=useState(false);
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
-  const load=useCallback(async()=>{setLoading(true);setError('');try{const [nextCatalog,nextTasks]=await Promise.all([studioApi.assets(),studioApi.tasks()]);setCatalog(nextCatalog);setTasks(nextTasks);if(requestedTaskID&&nextTasks.some(task=>task.id===requestedTaskID))setTargetTaskID(requestedTaskID)}catch(value){setError(value instanceof Error?value.message:'资产库加载失败')}finally{setLoading(false)}},[requestedTaskID]);
+  const load=useCallback(async()=>{setLoading(true);setError('');try{setSurface(await studioApi.assets(projectID||undefined))}catch(value){setError(value instanceof Error?value.message:'资产加载失败')}finally{setLoading(false)}},[projectID]);
   useEffect(()=>{void load()},[load]);
-  const items=catalog?.items||[];
-  const counts:Record<AssetView,number>={all:items.length,usable:items.filter(item=>item.reusable).length,attention:items.filter(item=>['draft','pending_confirmation','changes_requested','blocked'].includes(item.status)).length,history:items.filter(item=>item.status==='superseded').length};
-  const visible=items.filter(item=>{
-    const matchesView=view==='usable'?item.reusable:view==='attention'?['draft','pending_confirmation','changes_requested','blocked'].includes(item.status):view==='history'?item.status==='superseded':true;
+  const catalog=surface?.creative_results;
+  const materials=surface?.workspace.materials||[];
+  const folders=surface?.workspace.folders||[];
+  const currentFolder=folders.find(folder=>folder.folder_ref===folderRef);
+  const visibleResults=(catalog?.items||[]).filter(item=>{
     const matchesCategory=category==='all'||item.result_type===category;
     const matchesStatus=status==='all'||item.status===status;
     const matchesQuery=!query.trim()||`${item.title} ${item.summary} ${item.project_name}`.toLowerCase().includes(query.trim().toLowerCase());
-    return matchesView&&matchesCategory&&matchesStatus&&matchesQuery;
+    return matchesCategory&&matchesStatus&&matchesQuery;
   });
-  const targetTask=tasks.find(task=>task.id===targetTaskID);
-  const reusableTasks=selected?tasks.filter(task=>task.project.id===selected.project_id&&!completedStatuses.includes(task.status)):[];
-  const canAttach=Boolean(selected?.reusable&&targetTask&&targetTask.project.id===selected.project_id&&!completedStatuses.includes(targetTask.status));
-  const attach=async()=>{if(!selected||!targetTask||!canAttach)return;setBusy(true);setError('');try{await studioApi.attachAssets(targetTask.id,[selected.ref]);setNotice(`“${selected.title}”已加入“${targetTask.title}”。`)}catch(value){setError(value instanceof Error?value.message:'资产加入失败')}finally{setBusy(false)}};
+  const visibleFolders=folders.filter(folder=>{
+    const matchesParent=(folder.parent_ref||'')===folderRef;
+    const matchesQuery=!query.trim()||`${folder.name} ${folder.project_name}`.toLowerCase().includes(query.trim().toLowerCase());
+    return matchesParent&&matchesQuery&&(materialCategory==='all'||materialCategory==='folder');
+  });
+  const visibleMaterials=materials.filter(item=>{
+    const matchesFolder=!folderRef||item.folder_ref===folderRef;
+    const matchesCategory=materialCategory==='all'||(materialCategory!=='folder'&&item.material_kind===materialCategory);
+    const matchesQuery=!query.trim()||`${item.title} ${item.file_name} ${item.project_name}`.toLowerCase().includes(query.trim().toLowerCase());
+    return matchesFolder&&matchesCategory&&matchesQuery;
+  });
+  const createFolder=async(event:FormEvent)=>{event.preventDefault();if(!projectID||!folderName.trim())return;setBusy(true);setError('');try{await studioApi.createFolder({project_id:projectID,parent_ref:folderRef||undefined,name:folderName.trim()});setFolderName('');setShowFolderForm(false);setNotice('文件夹已创建');void load()}catch(value){setError(value instanceof Error?value.message:'文件夹创建失败')}finally{setBusy(false)}};
+  const upload=async(event:ChangeEvent<HTMLInputElement>)=>{const file=event.target.files?.[0];event.target.value='';if(!file||!projectID)return;setBusy(true);setError('');try{await studioApi.uploadMaterial({project_id:projectID,folder_ref:folderRef||undefined,file});setNotice(`“${file.name}”已加入我的资产`);void load()}catch(value){setError(value instanceof Error?value.message:'资料上传失败')}finally{setBusy(false)}};
+  const recentMaterials=surface?.recent.materials||[];
+  const recentResults=surface?.recent.results||[];
+  const chooseView=(next:'mine'|'results'|'recent')=>{setView(next);setQuery('');setShowFolderForm(false)};
+  const changeProject=(next:string)=>{setProjectID(next);setFolderRef('')};
 
   return <div className="studio-view studio-assets">
-    <PageHeading eyebrow="资产库" title="下一次创作，从这里开始" detail="先看哪些生成结果可以直接使用，再按类型找到人物原型、剧本、分镜、图片和视频。"/>
+    <PageHeading eyebrow="资产" title="资产工作区" detail="文件资料与创作结果" actions={view==='mine'?<Button variant="secondary" disabled={!projectID} onClick={()=>setShowFolderForm(value=>!value)}><FolderPlus size={15}/>{showFolderForm?'取消创建':'新建文件夹'}</Button>:undefined}/>
     {error&&<StudioNotice kind="error" onRetry={load}>{error}</StudioNotice>}{notice&&<StudioNotice kind="success" onClose={()=>setNotice('')}>{notice}</StudioNotice>}
-    <div className="studio-asset-toolbar"><div className="studio-asset-views" role="tablist" aria-label="结果状态视图">{(Object.keys(assetViewLabels) as AssetView[]).map(id=><button type="button" role="tab" aria-selected={view===id} className={view===id?'is-active':''} key={id} onClick={()=>setView(id)}>{assetViewLabels[id]}<span>{counts[id]}</span></button>)}</div><div className="studio-asset-filters"><label className="studio-asset-type-filter"><span>结果类型</span><select value={category} onChange={event=>setCategory(event.target.value as AssetCategory)}>{(Object.keys(assetCategoryLabels) as AssetCategory[]).map(id=><option value={id} key={id}>{assetCategoryLabels[id]}{id==='all'?'':` · ${catalog?.counts[id]||0}`}</option>)}</select></label><label className="studio-asset-type-filter"><span>结果状态</span><select value={status} onChange={event=>setStatus(event.target.value as AssetStatus)}>{(Object.keys(assetStatusLabels) as AssetStatus[]).map(id=><option value={id} key={id}>{assetStatusLabels[id]}</option>)}</select></label><label className="studio-search"><Search size={16}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="搜索结果名称或内容" aria-label="搜索创作结果"/></label></div></div>
-    {loading?<StudioLoading label="正在整理结果资产目录…"/>:<div className="studio-asset-browser-layout"><section className="studio-section studio-asset-list">{visible.length===0?<CompactEmpty icon={<Library size={22}/>} title="没有符合条件的结果" detail="换一个状态、结果类型或搜索词。"/>:visible.map(item=><button type="button" className={selected?.ref===item.ref?'is-selected':''} key={`${item.result_type}:${item.project_id}:${item.ref||item.title}`} onClick={()=>setSelected(item)}><span className={`studio-asset-kind is-${item.result_type}`}><AssetIcon resultType={item.result_type}/></span><span><strong>{item.title}</strong><small>{assetCategoryLabels[item.result_type]} · {item.summary} · {item.project_name}</small></span><b className={item.reusable?'is-reusable':'is-blocked'}>{assetUseLabel(item)}</b><ChevronRight size={15}/></button>)}</section><aside className={`studio-asset-detail ${selected?'is-open':''}`}>{selected?<><header><span className={`studio-asset-kind is-${selected.result_type}`}><AssetIcon resultType={selected.result_type}/></span><div><small>{assetCategoryLabels[selected.result_type]}</small><h2>{selected.title}</h2><b className={`studio-asset-detail-state ${selected.reusable?'is-reusable':'is-blocked'}`}>{assetUseLabel(selected)}</b></div><IconButton label="关闭详情" onClick={()=>setSelected(undefined)}><X size={16}/></IconButton></header><p>{selected.summary}</p><dl><div><dt>结果类型</dt><dd>{assetCategoryLabels[selected.result_type]}</dd></div><div><dt>所属项目</dt><dd>{selected.project_name}</dd></div><div><dt>当前版本</dt><dd>{selected.version}</dd></div></dl>{selected.reusable?(reusableTasks.length>0?<div className="studio-asset-attach"><label><span>加入已有创作</span><select value={targetTaskID} onChange={event=>setTargetTaskID(event.target.value)}><option value="">选择一个进行中的任务</option>{reusableTasks.map(task=><option value={task.id} key={task.id}>{task.title}</option>)}</select></label><Button disabled={!canAttach||busy} onClick={()=>void attach()}><Plus size={15}/>{busy?'正在加入…':'加入当前任务'}</Button></div>:<div className="studio-asset-start"><strong>还没有进行中的创作任务</strong><p>可以直接用这项结果开始一次新的创作。</p><Link className="studio-primary-link" to={`/studio/tasks/new?asset_ref=${encodeURIComponent(selected.ref)}&project=${encodeURIComponent(selected.project_id)}`}><Sparkles size={15}/>用它开始新创作</Link></div>):<div className="studio-asset-blocked"><strong>暂时不能用于新创作</strong><p>{selected.blocked_reason||assetStatusLabels[selected.status as AssetStatus]||'这项结果还需要完成确认。'}</p><span>完成相关确认后，状态会自动更新。</span></div>}</>:<CompactEmpty icon={<Archive size={22}/>} title="选择一项结果" detail="查看它是否可以使用，以及如何加入下一次创作。"/>}</aside></div>}
+    <div className="studio-asset-toolbar">
+      <div className="studio-asset-views" role="tablist" aria-label="资产视图">
+        <button type="button" role="tab" aria-selected={view==='mine'} className={view==='mine'?'is-active':''} onClick={()=>chooseView('mine')}>我的资产<span>{(surface?.workspace.counts.all||0)+folders.length}</span></button>
+        <button type="button" role="tab" aria-selected={view==='results'} className={view==='results'?'is-active':''} onClick={()=>chooseView('results')}>创作结果<span>{catalog?.counts.all||0}</span></button>
+        <button type="button" role="tab" aria-selected={view==='recent'} className={view==='recent'?'is-active':''} onClick={()=>chooseView('recent')}>最近使用</button>
+      </div>
+      <div className="studio-asset-filters">
+        <label className="studio-asset-type-filter"><span>项目</span><select value={projectID} onChange={event=>changeProject(event.target.value)}><option value="">全部项目</option>{bootstrap.projects.filter(project=>project.status!=='archived').map(project=><option value={project.id} key={project.id}>{project.brand_name}</option>)}</select></label>
+        {view==='results'&&<label className="studio-asset-type-filter"><span>状态</span><select value={status} onChange={event=>setStatus(event.target.value as AssetStatus)}>{(Object.keys(assetStatusLabels) as AssetStatus[]).map(id=><option value={id} key={id}>{assetStatusLabels[id]}</option>)}</select></label>}
+        <label className="studio-search"><Search size={16}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder={view==='results'?'搜索创作结果':'搜索资产'} aria-label="搜索资产"/></label>
+      </div>
+    </div>
+    {showFolderForm&&<form className="studio-folder-form" onSubmit={createFolder}><label><span>所属项目</span><select value={projectID} onChange={event=>setProjectID(event.target.value)} required><option value="">选择项目</option>{bootstrap.projects.filter(project=>project.status!=='archived').map(project=><option value={project.id} key={project.id}>{project.brand_name}</option>)}</select></label><label><span>文件夹名称</span><input value={folderName} onChange={event=>setFolderName(event.target.value)} placeholder="例如：品牌素材" autoFocus required/></label><Button disabled={busy||!projectID||!folderName.trim()}><FolderPlus size={15}/>创建文件夹</Button></form>}
+    {loading?<StudioLoading label="正在整理资产…"/>:view==='mine'?<>
+      <AssetCategoryTabs categories={(Object.keys(materialCategoryLabels) as MaterialCategory[])} active={materialCategory} labels={materialCategoryLabels} count={id=>id==='all'?materials.length+folders.length:id==='folder'?folders.length:surface?.workspace.counts[id]||0} onChange={setMaterialCategory}/>
+      <div className="studio-asset-workspace">
+        <section className="studio-asset-library">
+          <div className="studio-asset-location"><div><LayoutGrid size={16}/><strong>{currentFolder?.name||'全部资产'}</strong><span>{visibleFolders.length+visibleMaterials.length} 项</span></div>{currentFolder&&<button type="button" onClick={()=>setFolderRef(currentFolder.parent_ref||'')}>返回上一级</button>}</div>
+          <div className="studio-asset-grid">
+            {visibleFolders.map(folder=><FolderAssetCard key={folder.folder_ref} folder={folder} onOpen={()=>setFolderRef(folder.folder_ref)}/>)}
+            {visibleMaterials.map(item=><WorkspaceMaterialCard key={item.material_ref} item={item} taskID={requestedTaskID}/>)}
+            {materialCategory==='folder'?<button className="studio-asset-import-card" type="button" disabled={!projectID} onClick={()=>setShowFolderForm(true)}><FolderPlus size={28}/><strong>新建文件夹</strong><small>{projectID?'整理当前项目资产':'先选择一个项目'}</small></button>:<label className={`studio-asset-import-card ${!projectID||busy?'is-disabled':''}`}><Upload size={28}/><strong>{busy?'正在导入…':'导入资产'}</strong><small>{projectID?'文档、图片、视频、音频或表格':'先选择一个项目'}</small><input type="file" accept=".pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.mp4,.mov,.webm,.mp3,.wav,.m4a,.csv,.md,.txt" onChange={upload} disabled={busy||!projectID}/></label>}
+          </div>
+        </section>
+      </div>
+    </>:view==='results'?<>
+      <AssetCategoryTabs categories={(Object.keys(assetCategoryLabels) as AssetCategory[])} active={category} labels={assetCategoryLabels} count={id=>catalog?.counts[id]||0} onChange={setCategory}/>
+      <div className="studio-asset-workspace">
+        <section className="studio-asset-library">
+          {visibleResults.length===0?<CompactEmpty icon={<Library size={22}/>} title="没有符合条件的创作结果" detail="换一个类型、状态或搜索词。"/>:<div className="studio-asset-grid">{visibleResults.map(item=><CreativeResultCard key={`${item.result_type}:${item.project_id}:${item.ref||item.title}`} item={item} taskID={requestedTaskID}/>)}</div>}
+        </section>
+      </div>
+    </>:<div className="studio-recent-layout">
+      <section className="studio-recent-group"><SectionHeading icon={<Clock3 size={17}/>} title="最近使用的工作区资料" count={recentMaterials.length}/>{recentMaterials.length===0?<CompactEmpty icon={<Archive size={20}/>} title="还没有使用记录" detail="把资料加入创作后会显示在这里。"/>:<div className="studio-asset-grid">{recentMaterials.map(item=><WorkspaceMaterialCard key={item.material_ref} item={item} taskID={requestedTaskID}/>)}</div>}</section>
+      <section className="studio-recent-group"><SectionHeading icon={<Sparkles size={17}/>} title="最近的创作结果" count={recentResults.length}/>{recentResults.length===0?<CompactEmpty icon={<Library size={20}/>} title="还没有创作结果" detail="已生成的结果会显示在这里。"/>:<div className="studio-asset-grid">{recentResults.map(item=><CreativeResultCard key={item.ref} item={item} taskID={requestedTaskID}/>)}</div>}</section>
+    </div>}
   </div>;
 }
+
+function AssetCategoryTabs<T extends string>({categories,active,labels,count,onChange}:{categories:T[];active:T;labels:Record<T,string>;count:(id:T)=>number;onChange:(id:T)=>void}){return <div className="studio-asset-kind-tabs" role="tablist" aria-label="资产类型">{categories.map(id=><button type="button" role="tab" aria-selected={active===id} className={active===id?'is-active':''} key={id} onClick={()=>onChange(id)}><MaterialCategoryIcon id={id as MaterialCategory|AssetCategory}/><span>{labels[id]}</span><b>{count(id)}</b></button>)}</div>}
+
+function MaterialCategoryIcon({id}:{id:MaterialCategory|AssetCategory}){if(id==='folder')return <Folder size={16}/>;if(id==='document'||id==='script')return <FileText size={16}/>;if(id==='image')return <ImageIcon size={16}/>;if(id==='video')return <Video size={16}/>;if(id==='audio')return <Music2 size={16}/>;if(id==='table')return <FileSpreadsheet size={16}/>;if(id==='persona')return <Library size={16}/>;if(id==='storyboard')return <Clipboard size={16}/>;return <LayoutGrid size={16}/>}
+
+function FolderAssetCard({folder,onOpen}:{folder:WorkspaceFolderItem;onOpen:()=>void}){return <button type="button" className="studio-asset-card studio-folder-card" onClick={onOpen}><span className="studio-asset-card-preview"><Folder size={34}/></span><span className="studio-asset-card-copy"><strong>{folder.name}</strong><small>{folder.child_count} 项资料</small></span><MoreHorizontal size={16} className="studio-asset-card-menu"/></button>}
+
+function WorkspaceMaterialCard({item,taskID}:{item:WorkspaceMaterialItem;taskID:string}){const id=item.material_ref.replace(/^material:/,'');return <Link className="studio-asset-card" to={`/studio/assets/materials/${encodeURIComponent(id)}${assetTaskQuery(taskID)}`}><span className={`studio-asset-card-preview is-${item.material_kind}`}><MaterialPreview item={item}/></span><span className="studio-asset-card-copy"><strong>{item.title}</strong><small>{workspaceMaterialKindLabel(item.material_kind)} · {formatBytes(item.byte_size)}</small></span><b className="studio-asset-card-state is-material-state">{workspaceMaterialStateLabel(item.processing_state)}</b></Link>}
+
+function CreativeResultCard({item,taskID}:{item:StudioAssetItem;taskID:string}){const id=item.ref.replace(/^result:/,'');return <Link className="studio-asset-card" to={`/studio/assets/results/${encodeURIComponent(item.task_id)}/${encodeURIComponent(id)}${assetTaskQuery(taskID)}`}><span className={`studio-asset-card-preview is-result-${item.result_type}`}><ResultPreview item={item}/></span><span className="studio-asset-card-copy"><strong>{item.title}</strong><small>{assetCategoryLabels[item.result_type]} · {item.project_name}</small></span><b className={`studio-asset-card-state ${item.reusable?'is-reusable':'is-blocked'}`}>{assetUseLabel(item)}</b></Link>}
+
+function MaterialPreview({item}:{item:WorkspaceMaterialItem}){if(item.material_kind==='image')return <img src={workspaceMaterialHref(item)} alt="" loading="lazy"/>;if(item.material_kind==='video')return <><Video size={32}/><i><Play size={12} fill="currentColor"/></i></>;if(item.material_kind==='audio')return <Music2 size={32}/>;if(item.material_kind==='table')return <FileSpreadsheet size={32}/>;if(item.material_kind==='document')return <FileText size={32}/>;return <File size={32}/>}
+function ResultPreview({item}:{item:StudioAssetItem}){const image=item.downloads.find(file=>file.media_type.startsWith('image/'));if(item.result_type==='image'&&image)return <img src={image.href} alt="" loading="lazy"/>;if(item.result_type==='video')return <><Video size={32}/><i><Play size={12} fill="currentColor"/></i></>;return <AssetIcon resultType={item.result_type}/>}
 
 export function StudioDeliveriesPage(){
   const [deliveries,setDeliveries]=useState<Awaited<ReturnType<typeof studioApi.deliveries>>>();
@@ -382,13 +463,18 @@ function DecisionPanel({decisions,busy,onDecision}:{decisions:StudioDecision[];b
 function CurrentStepSummary({task,step}:{task:StudioTaskSummary;step:StudioCustomerStep}){const copy=task.status==='running'?'创作流水线正在处理当前步骤。结果准备好后，会在这里请你确认。':task.status==='blocked'?'当前步骤需要协助，运营人员会看到详细原因并处理。':task.status==='delivered'?'任务已经完成，交付成果已固定。':'当前步骤尚未开始。';return <div className={`studio-step-summary ${customerTaskTone(task.status)}`}><span><Workflow size={20}/></span><div><strong>{task.next_action}</strong><p>{copy}</p><small>{step.title} · {task.status_label}</small></div></div>}
 function CustomerProgress({steps}:{steps:StudioCustomerStep[]}){return <ol className="studio-progress" aria-label="创作进度">{steps.map((step,index)=><li key={step.id} className={`is-${step.status}`}><span>{step.status==='completed'?<Check size={14}/>:String(index+1).padStart(2,'0')}</span><div><strong>{step.title}</strong><small>{studioStepStateLabel(step.status)}</small></div></li>)}</ol>}
 function CollectionMethod({icon,title,detail,available,href}:{icon:ReactNode;title:string;detail:string;available:boolean;href?:string}){const enabled=available&&Boolean(href);const body=<><span>{icon}</span><div><strong>{title}</strong><small>{detail}</small></div><b>{available?'可用':'待运营配置'}</b>{enabled&&<ChevronRight size={15}/>}</>;return enabled?<Link className="studio-collection-method" to={href||''}>{body}</Link>:<div className={`studio-collection-method ${available?'':'is-disabled'}`} aria-disabled={!available}>{body}</div>}
-function AssetPicker({items,selectedRefs,onChange}:{items:StudioAssetItem[];selectedRefs:string[];onChange:(refs:string[])=>void}){return <fieldset className="studio-asset-picker"><legend>从资产库带入 <em>可选</em></legend><p>选择已确认的人物原型、剧本、分镜、图片或视频结果，创建后会作为本次任务的正式输入。</p>{items.length===0?<small>当前还没有可复用的创作结果。</small>:<div>{items.slice(0,8).map(item=><label key={item.ref}><input type="checkbox" checked={selectedRefs.includes(item.ref)} onChange={event=>onChange(event.target.checked?[...selectedRefs,item.ref]:selectedRefs.filter(ref=>ref!==item.ref))}/><span><strong>{item.title}</strong><small>{assetCategoryLabels[item.result_type]} · {item.summary} · {item.version}</small></span></label>)}</div>}</fieldset>}
+function MaterialPicker({items,selectedRefs,onChange}:{items:WorkspaceMaterialItem[];selectedRefs:string[];onChange:(refs:string[])=>void}){return <fieldset className="studio-asset-picker"><legend>从我的资产带入 <em>可选</em></legend><p>选择已上传或导入的文档、图片、视频、音频或表格，创建任务时会固定当前文件版本。</p>{items.length===0?<small>当前项目还没有工作区资料。</small>:<div>{items.slice(0,8).map(item=><label key={item.material_ref}><input type="checkbox" checked={selectedRefs.includes(item.material_ref)} onChange={event=>onChange(event.target.checked?[...selectedRefs,item.material_ref]:selectedRefs.filter(ref=>ref!==item.material_ref))}/><span><strong>{item.title}</strong><small>{workspaceMaterialKindLabel(item.material_kind)} · {item.file_name} · {formatBytes(item.byte_size)}</small></span></label>)}</div>}</fieldset>}
+function AssetPicker({items,selectedRefs,onChange}:{items:StudioAssetItem[];selectedRefs:string[];onChange:(refs:string[])=>void}){return <fieldset className="studio-asset-picker"><legend>从创作结果带入 <em>可选</em></legend><p>选择已确认的人物原型、剧本、分镜、图片或视频结果，创建后会作为本次任务的正式输入。</p>{items.length===0?<small>当前还没有可复用的创作结果。</small>:<div>{items.slice(0,8).map(item=><label key={item.ref}><input type="checkbox" checked={selectedRefs.includes(item.ref)} onChange={event=>onChange(event.target.checked?[...selectedRefs,item.ref]:selectedRefs.filter(ref=>ref!==item.ref))}/><span><strong>{item.title}</strong><small>{assetCategoryLabels[item.result_type]} · {item.summary} · {item.version}</small></span></label>)}</div>}</fieldset>}
 function ResultRow({result}:{result:StudioTaskView['results'][number]}){const icon=result.kind==='delivery_package'?<PackageCheck size={17}/>:result.kind==='approved_result'?<CheckCircle2 size={17}/>:<FileText size={17}/>;return <article><span>{icon}</span><div><small>{resultKindLabel(result.kind)}</small><strong>{result.title}</strong><p>{result.summary} · {formatDate(result.created_at)}</p>{result.downloads.map(file=><a href={file.href} download key={file.id}><Download size={13}/>{file.file_name}</a>)}</div></article>}
 function assetUseLabel(item:StudioAssetItem){if(item.reusable)return item.status==='delivered'?'已交付，可复用':'已确认，可复用';return assetStatusLabels[item.status as AssetStatus]||item.blocked_reason||'暂不可用'}
-function AssetIcon({resultType}:{resultType:StudioAssetItem['result_type']}){return resultType==='video'?<Video size={18}/>:resultType==='image'?<FileText size={18}/>:resultType==='storyboard'?<Clipboard size={18}/>:resultType==='script'?<FileCheck2 size={18}/>:<Library size={18}/>}
+function AssetIcon({resultType}:{resultType:StudioAssetItem['result_type']}){return resultType==='video'?<Video size={18}/>:resultType==='image'?<ImageIcon size={18}/>:resultType==='storyboard'?<Clipboard size={18}/>:resultType==='script'?<FileCheck2 size={18}/>:<Library size={18}/>}
 function AssetRow({item}:{item:StudioAssetItem}){return <article><div><strong>{item.title}</strong><small>{assetCategoryLabels[item.result_type]} · {item.summary} · {item.version}</small></div><span>{item.project_name}</span><b>{assetUseLabel(item)}</b></article>}
+function workspaceMaterialKindLabel(kind:WorkspaceMaterialItem['material_kind']){return {document:'文档',image:'图片',video:'视频',audio:'音频',table:'表格',other:'其他文件'}[kind]||'其他文件'}
+function workspaceMaterialStateLabel(state:WorkspaceMaterialItem['processing_state']){return {uploading:'上传中',processing:'处理中',ready:'可预览',failed:'处理失败'}[state]||'处理中'}
+function workspaceMaterialHref(item:WorkspaceMaterialItem){return `/api/studio/materials/${encodeURIComponent(item.material_ref.replace(/^material:/,''))}/download`}
+function assetTaskQuery(taskID:string){return taskID?`?task_id=${encodeURIComponent(taskID)}`:''}
 function useTasks(){const [tasks,setTasks]=useState<StudioTaskSummary[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const reload=useCallback(async()=>{setLoading(true);setError('');try{setTasks(await studioApi.tasks())}catch(value){setError(value instanceof Error?value.message:'任务加载失败')}finally{setLoading(false)}},[]);useEffect(()=>{void reload()},[reload]);return {tasks,loading,error,reload}}
-function PageHeading({eyebrow,title,detail,actions}:{eyebrow:string;title:string;detail:string;actions?:ReactNode}){return <header className="studio-page-heading"><div><span>{eyebrow}</span><h1>{title}</h1><p>{detail}</p></div>{actions&&<div>{actions}</div>}</header>}
+function PageHeading({eyebrow,title,detail,actions}:{eyebrow:string;title:string;detail:string;actions?:ReactNode}){return <header className="studio-page-heading"><div><span>{eyebrow}</span><h1>{title}</h1><p>{detail}</p></div>{actions&&<div className="studio-page-actions">{actions}</div>}</header>}
 function SectionHeading({icon,title,count,action}:{icon:ReactNode;title:string;count?:number;action?:ReactNode}){return <header className="studio-section-heading"><div>{icon}<h2>{title}</h2>{count!==undefined&&<span>{count}</span>}</div>{action}</header>}
 function StatusBadge({task}:{task:StudioTaskSummary}){return <span className={`studio-status ${customerTaskTone(task.status)}`}><i/>{task.status_label}</span>}
 function TaskRow({task,roomy=false}:{task:StudioTaskSummary;roomy?:boolean}){return <Link className={`studio-task-row ${roomy?'is-roomy':''}`} to={`/studio/tasks/${encodeURIComponent(task.id)}`}><span className="studio-task-icon"><Video size={17}/></span><span className="studio-task-copy"><strong>{task.title}</strong><small>{contentTypeLabel(task.content_type)} · 更新于 {formatDate(task.updated_at)}</small></span><span className="studio-task-next"><small>下一步</small><strong>{task.next_action}</strong></span><StatusBadge task={task}/><ChevronRight size={16}/></Link>}

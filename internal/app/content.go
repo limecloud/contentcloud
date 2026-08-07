@@ -17,9 +17,27 @@ var allowedSourceMIME = map[string]bool{
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   true,
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         true,
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation": true,
-	"image/png":  true,
-	"image/jpeg": true,
-	"text/plain": true,
+	"image/png":       true,
+	"image/jpeg":      true,
+	"video/mp4":       true,
+	"video/quicktime": true,
+	"video/webm":      true,
+	"audio/mpeg":      true,
+	"audio/wav":       true,
+	"audio/x-wav":     true,
+	"audio/mp4":       true,
+	"text/csv":        true,
+	"text/markdown":   true,
+	"text/plain":      true,
+}
+
+var sourceExtensionMIME = map[string]string{
+	".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+	".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+	".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
+	".csv": "text/csv", ".md": "text/markdown", ".txt": "text/plain",
 }
 
 type CreateSourceInput struct {
@@ -36,17 +54,21 @@ type CreateSourceInput struct {
 }
 
 func (s *Service) CreateSource(ctx context.Context, actor Actor, in CreateSourceInput, requestID string) (domain.SourceRevision, error) {
-	if _, err := s.projectForWrite(ctx, actor, in.ProjectID); err != nil {
+	if err := requireRole(actor, "tenant_admin", "project_manager", "strategist"); err != nil {
 		return domain.SourceRevision{}, err
 	}
-	if err := requireRole(actor, "tenant_admin", "project_manager", "strategist"); err != nil {
+	return s.createSource(ctx, actor, in, requestID)
+}
+
+func (s *Service) createSource(ctx context.Context, actor Actor, in CreateSourceInput, requestID string) (domain.SourceRevision, error) {
+	if _, err := s.projectForWrite(ctx, actor, in.ProjectID); err != nil {
 		return domain.SourceRevision{}, err
 	}
 	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.FileName) == "" {
 		return domain.SourceRevision{}, domain.Invalid("SOURCE_FIELDS_REQUIRED", "来源名称和文件名必填")
 	}
 	if !allowedSourceMIME[in.MIME] {
-		return domain.SourceRevision{}, domain.E("validation", "content_type", "SOURCE_MIME_BLOCKED", "仅支持 PDF、DOCX、XLSX、PPTX、PNG 和 JPEG", 7)
+		return domain.SourceRevision{}, domain.E("validation", "content_type", "SOURCE_MIME_BLOCKED", "暂不支持该文档、图片、音视频或表格类型", 7)
 	}
 	if in.ByteSize <= 0 || in.ByteSize > 100*1024*1024 {
 		return domain.SourceRevision{}, domain.Invalid("SOURCE_SIZE_INVALID", "单个文件大小必须在 1 字节至 100 MB 之间")
@@ -127,8 +149,7 @@ func (s *Service) UploadSourceRevision(ctx context.Context, actor Actor, sourceI
 		return domain.SourceRevision{}, domain.Invalid("SOURCE_SIZE_INVALID", "单个文件大小必须在 1 字节至 100 MB 之间")
 	}
 	extension := strings.ToLower(filepath.Ext(fileName))
-	extensionMIME := map[string]string{".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".txt": "text/plain"}
-	if expected, ok := extensionMIME[extension]; !ok || expected != declaredMIME {
+	if expected, ok := sourceExtensionMIME[extension]; !ok || !sourceMIMEMatches(expected, declaredMIME) {
 		return domain.SourceRevision{}, domain.E("validation", "content_type", "SOURCE_MIME_MISMATCH", "文件扩展名与声明类型不一致", 7)
 	}
 	sum := sha256.Sum256(data)
@@ -154,17 +175,23 @@ func (s *Service) UploadSourceRevision(ctx context.Context, actor Actor, sourceI
 }
 
 func (s *Service) UploadSource(ctx context.Context, actor Actor, projectID, name, sourceType, fileName, declaredMIME string, data []byte, requestID string) (domain.SourceRevision, error) {
+	if err := requireRole(actor, "tenant_admin", "project_manager", "strategist"); err != nil {
+		return domain.SourceRevision{}, err
+	}
+	return s.uploadSource(ctx, actor, projectID, name, sourceType, fileName, declaredMIME, data, requestID)
+}
+
+func (s *Service) uploadSource(ctx context.Context, actor Actor, projectID, name, sourceType, fileName, declaredMIME string, data []byte, requestID string) (domain.SourceRevision, error) {
 	if len(data) == 0 || len(data) > 100*1024*1024 {
 		return domain.SourceRevision{}, domain.Invalid("SOURCE_SIZE_INVALID", "单个文件大小必须在 1 字节至 100 MB 之间")
 	}
 	extension := strings.ToLower(filepath.Ext(fileName))
-	extensionMIME := map[string]string{".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".txt": "text/plain"}
-	expected, ok := extensionMIME[extension]
-	if !ok || declaredMIME != expected {
+	expected, ok := sourceExtensionMIME[extension]
+	if !ok || !sourceMIMEMatches(expected, declaredMIME) {
 		return domain.SourceRevision{}, domain.E("validation", "content_type", "SOURCE_MIME_MISMATCH", "文件扩展名与声明类型不一致", 7)
 	}
 	sum := sha256.Sum256(data)
-	revision, err := s.CreateSource(ctx, actor, CreateSourceInput{ProjectID: projectID, Name: name, SourceType: sourceType, FileName: filepath.Base(fileName), MIME: declaredMIME, SHA256: hex.EncodeToString(sum[:]), ByteSize: int64(len(data))}, requestID)
+	revision, err := s.createSource(ctx, actor, CreateSourceInput{ProjectID: projectID, Name: name, SourceType: sourceType, FileName: filepath.Base(fileName), MIME: expected, SHA256: hex.EncodeToString(sum[:]), ByteSize: int64(len(data))}, requestID)
 	if err != nil {
 		return revision, err
 	}
@@ -183,6 +210,14 @@ func (s *Service) UploadSource(ctx context.Context, actor Actor, projectID, name
 		return revision, err
 	}
 	return revision, nil
+}
+
+func sourceMIMEMatches(expected, declared string) bool {
+	declared = strings.ToLower(strings.TrimSpace(strings.SplitN(declared, ";", 2)[0]))
+	if expected == declared {
+		return true
+	}
+	return expected == "audio/wav" && declared == "audio/x-wav"
 }
 
 func (s *Service) Sources(ctx context.Context, actor Actor, projectID string) ([]domain.Source, error) {

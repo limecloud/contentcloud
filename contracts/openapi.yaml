@@ -369,6 +369,29 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+  /studio/tasks/{task_id}/materials:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Studio BFF]
+      operationId: attachStudioTaskMaterials
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [material_refs]
+              properties: {material_refs: {type: array, items: {type: string}}}
+      responses:
+        '200':
+          description: Updated customer task
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioTaskEnvelope'}}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /studio/assets:
     get:
       tags: [Studio BFF]
@@ -378,9 +401,68 @@ paths:
         - {name: project_id, in: query, required: false, schema: {type: string, format: uuid}}
       responses:
         '200':
-          description: Customer-facing reusable asset catalog
+          description: Customer asset surface combining workspace materials, creative results, and recent projections
           content:
-            application/json: {schema: {$ref: '#/components/schemas/StudioAssetCatalogEnvelope'}}
+            application/json: {schema: {$ref: '#/components/schemas/StudioAssetSurfaceEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /studio/assets/results/{result_id}:
+    parameters:
+      - {name: result_id, in: path, required: true, schema: {type: string}}
+      - {name: task_id, in: query, required: true, schema: {type: string, format: uuid}}
+    get:
+      tags: [Studio BFF]
+      operationId: showStudioCreativeResult
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Customer-safe render data for one immutable creative result
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/StudioCreativeResultDetailEnvelope'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /studio/asset-folders:
+    post:
+      tags: [Studio BFF]
+      operationId: createStudioAssetFolder
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/WorkspaceFolderCreateInput'}}
+      responses:
+        '200':
+          description: Created customer workspace folder
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/WorkspaceFolderEnvelope'}}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /studio/materials:
+    post:
+      tags: [Studio BFF]
+      operationId: uploadStudioMaterial
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data: {schema: {$ref: '#/components/schemas/WorkspaceMaterialUploadInput'}}
+      responses:
+        '200':
+          description: Created customer workspace material projection
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/WorkspaceMaterialEnvelope'}}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /studio/materials/{id}/download:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    get:
+      tags: [Studio BFF]
+      operationId: downloadStudioMaterial
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: Authorized workspace material bytes
+          content: {application/octet-stream: {schema: {type: string, format: binary}}}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
   /studio/deliveries:
@@ -1509,6 +1591,25 @@ components:
         blocked_reason: {type: string}
         downloads: {type: array, items: {$ref: '#/components/schemas/StudioDownload'}}
         created_at: {type: string, format: date-time}
+    StudioAssetMedia:
+      type: object
+      additionalProperties: false
+      required: [asset_ref, file]
+      properties:
+        asset_ref: {type: string}
+        shot_id: {type: string}
+        role: {type: string}
+        file: {$ref: '#/components/schemas/StudioDownload'}
+    StudioCreativeResultDetail:
+      type: object
+      additionalProperties: false
+      required: [item, content_format, content, media, read_only]
+      properties:
+        item: {$ref: '#/components/schemas/StudioAssetItem'}
+        content_format: {type: string, enum: [persona, script, storyboard, image, video]}
+        content: {}
+        media: {type: array, items: {$ref: '#/components/schemas/StudioAssetMedia'}}
+        read_only: {type: boolean, const: true}
     StudioTaskView:
       type: object
       additionalProperties: false
@@ -1530,6 +1631,84 @@ components:
         items: {type: array, items: {$ref: '#/components/schemas/StudioAssetItem'}}
         counts: {type: object, additionalProperties: {type: integer, minimum: 0}}
         generated_at: {type: string, format: date-time}
+    WorkspaceFolderItem:
+      type: object
+      additionalProperties: false
+      required: [folder_ref, project_id, project_name, name, child_count, created_at, updated_at]
+      properties:
+        folder_ref: {type: string, pattern: '^folder:'}
+        parent_ref: {type: string, pattern: '^folder:'}
+        project_id: {type: string, format: uuid}
+        project_name: {type: string}
+        name: {type: string}
+        child_count: {type: integer, minimum: 0}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    WorkspaceMaterialItem:
+      type: object
+      additionalProperties: false
+      required: [material_ref, project_id, project_name, material_kind, origin, usage, title, file_name, mime_type, byte_size, processing_state, rights_summary, created_at, updated_at]
+      properties:
+        material_ref: {type: string, pattern: '^material:'}
+        folder_ref: {type: string, pattern: '^folder:'}
+        project_id: {type: string, format: uuid}
+        project_name: {type: string}
+        material_kind: {type: string, enum: [document, image, video, audio, table, other]}
+        origin: {type: string, enum: [uploaded, imported, linked]}
+        usage: {type: string, enum: [project_material, project_reference]}
+        title: {type: string}
+        file_name: {type: string}
+        mime_type: {type: string}
+        byte_size: {type: integer, minimum: 0}
+        preview_ref: {type: string}
+        processing_state: {type: string, enum: [uploading, processing, ready, failed]}
+        rights_summary: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        last_used_at: {type: string, format: date-time}
+    WorkspaceMaterialProjection:
+      type: object
+      additionalProperties: false
+      required: [folders, materials, counts, generated_at]
+      properties:
+        folders: {type: array, items: {$ref: '#/components/schemas/WorkspaceFolderItem'}}
+        materials: {type: array, items: {$ref: '#/components/schemas/WorkspaceMaterialItem'}}
+        counts: {type: object, additionalProperties: {type: integer, minimum: 0}}
+        generated_at: {type: string, format: date-time}
+    StudioRecentAssetProjection:
+      type: object
+      additionalProperties: false
+      required: [materials, results]
+      properties:
+        materials: {type: array, items: {$ref: '#/components/schemas/WorkspaceMaterialItem'}}
+        results: {type: array, items: {$ref: '#/components/schemas/StudioAssetItem'}}
+    StudioAssetSurface:
+      type: object
+      additionalProperties: false
+      required: [workspace, creative_results, recent, generated_at]
+      properties:
+        workspace: {$ref: '#/components/schemas/WorkspaceMaterialProjection'}
+        creative_results: {$ref: '#/components/schemas/StudioAssetCatalog'}
+        recent: {$ref: '#/components/schemas/StudioRecentAssetProjection'}
+        generated_at: {type: string, format: date-time}
+    WorkspaceFolderCreateInput:
+      type: object
+      additionalProperties: false
+      required: [project_id, name]
+      properties:
+        project_id: {type: string, format: uuid}
+        parent_ref: {type: string, pattern: '^folder:'}
+        name: {type: string, minLength: 1, maxLength: 120}
+    WorkspaceMaterialUploadInput:
+      type: object
+      additionalProperties: false
+      required: [project_id, file]
+      properties:
+        project_id: {type: string, format: uuid}
+        folder_ref: {type: string, pattern: '^folder:'}
+        title: {type: string, maxLength: 240}
+        file_type: {type: string}
+        file: {type: string, format: binary}
     StudioDeliveryPackage:
       type: object
       additionalProperties: false
@@ -1561,7 +1740,7 @@ components:
     StudioCreateTaskInput:
       type: object
       additionalProperties: false
-      required: [experience_id, project_id, title, goal, inspiration, asset_refs]
+      required: [experience_id, project_id, title, goal, inspiration, asset_refs, material_refs]
       properties:
         experience_id: {type: string}
         project_id: {type: string, format: uuid}
@@ -1569,6 +1748,7 @@ components:
         goal: {type: string, minLength: 1}
         inspiration: {type: string}
         asset_refs: {type: array, items: {type: string}}
+        material_refs: {type: array, items: {type: string}}
         idempotency_key: {type: string, maxLength: 128}
     StudioAddInspirationInput:
       type: object
@@ -1578,10 +1758,6 @@ components:
         title: {type: string, minLength: 1}
         body: {type: string, minLength: 1}
         keep_as_project_reference: {type: boolean}
-        save_for_reuse:
-          type: boolean
-          deprecated: true
-          description: Compatibility input only; interpreted as keep_as_project_reference and never creates a result asset.
         idempotency_key: {type: string, maxLength: 128}
     StudioBootstrapEnvelope:
       type: object
@@ -1628,14 +1804,41 @@ components:
         request_id: {type: string}
         data: {$ref: '#/components/schemas/StudioTaskView'}
         meta: {type: object}
-    StudioAssetCatalogEnvelope:
+    StudioAssetSurfaceEnvelope:
       type: object
       required: [ok, command, request_id, data, meta]
       properties:
         ok: {const: true}
         command: {const: studio.asset.list}
         request_id: {type: string}
-        data: {$ref: '#/components/schemas/StudioAssetCatalog'}
+        data: {$ref: '#/components/schemas/StudioAssetSurface'}
+        meta: {type: object}
+    StudioCreativeResultDetailEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: studio.asset.show}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/StudioCreativeResultDetail'}
+        meta: {type: object}
+    WorkspaceFolderEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: studio.workspace_folder.create}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/WorkspaceFolderItem'}
+        meta: {type: object}
+    WorkspaceMaterialEnvelope:
+      type: object
+      required: [ok, command, request_id, data, meta]
+      properties:
+        ok: {const: true}
+        command: {const: studio.workspace_material.upload}
+        request_id: {type: string}
+        data: {$ref: '#/components/schemas/WorkspaceMaterialItem'}
         meta: {type: object}
     StudioDeliveriesEnvelope:
       type: object

@@ -4,7 +4,7 @@
 
 更新时间：2026-08-07。
 
-本文记录对 ContentCloud Agentic Job Runtime、客户创作台、运营控制台和创作资产库有直接启发的公开系统。它不是竞品清单，也不要求 ContentCloud 采用其中任何一个产品。
+本文记录对 ContentCloud Agentic Job Runtime、客户创作台、运营控制台和客户资产入口有直接启发的公开系统。它不是竞品清单，也不要求 ContentCloud 采用其中任何一个产品。
 
 ## 1. 结论
 
@@ -18,7 +18,7 @@ Adobe GenStudio        创作、模板、资产和审批治理
 Runway / Frame.io      生成结果血缘、版本和审核体验
 ```
 
-ContentCloud 的新颖性不在于发明这些单点能力，而在于把它们组合到内容创作领域：客户看到简单的创作任务，运营维护流水线，Runtime 统一调度本地 Agent、托管 Agent、确定性 Worker、外部服务商和人工，生成结果继续沉淀为可复用资产。
+ContentCloud 的新颖性不在于发明这些单点能力，而在于把它们组合到内容创作领域：客户看到简单的创作任务和资产工作区，运营维护流水线，Runtime 统一调度本地 Agent、托管 Agent、确定性 Worker、外部服务商和人工，客户资料与生成结果通过不同投影继续被使用。
 
 ## 2. 参考系统对照
 
@@ -51,10 +51,11 @@ JobPlanRevision -> JobRun -> NodeRun -> RuntimeAttempt
     +--> 人工 Gate
     |
     v
-CustomerJourneyProjection       CreativeResultAssetProjection
-    |                             |
-    v                             v
-客户创作台：输入、进度、确认、交付   客户资产库：人物、剧本、分镜、图片、视频
+CustomerJourneyProjection            Customer Asset Surface
+    |                             /                           \
+    v                            v                             v
+客户创作台：输入、进度、确认、交付  WorkspaceMaterialProjection  CreativeResultAssetProjection
+                                 文件夹与导入资料               人物、剧本、分镜、图片、视频
 ```
 
 ### 3.1 与 Camunda 的关系
@@ -77,7 +78,7 @@ Adobe、Runway 和 Frame.io 共同说明，内容产品至少需要把以下维�
 输入参考       生成结果       内容类型       版本       审批状态       使用血缘
 ```
 
-ContentCloud 在客户面进一步收紧术语：输入是“任务输入/项目参考”，生成结果才是“创作资产”。这不是声称行业术语只有一种，而是为了让客户不需要判断底层治理对象。
+ContentCloud 在客户面把“入口统一”和“领域统一”分开：客户只看到一个“资产”入口，但“我的资产”承接明确上传/导入的工作区资料，“创作结果”承接流水线结果，搜索候选和来源证据仍留在任务参考。这样符合客户对文件工作区的直觉，又不要求客户判断底层治理对象。
 
 ## 4. 不采用的方案
 
@@ -98,9 +99,9 @@ Codex、Claude Code 和其他客户端可以是执行者之一。它们不能获
 1. 客户、运营和 Runtime 必须拥有独立的路由、权限、BFF、DTO 和信息架构。
 2. `ExperienceTemplate`、`Published SOP` 和 `JobPlanRevision` 必须按版本发布，任务开始后不可静默改写。
 3. 能力先声明，执行者后绑定；Codex、Claude Code、Worker、Provider 和人工都实现执行契约。
-4. 客户资产 DTO 只暴露生成结果字段，底层输入引用使用服务端内部引用或 lineage。
+4. 工作区资料与创作结果使用独立 DTO；客户 BFF 可以组合查询，但不增加万能可空字段集合。
 5. `confirmed` 和 `delivered` 是可复用门槛，不能与 `persona`、`script`、`storyboard`、`image`、`video` 等结果类型混为一轴。
-6. 客户资产库、当前任务输入和正式交付是三个不同入口，不能用一个万能列表代替。
+6. 客户资产入口、当前任务输入和正式交付必须保持边界；资产入口内部也要清楚区分“我的资产”和“创作结果”。
 7. Runtime、目录投影和客户投影都必须可重建、可对账并覆盖空、失败、陈旧和权限状态。
 
 ## 6. 官方参考

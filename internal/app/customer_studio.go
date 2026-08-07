@@ -163,6 +163,7 @@ type StudioCreateTaskInput struct {
 	Goal           string   `json:"goal"`
 	Inspiration    string   `json:"inspiration"`
 	AssetRefs      []string `json:"asset_refs"`
+	MaterialRefs   []string `json:"material_refs"`
 	IdempotencyKey string   `json:"idempotency_key,omitempty"`
 }
 
@@ -170,12 +171,15 @@ type StudioAddInspirationInput struct {
 	Title                  string `json:"title"`
 	Body                   string `json:"body"`
 	KeepAsProjectReference bool   `json:"keep_as_project_reference"`
-	SaveForReuse           bool   `json:"save_for_reuse,omitempty"` // 兼容旧客户端，语义等同于项目参考
 	IdempotencyKey         string `json:"idempotency_key,omitempty"`
 }
 
 type StudioAttachAssetsInput struct {
 	AssetRefs []string `json:"asset_refs"`
+}
+
+type StudioAttachMaterialsInput struct {
+	MaterialRefs []string `json:"material_refs"`
 }
 
 type StudioAssetItem struct {
@@ -196,7 +200,29 @@ type StudioAssetItem struct {
 	CreatedAt     time.Time        `json:"created_at"`
 }
 
-type StudioAssetCatalog struct {
+type StudioAssetFact struct {
+	Title      string `json:"title"`
+	Statement  string `json:"statement"`
+	ObjectType string `json:"object_type"`
+	Layer      string `json:"layer"`
+}
+
+type StudioAssetMedia struct {
+	AssetRef string         `json:"asset_ref"`
+	ShotID   string         `json:"shot_id,omitempty"`
+	Role     string         `json:"role,omitempty"`
+	File     StudioDownload `json:"file"`
+}
+
+type StudioCreativeResultDetail struct {
+	Item          StudioAssetItem    `json:"item"`
+	ContentFormat string             `json:"content_format"`
+	Content       json.RawMessage    `json:"content"`
+	Media         []StudioAssetMedia `json:"media"`
+	ReadOnly      bool               `json:"read_only"`
+}
+
+type CreativeResultAssetProjection struct {
 	Items       []StudioAssetItem `json:"items"`
 	Counts      map[string]int    `json:"counts"`
 	GeneratedAt time.Time         `json:"generated_at"`
@@ -402,7 +428,7 @@ func (s *Service) CustomerStudioTask(ctx context.Context, actor Actor, taskID st
 	if err != nil {
 		return StudioTaskView{}, err
 	}
-	assets, err := s.CustomerStudioAssets(ctx, actor, view.Task.ProjectID)
+	assets, err := s.CustomerStudioCreativeResults(ctx, actor, view.Task.ProjectID)
 	if err != nil {
 		return StudioTaskView{}, err
 	}
@@ -428,6 +454,10 @@ func (s *Service) CreateCustomerStudioTask(ctx context.Context, actor Actor, inp
 		return StudioTaskView{}, err
 	}
 	assetRefs, err := s.resolveCustomerStudioAssetRefs(ctx, actor, project.ID, input.AssetRefs)
+	if err != nil {
+		return StudioTaskView{}, err
+	}
+	materialRefs, err := s.resolveCustomerWorkspaceMaterialRefs(ctx, actor, project.ID, input.MaterialRefs)
 	if err != nil {
 		return StudioTaskView{}, err
 	}
@@ -462,7 +492,8 @@ func (s *Service) CreateCustomerStudioTask(ctx context.Context, actor Actor, inp
 	if err != nil {
 		return StudioTaskView{}, err
 	}
-	refs := append([]string{"input:" + brief.ID + "@v" + fmt.Sprint(brief.RowVersion)}, assetRefs...)
+	refs := append([]string{"input:" + brief.ID + "@v" + fmt.Sprint(brief.RowVersion)}, materialRefs...)
+	refs = append(refs, assetRefs...)
 	created, err := s.CreateWorkTask(ctx, actor, CreateWorkTaskInput{
 		ProjectID: project.ID, Title: strings.TrimSpace(input.Title), Intent: strings.TrimSpace(input.Goal),
 		SOPID: sop.SOPID, SOPVersion: sop.Version, ContentType: contentType, InputRefs: refs,
@@ -470,6 +501,9 @@ func (s *Service) CreateCustomerStudioTask(ctx context.Context, actor Actor, inp
 		Priority:        "normal", RiskProfile: "low", IdempotencyKey: key,
 	}, requestID)
 	if err != nil {
+		return StudioTaskView{}, err
+	}
+	if err := s.markCustomerWorkspaceMaterialsUsed(ctx, actor, project.ID, input.MaterialRefs); err != nil {
 		return StudioTaskView{}, err
 	}
 	if brief.TargetTaskID != created.Task.ID || brief.Status != domain.InputItemTaskMerged {
@@ -548,11 +582,10 @@ func (s *Service) AddCustomerStudioInspiration(ctx context.Context, actor Actor,
 	if task.Status == domain.TaskStatusDelivered || task.Status == domain.TaskStatusCancelled {
 		return StudioTaskView{}, domain.Conflict("STUDIO_TASK_INPUT_CLOSED", "已完成或已取消的任务不能继续添加灵感")
 	}
-	keepAsProjectReference := input.KeepAsProjectReference || input.SaveForReuse
 	item, err := s.CreateInputItem(ctx, actor, CreateInputItemInput{
 		ProjectID: task.ProjectID, SourceType: "manual_inspiration", Title: strings.TrimSpace(input.Title),
 		Summary: strings.TrimSpace(input.Body), Body: strings.TrimSpace(input.Body), Disclosure: "project", IdempotencyKey: strings.TrimSpace(input.IdempotencyKey),
-		Metadata: map[string]any{"collection_method": "manual", "stage": "inspiration", "saved_as_project_reference": keepAsProjectReference},
+		Metadata: map[string]any{"collection_method": "manual", "stage": "inspiration", "saved_as_project_reference": input.KeepAsProjectReference},
 	}, requestID)
 	if err != nil {
 		return StudioTaskView{}, err
@@ -605,10 +638,10 @@ func (s *Service) AttachCustomerStudioAssets(ctx context.Context, actor Actor, t
 	return s.CustomerStudioTask(ctx, actor, task.ID)
 }
 
-func (s *Service) CustomerStudioAssets(ctx context.Context, actor Actor, projectID string) (StudioAssetCatalog, error) {
+func (s *Service) CustomerStudioCreativeResults(ctx context.Context, actor Actor, projectID string) (CreativeResultAssetProjection, error) {
 	projects, err := s.Projects(ctx, actor)
 	if err != nil {
-		return StudioAssetCatalog{}, err
+		return CreativeResultAssetProjection{}, err
 	}
 	if projectID != "" {
 		filtered := projects[:0]
@@ -619,14 +652,14 @@ func (s *Service) CustomerStudioAssets(ctx context.Context, actor Actor, project
 		}
 		projects = filtered
 		if len(projects) == 0 {
-			return StudioAssetCatalog{}, domain.NotFound("项目")
+			return CreativeResultAssetProjection{}, domain.NotFound("项目")
 		}
 	}
-	result := StudioAssetCatalog{Items: []StudioAssetItem{}, Counts: map[string]int{}, GeneratedAt: s.now().UTC()}
+	result := CreativeResultAssetProjection{Items: []StudioAssetItem{}, Counts: map[string]int{}, GeneratedAt: s.now().UTC()}
 	for _, project := range projects {
 		items, itemErr := s.customerStudioProjectAssets(ctx, actor, project)
 		if itemErr != nil {
-			return StudioAssetCatalog{}, itemErr
+			return CreativeResultAssetProjection{}, itemErr
 		}
 		result.Items = append(result.Items, items...)
 	}
@@ -639,6 +672,75 @@ func (s *Service) CustomerStudioAssets(ctx context.Context, actor Actor, project
 	}
 	result.Counts["all"] = len(result.Items)
 	return result, nil
+}
+
+func (s *Service) CustomerStudioCreativeResult(ctx context.Context, actor Actor, taskID, resultID string) (StudioCreativeResultDetail, error) {
+	view, err := s.WorkTask(ctx, actor, strings.TrimSpace(taskID))
+	if err != nil {
+		return StudioCreativeResultDetail{}, err
+	}
+	targetRef := "result:" + strings.TrimPrefix(strings.TrimSpace(resultID), "result:")
+	var item *StudioAssetItem
+	for _, candidate := range customerStudioTaskAssets(view) {
+		if candidate.Ref == targetRef {
+			value := candidate
+			item = &value
+			break
+		}
+	}
+	if item == nil {
+		return StudioCreativeResultDetail{}, domain.NotFound("创作结果")
+	}
+
+	content := json.RawMessage(`{}`)
+	for _, snapshot := range view.KnowledgeSnapshots {
+		if "result:"+snapshot.ID != item.Ref {
+			continue
+		}
+		facts := make([]StudioAssetFact, 0, len(snapshot.Objects))
+		for _, object := range snapshot.Objects {
+			facts = append(facts, StudioAssetFact{Title: object.Title, Statement: object.Statement, ObjectType: object.ObjectType, Layer: object.Layer})
+		}
+		content, err = json.Marshal(map[string]any{"facts": facts})
+		if err != nil {
+			return StudioCreativeResultDetail{}, err
+		}
+		break
+	}
+	for _, revision := range view.Revisions {
+		if "result:"+revision.ID == item.Ref {
+			content = append(json.RawMessage(nil), revision.Content...)
+			break
+		}
+	}
+	for _, snapshot := range view.ApprovedSnapshots {
+		if "result:"+snapshot.ID != item.Ref {
+			continue
+		}
+		var envelope struct {
+			Objects []json.RawMessage `json:"objects"`
+		}
+		if json.Unmarshal(snapshot.CanonicalContent, &envelope) == nil {
+			content, err = json.Marshal(map[string]any{"objects": envelope.Objects})
+			if err != nil {
+				return StudioCreativeResultDetail{}, err
+			}
+		}
+		break
+	}
+
+	media := []StudioAssetMedia{}
+	for _, artifact := range view.Artifacts {
+		if artifact.ApprovedSnapshotID != strings.TrimPrefix(item.Ref, "result:") || (artifact.Visibility != "" && artifact.Visibility != "client") {
+			continue
+		}
+		assetRef := metadataString(artifact.Metadata, "storyboard_asset_id")
+		if assetRef == "" {
+			continue
+		}
+		media = append(media, StudioAssetMedia{AssetRef: assetRef, ShotID: metadataString(artifact.Metadata, "shot_id"), Role: metadataString(artifact.Metadata, "role"), File: studioDownload(artifact)})
+	}
+	return StudioCreativeResultDetail{Item: *item, ContentFormat: item.ResultType, Content: content, Media: media, ReadOnly: true}, nil
 }
 
 func (s *Service) customerStudioProjectAssets(ctx context.Context, actor Actor, project domain.Project) ([]StudioAssetItem, error) {
@@ -864,7 +966,7 @@ func (s *Service) resolveCustomerStudioAssetRefs(ctx context.Context, actor Acto
 	if len(refs) == 0 {
 		return []string{}, nil
 	}
-	catalog, err := s.CustomerStudioAssets(ctx, actor, projectID)
+	catalog, err := s.CustomerStudioCreativeResults(ctx, actor, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -878,7 +980,7 @@ func (s *Service) resolveCustomerStudioAssetRefs(ctx context.Context, actor Acto
 	for _, ref := range uniqueNonEmpty(refs) {
 		inputRef, ok := allowed[ref]
 		if !ok {
-			return nil, domain.Policy("STUDIO_ASSET_NOT_REUSABLE", "所选创作结果尚未确认或不属于当前项目", "刷新资产库并选择已确认的创作结果")
+			return nil, domain.Policy("STUDIO_ASSET_NOT_REUSABLE", "所选创作结果尚未确认或不属于当前项目", "刷新创作结果并选择已确认的版本")
 		}
 		result = append(result, inputRef)
 	}
@@ -929,7 +1031,7 @@ func (s *Service) CustomerStudioDeliveries(ctx context.Context, actor Actor) (St
 	return result, nil
 }
 
-func (s *Service) customerStudioTaskView(actor Actor, view WorkTaskView, items []domain.InputItem, catalog StudioAssetCatalog) StudioTaskView {
+func (s *Service) customerStudioTaskView(actor Actor, view WorkTaskView, items []domain.InputItem, catalog CreativeResultAssetProjection) StudioTaskView {
 	result := StudioTaskView{
 		Task: studioTaskSummary(view.Task, view.Project, view.SOP), Steps: studioCustomerSteps(view.Task, view.SOP),
 		Inspirations: []StudioInspiration{}, Decisions: []StudioDecision{}, Results: []StudioResult{}, AttachedAssets: []StudioAssetItem{},
@@ -939,7 +1041,7 @@ func (s *Service) customerStudioTaskView(actor Actor, view WorkTaskView, items [
 		if item.TargetTaskID != view.Task.ID && !containsString(view.Task.InputRefs, "input:"+item.ID) && !containsStringPrefix(view.Task.InputRefs, "input:"+item.ID+"@") {
 			continue
 		}
-		saved := metadataBool(item.Metadata, "saved_as_project_reference") || metadataBool(item.Metadata, "saved_for_reuse")
+		saved := metadataBool(item.Metadata, "saved_as_project_reference")
 		result.Inspirations = append(result.Inspirations, StudioInspiration{ID: item.ID, Title: item.Title, Summary: defaultString(item.Summary, item.Body), SourceType: item.SourceType, SourceLabel: inputSourceLabel(item.SourceType), SavedAsProjectReference: saved, CreatedAt: item.CreatedAt})
 	}
 	currentTitle := studioStepTitle(result.Task.CurrentStepID)

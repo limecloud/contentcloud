@@ -4,14 +4,11 @@
 
 更新时间：2026-07-29。
 
-本文定义 Content Work OS 从“以营销视频为主的内容生产系统”扩展为“支持多种内容形态的本地优先创作与云端治理平台”的目标架构，并以微信公众号文章作为第一个非视频纵向切片。本文是架构与实施建议，不代表相关契约、命令、Skill、Web 页面或平台集成已经实现。
+本文定义 Content Work OS 从“以营销视频为主的内容生产系统”扩展为“支持多种内容形态的 Studio-first 创作与云端治理平台”的目标架构，并以微信公众号文章作为第一个非视频纵向切片。本文是内部架构与实施建议，不代表相关契约、命令、Skill、Web 页面或平台集成已经全部实现。
 
-本文不替代现有 V3、V4、V5 路线图：
+本文服从当前平台基线、产品需求和 V8 Runtime 路线图。V3、V4、V5 等旧路线图只作为已存在对象、兼容接口和迁移证据，不再定义当前架构入口；它们与本文冲突时，以 [`docs/foundation`](../../foundation/README.md)、[`docs/product`](../../product/README.md)、[`docs/roadmap/v8`](../../roadmap/v8/README.md) 和代码/契约/测试为准。
 
-- V3 继续定义 Workspace、知识治理、LocalRun、SubmissionRevision、ApprovedSnapshot 和交付主链。
-- V4 继续定义 Codex 与 Browser/Web 的双向工作表面及显式 publish/pull 边界。
-- V5 继续完成抖音电商视频、分镜、Seedance 交付和结果归因纵向切片。
-- 本文在这些稳定边界之上，定义多内容形态的扩展方式和公众号文章纵向切片。
+本文在这些稳定边界之上，定义多内容形态的扩展方式和公众号文章纵向切片。
 
 ## 1. 执行摘要
 
@@ -70,7 +67,7 @@ Content Work OS 核心
 | PerformanceObservation、Learning | 结果系统 | 不同渠道的结果导入和人工采纳 |
 | Environment Manifest、Skill Pack、Provider MCP Pack | 创作环境 | 按项目和任务提供版本锁定能力 |
 
-`ContentBatch 3.0` 本身已经接近通用批次模型，只要求 Intent、Brief、知识快照、ContentItem 引用、状态和检查，见 [`contracts/content-batch-3.0.schema.json`](../../../contracts/content-batch-3.0.schema.json)。V3 服务端设计也已把 `content_batch` 定义为 Script、图文和直播话术的共同审核轨，见 [`docs/roadmap/v3/03-server-domain-and-sync.md`](../../roadmap/v3/03-server-domain-and-sync.md)。
+`ContentBatch 3.0` 本身已经接近通用批次模型，只要求 Intent、Brief、知识快照、ContentItem 引用、状态和检查，见 [`contracts/content-batch-3.0.schema.json`](../../../contracts/content-batch-3.0.schema.json)。历史 V3 设计曾将 `content_batch` 用作 Script、图文和直播话术的共同审核轨；当前实现以代码、契约、测试和平台基线中的业务事实边界为准。
 
 ### 2.2 当前视频耦合
 
@@ -98,7 +95,7 @@ Content Work OS 核心
 5. Skill、内容契约、渠道规则、Provider 适配器和结果指标各自有明确所有者。
 6. 同一语义内容可以派生不同渠道交付包，而不把渠道 HTML 或厂商语法写回领域正文。
 7. 公众号文章从 Brief、创作、审核、交付到结果形成可验收的完整纵向切片。
-8. 在保持本地优先和 zero-exec 服务端边界的前提下扩展能力。
+8. 在保持 Web Studio 默认入口、本地高级执行面和 zero-exec 服务端边界的前提下扩展能力。
 
 ### 3.2 非目标
 

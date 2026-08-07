@@ -99,6 +99,13 @@ type Store interface {
 	Assets(context.Context, string, string) ([]domain.Asset, error)
 	Asset(context.Context, string, string) (domain.Asset, error)
 	SaveAsset(context.Context, domain.Asset) error
+	CreateWorkspaceFolder(context.Context, domain.WorkspaceFolder) error
+	WorkspaceFolders(context.Context, string, string) ([]domain.WorkspaceFolder, error)
+	WorkspaceFolder(context.Context, string, string) (domain.WorkspaceFolder, error)
+	CreateWorkspaceMaterial(context.Context, domain.WorkspaceMaterial) error
+	WorkspaceMaterials(context.Context, string, string) ([]domain.WorkspaceMaterial, error)
+	WorkspaceMaterial(context.Context, string, string) (domain.WorkspaceMaterial, error)
+	SaveWorkspaceMaterial(context.Context, domain.WorkspaceMaterial) error
 	CreateRightsRecord(context.Context, domain.RightsRecord) error
 	RightsRecords(context.Context, string, string) ([]domain.RightsRecord, error)
 	RightsRecord(context.Context, string, string) (domain.RightsRecord, error)

@@ -52,6 +52,7 @@
   -> 组合 SOP、能力和 Gate
   -> 增加确定性校验与 Fixture
   -> 映射客户步骤和结果呈现
+  -> 声明可以选择哪些工作区资料类型及固定引用规则
   -> 声明哪些生成结果进入资产目录及其确认门禁
   -> 本地验证与预览
   -> 契约/集成/体验测试
@@ -65,7 +66,7 @@
 
 ### 3.1 结果资产登记
 
-每个需要进入客户创作资产库的输出必须在业务包中显式声明：
+每个需要进入客户“创作结果”的输出必须在业务包中显式声明：
 
 ```text
 result_type
@@ -76,7 +77,7 @@ internal lineage
 reuse validation policy
 ```
 
-首期 `result_type` 仅允许 `persona / script / storyboard / image / video`。来源、搜索结果、灵感、知识、参考素材和权利记录使用任务输入或项目参考契约；DeliveryPackage 使用交付契约。它们不能为了出现在客户页面而登记成结果资产。
+首期 `result_type` 仅允许 `persona / script / storyboard / image / video`。搜索候选、灵感、知识、来源证据和权利记录使用任务输入或项目参考契约；客户明确上传/导入的资料使用 `WorkspaceMaterialRef`；DeliveryPackage 使用交付契约。它们不能为了出现在客户页面而登记成结果资产。
 
 迁移期继续使用 `CreativeAssetCatalogItem` 作为技术契约名，其产品语义固定为结果目录项。除非命名 ADR 同时定义兼容窗口、major 版本和退场计划，不新增 `CreativeResultAssetCatalogItem` 平行类型。
 
