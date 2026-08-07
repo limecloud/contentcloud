@@ -709,7 +709,10 @@ func (s *Service) CustomerStudioCreativeResult(ctx context.Context, actor Actor,
 	}
 	for _, revision := range view.Revisions {
 		if "result:"+revision.ID == item.Ref {
-			content = append(json.RawMessage(nil), revision.Content...)
+			content, err = studioCustomerRenderableJSON(revision.Content)
+			if err != nil {
+				return StudioCreativeResultDetail{}, err
+			}
 			break
 		}
 	}
@@ -721,7 +724,11 @@ func (s *Service) CustomerStudioCreativeResult(ctx context.Context, actor Actor,
 			Objects []json.RawMessage `json:"objects"`
 		}
 		if json.Unmarshal(snapshot.CanonicalContent, &envelope) == nil {
-			content, err = json.Marshal(map[string]any{"objects": envelope.Objects})
+			raw, marshalErr := json.Marshal(map[string]any{"objects": envelope.Objects})
+			if marshalErr != nil {
+				return StudioCreativeResultDetail{}, marshalErr
+			}
+			content, err = studioCustomerRenderableJSON(raw)
 			if err != nil {
 				return StudioCreativeResultDetail{}, err
 			}
@@ -741,6 +748,43 @@ func (s *Service) CustomerStudioCreativeResult(ctx context.Context, actor Actor,
 		media = append(media, StudioAssetMedia{AssetRef: assetRef, ShotID: metadataString(artifact.Metadata, "shot_id"), Role: metadataString(artifact.Metadata, "role"), File: studioDownload(artifact)})
 	}
 	return StudioCreativeResultDetail{Item: *item, ContentFormat: item.ResultType, Content: content, Media: media, ReadOnly: true}, nil
+}
+
+func studioCustomerRenderableJSON(raw json.RawMessage) (json.RawMessage, error) {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	cleaned := studioCustomerRenderableValue(value)
+	return json.Marshal(cleaned)
+}
+
+func studioCustomerRenderableValue(value any) any {
+	switch typed := value.(type) {
+	case []any:
+		result := make([]any, len(typed))
+		for index := range typed {
+			result[index] = studioCustomerRenderableValue(typed[index])
+		}
+		return result
+	case map[string]any:
+		blocked := map[string]bool{
+			"tenant_id": true, "workspace_id": true, "submission_id": true, "submission_revision_id": true,
+			"approved_snapshot_id": true, "generator_capability": true, "source_digest": true, "locked_digest": true,
+			"rights_refs": true, "knowledge_refs": true, "claim_refs": true, "evidence_refs": true,
+			"created_by": true, "updated_by": true,
+		}
+		result := map[string]any{}
+		for key, nested := range typed {
+			if blocked[key] {
+				continue
+			}
+			result[key] = studioCustomerRenderableValue(nested)
+		}
+		return result
+	default:
+		return value
+	}
 }
 
 func (s *Service) customerStudioProjectAssets(ctx context.Context, actor Actor, project domain.Project) ([]StudioAssetItem, error) {

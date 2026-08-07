@@ -11,7 +11,6 @@ import {
   Library,
   LoaderCircle,
   Music2,
-  Play,
   Plus,
   Sparkles,
   Video,

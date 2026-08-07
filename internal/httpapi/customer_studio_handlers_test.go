@@ -93,6 +93,7 @@ func TestCustomerStudioAssetSurfaceSeparatesWorkspaceMaterialsAndCreativeResults
 	initialMaterialCount, initialFolderCount := len(surface.Workspace.Materials), len(surface.Workspace.Folders)
 	allowedResultTypes := map[string]bool{"persona": true, "script": true, "storyboard": true, "image": true, "video": true}
 	foundResultTypes := map[string]bool{}
+	sampleByType := map[string]app.StudioAssetItem{}
 	for _, item := range surface.CreativeResults.Items {
 		if !allowedResultTypes[item.ResultType] {
 			t.Fatalf("customer result exposed non-result type %q: %#v", item.ResultType, item)
@@ -101,10 +102,31 @@ func TestCustomerStudioAssetSurfaceSeparatesWorkspaceMaterialsAndCreativeResults
 			t.Fatalf("customer asset lost its originating task: %#v", item)
 		}
 		foundResultTypes[item.ResultType] = true
+		if _, exists := sampleByType[item.ResultType]; !exists {
+			sampleByType[item.ResultType] = item
+		}
 	}
 	for _, required := range []string{"persona", "script", "storyboard", "image", "video"} {
 		if !foundResultTypes[required] {
 			t.Fatalf("development fixture did not expose %s result assets: %#v", required, foundResultTypes)
+		}
+	}
+	for _, resultType := range []string{"persona", "script", "storyboard", "image", "video"} {
+		item := sampleByType[resultType]
+		resultID := strings.TrimPrefix(item.Ref, "result:")
+		detailPath := server.URL + "/api/studio/assets/results/" + url.PathEscape(resultID) + "?task_id=" + url.QueryEscape(item.TaskID)
+		detail := callBFF[app.StudioCreativeResultDetail](t, client, http.MethodGet, detailPath, nil)
+		if detail.Item.Ref != item.Ref || detail.ContentFormat != resultType || !detail.ReadOnly {
+			t.Fatalf("unexpected %s result detail: %#v", resultType, detail)
+		}
+		if (resultType == "persona" || resultType == "script" || resultType == "storyboard") && string(detail.Content) == "{}" {
+			t.Fatalf("%s detail did not expose renderer content: %#v", resultType, detail)
+		}
+		rawDetail := getStudioRaw(t, client, detailPath)
+		for _, forbidden := range []string{`"tenant_id"`, `"object_key"`, `"source_revision_id"`, `"created_by"`, `"evidence_refs"`, `"rights_refs"`} {
+			if strings.Contains(rawDetail, forbidden) {
+				t.Fatalf("customer %s result detail leaked %s: %s", resultType, forbidden, rawDetail)
+			}
 		}
 	}
 	raw := getStudioRaw(t, client, server.URL+"/api/studio/assets")
