@@ -19,3 +19,13 @@ func TestLoadBundledStandardPlugin(t *testing.T) {
 		t.Fatalf("bundle was not materialized in the versioned store: %s", pkg.Root)
 	}
 }
+
+func TestLoadBundledWeChatSkillPack(t *testing.T) {
+	pkg, err := pluginbuiltin.Load(t.TempDir(), pluginbuiltin.WechatArticle, pluginbuiltin.WechatArticleVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pkg.Manifest.Name != pluginbuiltin.WechatArticle || len(pkg.Skills) != 4 || len(pkg.MCPServers) != 0 {
+		t.Fatalf("unexpected bundled WeChat Skill Pack: %#v", pkg)
+	}
+}

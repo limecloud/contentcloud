@@ -12,8 +12,12 @@ import (
 	"github.com/limecloud/contentcloud/internal/integration/plugin"
 )
 
-const VideoProduction = "contentcloud-video-production"
-const VideoProductionVersion = "0.20.0"
+const (
+	VideoProduction        = "contentcloud-video-production"
+	VideoProductionVersion = "0.20.0"
+	WechatArticle          = "contentcloud-wechat-article"
+	WechatArticleVersion   = "0.1.0"
+)
 
 func Load(storeRoot, name, version string) (plugin.Package, error) {
 	if strings.TrimSpace(storeRoot) == "" || strings.TrimSpace(version) == "" {
