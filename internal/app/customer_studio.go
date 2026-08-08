@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
+	experiencestudio "github.com/limecloud/contentcloud/internal/experience/studio"
 	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
 )
 
@@ -127,13 +128,7 @@ type StudioDecision struct {
 	CanDecide   bool   `json:"can_decide"`
 }
 
-type StudioDownload struct {
-	ID        string `json:"id"`
-	FileName  string `json:"file_name"`
-	MediaType string `json:"media_type"`
-	ByteSize  int64  `json:"byte_size"`
-	Href      string `json:"href"`
-}
+type StudioDownload = experiencestudio.Download
 
 type StudioResult struct {
 	ID        string           `json:"id"`
@@ -182,51 +177,11 @@ type StudioAttachMaterialsInput struct {
 	MaterialRefs []string `json:"material_refs"`
 }
 
-type StudioAssetItem struct {
-	Ref           string           `json:"ref"`
-	InputRef      string           `json:"-"`
-	ResultType    string           `json:"result_type"`
-	ProjectID     string           `json:"project_id"`
-	ProjectName   string           `json:"project_name"`
-	TaskID        string           `json:"task_id"`
-	TaskTitle     string           `json:"task_title"`
-	Title         string           `json:"title"`
-	Summary       string           `json:"summary"`
-	Version       string           `json:"version"`
-	Status        string           `json:"status"`
-	Reusable      bool             `json:"reusable"`
-	BlockedReason string           `json:"blocked_reason,omitempty"`
-	Downloads     []StudioDownload `json:"downloads"`
-	CreatedAt     time.Time        `json:"created_at"`
-}
-
-type StudioAssetFact struct {
-	Title      string `json:"title"`
-	Statement  string `json:"statement"`
-	ObjectType string `json:"object_type"`
-	Layer      string `json:"layer"`
-}
-
-type StudioAssetMedia struct {
-	AssetRef string         `json:"asset_ref"`
-	ShotID   string         `json:"shot_id,omitempty"`
-	Role     string         `json:"role,omitempty"`
-	File     StudioDownload `json:"file"`
-}
-
-type StudioCreativeResultDetail struct {
-	Item          StudioAssetItem    `json:"item"`
-	ContentFormat string             `json:"content_format"`
-	Content       json.RawMessage    `json:"content"`
-	Media         []StudioAssetMedia `json:"media"`
-	ReadOnly      bool               `json:"read_only"`
-}
-
-type CreativeResultAssetProjection struct {
-	Items       []StudioAssetItem `json:"items"`
-	Counts      map[string]int    `json:"counts"`
-	GeneratedAt time.Time         `json:"generated_at"`
-}
+type StudioAssetItem = experiencestudio.CreativeResultItem
+type StudioAssetFact = experiencestudio.CreativeResultFact
+type StudioAssetMedia = experiencestudio.CreativeResultMedia
+type StudioCreativeResultDetail = experiencestudio.CreativeResultDetail
+type CreativeResultAssetProjection = experiencestudio.CreativeResultProjection
 
 type StudioDeliveryPackage struct {
 	ID          string           `json:"id"`

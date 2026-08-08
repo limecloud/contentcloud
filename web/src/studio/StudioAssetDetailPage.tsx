@@ -11,6 +11,7 @@ import {
   Library,
   LoaderCircle,
   Music2,
+  PencilLine,
   Plus,
   Sparkles,
   Video,
@@ -101,7 +102,7 @@ export function StudioCreativeResultDetailPage(){
     title={item.title}
     state={resultStateLabel(item)}
     icon={<ResultIcon type={item.result_type}/>}
-    sourceTask={<Link to={`/studio/tasks/${encodeURIComponent(item.task_id)}`}>打开来源任务</Link>}>
+    sourceTask={<Link to={`/studio/tasks/${encodeURIComponent(item.task_id)}`}><PencilLine size={15}/>在来源任务中修改</Link>}>
     <CreativeResultViewer detail={detail}/>
     <AssetFacts title="版本信息" rows={[
       ['所属项目',item.project_name],['来源任务',item.task_title],['当前版本',item.version],['确认状态',resultStateLabel(item)],['生成时间',formatDate(item.created_at)],

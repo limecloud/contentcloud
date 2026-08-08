@@ -1,0 +1,67 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { extname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root=resolve(fileURLToPath(new URL('..',import.meta.url)));
+const failures=[];
+
+function filesUnder(directory,extensions){
+  const absolute=join(root,directory);
+  const result=[];
+  const visit=current=>{
+    for(const entry of readdirSync(current,{withFileTypes:true})){
+      const path=join(current,entry.name);
+      if(entry.isDirectory())visit(path);
+      else if(extensions.has(extname(entry.name)))result.push(path);
+    }
+  };
+  visit(absolute);
+  return result;
+}
+
+function source(path){return readFileSync(path,'utf8')}
+function projectPath(path){return relative(root,path).replaceAll('\\','/')}
+function fail(path,message){failures.push(`${projectPath(path)}: ${message}`)}
+
+function checkWebBoundary(owner,forbidden){
+  for(const path of filesUnder(`web/src/${owner}`,new Set(['.ts','.tsx']))){
+    const imports=[...source(path).matchAll(/(?:from\s*|import\s*\()\s*['"]([^'"]+)['"]/g)].map(match=>match[1]);
+    for(const specifier of imports){
+      if(specifier.includes(`/${forbidden}/`)||specifier.endsWith(`/${forbidden}`)||specifier.startsWith(`../${forbidden}`)){
+        fail(path,`${owner} must not import ${forbidden} (${specifier})`);
+      }
+    }
+  }
+}
+
+checkWebBoundary('studio','admin');
+checkWebBoundary('admin','studio');
+
+const runtimeBusinessModules=['identity','workspace','source','catalog','work','review','delivery','performance','experience'];
+for(const path of filesUnder('internal/runtime',new Set(['.go']))){
+  const value=source(path);
+  for(const module of runtimeBusinessModules){
+    if(value.includes(`/internal/${module}`))fail(path,`runtime must depend on a port/reference, not internal/${module}`);
+  }
+}
+
+const legacyImports=['/internal/app','/internal/store','/internal/httpapi'];
+for(const path of filesUnder('internal/experience',new Set(['.go']))){
+  const value=source(path);
+  for(const legacy of legacyImports){
+    if(value.includes(legacy))fail(path,`target module must not import deprecated or compatibility package ${legacy}`);
+  }
+}
+
+const globalStorePath=join(root,'internal/store/store.go');
+const globalStoreMethods=(source(globalStorePath).match(/^\s*[A-Z][A-Za-z0-9_]*\(context\.Context/gm)||[]).length;
+const globalStoreBaseline=226;
+if(globalStoreMethods>globalStoreBaseline){
+  fail(globalStorePath,`deprecated Store grew from ${globalStoreBaseline} to ${globalStoreMethods} methods; define a narrow module port instead`);
+}
+
+if(failures.length){
+  console.error('Architecture checks failed:\n'+failures.map(value=>`- ${value}`).join('\n'));
+  process.exit(1);
+}
+console.log(`Architecture checks passed (legacy Store methods: ${globalStoreMethods}/${globalStoreBaseline}).`);

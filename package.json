@@ -6,6 +6,7 @@
   "scripts": {
     "dev:web": "pnpm --dir web dev",
     "build:web": "pnpm --dir web build",
+    "architecture": "node scripts/check-architecture.mjs",
     "check:plugin": "node scripts/validate-plugin-release.mjs",
     "evaluate:plugin": "node scripts/evaluate-plugin.mjs",
     "governance:content": "node scripts/check-content-governance.mjs",

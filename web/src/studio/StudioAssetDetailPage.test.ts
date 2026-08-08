@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCSV } from './StudioAssetDetailPage';
+import { parseCSV } from './assets';
 
 describe('asset table renderer',()=>{
   it('parses quoted commas, escaped quotes, and line breaks',()=>{

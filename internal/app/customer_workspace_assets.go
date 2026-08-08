@@ -4,62 +4,17 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
+	experiencestudio "github.com/limecloud/contentcloud/internal/experience/studio"
 )
 
-type WorkspaceFolderItem struct {
-	Ref         string    `json:"folder_ref"`
-	ParentRef   string    `json:"parent_ref,omitempty"`
-	ProjectID   string    `json:"project_id"`
-	ProjectName string    `json:"project_name"`
-	Name        string    `json:"name"`
-	ChildCount  int       `json:"child_count"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-type WorkspaceMaterialItem struct {
-	Ref             string     `json:"material_ref"`
-	FolderRef       string     `json:"folder_ref,omitempty"`
-	ProjectID       string     `json:"project_id"`
-	ProjectName     string     `json:"project_name"`
-	MaterialKind    string     `json:"material_kind"`
-	Origin          string     `json:"origin"`
-	Usage           string     `json:"usage"`
-	Title           string     `json:"title"`
-	FileName        string     `json:"file_name"`
-	MIMEType        string     `json:"mime_type"`
-	ByteSize        int64      `json:"byte_size"`
-	PreviewRef      string     `json:"preview_ref,omitempty"`
-	ProcessingState string     `json:"processing_state"`
-	RightsSummary   string     `json:"rights_summary"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	LastUsedAt      *time.Time `json:"last_used_at,omitempty"`
-}
-
-type WorkspaceMaterialProjection struct {
-	Folders     []WorkspaceFolderItem   `json:"folders"`
-	Materials   []WorkspaceMaterialItem `json:"materials"`
-	Counts      map[string]int          `json:"counts"`
-	GeneratedAt time.Time               `json:"generated_at"`
-}
-
-type RecentAssetProjection struct {
-	Materials []WorkspaceMaterialItem `json:"materials"`
-	Results   []StudioAssetItem       `json:"results"`
-}
-
-type CustomerAssetSurface struct {
-	Workspace       WorkspaceMaterialProjection   `json:"workspace"`
-	CreativeResults CreativeResultAssetProjection `json:"creative_results"`
-	Recent          RecentAssetProjection         `json:"recent"`
-	GeneratedAt     time.Time                     `json:"generated_at"`
-}
+type WorkspaceFolderItem = experiencestudio.WorkspaceFolderItem
+type WorkspaceMaterialItem = experiencestudio.WorkspaceMaterialItem
+type WorkspaceMaterialProjection = experiencestudio.WorkspaceMaterialProjection
+type RecentAssetProjection = experiencestudio.RecentAssetProjection
+type CustomerAssetSurface = experiencestudio.AssetSurface
 
 type CreateWorkspaceFolderInput struct {
 	ProjectID string `json:"project_id"`
@@ -76,18 +31,7 @@ func (s *Service) CustomerStudioAssets(ctx context.Context, actor Actor, project
 	if err != nil {
 		return CustomerAssetSurface{}, err
 	}
-	recent := RecentAssetProjection{Materials: append([]WorkspaceMaterialItem{}, workspace.Materials...), Results: append([]StudioAssetItem{}, results.Items...)}
-	sort.SliceStable(recent.Materials, func(i, j int) bool {
-		return workspaceMaterialRecentTime(recent.Materials[i]).After(workspaceMaterialRecentTime(recent.Materials[j]))
-	})
-	if len(recent.Materials) > 8 {
-		recent.Materials = recent.Materials[:8]
-	}
-	sort.SliceStable(recent.Results, func(i, j int) bool { return recent.Results[i].CreatedAt.After(recent.Results[j].CreatedAt) })
-	if len(recent.Results) > 8 {
-		recent.Results = recent.Results[:8]
-	}
-	return CustomerAssetSurface{Workspace: workspace, CreativeResults: results, Recent: recent, GeneratedAt: s.now().UTC()}, nil
+	return experiencestudio.BuildAssetSurface(workspace, results, s.now()), nil
 }
 
 func (s *Service) CustomerWorkspaceMaterials(ctx context.Context, actor Actor, projectID string) (WorkspaceMaterialProjection, error) {
@@ -104,35 +48,8 @@ func (s *Service) CustomerWorkspaceMaterials(ctx context.Context, actor Actor, p
 			return WorkspaceMaterialProjection{}, domain.NotFound("项目")
 		}
 	}
-	folders, err := s.store.WorkspaceFolders(ctx, actor.TenantID, projectID)
-	if err != nil {
-		return WorkspaceMaterialProjection{}, err
-	}
-	materials, err := s.store.WorkspaceMaterials(ctx, actor.TenantID, projectID)
-	if err != nil {
-		return WorkspaceMaterialProjection{}, err
-	}
-	childCounts := map[string]int{}
-	for _, folder := range folders {
-		if folder.ParentID != "" {
-			childCounts[folder.ParentID]++
-		}
-	}
-	result := WorkspaceMaterialProjection{Folders: make([]WorkspaceFolderItem, 0, len(folders)), Materials: make([]WorkspaceMaterialItem, 0, len(materials)), Counts: map[string]int{}, GeneratedAt: s.now().UTC()}
-	for _, folder := range folders {
-		result.Folders = append(result.Folders, WorkspaceFolderItem{Ref: "folder:" + folder.ID, ParentRef: optionalRef("folder:", folder.ParentID), ProjectID: folder.ProjectID, ProjectName: projectNames[folder.ProjectID], Name: folder.Name, ChildCount: childCounts[folder.ID], CreatedAt: folder.CreatedAt, UpdatedAt: folder.UpdatedAt})
-	}
-	for _, material := range materials {
-		revision, revisionErr := s.store.SourceRevision(ctx, actor.TenantID, material.SourceRevisionID)
-		if revisionErr != nil {
-			return WorkspaceMaterialProjection{}, revisionErr
-		}
-		result.Materials = append(result.Materials, workspaceMaterialItem(material, revision, projectNames[material.ProjectID]))
-		result.Counts[material.MaterialKind]++
-	}
-	result.Counts["all"] = len(result.Materials)
-	result.Counts["folders"] = len(result.Folders)
-	return result, nil
+	queries := experiencestudio.NewAssetQueries(s.store, s.now)
+	return queries.WorkspaceMaterials(ctx, actor.TenantID, projectID, projectNames)
 }
 
 func (s *Service) CreateCustomerWorkspaceFolder(ctx context.Context, actor Actor, input CreateWorkspaceFolderInput, requestID string) (WorkspaceFolderItem, error) {
@@ -157,7 +74,7 @@ func (s *Service) CreateCustomerWorkspaceFolder(ctx context.Context, actor Actor
 		return WorkspaceFolderItem{}, err
 	}
 	s.audit(ctx, actor, project.ID, "workspace_folder.created", "workspace_folder", folder.ID, requestID, map[string]any{"name": folder.Name})
-	return WorkspaceFolderItem{Ref: "folder:" + folder.ID, ParentRef: optionalRef("folder:", folder.ParentID), ProjectID: project.ID, ProjectName: project.BrandName, Name: folder.Name, CreatedAt: folder.CreatedAt, UpdatedAt: folder.UpdatedAt}, nil
+	return experiencestudio.ProjectWorkspaceFolder(folder, project.BrandName), nil
 }
 
 func (s *Service) UploadCustomerWorkspaceMaterial(ctx context.Context, actor Actor, projectID, folderRef, title, fileName, mimeType string, data []byte, requestID string) (WorkspaceMaterialItem, error) {
@@ -204,7 +121,7 @@ func (s *Service) UploadCustomerWorkspaceMaterial(ctx context.Context, actor Act
 		return WorkspaceMaterialItem{}, err
 	}
 	s.audit(ctx, actor, project.ID, "workspace_material.uploaded", "workspace_material", material.ID, requestID, map[string]any{"source_revision_id": revision.ID, "mime": mimeType, "byte_size": len(data)})
-	return workspaceMaterialItem(material, revision, project.BrandName), nil
+	return experiencestudio.ProjectWorkspaceMaterial(material, revision, project.BrandName), nil
 }
 
 func (s *Service) CustomerWorkspaceMaterialBytes(ctx context.Context, actor Actor, materialID string) (WorkspaceMaterialItem, []byte, error) {
@@ -224,7 +141,7 @@ func (s *Service) CustomerWorkspaceMaterialBytes(ctx context.Context, actor Acto
 	if err != nil {
 		return WorkspaceMaterialItem{}, nil, err
 	}
-	return workspaceMaterialItem(material, revision, project.BrandName), data, nil
+	return experiencestudio.ProjectWorkspaceMaterial(material, revision, project.BrandName), data, nil
 }
 
 func (s *Service) AttachCustomerWorkspaceMaterials(ctx context.Context, actor Actor, taskID string, input StudioAttachMaterialsInput, requestID string) (StudioTaskView, error) {
@@ -299,10 +216,6 @@ func (s *Service) markCustomerWorkspaceMaterialsUsed(ctx context.Context, actor 
 	return nil
 }
 
-func workspaceMaterialItem(material domain.WorkspaceMaterial, revision domain.SourceRevision, projectName string) WorkspaceMaterialItem {
-	return WorkspaceMaterialItem{Ref: "material:" + material.ID, FolderRef: optionalRef("folder:", material.FolderID), ProjectID: material.ProjectID, ProjectName: projectName, MaterialKind: material.MaterialKind, Origin: material.Origin, Usage: material.Usage, Title: material.Title, FileName: revision.FileName, MIMEType: defaultString(revision.DetectedMIME, revision.DeclaredMIME), ByteSize: revision.ByteSize, PreviewRef: "material:" + material.ID, ProcessingState: workspaceMaterialProcessingState(revision.ProcessingStatus), RightsSummary: "未登记独立权利结论", CreatedAt: material.CreatedAt, UpdatedAt: material.UpdatedAt, LastUsedAt: material.LastUsedAt}
-}
-
 func workspaceMaterialKind(mimeType string) string {
 	switch {
 	case strings.HasPrefix(mimeType, "image/"):
@@ -318,31 +231,4 @@ func workspaceMaterialKind(mimeType string) string {
 	default:
 		return domain.WorkspaceMaterialOther
 	}
-}
-
-func workspaceMaterialProcessingState(status string) string {
-	switch status {
-	case "uploading":
-		return "uploading"
-	case "ready":
-		return "ready"
-	case "failed":
-		return "failed"
-	default:
-		return "processing"
-	}
-}
-
-func workspaceMaterialRecentTime(item WorkspaceMaterialItem) time.Time {
-	if item.LastUsedAt != nil {
-		return *item.LastUsedAt
-	}
-	return item.UpdatedAt
-}
-
-func optionalRef(prefix, value string) string {
-	if value == "" {
-		return ""
-	}
-	return prefix + value
 }
