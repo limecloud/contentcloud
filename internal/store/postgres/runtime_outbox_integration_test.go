@@ -44,14 +44,28 @@ func TestRuntimeOutboxPostgresClaimAndCommandRollback(t *testing.T) {
 	defer func() {
 		_, _ = admin.Exec(ctx, `DELETE FROM tenants WHERE id=$1`, tenantID)
 	}()
-	if _, err := admin.Exec(ctx, `
-		INSERT INTO tenants(id,slug,name,status,created_at) VALUES($1,$2,$3,'active',$4);
-		INSERT INTO brand_projects(id,tenant_id,slug,brand_name,product_name,channel,status,owner_name,reviewer_name,client_approver,created_at,updated_at) VALUES($5,$1,$6,'Runtime test','Runtime test','douyin','active','','','',$4,$4);
-		INSERT INTO environments(tenant_id,id,name,slug,status,default_sop_id,default_sop_version,created_at,updated_at) VALUES($1,$7,'Runtime test','runtime-test','active',$8,1,$4,$4);
-		INSERT INTO sop_definitions(tenant_id,id,name,current_version,created_by,created_at,updated_at) VALUES($1,$8,'Runtime test',1,'test',$4,$4);
-		INSERT INTO sop_versions(tenant_id,id,sop_id,version,schema_version,name,content_types,stages,gates,default_execution_mode,digest,status,created_by,published_by,created_at,published_at) VALUES($1,$9,$8,1,$10,'Runtime test','["marketing_video"]','[{"id":"source","name":"Source","order":10,"output_schema":"contentcloud.source/1.0","execution_modes":["local"]}]','[]','local',$11,'published','test','test',$4,$4);
-		INSERT INTO work_tasks(tenant_id,id,project_id,environment_id,sop_id,sop_version,sop_digest,title,content_type,priority,risk_profile,status,created_by,created_at,updated_at) VALUES($1,$12,$5,$7,$8,1,$11,'Runtime test','marketing_video','normal','low','ready','test',$4,$4)
-	`, tenantID, "runtime-test-"+tenantID, "Runtime test", now, projectID, "runtime-test-"+projectID, environmentID, sopID, sopVersionID, domain.SOPSchemaVersion, "sha256:"+repeatHex(64, 'a'), taskID); err != nil {
+	setupTx, err := admin.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupStatements := []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO tenants(id,slug,name,status,created_at) VALUES($1,$2,$3,'active',$4)`, []any{tenantID, "runtime-test-" + tenantID, "Runtime test", now}},
+		{`INSERT INTO brand_projects(id,tenant_id,slug,brand_name,product_name,channel,status,owner_name,reviewer_name,client_approver,created_at,updated_at) VALUES($1,$2,$3,'Runtime test','Runtime test','douyin','active','','','',$4,$4)`, []any{projectID, tenantID, "runtime-test-" + projectID, now}},
+		{`INSERT INTO environments(tenant_id,id,name,slug,status,default_sop_id,default_sop_version,created_at,updated_at) VALUES($1,$2,'Runtime test','runtime-test','active',$3,1,$4,$4)`, []any{tenantID, environmentID, sopID, now}},
+		{`INSERT INTO sop_definitions(tenant_id,id,name,current_version,created_by,created_at,updated_at) VALUES($1,$2,'Runtime test',1,'test',$3,$3)`, []any{tenantID, sopID, now}},
+		{`INSERT INTO sop_versions(tenant_id,id,sop_id,version,schema_version,name,content_types,stages,gates,default_execution_mode,digest,status,created_by,published_by,created_at,published_at) VALUES($1,$2,$3,1,$4,'Runtime test','["marketing_video"]','[{"id":"source","name":"Source","order":10,"output_schema":"contentcloud.source/1.0","execution_modes":["local"]}]','[]','local',$5,'published','test','test',$6,$6)`, []any{tenantID, sopVersionID, sopID, domain.SOPSchemaVersion, "sha256:" + repeatHex(64, 'a'), now}},
+		{`INSERT INTO work_tasks(tenant_id,id,project_id,environment_id,sop_id,sop_version,sop_digest,title,content_type,priority,risk_profile,status,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,1,$6,'Runtime test','marketing_video','normal','low','ready','test',$7,$7)`, []any{tenantID, taskID, projectID, environmentID, sopID, "sha256:" + repeatHex(64, 'a'), now}},
+	}
+	for _, statement := range setupStatements {
+		if _, err := setupTx.Exec(ctx, statement.query, statement.args...); err != nil {
+			_ = setupTx.Rollback(ctx)
+			t.Fatal(err)
+		}
+	}
+	if err := setupTx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
 
