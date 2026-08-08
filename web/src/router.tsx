@@ -1,5 +1,4 @@
 import { Navigate, type RouteObject } from 'react-router-dom';
-import { projectRoute, projectViewIDs } from './v3/page-contracts';
 
 const routeHydrateFallback = {hydrateFallbackElement: <div className="splash" aria-live="polite"><strong>正在加载…</strong></div>};
 
@@ -31,33 +30,30 @@ export const appRoutes: RouteObject[] = [
         lazy: async()=>({Component:(await import('./admin/AdminShell')).AdminShell}),
         children: [
           {index: true, element: <Navigate to="dashboard" replace />},
-          {path: 'dashboard', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
-          // Platform directory pages belonged to the retired operations console. Keep
-          // their URLs as safe deep links, but do not expose sample tenant/user data.
-          {path: 'tenants', element: <Navigate to="/admin/dashboard" replace />},
-          {path: 'users', element: <Navigate to="/admin/dashboard" replace />},
-          {path: 'environments', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
-          {path: 'sops', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
-          {path: 'gates', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
-          {path: 'capabilities', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
-          {path: 'runtime', lazy: async()=>({Component:(await import('./admin/views/AdminRuntimePage')).AdminRuntimePage})},
-          {path: 'audit', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
-          {path: 'usage', lazy: async()=>({Component:(await import('./admin/views/AdminWorkOSPage')).AdminWorkOSRoutePage})},
+          {path: 'dashboard', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminOperationsOverview})},
+          {path: 'products', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminProductsPage})},
+          {path: 'products/:productID', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminProductDetailPage})},
+          {path: 'products/:productID/versions/:version', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminProductDetailPage})},
+          {path: 'releases', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminProductReleasesPage})},
+          {path: 'releases/:productID/versions/:version', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminReleaseResultPage})},
+          {path: 'customers', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminCustomersPage})},
+          {path: 'customers/:environmentID', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminCustomerDetailPage})},
+          {path: 'capabilities', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminCapabilityCatalogPage})},
+          {path: 'capabilities/:capabilityID/versions/:capabilityVersion', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminCapabilityDetailPage})},
+          {path: 'skills', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminSkillsPage})},
+          {path: 'skills/:skillID/versions/:skillVersion', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminSkillDetailPage})},
+          {path: 'executors', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminExecutorsPage})},
+          {path: 'executors/:executorID', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminExecutorDetailPage})},
+          {path: 'jobs', lazy: async()=>({Component:(await import('./admin/views/AdminRuntimePage')).AdminRuntimePage})},
+          {path: 'alerts', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminAlertsPage})},
+          {path: 'tenants', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminTenantsPage})},
+          {path: 'audit', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminAuditPage})},
+          {path: 'costs', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminCostsPage})},
           {path: '*', element: <Navigate to="dashboard" replace />}
         ]
       }
     ]
   },
-  protectedConsoleRoute('/workspace', [
-    {index: true, lazy: async()=>({Component:(await import('./workspace/pages')).ConsoleDashboardPage})},
-    {path: 'tasks/new', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSNewTaskPage})},
-    {path: 'tasks/:taskID', lazy: async()=>({Component:(await import('./workspace/pages')).TaskProductionPage})},
-    {path: 'tasks', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskListPage})},
-    {path: 'my-tasks', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskListPage})},
-    {path: 'inbox', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSInboxPage})},
-    {path: 'knowledge', lazy: async()=>({Component:(await import('./workspace/pages')).WorkspaceKnowledgeRedirectPage})},
-    {path: '*', element: <Navigate to="/workspace" replace />}
-  ]),
   protectedStudioRoute('/studio', [
     {index: true, lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioHomePage})},
     {path: 'connect', lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioConnectPage})},
@@ -67,36 +63,13 @@ export const appRoutes: RouteObject[] = [
     {path: 'assets/materials/:materialID', lazy: async()=>({Component:(await import('./studio/assets')).StudioMaterialDetailPage})},
     {path: 'assets/results/:taskID/:resultID', lazy: async()=>({Component:(await import('./studio/assets')).StudioCreativeResultDetailPage})},
     {path: 'assets', lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioAssetsPage})},
+    {path: 'knowledge', lazy: async()=>({Component:(await import('./studio/StudioKnowledgePage')).StudioKnowledgePage})},
+    {path: 'team', lazy: async()=>({Component:(await import('./studio/StudioTeamPage')).StudioTeamPage})},
     {path: 'deliveries', lazy: async()=>({Component:(await import('./studio/StudioPages')).StudioDeliveriesPage})},
     {path: '*', element: <Navigate to="/studio" replace />}
   ]),
-  protectedConsoleRoute('/team', [
-    {index: true, lazy: async()=>({Component:(await import('./workspace/pages')).ConsoleTeamPage})},
-    {path: '*', element: <Navigate to="/team" replace />}
-  ]),
-  protectedConsoleRoute('/projects/:projectID', [
-    {index: true, element: <Navigate to="setup" replace />},
-    {path: 'tasks/new', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSNewTaskPage})},
-    {path: 'tasks', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSTaskListPage})},
-    {path: 'tasks/:taskID', lazy: async()=>({Component:(await import('./workspace/pages')).TaskProductionPage})},
-    {path: 'sop', lazy: async()=>({Component:(await import('./workspace/pages')).WorkOSSOPPage})},
-    ...projectRoutes(),
-    {path: '*', element: <Navigate to="setup" replace />}
-  ]),
   {path: '*', element: <Navigate to="/" replace />}
 ];
-
-function protectedConsoleRoute(path:string, children:RouteObject[]):RouteObject {
-  return {
-    ...routeHydrateFallback,
-    path,
-    lazy:async()=>({Component:(await import('./App')).App}),
-    children:[{
-      lazy:async()=>({Component:(await import('./workspace/WorkspaceShell')).ConsoleShell}),
-      children
-    }]
-  };
-}
 
 function protectedStudioRoute(path:string, children:RouteObject[]):RouteObject {
   return {
@@ -108,22 +81,4 @@ function protectedStudioRoute(path:string, children:RouteObject[]):RouteObject {
       children
     }]
   };
-}
-
-function projectRoutes():RouteObject[] {
-  return projectViewIDs.map(view=>{
-    if(view==='overview'){
-      return {path:projectRoute(view),element:<Navigate to="/studio" replace/>};
-    }
-    if(view==='knowledge'){
-      return {path:projectRoute(view),lazy:async()=>({Component:(await import('./workspace/workOS')).WorkOSKnowledgePage})};
-    }
-    return {
-      path:projectRoute(view),
-      lazy:async()=>{
-        const {ConsoleProjectPage}=await import('./workspace/pages');
-        return {Component:()=> <ConsoleProjectPage view={view}/>};
-      }
-    };
-  });
 }

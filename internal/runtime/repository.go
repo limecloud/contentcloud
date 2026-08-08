@@ -19,18 +19,9 @@ type Repository interface {
 	JobRun(context.Context, string, string) (domain.JobRun, error)
 	JobRunByIdempotencyKey(context.Context, string, string) (domain.JobRun, error)
 	JobRuns(context.Context, string, string) ([]domain.JobRun, error)
-	SaveJobRun(context.Context, domain.JobRun, int) error
 	NodeRuns(context.Context, string, string) ([]domain.NodeRun, error)
 	NodeRun(context.Context, string, string) (domain.NodeRun, error)
-	SaveNodeRun(context.Context, domain.NodeRun, int) error
 	NextReadyNode(context.Context, string, string) (domain.NodeRun, error)
-	// ClaimReadyNode atomically moves one ready node to leased. Implementations
-	// must use a lock/conditional update so two workers cannot claim the same
-	// node.
-	ClaimReadyNode(context.Context, string, string, string, time.Time, time.Duration) (domain.NodeRun, error)
-	// HeartbeatNode renews a lease only for its current owner and version. A
-	// stale worker must receive a conflict instead of reviving the node.
-	HeartbeatNode(context.Context, string, string, string, int, time.Time, time.Duration) (domain.NodeRun, error)
 
 	CreateContextView(context.Context, domain.ContextView) error
 	ContextView(context.Context, string, string) (domain.ContextView, error)
@@ -55,19 +46,16 @@ type Repository interface {
 	// rejects conflicting terminal reports.
 	FinalizeDispatch(context.Context, domain.NodeRun, int, domain.RuntimeAttempt, int, domain.AgentInstance, int, domain.JobEvent) (domain.NodeRun, domain.RuntimeAttempt, domain.AgentInstance, error)
 
-	AppendJobEvent(context.Context, domain.JobEvent) (domain.JobEvent, error)
+	AppendRuntimeEvent(context.Context, domain.JobEvent) (domain.JobEvent, error)
 	JobEvents(context.Context, string, string, int64) ([]domain.JobEvent, error)
 
 	RuntimeState(context.Context, string, string, string) (domain.RuntimeState, error)
-	SaveRuntimeStateCAS(context.Context, domain.RuntimeState, int, string) error
 
 	CreateCheckpoint(context.Context, domain.Checkpoint) error
 	Checkpoints(context.Context, string, string) ([]domain.Checkpoint, error)
 
-	CreateEffect(context.Context, domain.ExternalEffect) error
 	EffectByIdempotencyKey(context.Context, string, string) (domain.ExternalEffect, error)
 	Effects(context.Context, string, string) ([]domain.ExternalEffect, error)
-	SaveEffect(context.Context, domain.ExternalEffect, int) error
 
 	// Runtime repositories can use this hook to expire leases without exposing
 	// SQL or queue internals to the service layer.

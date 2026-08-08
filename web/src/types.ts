@@ -39,7 +39,19 @@ export interface SOPVersionImpact { sop_id:string; version:number; environments:
 export interface SOPRollbackResult { version:SOPVersion; target_version:number; previous_version:number; rebound_environments:number; rebound_projects:number; impact:SOPVersionImpact }
 export interface GateSummary { sop_id:string; sop_name:string; sop_version:number; gate_id:string; name:string; mode:string; blocking:boolean; usage_count:number }
 export interface UsageSummary { task_count:number; running_count:number; waiting_gate_count:number; by_execution_mode:Record<string,number> }
-export interface AdminWorkOSView { environments:Environment[]; sops:SOPSummary[]; gates:GateSummary[]; capabilities:{id:string;version:string;kind:string;local_only:boolean;digest:string}[]; audit:Audit[]; usage:UsageSummary; generated_at:string }
+export interface AdminCapability { id:string; version:string; kind:string; input_schema?:string; output_schema?:string; presentation_profiles?:string[]; local_only:boolean; digest:string }
+export interface AdminWorkOSView { environments:Environment[]; sops:SOPSummary[]; gates:GateSummary[]; capabilities:AdminCapability[]; audit:Audit[]; usage:UsageSummary; generated_at:string }
+export interface OperationsExecutorProject { id:string; brand_name:string; product_name:string; status:string }
+export interface OperationsExecutor { id:string; tenant_id:string; display_name:string; executor_type:string; status:'online'|'offline'|'revoked'|string; status_reason:string; hostname:string; platform:string; arch:string; version:string; capabilities:AdminCapability[]; projects:OperationsExecutorProject[]; last_seen_at:string; revoked_at?:string }
+export interface OperationsExecutorDirectory { executors:OperationsExecutor[]; generated_at:string; online_window_seconds:number }
+export interface OperationsSkillSource { repository:string; ref:string; license:string }
+export interface OperationsSkillSignature { status:string; algorithm:string; key_id:string }
+export interface OperationsSkillDataFlow { local_by_default:boolean; cloud_actions:string[] }
+export interface OperationsSkillCost { model:string; currency?:string; unit?:string; unit_price?:string; notice:string }
+export interface OperationsSkillEvaluation { status:string; report?:string; digest?:string; evidence:string[] }
+export interface OperationsSkillRevocation { status:string; severity?:string; reason?:string }
+export interface OperationsSkill { id:string; version:string; digest:string; kind:string; lifecycle:string; available_for_new_runs:boolean; source:OperationsSkillSource; signature:OperationsSkillSignature; compatible_profiles:string[]; permissions:string[]; data_flow:OperationsSkillDataFlow; cost:OperationsSkillCost; output_schemas:string[]; evaluation:OperationsSkillEvaluation; revocation:OperationsSkillRevocation }
+export interface OperationsSkillDirectory { configured:boolean; source?:string; registry_schema_version?:string; skills:OperationsSkill[]; generated_at:string }
 export interface RuntimeJobSummary { id:string; work_task_id:string; task_title:string; project_id:string; project_name:string; state:string; plan_digest:string; priority:number; error_code?:string; node_count:number; node_states:Record<string,number>; effect_count:number; checkpoint_count:number; created_at:string; updated_at:string }
 export interface RuntimeJobList { items:RuntimeJobSummary[]; next_after?:number; generated_at:string }
 export interface RuntimeNodeView { id:string; node_key:string; name:string; kind:string; customer_step_id?:string; state:string; attempt_count:number; output_digest?:string; error_code?:string; lease_owner?:string; updated_at:string }

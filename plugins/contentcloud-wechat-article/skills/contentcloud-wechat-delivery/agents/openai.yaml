@@ -1,7 +1,0 @@
-interface:
-  display_name: "ContentCloud 公众号交付"
-  short_description: "从已批准文章生成并校验完全人工发布的微信公众号交付包"
-  default_prompt: "Use $contentcloud-wechat-delivery to export and validate a manual WeChat delivery package from an approved ArticleItem."
-
-policy:
-  allow_implicit_invocation: true

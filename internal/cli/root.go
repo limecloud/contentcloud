@@ -27,15 +27,15 @@ import (
 	"github.com/limecloud/contentcloud/internal/automationworkspace"
 	"github.com/limecloud/contentcloud/internal/bootstrapcheck"
 	"github.com/limecloud/contentcloud/internal/capabilitycatalog"
-	"github.com/limecloud/contentcloud/internal/codexplugin"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
+	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 	"github.com/limecloud/contentcloud/internal/localconfig"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
-const Version = "0.19.0"
+const Version = "0.20.0"
 
 type Root struct {
 	json                   bool
@@ -45,7 +45,8 @@ type Root struct {
 	stderr                 io.Writer
 	mcpCWD                 string
 	now                    func() time.Time
-	codexRunner            codexplugin.CommandRunner
+	pluginRunner           pluginhost.CommandRunner
+	pluginRuntimeHook      func(string) (*hostPluginRuntime, error)
 	bootstrapCheckHook     func(context.Context, bootstrapcheck.Options) bootstrapcheck.Report
 	bootstrapAuthorizeHook func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, *bootstrapProgressReporter, error)
 	manifestVerifierHook   func() (*environment.Verifier, error)

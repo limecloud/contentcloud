@@ -32,6 +32,14 @@ func NewWithHarnessRegistry(repo Repository, now func() time.Time, harnesses *ag
 
 func (s *Service) Repository() Repository { return s.repo }
 
+func (s *Service) commands() (RuntimeCommandStore, error) {
+	commands, ok := s.repo.(RuntimeCommandStore)
+	if !ok {
+		return nil, domain.Policy("RUNTIME_COMMAND_STORE_REQUIRED", "Runtime 必须配置事务命令存储", "升级 Runtime 存储实现后重试")
+	}
+	return commands, nil
+}
+
 type StartInput struct {
 	TenantID       string
 	ProjectID      string
@@ -132,8 +140,7 @@ func (s *Service) Nodes(ctx context.Context, tenantID, jobID string) ([]domain.N
 }
 
 // ClaimNode is the scheduler/worker boundary for the new Runtime graph. The
-// repository performs the atomic claim; the service only records a diagnostic
-// event after the claim succeeds.
+// repository atomically claims the node and records its event/outbox message.
 func (s *Service) ClaimNode(ctx context.Context, tenantID, jobID, owner string, leaseFor time.Duration) (domain.NodeRun, error) {
 	if s == nil || s.repo == nil {
 		return domain.NodeRun{}, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
@@ -141,15 +148,12 @@ func (s *Service) ClaimNode(ctx context.Context, tenantID, jobID, owner string, 
 	if leaseFor <= 0 {
 		leaseFor = DefaultNodeLeaseDuration
 	}
-	node, err := s.repo.ClaimReadyNode(ctx, tenantID, jobID, owner, s.now().UTC(), leaseFor)
+	commands, err := s.commands()
 	if err != nil {
 		return domain.NodeRun{}, err
 	}
-	_, eventErr := s.repo.AppendJobEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey, Type: "node.leased", ActorType: "scheduler", ActorID: strings.TrimSpace(owner), Payload: map[string]any{"attempt_count": node.AttemptCount, "lease_expires_at": node.LeaseExpiresAt}, OccurredAt: s.now().UTC()})
-	if eventErr != nil {
-		return node, eventErr
-	}
-	return node, nil
+	now := s.now().UTC()
+	return commands.ClaimReadyNodeCommand(ctx, tenantID, jobID, owner, now, leaseFor, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, Type: "node.leased", ActorType: "scheduler", ActorID: strings.TrimSpace(owner), Payload: map[string]any{}, OccurredAt: now})
 }
 
 // HeartbeatNode renews a lease and promotes the first heartbeat from leased to
@@ -161,15 +165,12 @@ func (s *Service) HeartbeatNode(ctx context.Context, tenantID, nodeID, owner str
 	if leaseFor <= 0 {
 		leaseFor = DefaultNodeLeaseDuration
 	}
-	node, err := s.repo.HeartbeatNode(ctx, tenantID, nodeID, owner, expectedVersion, s.now().UTC(), leaseFor)
+	commands, err := s.commands()
 	if err != nil {
 		return domain.NodeRun{}, err
 	}
-	_, eventErr := s.repo.AppendJobEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey, Type: "node.heartbeat", ActorType: "worker", ActorID: strings.TrimSpace(owner), Payload: map[string]any{"state": node.State, "lease_expires_at": node.LeaseExpiresAt}, OccurredAt: s.now().UTC()})
-	if eventErr != nil {
-		return node, eventErr
-	}
-	return node, nil
+	now := s.now().UTC()
+	return commands.HeartbeatNodeCommand(ctx, tenantID, nodeID, owner, expectedVersion, now, leaseFor, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, Type: "node.heartbeat", ActorType: "worker", ActorID: strings.TrimSpace(owner), Payload: map[string]any{}, OccurredAt: now})
 }
 
 // ExpireNodeLeases is safe to call from a periodic scheduler tick. Expired
@@ -225,10 +226,11 @@ func (s *Service) Resume(ctx context.Context, tenantID, jobID, actorType, actorI
 	job.State = domain.JobRunRunning
 	job.Version++
 	job.UpdatedAt = s.now().UTC()
-	if err := s.repo.SaveJobRun(ctx, job, job.Version-1); err != nil {
+	commands, err := s.commands()
+	if err != nil {
 		return domain.JobRun{}, err
 	}
-	if _, err := s.repo.AppendJobEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: jobID, Type: "job.resumed", ActorType: actorType, ActorID: actorID, OccurredAt: s.now().UTC()}); err != nil {
+	if _, err := commands.ApplyJobTransition(ctx, job, job.Version-1, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: jobID, Type: "job.resumed", ActorType: actorType, ActorID: actorID, Payload: map[string]any{}, OccurredAt: s.now().UTC()}); err != nil {
 		return domain.JobRun{}, err
 	}
 	return s.refresh(ctx, job)
@@ -279,7 +281,11 @@ func (s *Service) refresh(ctx context.Context, job domain.JobRun) (domain.JobRun
 			node.State = next
 			node.Version++
 			node.UpdatedAt = s.now().UTC()
-			if err := s.repo.SaveNodeRun(ctx, node, node.Version-1); err != nil {
+			commands, err := s.commands()
+			if err != nil {
+				return job, err
+			}
+			if _, err := commands.ApplyNodeTransition(ctx, node, node.Version-1, domain.JobEvent{ID: domain.NewID(), TenantID: job.TenantID, JobRunID: job.ID, NodeKey: node.NodeKey, Type: "node." + next, ActorType: "runtime", Payload: map[string]any{}, OccurredAt: node.UpdatedAt}); err != nil {
 				return job, err
 			}
 			byKey[node.NodeKey] = node
@@ -324,10 +330,13 @@ func (s *Service) refresh(ctx context.Context, job domain.JobRun) (domain.JobRun
 		job.State = next
 		job.Version++
 		job.UpdatedAt = s.now().UTC()
-		if err := s.repo.SaveJobRun(ctx, job, job.Version-1); err != nil {
+		commands, err := s.commands()
+		if err != nil {
 			return job, err
 		}
-		_, _ = s.repo.AppendJobEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: job.TenantID, JobRunID: job.ID, Type: "job." + next, ActorType: "runtime", Payload: map[string]any{"ready": ready, "active": active, "waiting_human": waiting, "failed": failed}, OccurredAt: s.now().UTC()})
+		if _, err := commands.ApplyJobTransition(ctx, job, job.Version-1, domain.JobEvent{ID: domain.NewID(), TenantID: job.TenantID, JobRunID: job.ID, Type: "job." + next, ActorType: "runtime", Payload: map[string]any{"ready": ready, "active": active, "waiting_human": waiting, "failed": failed}, OccurredAt: job.UpdatedAt}); err != nil {
+			return job, err
+		}
 	}
 	return job, nil
 }
@@ -343,11 +352,11 @@ func (s *Service) TransitionNode(ctx context.Context, tenantID, nodeID, next, ac
 	node.State = next
 	node.Version++
 	node.UpdatedAt = s.now().UTC()
-	if err := s.repo.SaveNodeRun(ctx, node, expectedVersion); err != nil {
+	commands, err := s.commands()
+	if err != nil {
 		return node, err
 	}
-	_, err = s.repo.AppendJobEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey, Type: "node." + next, ActorType: actorType, ActorID: actorID, Payload: map[string]any{"node_id": node.ID}, OccurredAt: s.now().UTC()})
-	if err != nil {
+	if _, err = commands.ApplyNodeTransition(ctx, node, expectedVersion, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey, Type: "node." + next, ActorType: actorType, ActorID: actorID, Payload: map[string]any{"node_id": node.ID}, OccurredAt: node.UpdatedAt}); err != nil {
 		return node, err
 	}
 	_, _ = s.Refresh(ctx, tenantID, node.JobRunID)
@@ -372,11 +381,11 @@ func (s *Service) CompleteNode(ctx context.Context, tenantID, nodeID string, out
 	node.LeaseExpiresAt = nil
 	node.Version++
 	node.UpdatedAt = s.now().UTC()
-	if err := s.repo.SaveNodeRun(ctx, node, expectedVersion); err != nil {
+	commands, err := s.commands()
+	if err != nil {
 		return node, err
 	}
-	_, err = s.repo.AppendJobEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey, Type: "node.succeeded", ActorType: actorType, ActorID: actorID, Payload: map[string]any{"output_count": len(outputRefs), "output_digest": outputDigest}, OccurredAt: s.now().UTC()})
-	if err != nil {
+	if _, err = commands.ApplyNodeTransition(ctx, node, expectedVersion, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey, Type: "node.succeeded", ActorType: actorType, ActorID: actorID, Payload: map[string]any{"output_count": len(outputRefs), "output_digest": outputDigest}, OccurredAt: node.UpdatedAt}); err != nil {
 		return node, err
 	}
 	_, _ = s.Refresh(ctx, tenantID, node.JobRunID)
@@ -418,11 +427,11 @@ func (s *Service) FailNode(ctx context.Context, tenantID, nodeID, errorCode stri
 	node.UpdatedAt = s.now().UTC()
 	node.LeaseOwner = ""
 	node.LeaseExpiresAt = nil
-	if err := s.repo.SaveNodeRun(ctx, node, expectedVersion); err != nil {
+	commands, err := s.commands()
+	if err != nil {
 		return node, err
 	}
-	_, err = s.repo.AppendJobEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey, Type: "node." + next, ActorType: actorType, ActorID: actorID, Payload: map[string]any{"error_code": node.ErrorCode, "retryable": retryable}, OccurredAt: s.now().UTC()})
-	if err != nil {
+	if _, err = commands.ApplyNodeTransition(ctx, node, expectedVersion, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey, Type: "node." + next, ActorType: actorType, ActorID: actorID, Payload: map[string]any{"error_code": node.ErrorCode, "retryable": retryable}, OccurredAt: node.UpdatedAt}); err != nil {
 		return node, err
 	}
 	_, _ = s.Refresh(ctx, tenantID, node.JobRunID)
@@ -440,7 +449,11 @@ func (s *Service) Cancel(ctx context.Context, tenantID, jobID, actorType, actorI
 	job.State = domain.JobRunCancelled
 	job.Version++
 	job.UpdatedAt = s.now().UTC()
-	if err := s.repo.SaveJobRun(ctx, job, job.Version-1); err != nil {
+	commands, err := s.commands()
+	if err != nil {
+		return job, err
+	}
+	if _, err := commands.ApplyJobTransition(ctx, job, job.Version-1, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: jobID, Type: "job.cancelled", ActorType: actorType, ActorID: actorID, Payload: map[string]any{}, OccurredAt: job.UpdatedAt}); err != nil {
 		return job, err
 	}
 	nodes, err := s.repo.NodeRuns(ctx, tenantID, jobID)
@@ -453,11 +466,10 @@ func (s *Service) Cancel(ctx context.Context, tenantID, jobID, actorType, actorI
 				node.State = domain.NodeCancelled
 				node.Version++
 				node.UpdatedAt = s.now().UTC()
-				_ = s.repo.SaveNodeRun(ctx, node, node.Version-1)
+				_, _ = commands.ApplyNodeTransition(ctx, node, node.Version-1, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: jobID, NodeKey: node.NodeKey, Type: "node.cancelled", ActorType: actorType, ActorID: actorID, Payload: map[string]any{}, OccurredAt: node.UpdatedAt})
 			}
 		}
 	}
-	_, _ = s.repo.AppendJobEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: jobID, Type: "job.cancelled", ActorType: actorType, ActorID: actorID, OccurredAt: s.now().UTC()})
 	return job, nil
 }
 
@@ -501,34 +513,12 @@ func (s *Service) MutateState(ctx context.Context, tenantID, jobID string, mutat
 	if strings.TrimSpace(mutation.Collection) == "" || strings.TrimSpace(mutation.IdempotencyKey) == "" {
 		return domain.RuntimeState{}, domain.Invalid("RUNTIME_STATE_MUTATION_INVALID", "状态变更需要集合名和幂等键")
 	}
-	state, err := s.repo.RuntimeState(ctx, tenantID, jobID, mutation.Collection)
-	if domain.IsNotFound(err) {
-		state = domain.RuntimeState{ID: domain.NewID(), TenantID: tenantID, JobRunID: jobID, Collection: mutation.Collection, SchemaVersion: domain.RuntimeStateSchema, Revision: 0, Values: map[string]any{}, UpdatedAt: s.now().UTC()}
-		err = nil
-	}
+	commands, err := s.commands()
 	if err != nil {
 		return domain.RuntimeState{}, err
 	}
-	if mutation.ExpectedRevision != state.Revision {
-		return domain.RuntimeState{}, domain.Conflict("RUNTIME_STATE_CAS_CONFLICT", "运行状态已经更新，请重新读取后再提交")
-	}
-	if state.Values == nil {
-		state.Values = map[string]any{}
-	}
-	for key, value := range mutation.Set {
-		state.Values[key] = value
-	}
-	for key, values := range mutation.Append {
-		current, _ := state.Values[key].([]any)
-		state.Values[key] = append(current, values...)
-	}
-	state.Revision++
-	state.UpdatedAt = s.now().UTC()
-	if err := s.repo.SaveRuntimeStateCAS(ctx, state, mutation.ExpectedRevision, mutation.IdempotencyKey); err != nil {
-		return domain.RuntimeState{}, err
-	}
-	_, _ = s.repo.AppendJobEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: jobID, Type: "state.mutated", ActorType: actorType, ActorID: actorID, Payload: map[string]any{"collection": mutation.Collection, "revision": state.Revision}, OccurredAt: s.now().UTC()})
-	return state, nil
+	now := s.now().UTC()
+	return commands.ApplyStateMutation(ctx, tenantID, jobID, mutation, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: jobID, Type: "state.mutated", ActorType: actorType, ActorID: actorID, Payload: map[string]any{"collection": mutation.Collection}, OccurredAt: now})
 }
 
 func (s *Service) RegisterEffect(ctx context.Context, effect domain.ExternalEffect) (domain.ExternalEffect, error) {
@@ -550,10 +540,11 @@ func (s *Service) RegisterEffect(ctx context.Context, effect domain.ExternalEffe
 		effect.CreatedAt = s.now().UTC()
 	}
 	effect.UpdatedAt = effect.CreatedAt
-	if err := s.repo.CreateEffect(ctx, effect); err != nil {
+	commands, err := s.commands()
+	if err != nil {
 		return effect, err
 	}
-	return effect, nil
+	return commands.RegisterEffectCommand(ctx, effect, domain.JobEvent{ID: domain.NewID(), TenantID: effect.TenantID, JobRunID: effect.JobRunID, Type: "effect.registered", ActorType: "runtime", Payload: map[string]any{"kind": effect.Kind, "idempotency_key": effect.IdempotencyKey}, OccurredAt: effect.CreatedAt})
 }
 
 func (s *Service) ReconcileEffect(ctx context.Context, tenantID, effectID, next, externalID, responseDigest, errorCode string, expectedVersion int) (domain.ExternalEffect, error) {
@@ -580,8 +571,9 @@ func (s *Service) ReconcileEffect(ctx context.Context, tenantID, effectID, next,
 	effect.ErrorCode = errorCode
 	effect.Version++
 	effect.UpdatedAt = s.now().UTC()
-	if err := s.repo.SaveEffect(ctx, effect, expectedVersion); err != nil {
+	commands, err := s.commands()
+	if err != nil {
 		return effect, err
 	}
-	return effect, nil
+	return commands.ApplyEffectTransition(ctx, effect, expectedVersion, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: effect.JobRunID, NodeKey: "", Type: "effect." + next, ActorType: "reconciler", Payload: map[string]any{"effect_id": effect.ID, "state": next}, OccurredAt: effect.UpdatedAt})
 }

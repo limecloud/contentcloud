@@ -19,6 +19,30 @@ func (s *Server) adminWorkOS(w http.ResponseWriter, r *http.Request) {
 	s.dispatchResult(w, r, "admin.work_os.show", value, err)
 }
 
+func (s *Server) operationsExecutors(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.OperationsExecutors(r.Context(), actor)
+	s.dispatchResult(w, r, "operations.executors.list", value, err)
+}
+
+func (s *Server) operationsExecutor(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.OperationsExecutor(r.Context(), actor, chi.URLParam(r, "executorID"))
+	s.dispatchResult(w, r, "operations.executor.show", value, err)
+}
+
+func (s *Server) operationsSkills(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.OperationsSkills(r.Context(), actor)
+	s.dispatchResult(w, r, "operations.skills.list", value, err)
+}
+
+func (s *Server) operationsSkill(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.OperationsSkill(r.Context(), actor, chi.URLParam(r, "skillID"), chi.URLParam(r, "skillVersion"))
+	s.dispatchResult(w, r, "operations.skill.show", value, err)
+}
+
 func (s *Server) updateAdminEnvironment(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	var input app.SaveEnvironmentInput

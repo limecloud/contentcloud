@@ -95,7 +95,7 @@ contracts/
 
 web/src/
 ├── studio/                   客户创作台 Shell、routes、features
-├── admin/                    平台运营和 Runtime Explorer
+├── admin/                    平台运营控制台（发布、能力、运行、资产治理）
 ├── public/                   官网、登录、公开审核和文档
 ├── shared/                   纯 UI 原语、品牌、格式化和 API 基础设施
 └── app/                      Router 和根级 Provider 装配
@@ -182,8 +182,8 @@ internal/work/
 | `internal/environment` | `catalog` + `integration` + `runtime binding` | 先拆清配置、信任和运行绑定语义 |
 | `internal/mediapipeline` | `delivery` + `integration/provider` | 业务状态归 delivery，SDK 调用归 provider |
 | `internal/worker` | Runtime worker / 模块 worker | 节点执行与业务处理按能力拆分 |
-| `web/src/workspace` | `web/src/studio` | 以新 Shell 和业务投影渐进替换，不直接重命名全部页面 |
-| `web/src/admin` | 保留并按 operations/runtime explorer 分区 | 复用现有独立 Shell 和权限 |
+| `web/src/workspace` | `web/src/studio` / `web/src/admin` / `web/src/styles` | 客户页面已迁入 Studio；workspace 目录已退场，Admin 共享规范化器位于 `admin/operationsData.ts`，共享工作面样式位于 `styles/workSurface.css` |
+| `web/src/admin` | 保留并按 overview/experiences/catalog/binding-policies/runtime/assets/governance 分区 | 复用现有独立 Shell 和权限；中文页面蓝图见 `docs/product/operations-control-plane/04-page-blueprints-and-language.md`；不得继续扩大全能 Admin 页面 |
 | `web/src/types.ts` | feature types / generated contracts | 禁止继续加入新业务大类型 |
 | `internal/domain/projection.go` / `internal/app/projection.go` | `internal/experience/projection` | 复用现有投影模式，先增加窄 Query/Projector；禁止把目录项放入 Source 或 Delivery 聚合 |
 

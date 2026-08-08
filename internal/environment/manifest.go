@@ -18,11 +18,10 @@ import (
 const manifestSignatureContext = "contentcloud.creative-environment-manifest.v1"
 
 var (
-	pluginIDPattern  = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
-	dottedIDPattern  = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
-	versionPattern   = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`)
-	digestPattern    = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
-	sourceRefPattern = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`)
+	pluginIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+	dottedIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
+	versionPattern  = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`)
+	digestPattern   = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 )
 
 type Issuer struct {
@@ -182,7 +181,7 @@ func validateManifest(manifest Manifest, requireSignature bool) error {
 }
 
 func validatePluginRef(plugin PluginRef) error {
-	if !pluginIDPattern.MatchString(plugin.ID) || !validPluginKind(plugin.Kind) || !versionPattern.MatchString(plugin.Version) || !sourceRefPattern.MatchString(plugin.SourceRef) || !digestPattern.MatchString(plugin.Digest) || (plugin.Scope != "environment" && plugin.Scope != "task") {
+	if !pluginIDPattern.MatchString(plugin.ID) || !validPluginKind(plugin.Kind) || !versionPattern.MatchString(plugin.Version) || !digestPattern.MatchString(plugin.Digest) || (plugin.Scope != "environment" && plugin.Scope != "task") {
 		return domain.Invalid("ENVIRONMENT_PLUGIN_INVALID", fmt.Sprintf("环境插件 %q 的引用无效", plugin.ID))
 	}
 	if err := validateUniqueStrings(plugin.Capabilities, dottedIDPattern, "ENVIRONMENT_PLUGIN_CAPABILITIES_INVALID"); err != nil {

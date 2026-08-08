@@ -29,7 +29,7 @@ func TestRuntimeExplorerBFFShowsOperationsProjection(t *testing.T) {
 	if len(list.Items) != 1 || list.Items[0].WorkTaskID != task.Task.ID {
 		t.Fatalf("runtime job was not created for studio task: %#v", list)
 	}
-	detail := callBFF[app.RuntimeJobDetail](t, client, http.MethodGet, server.URL+"/api/bff/admin/runtime/jobs/"+list.Items[0].ID, nil)
+	detail := callBFF[app.RuntimeJobDetail](t, client, http.MethodGet, server.URL+"/api/bff/runtime/jobs/"+list.Items[0].ID, nil)
 	if detail.Summary.PlanDigest == "" || len(detail.Nodes) == 0 || len(detail.Events) == 0 {
 		t.Fatalf("runtime detail is incomplete: %#v", detail)
 	}
@@ -39,7 +39,7 @@ func TestRuntimeExplorerBFFShowsOperationsProjection(t *testing.T) {
 	if _, ok := detail.Events[0].Payload["token"]; ok {
 		t.Fatal("runtime event payload leaked a token field")
 	}
-	callBFF[app.RuntimeJobDetail](t, client, http.MethodPost, server.URL+"/api/bff/admin/runtime/jobs/"+list.Items[0].ID+"/refresh", nil)
+	callBFF[app.RuntimeJobDetail](t, client, http.MethodPost, server.URL+"/api/bff/runtime/jobs/"+list.Items[0].ID+"/refresh", nil)
 }
 
 func TestRuntimeExplorerProjectsAgentContextWithoutSessionReference(t *testing.T) {
@@ -51,7 +51,7 @@ func TestRuntimeExplorerProjectsAgentContextWithoutSessionReference(t *testing.T
 	bootstrap := mustStudioBootstrap(t, client, server.URL)
 	_ = callBFF[app.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks", app.StudioCreateTaskInput{ExperienceID: bootstrap.Experiences[0].ID, ProjectID: bootstrap.Projects[0].ID, Title: "Runtime Agent 观察", Goal: "验证智能体投影脱敏"})
 	list := callBFF[app.RuntimeJobList](t, client, http.MethodGet, server.URL+"/api/bff/runtime/jobs", nil)
-	initial := callBFF[app.RuntimeJobDetail](t, client, http.MethodGet, server.URL+"/api/bff/admin/runtime/jobs/"+list.Items[0].ID, nil)
+	initial := callBFF[app.RuntimeJobDetail](t, client, http.MethodGet, server.URL+"/api/bff/runtime/jobs/"+list.Items[0].ID, nil)
 	actor, _, err := service.SessionActor(t.Context(), sessionIDFromJar(t, jar, server.URL))
 	if err != nil {
 		t.Fatal(err)
@@ -64,11 +64,11 @@ func TestRuntimeExplorerProjectsAgentContextWithoutSessionReference(t *testing.T
 	if _, err := service.Runtime().CreateAgentInstance(t.Context(), contentruntime.AgentInstanceInput{TenantID: actor.TenantID, JobRunID: list.Items[0].ID, NodeRunID: initial.Nodes[0].ID, Role: "supervisor", HarnessKind: "fake", SessionRef: "opaque-session-token", ExecutionProfileID: "profile-http", ContextViewID: view.ID, RemainingDescendants: 1, BudgetMinor: 50}); err != nil {
 		t.Fatal(err)
 	}
-	detail := callBFF[app.RuntimeJobDetail](t, client, http.MethodGet, server.URL+"/api/bff/admin/runtime/jobs/"+list.Items[0].ID, nil)
+	detail := callBFF[app.RuntimeJobDetail](t, client, http.MethodGet, server.URL+"/api/bff/runtime/jobs/"+list.Items[0].ID, nil)
 	if len(detail.Agents) != 1 || !detail.Agents[0].SessionBound || detail.Agents[0].ContextView.AllowedTools[0] != "state.get" {
 		t.Fatalf("agent projection is incomplete: %#v", detail.Agents)
 	}
-	response, err := client.Get(server.URL + "/api/bff/admin/runtime/jobs/" + list.Items[0].ID)
+	response, err := client.Get(server.URL + "/api/bff/runtime/jobs/" + list.Items[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}

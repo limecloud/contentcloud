@@ -15,9 +15,10 @@ import (
 	"github.com/limecloud/contentcloud/internal/apiclient"
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/bootstrapcheck"
-	"github.com/limecloud/contentcloud/internal/codexplugin"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
+	"github.com/limecloud/contentcloud/internal/integration/plugin"
+	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 	"github.com/limecloud/contentcloud/internal/localconfig"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 )
@@ -35,7 +36,7 @@ type bootstrapPlan struct {
 	SessionID            string                  `json:"session_id,omitempty"`
 	AuthorizationMode    string                  `json:"authorization_mode"`
 	Prerequisites        *bootstrapcheck.Report  `json:"prerequisites,omitempty"`
-	Plugin               codexplugin.Plan        `json:"plugin"`
+	Plugin               pluginhost.Plan         `json:"plugin"`
 	Workspace            localworkspace.InitPlan `json:"workspace"`
 	BlockingReasons      []string                `json:"blocking_reasons"`
 	RequiresConfirmation bool                    `json:"requires_confirmation"`
@@ -47,7 +48,7 @@ type bootstrapPlan struct {
 }
 
 func (r *Root) bootstrapCommand() *cobra.Command {
-	command := &cobra.Command{Use: "bootstrap", Short: "安装固定版本的 Codex 插件并初始化 Content Work OS 工作区"}
+	command := &cobra.Command{Use: "bootstrap", Short: "安装标准 Agent Plugin 并初始化 Content Work OS 工作区"}
 	command.AddCommand(r.bootstrapPreflightCommand(), r.bootstrapPlanCommand(), r.bootstrapApplyCommand(), r.bootstrapResumeCommand(), r.bootstrapDiagnosticCommand())
 	return command
 }
@@ -75,16 +76,16 @@ func (r *Root) bootstrapPreflightCommand() *cobra.Command {
 }
 
 func (r *Root) bootstrapPlanCommand() *cobra.Command {
-	var sessionID string
+	var sessionID, host string
 	command := &cobra.Command{
 		Use:   "plan [directory]",
 		Args:  cobra.MaximumNArgs(1),
-		Short: "预览 Codex 和工作区变更，但不执行修改",
+		Short: "预览插件宿主和工作区变更，但不执行修改",
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := validateBootstrapSession(sessionID); err != nil {
 				return err
 			}
-			plan, _, err := r.buildBootstrapPlan(command.Context(), optionalDirectory(args))
+			plan, _, err := r.buildBootstrapPlan(command.Context(), optionalDirectory(args), host)
 			if err != nil {
 				return err
 			}
@@ -96,21 +97,22 @@ func (r *Root) bootstrapPlanCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&sessionID, "session", "", "浏览器设备授权使用的公开连接会话（ConnectSession）ID")
+	command.Flags().StringVar(&host, "host", "codex", "插件宿主：codex 或 claude")
 	return command
 }
 
 func (r *Root) bootstrapApplyCommand() *cobra.Command {
-	var sessionID, name, planID string
-	var accept, openCodex bool
+	var sessionID, name, planID, host string
+	var accept, openHost bool
 	command := &cobra.Command{
 		Use:   "apply [directory]",
 		Args:  cobra.MaximumNArgs(1),
-		Short: "执行已确认的 Codex 插件和 Content Work OS 工作区初始化计划",
+		Short: "执行已确认的 Agent Plugin 和 Content Work OS 工作区初始化计划",
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := validateBootstrapSession(sessionID); err != nil {
 				return err
 			}
-			plan, adapter, err := r.buildBootstrapPlan(command.Context(), optionalDirectory(args))
+			plan, pluginRuntime, err := r.buildBootstrapPlan(command.Context(), optionalDirectory(args), host)
 			if err != nil {
 				return err
 			}
@@ -119,7 +121,7 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 				return err
 			}
 			if plan.State != "ready" {
-				err := domain.Conflict("BOOTSTRAP_PLAN_BLOCKED", "当前 Codex 或目标目录不能执行 bootstrap apply")
+				err := domain.Conflict("BOOTSTRAP_PLAN_BLOCKED", "当前插件宿主或目标目录不能执行 bootstrap apply")
 				err.Details = plan.BlockingReasons
 				if plan.State == "resume_required" {
 					err.Hint = "对已初始化的 Content Work OS 工作区使用 bootstrap resume"
@@ -136,7 +138,7 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 				return err
 			}
 			if !accept {
-				err := domain.Policy("BOOTSTRAP_CONFIRMATION_REQUIRED", "bootstrap 将安装固定版本的 Codex 插件、绑定设备、写入目标工作区并启动本机自动化后台服务", "先检查 bootstrap plan，再传入 --accept")
+				err := domain.Policy("BOOTSTRAP_CONFIRMATION_REQUIRED", "bootstrap 将安装固定版本的 Agent Plugin、绑定设备、写入目标工作区并启动本机自动化后台服务", "先检查 bootstrap plan，再传入 --accept")
 				err.ExitCode = 2
 				return err
 			}
@@ -159,20 +161,20 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 			if progress != nil {
 				progress.append(command.Context(), "plugin_installing", "started", "", "", "")
 			}
-			pluginResult, err := adapter.Apply(command.Context(), plan.Plugin, true)
+			pluginResult, err := pluginRuntime.Adapter.Apply(command.Context(), pluginRuntime.Package, plan.Plugin, true)
 			if err != nil {
 				if progress != nil {
-					progress.append(command.Context(), "plugin_installing", "failed", "codex.plugin.identity", "CODEX_PLUGIN_INSTALL_FAILED", "repair.plugin.install")
+					progress.append(command.Context(), "plugin_installing", "failed", plan.Host+".plugin.identity", "PLUGIN_INSTALL_FAILED", "repair.plugin.install")
 				}
 				return withBootstrapDetails(err, map[string]any{"plugin": pluginResult})
 			}
 			if progress != nil {
-				progress.append(command.Context(), "plugin_installing", "passed", "codex.plugin.identity", "", "")
+				progress.append(command.Context(), "plugin_installing", "passed", plan.Host+".plugin.identity", "", "")
 			}
 			if progress != nil {
 				progress.append(command.Context(), "workspace_initializing", "started", "", "", "")
 			}
-			status, err := initializeCodexPluginWorkspace(plan.Workspace.Root, r.resolveServer(cfg), connected, r.currentTime())
+			status, err := initializePluginWorkspace(plan.Workspace.Root, plan.Host, r.resolveServer(cfg), connected, r.currentTime())
 			if err != nil {
 				if progress != nil {
 					progress.append(command.Context(), "workspace_initializing", "failed", "workspace.binding", "WORKSPACE_INITIALIZATION_FAILED", "repair.bootstrap.resume")
@@ -189,7 +191,7 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 			if err != nil {
 				return withBootstrapDetails(err, map[string]any{"recovery": "运行 bootstrap resume，重新获取已签名的插件注册表"})
 			}
-			environmentState, err := storeBootstrapEnvironment(status.Root, *connected.EnvironmentManifest, registry, adapter.Spec, verifier, registryVerifier, r.currentTime())
+			environmentState, err := storeBootstrapEnvironment(status.Root, *connected.EnvironmentManifest, registry, pluginRuntime.Package, verifier, registryVerifier, r.currentTime())
 			if err != nil {
 				return withBootstrapDetails(err, map[string]any{"recovery": "更新可信环境配置后，运行 bootstrap resume"})
 			}
@@ -219,7 +221,7 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 				progress.append(command.Context(), "doctor_running", "passed", "workspace.managed_files", "", "")
 				progress.append(command.Context(), "registering", "started", "", "", "")
 			}
-			handoff, handoffPath, err := localworkspace.StoreBootstrapHandoff(status.Root, adapter.Spec.PluginID, adapter.Spec.PluginVersion, adapter.Spec.MarketplaceRef, r.currentTime())
+			handoff, handoffPath, err := localworkspace.StoreBootstrapHandoff(status.Root, pluginRuntime.Package.Manifest.Name, pluginRuntime.Package.Manifest.Version, pluginRuntime.Package.Digest, r.currentTime())
 			if err != nil {
 				return withBootstrapDetails(err, map[string]any{"recovery": "运行 bootstrap resume，重新生成新对话交接信息"})
 			}
@@ -244,9 +246,9 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 			if progress != nil {
 				progress.append(command.Context(), "opening_desktop", "started", "", "", "")
 			}
-			launch := codexplugin.LaunchResult{WorkspacePath: status.Root, RecoveryPrompt: codexplugin.RecoveryPrompt(adapter.Spec)}
-			if openCodex {
-				launch = adapter.LaunchNewChat(command.Context(), status.Root)
+			launch := hostLaunchResult{WorkspacePath: status.Root, RecoveryPrompt: recoveryPrompt(pluginRuntime.Package.Manifest.Name)}
+			if openHost {
+				launch = launchHost(command.Context(), r.pluginRunner, pluginRuntime.HostID, status.Root, pluginRuntime.Package.Manifest.Name)
 			}
 			if progress != nil {
 				if launch.Error != "" {
@@ -277,20 +279,22 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 	command.Flags().StringVar(&sessionID, "session", "", "浏览器设备授权使用的公开连接会话（ConnectSession）ID")
 	command.Flags().StringVar(&planID, "plan-id", "", "用户确认的初始化计划返回的确切 plan_id")
 	command.Flags().StringVar(&name, "name", "", "工作区设备显示名称")
-	command.Flags().BoolVar(&accept, "accept", false, "确认计划中列出的插件、用户 Codex 状态、项目绑定和工作区变更")
-	command.Flags().BoolVar(&openCodex, "open-codex", true, "验证并注册成功后打开新的 Codex 项目对话")
+	command.Flags().StringVar(&host, "host", "codex", "插件宿主：codex 或 claude")
+	command.Flags().BoolVar(&accept, "accept", false, "确认计划中列出的插件、宿主状态、项目绑定和工作区变更")
+	command.Flags().BoolVar(&openHost, "open-host", true, "验证并注册成功后打开宿主项目对话（Claude 仅返回恢复提示）")
 	return command
 }
 
 func (r *Root) bootstrapResumeCommand() *cobra.Command {
-	var accept, openCodex bool
+	var accept, openHost bool
+	var host string
 	command := &cobra.Command{
 		Use:   "resume [directory]",
 		Args:  cobra.MaximumNArgs(1),
 		Short: "浏览器设备授权完成后，继续执行检查和注册",
 		RunE: func(command *cobra.Command, args []string) error {
 			if !accept {
-				err := domain.Policy("BOOTSTRAP_RESUME_CONFIRMATION_REQUIRED", "resume 将修复固定版本的 Codex 插件并重新注册现有工作区", "检查当前工作区后传入 --accept")
+				err := domain.Policy("BOOTSTRAP_RESUME_CONFIRMATION_REQUIRED", "resume 将修复固定版本的 Agent Plugin 并重新注册现有工作区", "检查当前工作区后传入 --accept")
 				err.ExitCode = 2
 				return err
 			}
@@ -307,7 +311,12 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			workspacePlan, err := localworkspace.Plan(directory, "codex-plugin")
+			hostID, err := parsePluginHost(host)
+			if err != nil {
+				return err
+			}
+			target := string(hostID) + "-plugin"
+			workspacePlan, err := localworkspace.Plan(directory, target)
 			if err != nil {
 				return err
 			}
@@ -328,26 +337,26 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if !hasBootstrapTarget(status.Template.Targets) {
-					return domain.Conflict("BOOTSTRAP_TARGET_MISMATCH", "当前工作区不是 codex-plugin 交付模式")
+				if !hasTargetValue(status.Template.Targets, target) {
+					return domain.Conflict("BOOTSTRAP_TARGET_MISMATCH", "当前工作区与指定插件宿主不一致")
 				}
 			default:
 				return domain.Conflict("BOOTSTRAP_RESUME_DIRECTORY_CONFLICT", "恢复目标包含未知文件，拒绝覆盖")
 			}
-			adapter, err := r.codexPluginAdapter()
+			pluginRuntime, err := r.pluginRuntime(string(hostID))
 			if err != nil {
 				return err
 			}
-			pluginPlan, err := adapter.Plan(command.Context())
+			pluginPlan, err := pluginRuntime.Adapter.Plan(command.Context(), pluginRuntime.Package, "install")
 			if err != nil {
 				return err
 			}
-			pluginResult, err := adapter.Apply(command.Context(), pluginPlan, true)
+			pluginResult, err := pluginRuntime.Adapter.Apply(command.Context(), pluginRuntime.Package, pluginPlan, true)
 			if err != nil {
 				return withBootstrapDetails(err, map[string]any{"plugin": pluginResult})
 			}
 			if needsInitialize {
-				status, err = initializeCodexPluginWorkspace(workspacePlan.Root, r.resolveServer(cfg), app.ConnectDeviceResult{
+				status, err = initializePluginWorkspace(workspacePlan.Root, string(hostID), r.resolveServer(cfg), app.ConnectDeviceResult{
 					Device: domain.Device{ID: cfg.DeviceID}, WorkspaceID: cfg.WorkspaceID, ProjectID: cfg.ProjectID,
 				}, r.currentTime())
 				if err != nil {
@@ -366,7 +375,7 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			environmentState, err := storeBootstrapEnvironment(status.Root, manifest, registry, adapter.Spec, verifier, registryVerifier, r.currentTime())
+			environmentState, err := storeBootstrapEnvironment(status.Root, manifest, registry, pluginRuntime.Package, verifier, registryVerifier, r.currentTime())
 			if err != nil {
 				return err
 			}
@@ -386,7 +395,7 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 			if err := requireHealthyWorkspace(report); err != nil {
 				return err
 			}
-			handoff, handoffPath, err := localworkspace.StoreBootstrapHandoff(status.Root, adapter.Spec.PluginID, adapter.Spec.PluginVersion, adapter.Spec.MarketplaceRef, r.currentTime())
+			handoff, handoffPath, err := localworkspace.StoreBootstrapHandoff(status.Root, pluginRuntime.Package.Manifest.Name, pluginRuntime.Package.Manifest.Version, pluginRuntime.Package.Digest, r.currentTime())
 			if err != nil {
 				return err
 			}
@@ -402,19 +411,20 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			launch := codexplugin.LaunchResult{WorkspacePath: status.Root, RecoveryPrompt: codexplugin.RecoveryPrompt(adapter.Spec)}
-			if openCodex {
-				launch = adapter.LaunchNewChat(command.Context(), status.Root)
+			launch := hostLaunchResult{WorkspacePath: status.Root, RecoveryPrompt: recoveryPrompt(pluginRuntime.Package.Manifest.Name)}
+			if openHost {
+				launch = launchHost(command.Context(), r.pluginRunner, hostID, status.Root, pluginRuntime.Package.Manifest.Name)
 			}
 			return r.writeOK("bootstrap.resume", map[string]any{"plugin": pluginResult, "workspace": status, "environment": environmentState, "doctor": report, "cloud_binding": registered, "bootstrap_handoff": handoff, "bootstrap_handoff_path": handoffPath, "new_chat": launch, "daemon_enabled": true, "daemon": daemonState})
 		},
 	}
 	command.Flags().BoolVar(&accept, "accept", false, "确认修复插件并注册工作区")
-	command.Flags().BoolVar(&openCodex, "open-codex", true, "验证并注册成功后打开新的 Codex 项目对话")
+	command.Flags().StringVar(&host, "host", "codex", "插件宿主：codex 或 claude")
+	command.Flags().BoolVar(&openHost, "open-host", true, "验证并注册成功后打开宿主项目对话（Claude 仅返回恢复提示）")
 	return command
 }
 
-func (r *Root) buildBootstrapPlan(ctx context.Context, directory string) (bootstrapPlan, *codexplugin.Adapter, error) {
+func (r *Root) buildBootstrapPlan(ctx context.Context, directory, hostName string) (bootstrapPlan, *hostPluginRuntime, error) {
 	cfg, err := localconfig.Load()
 	if err != nil {
 		return bootstrapPlan{}, nil, err
@@ -423,22 +433,22 @@ func (r *Root) buildBootstrapPlan(ctx context.Context, directory string) (bootst
 	if err := validateBootstrapServer(server); err != nil {
 		return bootstrapPlan{}, nil, err
 	}
-	adapter, err := r.codexPluginAdapter()
+	pluginRuntime, err := r.pluginRuntime(hostName)
 	if err != nil {
 		return bootstrapPlan{}, nil, err
 	}
-	pluginPlan, err := adapter.Plan(ctx)
+	pluginPlan, err := pluginRuntime.Adapter.Plan(ctx, pluginRuntime.Package, "install")
 	if err != nil {
 		return bootstrapPlan{}, nil, err
 	}
-	workspacePlan, err := localworkspace.Plan(directory, "codex-plugin")
+	workspacePlan, err := localworkspace.Plan(directory, string(pluginRuntime.HostID)+"-plugin")
 	if err != nil {
 		return bootstrapPlan{}, nil, err
 	}
 	plan := bootstrapPlan{
 		SchemaVersion:        bootstrapSchemaVersion,
 		State:                "ready",
-		Host:                 "codex",
+		Host:                 string(pluginRuntime.HostID),
 		CLIPackage:           "@limecloud/contentcloud@" + Version,
 		CLIVersion:           Version,
 		ServerURL:            server,
@@ -470,7 +480,7 @@ func (r *Root) buildBootstrapPlan(ctx context.Context, directory string) (bootst
 		return bootstrapPlan{}, nil, err
 	}
 	plan.PlanID = planID
-	return plan, adapter, nil
+	return plan, pluginRuntime, nil
 }
 
 func bootstrapPlanID(plan bootstrapPlan) (string, error) {
@@ -483,11 +493,7 @@ func bootstrapPlanID(plan bootstrapPlan) (string, error) {
 	return "bp_" + hex.EncodeToString(sum[:]), nil
 }
 
-func (r *Root) codexPluginAdapter() (*codexplugin.Adapter, error) {
-	return codexplugin.New(codexplugin.DefaultSpec(Version), r.codexRunner)
-}
-
-func initializeCodexPluginWorkspace(root, server string, connected app.ConnectDeviceResult, now time.Time) (localworkspace.Status, error) {
+func initializePluginWorkspace(root, host, server string, connected app.ConnectDeviceResult, now time.Time) (localworkspace.Status, error) {
 	environmentDigest := ""
 	if connected.EnvironmentManifest != nil {
 		environmentDigest = connected.EnvironmentManifest.Digest
@@ -499,7 +505,7 @@ func initializeCodexPluginWorkspace(root, server string, connected app.ConnectDe
 		DeviceID:          connected.Device.ID,
 		ServerURL:         server,
 		CLIVersion:        Version,
-		Target:            "codex-plugin",
+		Target:            host + "-plugin",
 		EnvironmentDigest: environmentDigest,
 		Now:               now,
 	})
@@ -525,17 +531,14 @@ func (r *Root) environmentRegistryVerifier() (*environment.RegistryVerifier, err
 	return environment.DefaultRegistryVerifier()
 }
 
-func storeBootstrapEnvironment(root string, manifest environment.Manifest, registry environment.Registry, spec codexplugin.Spec, verifier *environment.Verifier, registryVerifier *environment.RegistryVerifier, now time.Time) (localworkspace.EnvironmentState, error) {
-	if manifest.Distribution.Marketplace != spec.MarketplaceName {
-		return localworkspace.EnvironmentState{}, domain.Conflict("BOOTSTRAP_ENVIRONMENT_MARKETPLACE_MISMATCH", "创作环境清单中的插件市场与固定 Codex 插件规格不一致")
-	}
+func storeBootstrapEnvironment(root string, manifest environment.Manifest, registry environment.Registry, pkg plugin.Package, verifier *environment.Verifier, registryVerifier *environment.RegistryVerifier, now time.Time) (localworkspace.EnvironmentState, error) {
 	installed := make([]environment.LockedPlugin, 0, 1)
 	for _, plugin := range manifest.Distribution.Plugins {
 		if !plugin.Required || plugin.Scope != "environment" {
 			continue
 		}
-		if plugin.ID != spec.PluginName || plugin.Kind != "scene_plugin" || plugin.Version != spec.PluginVersion || plugin.SourceRef != spec.MarketplaceRef {
-			return localworkspace.EnvironmentState{}, domain.Conflict("BOOTSTRAP_ENVIRONMENT_PLUGIN_MISMATCH", "创作环境清单中的必装插件与本次已验证的 Codex 安装不一致")
+		if plugin.ID != pkg.Manifest.Name || plugin.Kind != "scene_plugin" || plugin.Version != pkg.Manifest.Version || plugin.Digest != pkg.Digest {
+			return localworkspace.EnvironmentState{}, domain.Conflict("BOOTSTRAP_ENVIRONMENT_PLUGIN_MISMATCH", "创作环境清单中的必装插件与本次已验证的标准包不一致")
 		}
 		installed = append(installed, environment.LockedPlugin{ID: plugin.ID, Kind: plugin.Kind, Version: plugin.Version, Digest: plugin.Digest, Installed: true})
 	}
@@ -612,7 +615,16 @@ func withBootstrapDetails(err error, details map[string]any) error {
 
 func hasBootstrapTarget(targets []string) bool {
 	for _, target := range targets {
-		if target == "codex-plugin" {
+		if target == "codex-plugin" || target == "claude-plugin" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasTargetValue(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
 			return true
 		}
 	}

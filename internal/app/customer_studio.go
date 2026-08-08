@@ -235,7 +235,7 @@ func (s *Service) CustomerStudioBootstrap(ctx context.Context, actor Actor, user
 		result.Session.OperationsPath = "/admin/dashboard"
 		result.Session.CanViewOperations = true
 	} else if actor.Role == "tenant_admin" || actor.Role == "project_manager" {
-		result.Session.OperationsPath = "/workspace"
+		result.Session.OperationsPath = "/admin/dashboard"
 		result.Session.CanViewOperations = true
 	}
 	for _, value := range tenants {
@@ -618,15 +618,7 @@ func (s *Service) CustomerStudioCreativeResults(ctx context.Context, actor Actor
 		}
 		result.Items = append(result.Items, items...)
 	}
-	sort.Slice(result.Items, func(i, j int) bool { return result.Items[i].CreatedAt.After(result.Items[j].CreatedAt) })
-	for _, item := range result.Items {
-		result.Counts[item.ResultType]++
-		if item.Reusable {
-			result.Counts["reusable"]++
-		}
-	}
-	result.Counts["all"] = len(result.Items)
-	return result, nil
+	return experiencestudio.BuildCreativeResultProjection(result.Items, s.now()), nil
 }
 
 func (s *Service) CustomerStudioCreativeResult(ctx context.Context, actor Actor, taskID, resultID string) (StudioCreativeResultDetail, error) {

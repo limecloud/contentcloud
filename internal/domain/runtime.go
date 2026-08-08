@@ -15,6 +15,7 @@ const (
 	NodeResultSchema    = "contentcloud.node-result/1.0"
 	RuntimeStateSchema  = "contentcloud.runtime-state/1.0"
 	ContextViewSchema   = "contentcloud.context-view/1.0"
+	RuntimeEventSchema  = "contentcloud.runtime-event/1.0"
 
 	JobRunCreated      = "created"
 	JobRunAdmitted     = "admitted"
@@ -532,6 +533,25 @@ type JobEvent struct {
 	IdempotencyKey string         `json:"idempotency_key,omitempty"`
 	Payload        map[string]any `json:"payload"`
 	OccurredAt     time.Time      `json:"occurred_at"`
+}
+
+// RuntimeOutboxMessage is the durable delivery record paired with a JobEvent.
+// It is written in the same transaction as the authoritative snapshot and event.
+type RuntimeOutboxMessage struct {
+	ID            string         `json:"id"`
+	TenantID      string         `json:"tenant_id"`
+	EventID       string         `json:"event_id"`
+	SchemaVersion string         `json:"schema_version"`
+	Topic         string         `json:"topic"`
+	AggregateID   string         `json:"aggregate_id"`
+	Payload       map[string]any `json:"payload"`
+	Attempts      int            `json:"attempts"`
+	NextAttemptAt time.Time      `json:"next_attempt_at"`
+	LockedBy      string         `json:"locked_by,omitempty"`
+	LockedUntil   *time.Time     `json:"locked_until,omitempty"`
+	DeliveredAt   *time.Time     `json:"delivered_at,omitempty"`
+	LastError     string         `json:"last_error,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
 }
 
 type RuntimeState struct {

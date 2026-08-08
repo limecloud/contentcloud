@@ -49,8 +49,8 @@ func TestBuildManifestUsesOnlyExactPublishedCompatibleRegistryEntries(t *testing
 	if len(manifest.Distribution.Plugins) != 2 || manifest.Distribution.Plugins[0].ID != "contentcloud-video-production" || manifest.Distribution.Plugins[1].ID != "contentcloud-visual-storytelling" {
 		t.Fatalf("resolved plugins = %#v", manifest.Distribution.Plugins)
 	}
-	if manifest.Distribution.Plugins[0].SourceRef != "v0.8.0" || manifest.Distribution.Plugins[1].SourceRef != "v1.2.0" {
-		t.Fatalf("registry refs were not preserved: %#v", manifest.Distribution.Plugins)
+	if manifest.Distribution.Plugins[0].Digest == "" || manifest.Distribution.Plugins[1].Digest == "" {
+		t.Fatalf("registry package digests were not preserved: %#v", manifest.Distribution.Plugins)
 	}
 	plannedHarness := profile
 	plannedHarness.Harness = "cursor"

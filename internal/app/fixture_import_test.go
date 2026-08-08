@@ -71,7 +71,7 @@ func TestImportFixtureV3IsIdempotentAndBuildsProjection(t *testing.T) {
 	if projection.Sections["onboarding"].Count != 1 || projection.Sections["methodology"].Status != "ready" || projection.Sections["knowledge"].Status != "pending" || projection.Sections["creative"].Status != "blocked" {
 		t.Fatalf("fixture projection is incomplete: %#v", projection.Sections)
 	}
-	if len(projection.NextActions) != 1 || projection.NextActions[0].Navigation.View != "review" || projection.NextActions[0].Navigation.Focus == nil {
+	if len(projection.NextActions) != 1 || projection.NextActions[0].Navigation.View != "tasks" || projection.NextActions[0].Navigation.Focus == nil {
 		t.Fatalf("fixture projection did not expose a typed review target: %#v", projection.NextActions)
 	}
 	current, err := service.ProjectSubmissionRevision(t.Context(), actor, first.Project.ID, projection.NextActions[0].Navigation.Focus.ID)

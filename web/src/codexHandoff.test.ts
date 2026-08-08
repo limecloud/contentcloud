@@ -4,10 +4,10 @@ import { normalizeDigest, validateCodexHandoff, type CodexHandoff } from './code
 const digest = `sha256:${'a'.repeat(64)}`;
 
 function handoff(overrides: Partial<CodexHandoff> = {}): CodexHandoff {
-  const prompt = '[plugin://contentcloud-video-production@contentcloud] project project-1; workspace_context';
+  const prompt = '[plugin://contentcloud-video-production] project project-1; workspace_context';
   return {
     schema_version: 'contentcloud.codex-handoff/1.0', kind: 'project', project_id: 'project-1',
-    target: { kind: 'project', id: 'project-1' }, plugin_id: 'contentcloud-video-production@contentcloud', plugin_version: '0.19.0',
+    target: { kind: 'project', id: 'project-1' }, plugin_id: 'contentcloud-video-production', plugin_version: '0.20.0',
     requires_new_chat: true, requires_workspace_selection: true,
     launch_url: `codex://new?prompt=${encodeURIComponent(prompt)}`, prompt, steps: ['select workspace'], fallback_url: '/codex', ...overrides,
   };

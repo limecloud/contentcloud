@@ -2,9 +2,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const studioSources=['CustomerStudioShell.tsx','StudioPages.tsx','StudioContext.tsx','studioApi.ts','studioTypes.ts']
-  .map(file=>readFileSync(new URL(`./${file}`,import.meta.url),'utf8'))
-  .join('\n');
+const studioSources=[
+  'CustomerStudioShell.tsx','StudioPages.tsx','StudioContext.tsx','studioApi.ts','studioTypes.ts','StudioKnowledgePage.tsx',
+  'knowledge/GovernedKnowledgePage.tsx','knowledge/knowledgeApi.ts'
+].map(file=>readFileSync(new URL(`./${file}`,import.meta.url),'utf8')).join('\n');
 
 describe('customer studio boundary',()=>{
   it('uses the dedicated customer API instead of internal BFF resources',()=>{

@@ -53,6 +53,11 @@ for(const path of filesUnder('internal/experience',new Set(['.go']))){
   }
 }
 
+for(const path of filesUnder('internal/experience',new Set(['.go']))){
+  const value=source(path);
+  if(value.includes('/internal/domain'))fail(path,'target experience module must use its own records or stable platform values, not legacy domain');
+}
+
 const globalStorePath=join(root,'internal/store/store.go');
 const globalStoreMethods=(source(globalStorePath).match(/^\s*[A-Z][A-Za-z0-9_]*\(context\.Context/gm)||[]).length;
 const globalStoreBaseline=226;

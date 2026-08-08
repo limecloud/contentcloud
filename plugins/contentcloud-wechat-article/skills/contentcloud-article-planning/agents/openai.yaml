@@ -1,7 +1,0 @@
-interface:
-  display_name: "ContentCloud 公众号策划"
-  short_description: "基于批准知识创建结构清晰且可审核的微信公众号文章 Brief"
-  default_prompt: "Use $contentcloud-article-planning to create a governed WeChat ArticleBrief from the selected workspace evidence."
-
-policy:
-  allow_implicit_invocation: true

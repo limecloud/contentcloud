@@ -1,0 +1,19 @@
+{
+  "name": "contentcloud-test",
+  "owner": {
+    "name": "ContentCloud"
+  },
+  "description": "ContentCloud Claude Code adapter fixture marketplace",
+  "plugins": [
+    {
+      "name": "example-plugin",
+      "source": "./plugins/example-plugin",
+      "version": "1.2.3",
+      "description": "ContentCloud Claude Code adapter fixture",
+      "author": {
+        "name": "ContentCloud"
+      },
+      "strict": true
+    }
+  ]
+}

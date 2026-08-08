@@ -18,10 +18,10 @@ import (
 	"github.com/limecloud/contentcloud/internal/apiclient"
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/capabilityrouting"
-	"github.com/limecloud/contentcloud/internal/codexplugin"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
 	"github.com/limecloud/contentcloud/internal/fixturev3"
+	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 	"github.com/limecloud/contentcloud/internal/projectview"
 )
@@ -766,8 +766,8 @@ func mcpTools() []map[string]any {
 	}
 	return []map[string]any{
 		{
-			"name":        "contentcloud_open_project_view",
-			"description": "为当前项目生成可信的 Content Work OS 工作台链接，不打开浏览器，也不修改本地或云端状态",
+			"name":        "contentcloud_open_studio_view",
+			"description": "为当前项目生成可信的 Content Work OS Studio 页面链接，不打开浏览器，也不修改本地或云端状态",
 			"inputSchema": openProjectView,
 			"annotations": cloudReadAnnotations,
 			"_meta": map[string]any{"contentcloud/effect": map[string]any{
@@ -905,7 +905,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 	var navigationRoot string
 	var navigationTarget *projectview.Target
 	switch params.Name {
-	case "contentcloud_open_project_view":
+	case "contentcloud_open_studio_view":
 		arguments, decodeErr := decodeOpenProjectViewArguments(raw)
 		if decodeErr != nil {
 			return nil, decodeErr
@@ -968,7 +968,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			status, err = localworkspace.LoadStatus(root)
 			value = status
 			navigationRoot = root
-			navigationTarget = &projectview.Target{View: "overview"}
+			navigationTarget = &projectview.Target{View: "home"}
 		}
 	case "workspace_doctor":
 		var root string
@@ -978,7 +978,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			report, err = r.workspaceDoctor(root)
 			value = report
 			navigationRoot = root
-			navigationTarget = &projectview.Target{View: "setup"}
+			navigationTarget = &projectview.Target{View: "connect"}
 		}
 	case "source_register":
 		if strings.TrimSpace(params.Arguments.File) == "" {
@@ -1249,7 +1249,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			value = map[string]any{"submission_revision": revision, "preflight": preflight, "cloud_write": err == nil, "business_files_modified": false}
 			if err == nil {
 				navigationRoot = root
-				navigationTarget = &projectview.Target{View: "review", Focus: &projectview.Focus{Kind: "submission_revision", ID: revision.ID, Digest: revision.ContentHash}}
+				navigationTarget = &projectview.Target{View: "tasks", Focus: &projectview.Focus{Kind: "submission_revision", ID: revision.ID, Digest: revision.ContentHash}}
 			}
 		}
 	case "submission_status":
@@ -1388,12 +1388,12 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 }
 
 func submissionStatusProjectView(details app.SubmissionDetails) projectview.Target {
-	target := projectview.Target{View: "review"}
+	target := projectview.Target{View: "tasks"}
 	for _, revision := range details.Revisions {
 		if revision.ID != details.Submission.CurrentRevisionID {
 			continue
 		}
-		focused := projectview.Target{View: "review", Focus: &projectview.Focus{Kind: "submission_revision", ID: revision.ID, Digest: revision.ContentHash}}
+		focused := projectview.Target{View: "tasks", Focus: &projectview.Focus{Kind: "submission_revision", ID: revision.ID, Digest: revision.ContentHash}}
 		if projectview.Validate(focused) == nil {
 			return focused
 		}
@@ -1403,7 +1403,7 @@ func submissionStatusProjectView(details app.SubmissionDetails) projectview.Targ
 }
 
 func reviewFeedbackProjectView(feedback []domain.ReviewFeedbackBundle) projectview.Target {
-	target := projectview.Target{View: "review"}
+	target := projectview.Target{View: "tasks"}
 	if len(feedback) == 0 {
 		return target
 	}
@@ -1414,7 +1414,7 @@ func reviewFeedbackProjectView(feedback []domain.ReviewFeedbackBundle) projectvi
 			return target
 		}
 	}
-	focused := projectview.Target{View: "review", Focus: &projectview.Focus{Kind: "submission_revision", ID: revisionID, Digest: digest}}
+	focused := projectview.Target{View: "tasks", Focus: &projectview.Focus{Kind: "submission_revision", ID: revisionID, Digest: digest}}
 	if projectview.Validate(focused) != nil {
 		return target
 	}
@@ -1422,12 +1422,23 @@ func reviewFeedbackProjectView(feedback []domain.ReviewFeedbackBundle) projectvi
 }
 
 func approvedSnapshotsProjectView(snapshots []domain.ApprovedSnapshot) projectview.Target {
-	target := projectview.Target{View: "delivery"}
+	view := "deliveries"
+	allKnowledge := len(snapshots) > 0
+	for _, snapshot := range snapshots {
+		if snapshot.SubmissionType != "knowledge" {
+			allKnowledge = false
+			break
+		}
+	}
+	if allKnowledge {
+		view = "knowledge"
+	}
+	target := projectview.Target{View: view}
 	if len(snapshots) != 1 {
 		return target
 	}
 	snapshot := snapshots[0]
-	focused := projectview.Target{View: "delivery", Focus: &projectview.Focus{Kind: "snapshot", ID: snapshot.ID, Digest: snapshot.ContentHash}}
+	focused := projectview.Target{View: view, Focus: &projectview.Focus{Kind: "snapshot", ID: snapshot.ID, Digest: snapshot.ContentHash}}
 	if projectview.Validate(focused) != nil {
 		return target
 	}
@@ -1486,13 +1497,13 @@ func decodeOpenProjectViewArguments(raw json.RawMessage) (mcpProjectViewArgument
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&params); err != nil {
-		return mcpProjectViewArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "contentcloud_open_project_view 参数无效或包含未知字段")
+		return mcpProjectViewArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "contentcloud_open_studio_view 参数无效或包含未知字段")
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return mcpProjectViewArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "contentcloud_open_project_view 参数必须是单个 JSON 对象")
+		return mcpProjectViewArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "contentcloud_open_studio_view 参数必须是单个 JSON 对象")
 	}
-	if params.Name != "contentcloud_open_project_view" || strings.TrimSpace(params.Arguments.View) == "" {
-		return mcpProjectViewArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "contentcloud_open_project_view 需要 view")
+	if params.Name != "contentcloud_open_studio_view" || strings.TrimSpace(params.Arguments.View) == "" {
+		return mcpProjectViewArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "contentcloud_open_studio_view 需要 view")
 	}
 	return params.Arguments, nil
 }
@@ -1508,7 +1519,7 @@ func openProjectViewEnvelope(link projectview.Link) map[string]any {
 	}
 	return map[string]any{
 		"content": []map[string]any{
-			{"type": "text", "text": "Content Work OS 项目页面链接已准备。请在浏览器中打开并核对项目和焦点对象后再报告完成。"},
+			{"type": "text", "text": "Content Work OS Studio 页面链接已准备。请在浏览器中打开并核对项目和焦点对象后再报告完成。"},
 			mcpProjectViewResourceLink(link),
 		},
 		"structuredContent": result,
@@ -1666,8 +1677,8 @@ type environmentPreparationApplyResult struct {
 }
 
 type installedPackTransaction struct {
-	adapter *codexplugin.Adapter
-	receipt codexplugin.Receipt
+	adapter *pluginhost.Adapter
+	receipt pluginhost.Receipt
 }
 
 func (r *Root) loadVerifiedLocalEnvironment(directory string) (verifiedLocalEnvironment, error) {
@@ -1786,8 +1797,8 @@ func (r *Root) applyEnvironmentPreparation(ctx context.Context, input environmen
 			rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			defer cancel()
 			for index := len(transactions) - 1; index >= 0; index-- {
-				for _, rollbackError := range transactions[index].adapter.Rollback(rollbackContext, transactions[index].receipt) {
-					rollbackErrors = append(rollbackErrors, rollbackError)
+				if rollbackError := transactions[index].adapter.Rollback(rollbackContext, transactions[index].receipt); rollbackError != nil {
+					rollbackErrors = append(rollbackErrors, rollbackError.Error())
 				}
 			}
 		}
@@ -1802,41 +1813,36 @@ func (r *Root) applyEnvironmentPreparation(ctx context.Context, input environmen
 		return rollbackFailure
 	}
 
-	rawRegistry := verified.Registry.Registry()
+	hostID, err := pluginHostForWorkspace(verified.Root)
+	if err != nil {
+		return environmentPreparationApplyResult{}, rollback(err)
+	}
 	for _, action := range preparation.Actions {
-		entry, exactErr := rawRegistry.Exact(action.Plugin.ID, action.Plugin.Version, action.Plugin.Digest)
-		if exactErr != nil {
-			return environmentPreparationApplyResult{}, rollback(exactErr)
-		}
-		spec := codexplugin.Spec{
-			CodexBinary: "codex", MarketplaceName: verified.State.Manifest.Distribution.Marketplace,
-			MarketplaceSource: entry.Source.Repository, MarketplaceRef: entry.Source.Ref,
-			PluginName: action.Plugin.ID, PluginID: action.Plugin.ID + "@" + verified.State.Manifest.Distribution.Marketplace, PluginVersion: action.Plugin.Version,
-		}
-		adapter, adapterErr := codexplugin.New(spec, r.codexRunner)
+		pluginRuntime, adapterErr := r.pluginRuntime(string(hostID))
 		if adapterErr != nil {
 			return environmentPreparationApplyResult{}, rollback(adapterErr)
 		}
-		adapterPlan, planErr := adapter.Plan(ctx)
+		if action.Plugin.ID != pluginRuntime.Package.Manifest.Name || action.Plugin.Version != pluginRuntime.Package.Manifest.Version || action.Plugin.Digest != pluginRuntime.Package.Digest {
+			return environmentPreparationApplyResult{}, rollback(domain.Policy("ENVIRONMENT_PLUGIN_ARTIFACT_UNAVAILABLE", "环境准备引用的标准插件包未随当前 CLI 发布", "安装包含该标准包的 ContentCloud CLI 版本后重试"))
+		}
+		adapterPlan, planErr := pluginRuntime.Adapter.Plan(ctx, pluginRuntime.Package, "install")
 		if planErr != nil {
 			return environmentPreparationApplyResult{}, rollback(planErr)
 		}
-		if adapterPlan.State == "blocked" {
-			blocked := domain.Conflict("ENVIRONMENT_PREPARATION_CODEX_STATE_BLOCKED", "Codex 中现有插件市场或能力包与签名计划冲突")
+		if adapterPlan.State == pluginhost.StatusBlocked {
+			blocked := domain.Conflict("ENVIRONMENT_PREPARATION_HOST_STATE_BLOCKED", "宿主中的现有插件状态与签名计划冲突")
 			blocked.Details = adapterPlan.BlockingReasons
 			return environmentPreparationApplyResult{}, rollback(blocked)
 		}
-		for _, adapterAction := range adapterPlan.Actions {
-			if adapterAction.Kind != "plugin.add" {
-				return environmentPreparationApplyResult{}, rollback(domain.Conflict("ENVIRONMENT_PREPARATION_MARKETPLACE_NOT_READY", "任务能力包安装要求已存在且版本正确的 Content Work OS 插件市场"))
-			}
-		}
-		applyResult, applyErr := adapter.Apply(ctx, adapterPlan, true)
+		idempotent := adapterPlan.State == pluginhost.StatusReady
+		applyResult, applyErr := pluginRuntime.Adapter.Apply(ctx, pluginRuntime.Package, adapterPlan, true)
 		if applyErr != nil {
 			return environmentPreparationApplyResult{}, rollback(applyErr)
 		}
-		transactions = append(transactions, installedPackTransaction{adapter: adapter, receipt: applyResult.Receipt})
-		installs = append(installs, environmentPackInstall{Plugin: action.Plugin, Applied: applyResult.Applied, Idempotent: applyResult.Idempotent})
+		if !idempotent {
+			transactions = append(transactions, installedPackTransaction{adapter: pluginRuntime.Adapter, receipt: applyResult})
+		}
+		installs = append(installs, environmentPackInstall{Plugin: action.Plugin, Applied: !idempotent, Idempotent: idempotent})
 	}
 
 	committedLock, err = environment.PreparedLock(verified.State.Manifest, verified.State.Lock, preparation, verified.Registry, r.currentTime())
@@ -1862,7 +1868,7 @@ func (r *Root) applyEnvironmentPreparation(ctx context.Context, input environmen
 	if err := requireHealthyWorkspace(afterDoctor); err != nil {
 		return environmentPreparationApplyResult{}, rollback(err)
 	}
-	handoff, err := environmentPreparationHandoff(verified, rawRegistry)
+	handoff, err := environmentPreparationHandoff(verified, hostID)
 	if err != nil {
 		return environmentPreparationApplyResult{}, rollback(err)
 	}
@@ -1875,28 +1881,35 @@ func (r *Root) applyEnvironmentPreparation(ctx context.Context, input environmen
 	}, nil
 }
 
-func environmentPreparationHandoff(verified verifiedLocalEnvironment, registry environment.Registry) (environmentNewChatHandoff, error) {
+func environmentPreparationHandoff(verified verifiedLocalEnvironment, hostID pluginhost.HostID) (environmentNewChatHandoff, error) {
 	for _, plugin := range verified.State.Manifest.Distribution.Plugins {
 		if plugin.Kind != "scene_plugin" || plugin.Scope != "environment" || !plugin.Required {
 			continue
 		}
-		entry, err := registry.Exact(plugin.ID, plugin.Version, plugin.Digest)
-		if err != nil {
-			return environmentNewChatHandoff{}, err
-		}
-		spec := codexplugin.Spec{
-			CodexBinary: "codex", MarketplaceName: verified.State.Manifest.Distribution.Marketplace,
-			MarketplaceSource: entry.Source.Repository, MarketplaceRef: entry.Source.Ref,
-			PluginName: plugin.ID, PluginID: plugin.ID + "@" + verified.State.Manifest.Distribution.Marketplace, PluginVersion: plugin.Version,
-		}
-		prompt := codexplugin.RecoveryPrompt(spec)
-		deepLink, err := codexplugin.NewChatDeepLink(spec, verified.Root, prompt)
-		if err != nil {
-			return environmentNewChatHandoff{}, err
+		prompt := recoveryPrompt(plugin.ID)
+		deepLink := ""
+		if hostID == pluginhost.HostCodex {
+			deepLink = codexNewChatDeepLink(verified.Root, prompt)
 		}
 		return environmentNewChatHandoff{RequiresNewChat: true, WorkspacePath: verified.Root, DeepLink: deepLink, RecoveryPrompt: prompt}, nil
 	}
 	return environmentNewChatHandoff{}, domain.Conflict("ENVIRONMENT_SCENE_PLUGIN_REQUIRED", "当前环境缺少恢复新会话所需的必装场景插件")
+}
+
+func pluginHostForWorkspace(root string) (pluginhost.HostID, error) {
+	status, err := localworkspace.LoadStatus(root)
+	if err != nil {
+		return "", err
+	}
+	for _, target := range status.Template.Targets {
+		switch target {
+		case "codex-plugin":
+			return pluginhost.HostCodex, nil
+		case "claude-plugin":
+			return pluginhost.HostClaude, nil
+		}
+	}
+	return "", domain.Conflict("PLUGIN_HOST_TARGET_MISSING", "工作区未声明 codex-plugin 或 claude-plugin 宿主")
 }
 
 func (r *Root) resolveMCPWorkspace(directory string) (string, error) {

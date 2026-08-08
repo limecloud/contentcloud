@@ -1,4 +1,0 @@
-interface:
-  display_name: "ContentCloud 分镜生产"
-  short_description: "从批准剧本在本机生成可审核分镜，并由服务端批准锁定"
-  default_prompt: "Use $contentcloud-storyboard-production to build a local storyboard candidate and hand it off for authoritative server approval."

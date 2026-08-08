@@ -1,0 +1,67 @@
+{
+  "schema_version": "contentcloud.plugin-claims/1.0",
+  "plugin_id": "contentcloud-video-production",
+  "plugin_version": "0.20.0",
+  "package_spec_version": "1.0.0",
+  "kind": "scene_plugin",
+  "requested_capabilities": [
+    {
+      "id": "contentcloud.video-production",
+      "version": "1.0.0",
+      "input_schemas": [
+        "contracts/brief-3.0.schema.json",
+        "contracts/content-item-3.0.schema.json",
+        "contracts/local-run-3.0.schema.json"
+      ],
+      "output_schemas": [
+        "contracts/audience-strategy-1.0.schema.json",
+        "contracts/content-batch-3.0.schema.json",
+        "contracts/handoff-1.0.schema.json",
+        "contracts/knowledge-page-3.0.schema.json",
+        "contracts/seedance-prompt-package-1.0.schema.json",
+        "contracts/storyboard-package-1.0.schema.json"
+      ]
+    }
+  ],
+  "permissions_requested": [
+    "workspace:read",
+    "workspace:write-managed",
+    "contentcloud-control-plane:explicit-actions-only",
+    "credential-store:macos-keychain"
+  ],
+  "data_flow": {
+    "local_by_default": true,
+    "declared_cloud_actions": [
+      "bootstrap.authorization.complete",
+      "workspace.register",
+      "explicit publish and review synchronization",
+      "trusted project-view navigation"
+    ]
+  },
+  "cost": {
+    "model": "included",
+    "notice": "ContentCloud scene workflows are included; external model or provider charges require separate confirmation."
+  },
+  "hosts": [
+    {
+      "id": "codex",
+      "required": [
+        "skills",
+        "mcp_stdio",
+        "new_session_required"
+      ]
+    },
+    {
+      "id": "claude",
+      "required": [
+        "skills",
+        "mcp_stdio",
+        "new_session_required"
+      ]
+    }
+  ],
+  "support": {
+    "owner": "GoodVision ContentCloud",
+    "runbook": "./run.zhongcao.contentcloud/RUNBOOK.md"
+  }
+}

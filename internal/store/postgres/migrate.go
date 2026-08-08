@@ -26,6 +26,9 @@ const agenticJobRuntimeMigration = "00014_agentic_job_runtime.sql"
 const runtimeAgentInstancesMigration = "00015_runtime_agent_instances.sql"
 const runtimeAttemptsMigration = "00016_runtime_attempts.sql"
 const workspaceMaterialsMigration = "00017_workspace_materials.sql"
+const runtimeCommandKernelMigration = "00018_runtime_command_kernel.sql"
+const runtimeOutboxDeliveryMigration = "00019_runtime_outbox_delivery.sql"
+const runtimeAppendOnlyPermissionsMigration = "00020_runtime_append_only_permissions.sql"
 
 func (s *Store) Migrate(ctx context.Context) error {
 	conn, err := s.pool.Acquire(ctx)
@@ -100,7 +103,7 @@ func validateV3MigrationSet(available, applied []string) error {
 	// Keep the pure validator compatible with callers that validate the
 	// pre-governance six-file set; Migrate itself passes the current embedded
 	// set and therefore requires every current infrastructure migration.
-	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration}
+	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration}
 	for length := len(suffix); length >= 1; length-- {
 		if len(available) == len(expected)+length {
 			candidate := append([]string{}, suffix[:length]...)

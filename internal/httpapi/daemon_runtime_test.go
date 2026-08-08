@@ -22,14 +22,14 @@ import (
 )
 
 func TestDaemonPollEnforcesMinimumVersionWithoutLeasing(t *testing.T) {
-	service, actor, connected, project := connectedDaemonTestRuntime(t, app.WithDaemonVersionPolicy("0.10.0", "0.19.0", "https://content.example.com/downloads"))
+	service, actor, connected, project := connectedDaemonTestRuntime(t, app.WithDaemonVersionPolicy("0.10.0", "0.20.0", "https://content.example.com/downloads"))
 	server := httptest.NewServer(httpapi.New(service, slog.Default(), false, "").Handler())
 	defer server.Close()
 
 	poll := dispatchDevice[app.DaemonPollResponse](t, server.URL, connected.DeviceToken, "daemon.poll", map[string]any{
 		"capabilities": []domain.Capability{}, "environments": []app.AutomationEnvironmentClaim{}, "daemon_version": "0.9.0", "wait_ms": 25000,
 	})
-	if poll.Leased || !poll.Runtime.UpdateRequired || !poll.Runtime.UpdateAvailable || poll.Runtime.MinimumVersion != "0.10.0" || poll.Runtime.LatestVersion != "0.19.0" || poll.Runtime.UpdateURL == "" {
+	if poll.Leased || !poll.Runtime.UpdateRequired || !poll.Runtime.UpdateAvailable || poll.Runtime.MinimumVersion != "0.10.0" || poll.Runtime.LatestVersion != "0.20.0" || poll.Runtime.UpdateURL == "" {
 		t.Fatalf("unexpected version-gated poll response: %#v", poll)
 	}
 	devices, err := service.Devices(t.Context(), actor, project.ID)

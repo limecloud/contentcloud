@@ -19,7 +19,7 @@ func TestDaemonRuntimeTrackerPersistsNonSecretHealthAndUpdatePolicy(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	tracker.recordPoll(app.DaemonRuntimePolicy{CurrentVersion: "0.10.0", LatestVersion: "0.19.0", UpdateAvailable: true}, true, nil)
+	tracker.recordPoll(app.DaemonRuntimePolicy{CurrentVersion: "0.10.0", LatestVersion: "0.20.0", UpdateAvailable: true}, true, nil)
 	tracker.taskStarted()
 	tracker.taskFinished(nil)
 	state, err := loadDaemonRuntimeState()

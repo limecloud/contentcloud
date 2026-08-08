@@ -2,8 +2,8 @@ package contracts
 
 import _ "embed"
 
-//go:embed project-pages-1.0.json
-var ProjectPagesV1Contract []byte
+//go:embed studio-surfaces-1.0.json
+var StudioSurfacesV1Contract []byte
 
 //go:embed workspace-3.0.schema.json
 var WorkspaceV3Schema []byte

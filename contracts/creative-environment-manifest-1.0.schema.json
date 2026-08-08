@@ -53,12 +53,11 @@
     "plugin": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "version", "source_ref", "digest", "required", "scope", "capabilities"],
+      "required": ["id", "kind", "version", "digest", "required", "scope", "capabilities"],
       "properties": {
         "id": {"$ref": "#/$defs/plugin_id"},
         "kind": {"enum": ["scene_plugin", "skill_pack", "provider_mcp_pack"]},
         "version": {"$ref": "#/$defs/version"},
-        "source_ref": {"type": "string", "pattern": "^v\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"},
         "digest": {"$ref": "#/$defs/digest"},
         "required": {"type": "boolean"},
         "scope": {"enum": ["environment", "task"]},

@@ -1,6 +1,6 @@
 ---
 name: contentcloud-workspace
-description: Inspect, route, resume, hand off, publish, and open governed Web views for work in a ContentCloud V3 workspace bound by .contentcloud/workspace.yaml. Use when a user opens a ContentCloud project folder, asks what to do next, continues work across Codex conversations, selects or transfers a Run, checks environment health, opens a project or exact review Revision in Browser, refreshes cloud review state, or publishes a governed checkpoint.
+description: Inspect, route, resume, hand off, publish, and open governed Content Work OS Studio views for work in a ContentCloud workspace bound by .contentcloud/workspace.yaml. Use when a user opens a ContentCloud project folder, asks what to do next, continues work across Codex conversations, selects or transfers a Run, checks environment health, opens Studio or an exact review Revision in Browser, refreshes cloud review state, or publishes a governed checkpoint.
 ---
 
 # ContentCloud Workspace
@@ -38,7 +38,7 @@ Do not create a cloud Automation Run for ordinary interactive work.
 
 ## Browser Navigation
 
-1. Call `contentcloud_open_project_view` with an allowlisted `view` and, when needed, a published `focus` containing its stable ID and full revision digest.
+1. Call `contentcloud_open_studio_view` with an allowlisted `view` and, when needed, a published `focus` containing its stable ID and full revision digest.
 2. Use the returned `resource_link` as the compatibility source. Treat `browserHandoff` only as an optional navigation hint.
 3. If the host Browser is available, navigate to that exact link and verify the visible project, view, focus ID, and digest before reporting that it opened.
 4. If navigation or verification fails, report the failure and preserve the clickable link. Never equate Tool success with Browser success.
@@ -79,7 +79,7 @@ For publish:
 5. Call `publish_apply` with unchanged inputs, the same `plan_id`, and `accept: true`.
 6. Report the immutable SubmissionRevision separately from any later approval.
 
-After a successful publish, use the returned Revision ID and content digest with `contentcloud_open_project_view(view=review)` only when the user asks to inspect it or the current workflow explicitly requires visible review. Browser navigation remains separate from publish confirmation.
+After a successful publish, use the returned Revision ID and content digest with `contentcloud_open_studio_view(view=tasks)` only when the user asks to inspect it or the current workflow explicitly requires visible review. Browser navigation remains separate from publish confirmation.
 
 Never scan or upload the whole Workspace. Never publish a `delivery` whose ContentBatch is not publishable. A blocked `content_batch` may be published for creative review when its reasons are explicit.
 

@@ -2,7 +2,7 @@
 
 状态：`平台基线已建立；首批 Studio、资产与 Runtime 切片已落地，后续变更继续接受产品、运营、工程、安全与设计联合评审`。
 
-更新时间：2026-08-07。
+更新时间：2026-08-08。
 
 ## 1. 文档定位
 
@@ -30,17 +30,18 @@ Worker、本地 Agent、服务商和人工完成各自适合的节点
 | --- | --- | --- |
 | 1 | [00-charter-and-principles.md](./00-charter-and-principles.md) | 为什么重构，哪些原则不可破坏 |
 | 2 | [01-product-planes.md](./01-product-planes.md) | 客户、运营、诊断和执行者分别看到什么 |
-| 3 | [02-business-domains.md](./02-business-domains.md) | 哪个业务域拥有哪类事实，核心对象如何关联 |
-| 4 | [03-system-and-runtime.md](./03-system-and-runtime.md) | 系统组件、Runtime、执行路径和状态怎样工作 |
-| 5 | [04-code-organization.md](./04-code-organization.md) | 目标代码目录、模块职责和依赖方向是什么 |
-| 6 | [05-contracts-and-extension.md](./05-contracts-and-extension.md) | 新流水线、Schema、API、事件和版本怎样扩展 |
-| 7 | [06-security-quality-operations.md](./06-security-quality-operations.md) | 安全、测试、可观测性和发布门禁是什么 |
-| 8 | [07-migration-and-delivery.md](./07-migration-and-delivery.md) | 如何从现状渐进迁移并持续交付客户价值 |
-| 9 | [08-developer-experience.md](./08-developer-experience.md) | 开发者如何新增、验证、调试、升级和发布流水线 |
-| 10 | [09-reference-patterns.md](./09-reference-patterns.md) | 外部系统怎样验证产品面、流水线、执行者和结果资产的分层 |
-| 11 | [10-current-state-inventory.md](./10-current-state-inventory.md) | 目标架构对应的当前代码证据、门禁基线和精确退场条件 |
-| 12 | [decisions/README.md](./decisions/README.md) | 哪些重大决策必须记录为 ADR |
-| 13 | [PLAN.md](./PLAN.md) | 本轮文档重构的范围、问题和退出条件 |
+| 3 | [运营后台方案](../product/operations-control-plane/README.md) | 运营后台的页面、发布、能力、运行诊断和创作结果治理怎么落地 |
+| 4 | [02-business-domains.md](./02-business-domains.md) | 哪个业务域拥有哪类事实，核心对象如何关联 |
+| 5 | [03-system-and-runtime.md](./03-system-and-runtime.md) | 系统组件、Runtime、执行路径和状态怎样工作 |
+| 6 | [04-code-organization.md](./04-code-organization.md) | 目标代码目录、模块职责和依赖方向是什么 |
+| 7 | [05-contracts-and-extension.md](./05-contracts-and-extension.md) | 新流水线、Schema、API、事件和版本怎样扩展 |
+| 8 | [06-security-quality-operations.md](./06-security-quality-operations.md) | 安全、测试、可观测性和发布门禁是什么 |
+| 9 | [07-migration-and-delivery.md](./07-migration-and-delivery.md) | 如何从现状渐进迁移并持续交付客户价值 |
+| 10 | [08-developer-experience.md](./08-developer-experience.md) | 开发者如何新增、验证、调试、升级和发布流水线 |
+| 11 | [09-reference-patterns.md](./09-reference-patterns.md) | 外部系统怎样验证产品面、流水线、执行者和结果资产的分层 |
+| 12 | [10-current-state-inventory.md](./10-current-state-inventory.md) | 目标架构对应的当前代码证据、门禁基线和精确退场条件 |
+| 13 | [decisions/README.md](./decisions/README.md) | 哪些重大决策必须记录为 ADR |
+| 14 | [PLAN.md](./PLAN.md) | 本轮文档重构的范围、问题和退出条件 |
 
 ## 4. 文档事实层级
 

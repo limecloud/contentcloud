@@ -1,4 +1,0 @@
-interface:
-  display_name: "ContentCloud Seedance 导出"
-  short_description: "从服务端锁定分镜在本机编译可复制的 Seedance 交付包"
-  default_prompt: "Use $contentcloud-seedance-export to compile a pulled server-locked storyboard into a local copy-ready Seedance package."

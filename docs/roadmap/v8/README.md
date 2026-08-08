@@ -1,6 +1,6 @@
 # ContentCloud V8：让复杂内容任务可以持续推进
 
-状态：V8 目标方案；Runtime 第一批内核、独立 RuntimeAttempt、FakeHarness 调度闭环、脱敏 REST BFF 和运营 Explorer 首版已进入代码，尚未达到生产上线条件。
+状态：V8 目标方案；Runtime 第一批内核、独立 RuntimeAttempt、FakeHarness 调度闭环、脱敏 REST BFF 和运营 Explorer 首版已进入代码，尚未达到生产上线条件。2026-08-08 起按 [Runtime Infra V2 升级说明](./09-runtime-infra-v2.md) 收敛底层实现顺序。
 
 更新时间：2026-08-07
 
@@ -12,7 +12,7 @@ V8 是 [ContentCloud 平台基线](../../foundation/README.md) 下的 Runtime �
 
 客户创作台的首个线性纵向切片可以复用当前 WorkTask、StageRun、TaskRun、SOP 和 Gate 能力提前交付，不等待 V8 动态执行图、共享状态和完整恢复能力全部完成。切片不得建立平行任务状态；后续通过平台基线定义的兼容投影、旁路比较和分阶段切流接入 V8。
 
-当前实现边界：客户 Studio 创建任务时会固定已发布 SOP，并幂等启动 JobRun；新任务准入还要求目标项目已经连接受支持的本地执行客户端，当前客户连接协议只发布 Codex。运营侧可以在 `/admin/runtime` 查看 JobRun、节点、脱敏 Agent/ContextView 摘要、事件、外部副作用和检查点，并执行刷新、取消或恢复。Runtime 已具备独立 `runtime_attempts` 权威模型、Node/RuntimeAttempt/ContextView/AgentInstance/JobEvent 原子准备与终态收敛、进程级 HarnessRegistry、FakeHarness 结构化事件执行、联合心跳和租约过期恢复；引用型 ContextView 与 AgentInstance 已通过 RLS 和复合外键持久化，父子工具/预算/深度/派生额度也已收敛。Codex/Claude 目前仍是 legacy CLI 适配器，真实 SDK 会话恢复、等待条件下的主动让出/恢复、资源预留、真实媒体服务商闭环、检查点分支、GraphPatch 持久化/Fanout/Join、PostgreSQL 并发压测和 Canary 仍属于后续工作包，不能据此宣称 V8 已完成。
+当前实现边界：客户 Studio 创建任务时会固定已发布 SOP，并幂等启动 JobRun；新任务准入还要求目标项目已经连接受支持的本地执行客户端，当前客户连接协议只发布 Codex。运营侧可以在 `/admin/runtime` 查看 JobRun、节点、脱敏 Agent/ContextView 摘要、事件、外部副作用和检查点，并执行刷新、取消或恢复。Runtime 已具备独立 `runtime_attempts` 权威模型、Node/RuntimeAttempt/ContextView/AgentInstance/JobEvent 原子准备与终态收敛、`RuntimeCommandStore`、`runtime_outbox`、进程级 HarnessRegistry、FakeHarness 结构化事件执行、联合心跳和租约过期恢复；引用型 ContextView 与 AgentInstance 已通过 RLS 和复合外键持久化，父子工具/预算/深度/派生额度也已收敛。Codex/Claude 目前仍是 legacy CLI 适配器，真实 SDK 会话恢复、等待条件下的主动让出/恢复、资源预留、真实媒体服务商闭环、检查点分支、GraphPatch 持久化/Fanout/Join、PostgreSQL 故障注入与并发压测和 Canary 仍属于后续工作包，不能据此宣称 V8 已完成。
 
 ## 先用一句话说明
 
@@ -180,6 +180,7 @@ Codex / Claude Code：完成适合由智能体处理的具体步骤
 | [06-execution-planes-security-and-governance.md](./06-execution-planes-security-and-governance.md) | 智能体、执行器和服务端之间的权限与信任边界 |
 | [07-web-console-observability-and-operations.md](./07-web-console-observability-and-operations.md) | 用户怎样查看进度、失败和费用，以及怎样暂停、恢复和核对 |
 | [08-migration-testing-and-acceptance.md](./08-migration-testing-and-acceptance.md) | 如何兼容现有实现、分阶段启用并完成验收 |
+| [09-runtime-infra-v2.md](./09-runtime-infra-v2.md) | 把 V8 收敛为 PostgreSQL-first 的可恢复执行内核：事务命令、事件/outbox、fencing、资源账本、Effect 对账与恢复 |
 | [PLAN.md](./PLAN.md) | 实施顺序、依赖、阶段门槛和主要风险 |
 | [外部参考架构与 ContentCloud 边界](../../foundation/09-reference-patterns.md) | Camunda、Dify、Temporal、Adobe、Runway 和 Frame.io 对产品分层、可恢复执行和结果资产的启发 |
 
@@ -195,3 +196,4 @@ Codex / Claude Code：完成适合由智能体处理的具体步骤
 | 2026-08-06 | Harness 由进程级 Registry 显式注入 | Fake/CLI 会话保存在适配器实例中，每次选择时重建会导致会话引用不可恢复 |
 | 2026-08-06 | 外部 Harness 调用采用 Prepare/Start/Activate/Finalize 协议 | 数据库事务不能包住外部进程；分阶段原子提交和租约恢复可以覆盖每个崩溃窗口 |
 | 2026-08-07 | Runtime 只引用工作区资料、任务输入、生成结果与交付事实 | 防止执行状态、文件处理、客户结果状态和交付状态形成平行事实源 |
+| 2026-08-08 | 先升级 Durable Runtime 内核，再开放动态图和真实宿主恢复 | 当前代码已具备一次调度闭环，但事务原子性、资源账本、跨进程恢复和外部 unknown 对账仍不足以支撑生产扩展 |

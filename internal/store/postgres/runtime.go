@@ -103,8 +103,10 @@ func (s *Store) CreateJobBundle(ctx context.Context, job domain.JobRun, nodes []
 		if event.Sequence != 1 {
 			return domain.Invalid("JOB_EVENT_SEQUENCE_INVALID", "初始 JobEvent 序号必须为 1")
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO runtime_job_events(tenant_id,id,job_run_id,sequence,type,node_key,actor_type,actor_id,correlation_id,idempotency_key,payload,occurred_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, event.TenantID, event.ID, event.JobRunID, event.Sequence, event.Type, event.NodeKey, event.ActorType, event.ActorID, event.CorrelationID, event.IdempotencyKey, jsonValue(event.Payload), event.OccurredAt)
-		return dbError(err)
+		if _, err := appendRuntimeEventTx(ctx, tx, event); err != nil {
+			return err
+		}
+		return nil
 	})
 }
 
@@ -167,22 +169,6 @@ func (s *Store) JobRuns(ctx context.Context, tenantID, taskID string) ([]domain.
 	return result, err
 }
 
-func (s *Store) SaveJobRun(ctx context.Context, value domain.JobRun, expectedVersion int) error {
-	if err := value.Validate(); err != nil {
-		return err
-	}
-	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE runtime_job_runs SET source_job_run_id=$3,checkpoint_id=$4,state=$5,priority=$6,version=$7,error_code=$8,updated_at=$9 WHERE tenant_id=$1 AND id=$2 AND version=$10`, value.TenantID, value.ID, value.SourceJobRunID, value.CheckpointID, value.State, value.Priority, value.Version, value.ErrorCode, value.UpdatedAt, expectedVersion)
-		if err != nil {
-			return dbError(err)
-		}
-		if result.RowsAffected() == 0 {
-			return domain.Conflict("JOB_RUN_VERSION_CONFLICT", "执行实例已被更新，请重新读取")
-		}
-		return nil
-	})
-}
-
 func scanRuntimeNode(row pgx.Row) (domain.NodeRun, error) {
 	var value domain.NodeRun
 	var outputs []byte
@@ -225,107 +211,6 @@ func (s *Store) NodeRun(ctx context.Context, tenantID, id string) (domain.NodeRu
 			return domain.NotFound("执行节点")
 		}
 		return err
-	})
-	return result, err
-}
-
-func (s *Store) SaveNodeRun(ctx context.Context, value domain.NodeRun, expectedVersion int) error {
-	if err := value.Validate(); err != nil {
-		return err
-	}
-	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,attempt_count=$4,output_refs=$5,output_digest=$6,error_code=$7,lease_owner=$8,lease_expires_at=$9,version=$10,updated_at=$11 WHERE tenant_id=$1 AND id=$2 AND version=$12`, value.TenantID, value.ID, value.State, value.AttemptCount, jsonArrayValue(value.OutputRefs), value.OutputDigest, value.ErrorCode, value.LeaseOwner, value.LeaseExpiresAt, value.Version, value.UpdatedAt, expectedVersion)
-		if err != nil {
-			return dbError(err)
-		}
-		if result.RowsAffected() == 0 {
-			return domain.Conflict("NODE_RUN_VERSION_CONFLICT", "执行节点已被更新，请重新读取")
-		}
-		return nil
-	})
-}
-
-func (s *Store) ClaimReadyNode(ctx context.Context, tenantID, jobID, owner string, now time.Time, leaseFor time.Duration) (domain.NodeRun, error) {
-	if strings.TrimSpace(owner) == "" || leaseFor <= 0 {
-		return domain.NodeRun{}, domain.Invalid("NODE_LEASE_INVALID", "节点租约需要执行者和正数时长")
-	}
-	var result domain.NodeRun
-	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		query := runtimeNodeSelect + ` WHERE tenant_id=$1 AND state='ready'`
-		args := []any{tenantID}
-		if strings.TrimSpace(jobID) != "" {
-			query += ` AND job_run_id=$2`
-			args = append(args, jobID)
-		}
-		query += ` ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`
-		node, err := scanRuntimeNode(tx.QueryRow(ctx, query, args...))
-		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("可领取的执行节点")
-		}
-		if err != nil {
-			return err
-		}
-		if err := node.Transition(domain.NodeLeased); err != nil {
-			return err
-		}
-		expires := now.Add(leaseFor)
-		node.State = domain.NodeLeased
-		node.AttemptCount++
-		node.LeaseOwner = strings.TrimSpace(owner)
-		node.LeaseExpiresAt = &expires
-		node.Version++
-		node.UpdatedAt = now
-		updated, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,attempt_count=$4,lease_owner=$5,lease_expires_at=$6,version=$7,updated_at=$8 WHERE tenant_id=$1 AND id=$2 AND version=$9`, tenantID, node.ID, node.State, node.AttemptCount, node.LeaseOwner, node.LeaseExpiresAt, node.Version, node.UpdatedAt, node.Version-1)
-		if err != nil {
-			return dbError(err)
-		}
-		if updated.RowsAffected() != 1 {
-			return domain.Conflict("NODE_RUN_VERSION_CONFLICT", "执行节点已被更新，请重新领取")
-		}
-		result = node
-		return nil
-	})
-	return result, err
-}
-
-func (s *Store) HeartbeatNode(ctx context.Context, tenantID, nodeID, owner string, expectedVersion int, now time.Time, leaseFor time.Duration) (domain.NodeRun, error) {
-	if strings.TrimSpace(owner) == "" || leaseFor <= 0 {
-		return domain.NodeRun{}, domain.Invalid("NODE_HEARTBEAT_INVALID", "节点心跳需要执行者和正数时长")
-	}
-	var result domain.NodeRun
-	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		node, err := scanRuntimeNode(tx.QueryRow(ctx, runtimeNodeSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, nodeID))
-		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.NotFound("执行节点")
-		}
-		if err != nil {
-			return err
-		}
-		if node.Version != expectedVersion {
-			return domain.Conflict("NODE_RUN_VERSION_CONFLICT", "执行节点已被更新，请重新读取")
-		}
-		if node.LeaseOwner != strings.TrimSpace(owner) || node.LeaseExpiresAt == nil || !node.LeaseExpiresAt.After(now) || (node.State != domain.NodeLeased && node.State != domain.NodeRunning) {
-			return domain.Conflict("NODE_LEASE_STALE", "节点租约无效、已过期或不属于当前执行者")
-		}
-		if node.State == domain.NodeLeased {
-			if err := node.Transition(domain.NodeRunning); err != nil {
-				return err
-			}
-			node.State = domain.NodeRunning
-		}
-		expires := now.Add(leaseFor)
-		node.LeaseExpiresAt = &expires
-		node.Version++
-		node.UpdatedAt = now
-		updated, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,lease_expires_at=$4,version=$5,updated_at=$6 WHERE tenant_id=$1 AND id=$2 AND version=$7 AND lease_owner=$8`, tenantID, node.ID, node.State, node.LeaseExpiresAt, node.Version, node.UpdatedAt, expectedVersion, owner)
-		if err != nil {
-			return dbError(err)
-		}
-		if updated.RowsAffected() != 1 {
-			return domain.Conflict("NODE_LEASE_STALE", "节点租约已经失效，请重新领取")
-		}
-		result = node
-		return nil
 	})
 	return result, err
 }
@@ -514,7 +399,7 @@ func scanRuntimeEvent(row pgx.Row) (domain.JobEvent, error) {
 	return value, dbError(err)
 }
 
-func (s *Store) AppendJobEvent(ctx context.Context, event domain.JobEvent) (domain.JobEvent, error) {
+func (s *Store) AppendRuntimeEvent(ctx context.Context, event domain.JobEvent) (domain.JobEvent, error) {
 	result := event
 	err := s.withTenant(ctx, event.TenantID, func(tx pgx.Tx) error {
 		var err error
@@ -568,28 +453,6 @@ func (s *Store) RuntimeState(ctx context.Context, tenantID, jobID, collection st
 	})
 	return result, err
 }
-func (s *Store) SaveRuntimeStateCAS(ctx context.Context, value domain.RuntimeState, expectedRevision int, idempotencyKey string) error {
-	if value.Revision != expectedRevision+1 {
-		return domain.Invalid("RUNTIME_STATE_REVISION_INVALID", "运行状态新版本不连续")
-	}
-	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		var marker int
-		err := tx.QueryRow(ctx, `INSERT INTO runtime_state_mutations(tenant_id,job_run_id,collection,idempotency_key) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING 1`, value.TenantID, value.JobRunID, value.Collection, idempotencyKey).Scan(&marker)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return dbError(err)
-		}
-		var id string
-		err = tx.QueryRow(ctx, `INSERT INTO runtime_states(tenant_id,id,job_run_id,collection,schema_version,revision,values,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,job_run_id,collection) DO UPDATE SET schema_version=EXCLUDED.schema_version,revision=EXCLUDED.revision,values=EXCLUDED.values,updated_at=EXCLUDED.updated_at WHERE runtime_states.revision=$9 RETURNING id`, value.TenantID, value.ID, value.JobRunID, value.Collection, value.SchemaVersion, value.Revision, jsonValue(value.Values), value.UpdatedAt, expectedRevision).Scan(&id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.Conflict("RUNTIME_STATE_CAS_CONFLICT", "运行状态已经更新，请重新读取")
-		}
-		return dbError(err)
-	})
-}
-
 func (s *Store) CreateCheckpoint(ctx context.Context, value domain.Checkpoint) error {
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO runtime_checkpoints(tenant_id,id,job_run_id,node_key,plan_digest,state_refs,output_refs,completed_nodes,digest,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, value.TenantID, value.ID, value.JobRunID, value.NodeKey, value.PlanDigest, jsonArrayValue(value.StateRefs), jsonArrayValue(value.OutputRefs), jsonArrayValue(value.CompletedNodes), value.Digest, value.CreatedAt)
@@ -632,12 +495,6 @@ func scanRuntimeEffect(row pgx.Row) (domain.ExternalEffect, error) {
 	}
 	return value, dbError(err)
 }
-func (s *Store) CreateEffect(ctx context.Context, value domain.ExternalEffect) error {
-	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO runtime_effects(tenant_id,id,job_run_id,node_run_id,kind,idempotency_key,state,external_id,request_digest,response_digest,cost_minor,currency,safe_summary,error_code,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`, value.TenantID, value.ID, value.JobRunID, value.NodeRunID, value.Kind, value.IdempotencyKey, value.State, value.ExternalID, value.RequestDigest, value.ResponseDigest, value.CostMinor, value.Currency, jsonValue(value.SafeSummary), value.ErrorCode, value.Version, value.CreatedAt, value.UpdatedAt)
-		return dbError(err)
-	})
-}
 func (s *Store) EffectByIdempotencyKey(ctx context.Context, tenantID, key string) (domain.ExternalEffect, error) {
 	var result domain.ExternalEffect
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
@@ -675,18 +532,6 @@ func (s *Store) Effects(ctx context.Context, tenantID, jobID string) ([]domain.E
 		return rows.Err()
 	})
 	return result, err
-}
-func (s *Store) SaveEffect(ctx context.Context, value domain.ExternalEffect, expectedVersion int) error {
-	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE runtime_effects SET state=$3,external_id=$4,response_digest=$5,error_code=$6,version=$7,updated_at=$8 WHERE tenant_id=$1 AND id=$2 AND version=$9`, value.TenantID, value.ID, value.State, value.ExternalID, value.ResponseDigest, value.ErrorCode, value.Version, value.UpdatedAt, expectedVersion)
-		if err != nil {
-			return dbError(err)
-		}
-		if result.RowsAffected() == 0 {
-			return domain.Conflict("EFFECT_VERSION_CONFLICT", "外部操作已被更新，请重新读取")
-		}
-		return nil
-	})
 }
 func (s *Store) ExpireNodeLeases(ctx context.Context, tenantID string, now time.Time) error {
 	return s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
@@ -765,8 +610,8 @@ func (s *Store) ExpireNodeLeases(ctx context.Context, tenantID string, now time.
 			}
 			expiryEvents = append(expiryEvents, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: attempt.JobRunID, NodeKey: node.NodeKey, Type: "attempt.expired", ActorType: "runtime", ActorID: expiredOwner, IdempotencyKey: attempt.ID + ":expired", Payload: map[string]any{"attempt_id": attempt.ID, "error_code": attempt.ErrorCode}, OccurredAt: now})
 		}
-		// Compatibility claims created through ClaimReadyNode have no V8
-		// RuntimeAttempt. They retain the previous Node-only expiry behavior.
+		// Node-only claims made before PrepareDispatch have no RuntimeAttempt;
+		// expire them with the same lease rule until dispatch is fully unified.
 		_, err = tx.Exec(ctx, `UPDATE runtime_node_runs AS node SET state='lease_expired',error_code='DISPATCH_LEASE_EXPIRED',lease_owner='',lease_expires_at=NULL,version=node.version+1,updated_at=$2 WHERE node.tenant_id=$1 AND node.state IN ('leased','running') AND node.lease_expires_at<=$2 AND NOT EXISTS (SELECT 1 FROM runtime_attempts AS attempt WHERE attempt.tenant_id=node.tenant_id AND attempt.node_run_id=node.id AND attempt.state IN ('prepared','running'))`, tenantID, now)
 		if err != nil {
 			return dbError(err)

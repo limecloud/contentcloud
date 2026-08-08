@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "contentcloud-local": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "--yes",
+        "@limecloud/contentcloud@0.20.0",
+        "mcp",
+        "serve"
+      ],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

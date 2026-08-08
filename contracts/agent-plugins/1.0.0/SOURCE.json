@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/agentplugins/agent-plugins-spec",
+  "commit": "bd383552095128f6effe895b9257cfd580a6d179",
+  "specification": "https://github.com/agentplugins/agent-plugins-spec/blob/bd383552095128f6effe895b9257cfd580a6d179/spec/1.0.0.md",
+  "schemas": {
+    "plugin.schema.json": "sha256:0a4aad95ce337878ad38802ebf0daa3fde76abe3f65400c86bcbb1ec0b3ab883",
+    "mcp.schema.json": "sha256:6539175bfcdf43085855183e86da40ea94b166547a72b47ae9a0a390516d3acb"
+  }
+}

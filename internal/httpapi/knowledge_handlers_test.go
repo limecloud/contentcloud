@@ -165,3 +165,24 @@ func TestKnowledgeBFFVerticalSlice(t *testing.T) {
 		t.Fatalf("unexpected knowledge snapshots: %#v", snapshots)
 	}
 }
+
+func TestStudioKnowledgeRoutesExposeTheGovernedKnowledgeContract(t *testing.T) {
+	service := app.New(memory.New(), slog.Default())
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	project := callBFF[domain.Project](t, client, http.MethodPost, server.URL+"/api/bff/projects", app.CreateProjectInput{BrandName: "Studio 知识品牌", ProductName: "Studio 知识产品"})
+
+	objects := callBFF[[]domain.KnowledgeObject](t, client, http.MethodGet, server.URL+"/api/studio/projects/"+project.ID+"/knowledge-objects", nil)
+	packs := callBFF[[]domain.KnowledgePack](t, client, http.MethodGet, server.URL+"/api/studio/projects/"+project.ID+"/knowledge-packs", nil)
+	sources := callBFF[[]domain.Source](t, client, http.MethodGet, server.URL+"/api/studio/projects/"+project.ID+"/sources", nil)
+	if objects == nil || packs == nil || sources == nil {
+		t.Fatalf("Studio knowledge routes returned null collections: objects=%#v packs=%#v sources=%#v", objects, packs, sources)
+	}
+}

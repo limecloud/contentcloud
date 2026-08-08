@@ -1,0 +1,9 @@
+-- +goose Up
+
+REVOKE UPDATE,DELETE ON runtime_job_plans,runtime_job_events,runtime_state_mutations,runtime_checkpoints,runtime_context_views FROM contentcloud_runtime;
+REVOKE DELETE ON runtime_job_runs,runtime_node_runs,runtime_states,runtime_effects,runtime_agent_instances,runtime_attempts,runtime_outbox FROM contentcloud_runtime;
+
+-- +goose Down
+
+GRANT UPDATE,DELETE ON runtime_job_plans,runtime_job_events,runtime_state_mutations,runtime_checkpoints,runtime_context_views TO contentcloud_runtime;
+GRANT DELETE ON runtime_job_runs,runtime_node_runs,runtime_states,runtime_effects,runtime_agent_instances,runtime_attempts,runtime_outbox TO contentcloud_runtime;

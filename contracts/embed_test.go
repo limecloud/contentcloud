@@ -74,21 +74,21 @@ func TestEnvironmentSchemasReserveRegisteredAgentClients(t *testing.T) {
 	}
 }
 
-func TestEmbeddedProjectPageContractIsValidJSON(t *testing.T) {
+func TestEmbeddedStudioSurfaceContractIsValidJSON(t *testing.T) {
 	var contract struct {
 		SchemaVersion string                     `json:"schema_version"`
 		Order         []string                   `json:"order"`
 		Views         map[string]json.RawMessage `json:"views"`
 	}
-	if err := json.Unmarshal(ProjectPagesV1Contract, &contract); err != nil {
+	if err := json.Unmarshal(StudioSurfacesV1Contract, &contract); err != nil {
 		t.Fatal(err)
 	}
-	if contract.SchemaVersion != "contentcloud.project-pages/1.0" || len(contract.Order) == 0 || len(contract.Order) != len(contract.Views) {
-		t.Fatalf("embedded project page contract is incomplete: %#v", contract)
+	if contract.SchemaVersion != "contentcloud.studio-surfaces/1.0" || len(contract.Order) == 0 || len(contract.Order) != len(contract.Views) {
+		t.Fatalf("embedded Studio surface contract is incomplete: %#v", contract)
 	}
 	for _, view := range contract.Order {
 		if len(contract.Views[view]) == 0 {
-			t.Fatalf("project page %q is missing from views", view)
+			t.Fatalf("Studio surface %q is missing from views", view)
 		}
 	}
 }

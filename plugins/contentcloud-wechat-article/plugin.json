@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "contentcloud-wechat-article",
+  "version": "0.1.0",
+  "description": "Governed planning, writing, visual planning, and local delivery for WeChat Official Account articles.",
+  "author": {
+    "name": "GoodVision",
+    "url": "https://github.com/limecloud/contentcloud"
+  },
+  "homepage": "https://github.com/limecloud/contentcloud",
+  "repository": "https://github.com/limecloud/contentcloud",
+  "license": "Apache-2.0",
+  "keywords": [
+    "contentcloud",
+    "wechat-official-account",
+    "longform-writing",
+    "content-governance"
+  ],
+  "extensions": {
+    "run.zhongcao.contentcloud": {
+      "claims": "./run.zhongcao.contentcloud/claims.json"
+    }
+  }
+}

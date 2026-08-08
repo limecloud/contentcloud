@@ -53,7 +53,7 @@ func BuildManifest(projectID string, contentTypes []string, profile Profile, ver
 		if entry.Kind != allowed.Kind || !contains(entry.CompatibleProfiles, profile.ID) {
 			return Manifest{}, domain.Policy("ENVIRONMENT_PROFILE_REGISTRY_MISMATCH", "环境配置允许列表与插件市场能力目录中的类型或兼容性不匹配", "修正环境配置，或发布兼容的能力目录条目")
 		}
-		plugins = append(plugins, PluginRef{ID: entry.ID, Kind: entry.Kind, Version: entry.Version, SourceRef: entry.Source.Ref, Digest: entry.Digest, Required: allowed.Required, Scope: allowed.Scope, Capabilities: sortedCopy(allowed.Capabilities)})
+		plugins = append(plugins, PluginRef{ID: entry.ID, Kind: entry.Kind, Version: entry.Version, Digest: entry.Digest, Required: allowed.Required, Scope: allowed.Scope, Capabilities: sortedCopy(allowed.Capabilities)})
 		for _, capability := range allowed.Capabilities {
 			providedCapabilities[capability] = struct{}{}
 		}
@@ -246,7 +246,7 @@ func ValidateManifestRegistry(manifest Manifest, verifiedRegistry VerifiedRegist
 		if _, err := AssessRegistryEntry(entry, purpose); err != nil {
 			return err
 		}
-		if entry.Kind != plugin.Kind || entry.Source.Ref != plugin.SourceRef || !contains(entry.CompatibleProfiles, manifest.ProfileID) {
+		if entry.Kind != plugin.Kind || entry.Version != plugin.Version || entry.Digest != plugin.Digest || !contains(entry.CompatibleProfiles, manifest.ProfileID) {
 			return domain.Conflict("ENVIRONMENT_MANIFEST_REGISTRY_MISMATCH", "环境清单与已签名的插件市场能力目录不一致")
 		}
 	}

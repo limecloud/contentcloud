@@ -159,7 +159,7 @@ export function StudioConnectPage(){
   const prompt=session&&project?buildBootstrapPrompt({serverURL:window.location.origin,sessionID:session.id,projectName:`${project.brand_name} / ${project.product_name}`}):'';
   const copyPrompt=async()=>{try{await navigator.clipboard.writeText(prompt);setCopied(true);window.setTimeout(()=>setCopied(false),1600)}catch{setError('无法访问剪贴板，请检查浏览器权限后重试')}};
 
-  if(activeProjects.length===0)return <div className="studio-view"><PageHeading eyebrow="开始创作" title="项目准备好后即可开始" detail="当前还没有可用的创作项目。"/><CompactEmpty icon={<MonitorUp size={22}/>} title="等待项目准备" detail="项目创建完成后，这里会自动出现开始入口。" action={bootstrap.session.can_view_operations?<Link className="studio-secondary-link" to={bootstrap.session.operations_path||'/workspace'}>前往运营与管理</Link>:undefined}/></div>;
+  if(activeProjects.length===0)return <div className="studio-view"><PageHeading eyebrow="开始创作" title="项目准备好后即可开始" detail="当前还没有可用的创作项目。"/><CompactEmpty icon={<MonitorUp size={22}/>} title="等待项目准备" detail="项目创建完成后，这里会自动出现开始入口。" action={bootstrap.session.can_view_operations?<Link className="studio-secondary-link" to={bootstrap.session.operations_path||'/admin/dashboard'}>前往运营与管理</Link>:undefined}/></div>;
   return <div className="studio-view studio-connect-view">
     <PageHeading eyebrow="开始创作" title={session?'连接创作电脑':connectedCount>0?'管理已连接电脑':'连接你的创作电脑'} detail="连接完成后，就可以直接使用团队已经配置好的创作流水线。" actions={connectedCount>0?<span className="studio-connected-count"><CheckCircle2 size={16}/>{connectedCount} 台已连接</span>:undefined}/>
     {error&&<StudioNotice kind="error" onClose={()=>setError('')}>{error}</StudioNotice>}

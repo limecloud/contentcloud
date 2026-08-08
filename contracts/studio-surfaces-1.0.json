@@ -1,0 +1,55 @@
+{
+  "schema_version": "contentcloud.studio-surfaces/1.0",
+  "order": ["home", "connect", "tasks", "assets", "knowledge", "team", "deliveries"],
+  "views": {
+    "home": {
+      "route": "studio",
+      "label": "创作台首页",
+      "title": "今天",
+      "description": "查看当前团队的创作任务、连接状态和下一步动作。",
+      "focus_kinds": [{"kind": "next_action"}, {"kind": "project"}]
+    },
+    "connect": {
+      "route": "studio/connect",
+      "label": "连接创作电脑",
+      "title": "连接创作电脑",
+      "description": "发起并核对当前项目的执行客户端连接。",
+      "focus_kinds": [{"kind": "bootstrap_attempt", "query_key": "bootstrap_attempt"}, {"kind": "support_code", "query_key": "support_code"}, {"kind": "workspace_binding"}, {"kind": "environment_health"}]
+    },
+    "tasks": {
+      "route": "studio/tasks",
+      "label": "创作任务",
+      "title": "所有创作任务",
+      "description": "查看任务状态、审核反馈和下一项创作动作。",
+      "focus_kinds": [{"kind": "submission_revision", "digest_required": true}, {"kind": "review_cycle"}, {"kind": "content_batch"}, {"kind": "script"}, {"kind": "campaign"}, {"kind": "brief"}, {"kind": "experiment"}, {"kind": "media_candidate"}]
+    },
+    "assets": {
+      "route": "studio/assets",
+      "label": "资产",
+      "title": "资产",
+      "description": "整理资料并复用已确认的创作资产。",
+      "focus_kinds": [{"kind": "asset"}, {"kind": "source"}]
+    },
+    "knowledge": {
+      "route": "studio/knowledge",
+      "label": "知识库",
+      "title": "治理知识库",
+      "description": "查看来源、证据、知识对象、审核决定和已发布知识包。",
+      "focus_kinds": [{"kind": "source"}, {"kind": "evidence"}, {"kind": "fact"}, {"kind": "claim"}, {"kind": "asset"}, {"kind": "rights"}, {"kind": "conflict"}, {"kind": "snapshot", "digest_required": true}]
+    },
+    "team": {
+      "route": "studio/team",
+      "label": "团队成员",
+      "title": "团队与权限",
+      "description": "管理当前团队成员、邀请和角色。",
+      "focus_kinds": [{"kind": "member"}, {"kind": "invite"}]
+    },
+    "deliveries": {
+      "route": "studio/deliveries",
+      "label": "交付",
+      "title": "交付",
+      "description": "查看已批准版本和固定交付包。",
+      "focus_kinds": [{"kind": "delivery_package"}, {"kind": "snapshot", "digest_required": true}]
+    }
+  }
+}

@@ -12,7 +12,6 @@ const (
 	SOPSchemaVersion       = "contentcloud.sop/1.0"
 	GateModeNone           = "none"
 	GateModeAdvisory       = "advisory"
-	GateModeRequired       = "required"
 	GateModeRequiredCheck  = "required_check"
 	GateModeInternalReview = "internal_review"
 	GateModeClientDecision = "client_decision"
@@ -476,7 +475,7 @@ func (v SOPVersion) Validate() error {
 			return Invalid("SOP_GATE_INVALID", "Gate 必须有唯一 ID 和名称")
 		}
 		switch gate.Mode {
-		case GateModeNone, GateModeAdvisory, GateModeRequired, GateModeRequiredCheck, GateModeInternalReview, GateModeClientDecision:
+		case GateModeNone, GateModeAdvisory, GateModeRequiredCheck, GateModeInternalReview, GateModeClientDecision:
 		default:
 			return Invalid("SOP_GATE_MODE_INVALID", fmt.Sprintf("Gate %s 的模式无效", gate.ID))
 		}

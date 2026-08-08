@@ -1,4 +1,0 @@
-interface:
-  display_name: "ContentCloud 创作工作区"
-  short_description: "Inspect and continue governed ContentCloud creative workspaces"
-  default_prompt: "Use $contentcloud-workspace to inspect this ContentCloud workspace and continue the appropriate local creative task."

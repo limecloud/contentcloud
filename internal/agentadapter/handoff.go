@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/limecloud/contentcloud/internal/codexplugin"
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/integration/pluginbuiltin"
 )
 
 const HandoffSchemaVersion = "contentcloud.agent-handoff/1.0"
@@ -75,8 +75,12 @@ type codexHandoffAdapter struct {
 
 func (adapter codexHandoffAdapter) Build(request HandoffRequest) (Handoff, error) {
 	client, _ := Lookup(string(ClientCodex))
-	spec := codexplugin.DefaultSpec(adapter.version)
-	prompt, steps, err := codexHandoffContent(spec, request)
+	pluginID := pluginbuiltin.VideoProduction
+	pluginVersion := adapter.version
+	if pluginVersion == "" {
+		pluginVersion = pluginbuiltin.VideoProductionVersion
+	}
+	prompt, steps, err := codexHandoffContent(pluginID, pluginVersion, request)
 	if err != nil {
 		return Handoff{}, err
 	}
@@ -85,23 +89,26 @@ func (adapter codexHandoffAdapter) Build(request HandoffRequest) (Handoff, error
 	launchURL := (&url.URL{Scheme: "codex", Host: "new", RawQuery: query.Encode()}).String()
 	return Handoff{
 		SchemaVersion: HandoffSchemaVersion, Client: client, Kind: request.Kind, ProjectID: request.ProjectID, Target: request.Target,
-		Integration:        HandoffIntegration{Kind: "plugin", ID: spec.PluginID, Version: spec.PluginVersion},
+		Integration:        HandoffIntegration{Kind: "plugin", ID: pluginID, Version: pluginVersion},
 		RequiresNewSession: true, RequiresWorkspaceSelection: true,
 		Launch: HandoffLaunch{Mode: "deep_link", URL: launchURL}, Prompt: prompt, Steps: steps, FallbackURL: "/codex",
 	}, nil
 }
 
-func codexHandoffContent(spec codexplugin.Spec, request HandoffRequest) (string, []string, error) {
+func codexHandoffContent(pluginID, pluginVersion string, request HandoffRequest) (string, []string, error) {
+	if pluginID == "" || pluginVersion == "" {
+		return "", nil, domain.Invalid("AGENT_HANDOFF_PLUGIN_INVALID", "Codex 交接缺少标准插件身份")
+	}
 	switch request.Kind {
 	case "project":
-		prompt := fmt.Sprintf("[@ContentCloud Video Production](plugin://%s) 在当前已选择的本机工作区中继续 Content Work OS 项目 %s。先调用 workspace_context，并验证返回的 project_id 必须等于 %s；如果未选择工作区或 project_id 不匹配，立即停止，不要扫描其他目录。不要从旧对话历史重建状态，也不要自动执行 pull、claim、publish 或任何本地写入；先报告当前状态和下一步。", spec.PluginID, request.ProjectID, request.ProjectID)
+		prompt := fmt.Sprintf("[@ContentCloud Video Production](plugin://%s) 在当前已选择的本机工作区中继续 Content Work OS 项目 %s。标准插件版本为 %s。先调用 workspace_context，并验证返回的 project_id 必须等于 %s；如果未选择工作区或 project_id 不匹配，立即停止，不要扫描其他目录。不要从旧对话历史重建状态，也不要自动执行 pull、claim、publish 或任何本地写入；先报告当前状态和下一步。", pluginID, request.ProjectID, pluginVersion, request.ProjectID)
 		return prompt, []string{
 			"在 Codex Desktop 中选择已连接该项目的本机 Workspace。",
 			"打开新对话并先调用 workspace_context。",
 			"核对 project_id 后，再由用户决定是否执行下一步。",
 		}, nil
 	case "review_feedback":
-		prompt := fmt.Sprintf("[@ContentCloud Video Production](plugin://%s) 在当前已选择的本机工作区中处理 Content Work OS 项目 %s 的审核反馈，目标提交修订版本为 %s，完整摘要为 %s。先调用 workspace_context，并验证返回的 project_id 必须等于 %s；如果未选择工作区或 project_id 不匹配，立即停止，不要扫描其他目录。随后只调用 review_feedback_list 读取云端反馈，并核对目标修订版本与摘要；未经用户明确要求，不要 pull、claim、修改文件或开始新的修订运行。", spec.PluginID, request.ProjectID, request.Target.ID, request.Target.Digest, request.ProjectID)
+		prompt := fmt.Sprintf("[@ContentCloud Video Production](plugin://%s) 在当前已选择的本机工作区中处理 Content Work OS 项目 %s 的审核反馈，标准插件版本为 %s，目标提交修订版本为 %s，完整摘要为 %s。先调用 workspace_context，并验证返回的 project_id 必须等于 %s；如果未选择工作区或 project_id 不匹配，立即停止，不要扫描其他目录。随后只调用 review_feedback_list 读取云端反馈，并核对目标修订版本与摘要；未经用户明确要求，不要 pull、claim、修改文件或开始新的修订运行。", pluginID, request.ProjectID, pluginVersion, request.Target.ID, request.Target.Digest, request.ProjectID)
 		return prompt, []string{
 			"在 Codex Desktop 中选择已连接该项目的本机 Workspace。",
 			"先调用 workspace_context 并核对 project_id。",

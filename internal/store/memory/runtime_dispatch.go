@@ -316,11 +316,18 @@ func validateNewContextViewLocked(s *Store, view domain.ContextView) error {
 }
 
 func validateRuntimeEventLocked(s *Store, event domain.JobEvent) error {
-	if event.ID == "" || event.TenantID == "" || event.JobRunID == "" || event.Type == "" || event.ActorType == "" || event.OccurredAt.IsZero() {
-		return domain.Invalid("JOB_EVENT_INVALID", "JobEvent 缺少执行实例、类型或执行者")
+	if err := validateRuntimeEventFields(event); err != nil {
+		return err
 	}
 	if job, ok := s.runtimeJobs[runtimePlanKey(event.TenantID, event.JobRunID)]; !ok || job.TenantID != event.TenantID {
 		return domain.NotFound("执行实例")
+	}
+	return nil
+}
+
+func validateRuntimeEventFields(event domain.JobEvent) error {
+	if event.ID == "" || event.TenantID == "" || event.JobRunID == "" || event.Type == "" || event.ActorType == "" || event.OccurredAt.IsZero() {
+		return domain.Invalid("JOB_EVENT_INVALID", "JobEvent 缺少执行实例、类型或执行者")
 	}
 	return nil
 }
@@ -332,5 +339,15 @@ func appendRuntimeEventLocked(s *Store, event domain.JobEvent) domain.JobEvent {
 		event.Payload = map[string]any{}
 	}
 	s.runtimeEvents[event.JobRunID] = append(events, event)
+	outboxID := runtimePlanKey(event.TenantID, event.ID)
+	if _, exists := s.runtimeOutbox[outboxID]; !exists {
+		s.runtimeOutbox[outboxID] = domain.RuntimeOutboxMessage{
+			ID: event.ID, TenantID: event.TenantID, EventID: event.ID,
+			SchemaVersion: domain.RuntimeEventSchema, Topic: "runtime.job_event",
+			AggregateID:   event.JobRunID,
+			Payload:       map[string]any{"event_id": event.ID, "job_run_id": event.JobRunID, "sequence": event.Sequence, "type": event.Type, "payload": event.Payload},
+			NextAttemptAt: event.OccurredAt, CreatedAt: event.OccurredAt,
+		}
+	}
 	return event
 }

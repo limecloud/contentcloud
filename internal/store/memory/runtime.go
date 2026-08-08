@@ -3,7 +3,6 @@ package memory
 import (
 	"context"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
@@ -85,11 +84,14 @@ func (s *Store) CreateJobBundle(_ context.Context, job domain.JobRun, nodes []do
 	if event.Sequence != 1 || event.JobRunID != job.ID || event.TenantID != job.TenantID {
 		return domain.Invalid("JOB_EVENT_SEQUENCE_INVALID", "初始 JobEvent 序号必须为 1")
 	}
+	if err := validateRuntimeEventFields(event); err != nil {
+		return err
+	}
 	s.runtimeJobs[runtimePlanKey(job.TenantID, job.ID)] = job
 	for _, node := range nodes {
 		s.runtimeNodes[runtimeNodeKey(node.TenantID, node.ID)] = node
 	}
-	s.runtimeEvents[job.ID] = []domain.JobEvent{event}
+	appendRuntimeEventLocked(s, event)
 	return nil
 }
 
@@ -124,24 +126,6 @@ func (s *Store) JobRuns(_ context.Context, tenantID, taskID string) ([]domain.Jo
 	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.After(result[j].CreatedAt) })
 	return result, nil
 }
-func (s *Store) SaveJobRun(_ context.Context, value domain.JobRun, expectedVersion int) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	key := runtimePlanKey(value.TenantID, value.ID)
-	old, ok := s.runtimeJobs[key]
-	if !ok {
-		return domain.NotFound("执行实例")
-	}
-	if old.Version != expectedVersion {
-		return domain.Conflict("JOB_RUN_VERSION_CONFLICT", "执行实例已被更新，请重新读取")
-	}
-	if err := value.Validate(); err != nil {
-		return err
-	}
-	s.runtimeJobs[key] = value
-	return nil
-}
-
 func (s *Store) NodeRuns(_ context.Context, tenantID, jobID string) ([]domain.NodeRun, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -163,87 +147,6 @@ func (s *Store) NodeRun(_ context.Context, tenantID, id string) (domain.NodeRun,
 	}
 	return value, nil
 }
-func (s *Store) SaveNodeRun(_ context.Context, value domain.NodeRun, expectedVersion int) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	key := runtimeNodeKey(value.TenantID, value.ID)
-	old, ok := s.runtimeNodes[key]
-	if !ok {
-		return domain.NotFound("执行节点")
-	}
-	if old.Version != expectedVersion {
-		return domain.Conflict("NODE_RUN_VERSION_CONFLICT", "执行节点已被更新，请重新读取")
-	}
-	if err := value.Validate(); err != nil {
-		return err
-	}
-	s.runtimeNodes[key] = value
-	return nil
-}
-
-func (s *Store) ClaimReadyNode(_ context.Context, tenantID, jobID, owner string, now time.Time, leaseFor time.Duration) (domain.NodeRun, error) {
-	if strings.TrimSpace(owner) == "" || leaseFor <= 0 {
-		return domain.NodeRun{}, domain.Invalid("NODE_LEASE_INVALID", "节点租约需要执行者和正数时长")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var selected domain.NodeRun
-	for _, candidate := range s.runtimeNodes {
-		if candidate.TenantID != tenantID || (jobID != "" && candidate.JobRunID != jobID) || candidate.State != domain.NodeReady {
-			continue
-		}
-		if selected.ID == "" || candidate.CreatedAt.Before(selected.CreatedAt) || (candidate.CreatedAt.Equal(selected.CreatedAt) && candidate.ID < selected.ID) {
-			selected = candidate
-		}
-	}
-	if selected.ID == "" {
-		return domain.NodeRun{}, domain.NotFound("可领取的执行节点")
-	}
-	if err := selected.Transition(domain.NodeLeased); err != nil {
-		return domain.NodeRun{}, err
-	}
-	expires := now.Add(leaseFor)
-	selected.State = domain.NodeLeased
-	selected.AttemptCount++
-	selected.LeaseOwner = strings.TrimSpace(owner)
-	selected.LeaseExpiresAt = &expires
-	selected.Version++
-	selected.UpdatedAt = now
-	s.runtimeNodes[runtimeNodeKey(selected.TenantID, selected.ID)] = selected
-	return selected, nil
-}
-
-func (s *Store) HeartbeatNode(_ context.Context, tenantID, nodeID, owner string, expectedVersion int, now time.Time, leaseFor time.Duration) (domain.NodeRun, error) {
-	if strings.TrimSpace(owner) == "" || leaseFor <= 0 {
-		return domain.NodeRun{}, domain.Invalid("NODE_HEARTBEAT_INVALID", "节点心跳需要执行者和正数时长")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	key := runtimeNodeKey(tenantID, nodeID)
-	node, ok := s.runtimeNodes[key]
-	if !ok {
-		return domain.NodeRun{}, domain.NotFound("执行节点")
-	}
-	if node.Version != expectedVersion {
-		return domain.NodeRun{}, domain.Conflict("NODE_RUN_VERSION_CONFLICT", "执行节点已被更新，请重新读取")
-	}
-	if node.LeaseOwner != strings.TrimSpace(owner) || node.LeaseExpiresAt == nil || !node.LeaseExpiresAt.After(now) || (node.State != domain.NodeLeased && node.State != domain.NodeRunning) {
-		return domain.NodeRun{}, domain.Conflict("NODE_LEASE_STALE", "节点租约无效、已过期或不属于当前执行者")
-	}
-	if node.State == domain.NodeLeased {
-		if err := node.Transition(domain.NodeRunning); err != nil {
-			return domain.NodeRun{}, err
-		}
-		node.State = domain.NodeRunning
-	}
-	expires := now.Add(leaseFor)
-	node.LeaseExpiresAt = &expires
-	node.Version++
-	node.UpdatedAt = now
-	s.runtimeNodes[key] = node
-	return node, nil
-}
-
 func (s *Store) CreateContextView(_ context.Context, value domain.ContextView) error {
 	if err := value.Validate(); err != nil {
 		return err
@@ -389,13 +292,21 @@ func (s *Store) SaveAgentInstance(_ context.Context, value domain.AgentInstance,
 	return nil
 }
 
-func (s *Store) AppendJobEvent(_ context.Context, event domain.JobEvent) (domain.JobEvent, error) {
+func (s *Store) AppendRuntimeEvent(_ context.Context, event domain.JobEvent) (domain.JobEvent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	events := s.runtimeEvents[event.JobRunID]
 	if event.IdempotencyKey != "" {
 		for _, existing := range events {
 			if existing.IdempotencyKey == event.IdempotencyKey {
+				if _, ok := s.runtimeOutbox[runtimePlanKey(existing.TenantID, existing.ID)]; !ok {
+					s.runtimeOutbox[runtimePlanKey(existing.TenantID, existing.ID)] = domain.RuntimeOutboxMessage{
+						ID: existing.ID, EventID: existing.ID, TenantID: existing.TenantID,
+						SchemaVersion: domain.RuntimeEventSchema, Topic: "runtime.job_event", AggregateID: existing.JobRunID,
+						Payload:       map[string]any{"event_id": existing.ID, "job_run_id": existing.JobRunID, "sequence": existing.Sequence, "type": existing.Type, "payload": existing.Payload},
+						NextAttemptAt: existing.OccurredAt, CreatedAt: existing.OccurredAt,
+					}
+				}
 				return existing, nil
 			}
 		}
@@ -432,31 +343,6 @@ func (s *Store) RuntimeState(_ context.Context, tenantID, jobID, collection stri
 	}
 	return value, nil
 }
-func (s *Store) SaveRuntimeStateCAS(_ context.Context, value domain.RuntimeState, expectedRevision int, idempotencyKey string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	key := runtimeStateKey(value.TenantID, value.JobRunID, value.Collection)
-	mutationKey := key + ":" + strings.TrimSpace(idempotencyKey)
-	if previous, ok := s.runtimeStateMutations[mutationKey]; ok && previous != "" {
-		return nil
-	}
-	old, ok := s.runtimeStates[key]
-	if !ok {
-		if expectedRevision != 0 {
-			return domain.Conflict("RUNTIME_STATE_CAS_CONFLICT", "运行状态版本不匹配")
-		}
-		old = domain.RuntimeState{Revision: 0}
-	} else if old.Revision != expectedRevision {
-		return domain.Conflict("RUNTIME_STATE_CAS_CONFLICT", "运行状态已经更新，请重新读取")
-	}
-	if value.Revision != expectedRevision+1 {
-		return domain.Invalid("RUNTIME_STATE_REVISION_INVALID", "运行状态新版本不连续")
-	}
-	s.runtimeStates[key] = value
-	s.runtimeStateMutations[mutationKey] = "applied"
-	return nil
-}
-
 func (s *Store) CreateCheckpoint(_ context.Context, value domain.Checkpoint) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -483,17 +369,6 @@ func (s *Store) Checkpoints(_ context.Context, tenantID, jobID string) ([]domain
 	return result, nil
 }
 
-func (s *Store) CreateEffect(_ context.Context, value domain.ExternalEffect) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, existing := range s.runtimeEffects {
-		if existing.TenantID == value.TenantID && existing.IdempotencyKey == value.IdempotencyKey {
-			return domain.Conflict("EFFECT_IDEMPOTENCY_EXISTS", "外部操作幂等键已存在")
-		}
-	}
-	s.runtimeEffects[runtimeEffectKey(value.TenantID, value.ID)] = value
-	return nil
-}
 func (s *Store) EffectByIdempotencyKey(_ context.Context, tenantID, key string) (domain.ExternalEffect, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -516,21 +391,6 @@ func (s *Store) Effects(_ context.Context, tenantID, jobID string) ([]domain.Ext
 	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
 	return result, nil
 }
-func (s *Store) SaveEffect(_ context.Context, value domain.ExternalEffect, expectedVersion int) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	key := runtimeEffectKey(value.TenantID, value.ID)
-	old, ok := s.runtimeEffects[key]
-	if !ok {
-		return domain.NotFound("外部操作")
-	}
-	if old.Version != expectedVersion {
-		return domain.Conflict("EFFECT_VERSION_CONFLICT", "外部操作已被更新，请重新读取")
-	}
-	s.runtimeEffects[key] = value
-	return nil
-}
-
 func (s *Store) ExpireNodeLeases(_ context.Context, tenantID string, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

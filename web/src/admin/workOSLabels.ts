@@ -19,8 +19,7 @@ const gateModeLabels: Record<string, string> = {
   advisory: '可选建议',
   required_check: '必做检查',
   internal_review: '内部审核',
-  client_decision: '客户确认',
-  required: '必选审批（兼容模式）'
+  client_decision: '客户确认'
 };
 
 const executionModeLabels: Record<string, string> = {

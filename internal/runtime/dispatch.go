@@ -473,7 +473,11 @@ func (s *Service) recordHarnessEvent(ctx context.Context, handle DispatchHandle,
 			}
 		}
 	}
-	_, err := s.repo.AppendJobEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: handle.Node.TenantID, JobRunID: handle.Node.JobRunID, NodeKey: handle.Node.NodeKey, Type: "attempt.event", ActorType: "harness", ActorID: handle.Attempt.HarnessKind, Payload: map[string]any{"attempt_id": handle.Attempt.ID, "event_type": safeEventType(event.Type), "data_digest": dataDigest, "error_code": safeErrorCode(event.ErrorCode, "")}, OccurredAt: s.now().UTC()})
+	commands, ok := s.repo.(RuntimeCommandStore)
+	if !ok {
+		return domain.Policy("RUNTIME_COMMAND_STORE_REQUIRED", "Runtime 必须配置事务命令存储", "升级 Runtime 存储实现后重试")
+	}
+	_, err := commands.AppendRuntimeEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: handle.Node.TenantID, JobRunID: handle.Node.JobRunID, NodeKey: handle.Node.NodeKey, Type: "attempt.event", ActorType: "harness", ActorID: handle.Attempt.HarnessKind, Payload: map[string]any{"attempt_id": handle.Attempt.ID, "event_type": safeEventType(event.Type), "data_digest": dataDigest, "error_code": safeErrorCode(event.ErrorCode, "")}, OccurredAt: s.now().UTC()})
 	return err
 }
 

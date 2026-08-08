@@ -1,6 +1,6 @@
 # 渐进迁移与交付计划
 
-状态：`目标实施计划；Runtime 第一批内核、存储、脱敏 BFF 和运营 Explorer 首版已落地，接管、动态执行图和生产排期仍需 ADR/POC`。
+状态：`目标实施计划；Studio、知识治理、资产首切片、Runtime 内核和运营 Explorer 首版已落地，接管、动态执行图和生产排期仍需 ADR/POC`。
 
 更新时间：2026-08-07。
 
@@ -13,7 +13,7 @@
 迁移方法：Strangler + 旁路比较 + Canary + 分阶段切流
 ```
 
-不执行停机式大重写。新旧路径在有限窗口内共存，但只有一个权威写入方；旁路结果使用摘要比较，不悄悄形成第二套状态。
+不执行停机式大重写。服务端按模块渐进拆分，但客户 Web 旧 Shell 已物理删除；仍保留的 BFF 只服务明确的 CLI、Agent 或本地工作区契约，只有一个权威写入方。
 
 ## 2. 双轨交付
 
@@ -153,6 +153,24 @@ draft -> linted -> preview -> canary -> published -> deprecated -> retired
 
 退出条件：零活跃旧绑定、历史可读、回退演练通过、兼容指标为零且代码搜索无新依赖。
 
+### 3.1 运营控制面专项阶段
+
+FND-07 进一步拆为 O0-O7，详细页面和验收见
+[《运营后台工作流、上线与清理计划》](../product/operations-control-plane/03-workflows-and-migration.md)：
+
+```text
+O0 统一说法与边界
+O1 运营后台外壳与总览
+O2 创作产品发布中心
+O3 能力、执行方式和技能包目录
+O4 绑定规则与模拟器
+O5 Runtime Explorer 产品化
+O6 创作结果治理
+O7 兼容清理
+```
+
+这组阶段不替换 F0-F7 的 Runtime 迁移顺序，而是规定运营产品何时接入对应能力。任何运营页面都必须先有明确的事实来源、权限和回退方式，不能为了“先做一个页面”创建第二套权威状态。
+
 ## 4. 工作包
 
 | ID | 工作包 | 依赖 | 主要产物 |
@@ -166,7 +184,7 @@ draft -> linted -> preview -> canary -> published -> deprecated -> retired
 | FND-04 | Runtime 旁路编译 | FND-00、V8 W8-02/03 | JobRun、JobPlanRevision、对账报告 |
 | FND-05 | 线性 Runtime 切流 | FND-03、FND-04、V8 W8-04 | Node/Attempt 映射、调度与回退 |
 | FND-06 | Context 与 Effect | FND-05、V8 W8-05/07 | 最小上下文、状态、外部操作与对账 |
-| FND-07 | 运营控制面 | FND-01A/01B、FND-02、FND-05/06 | 发布、资产治理、Canary、诊断、费用和运行手册 |
+| FND-07 | [运营控制面](../product/operations-control-plane/README.md) | FND-01A/01B、FND-02、FND-05/06 | 发布、资产治理、Canary、诊断、费用和运行手册；按 O0-O7 交付 |
 | FND-08 | 第二业务流 | FND-05/06/07 | 无业务硬编码的通用性证据 |
 | FND-09 | 动态图与容量 | FND-06、FND-08、V8 W8-09/10 | 受限动态 DAG、检查点和规模门禁 |
 | FND-10 | 兼容退场 | 所有前置 | 删除旧路径、物理目录收敛、文档更新 |
@@ -226,7 +244,7 @@ FND-01 可以与 Runtime 基础并行，但只能使用已冻结契约，不能�
 | `agentadapter` | `current` | 收敛命名并支持 Node contract 与恢复 | Integration Agent | 通过适配器一致性测试 |
 | `environment` | `compat` | 拆分配置、绑定与信任职责 | Catalog / Runtime / Integration | 旧聚合入口引用归零 |
 | `mediapipeline` | `compat` | 拆分业务状态与 Provider SDK 调用 | Delivery / Provider | 新旧服务商路径完成对账并切流 |
-| Workspace Shell | `compat` | 迁移客户关键流程到 Studio | Studio | 旧路由访问量归零且兼容期结束 |
+| Workspace Shell | `dead` | 已迁移知识库、任务、资产和团队入口后删除 | Studio | 旧 Web 路由不再注册 |
 | Admin Shell | `current` | 扩展 Experience 发布和 Runtime Explorer | Operations | 权限、审计和诊断门禁通过 |
 | `REDESIGN_PLAN.md` | `dead` | 删除 | Documentation | 无引用，内容已被 `DESIGN.md` 和现有实现取代 |
 | `docs/roadmap/content-work-os`、`plugin`、`v1-v7` | `dead` | 删除旧主动路线图 | Documentation | 当前文档无链接、实现与迁移证据已由代码、ADR、Foundation、V8 和变更记录承接 |

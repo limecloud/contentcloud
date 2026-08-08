@@ -378,6 +378,9 @@ func updateDispatchStateTx(ctx context.Context, tx pgx.Tx, node domain.NodeRun, 
 }
 
 func appendRuntimeEventTx(ctx context.Context, tx pgx.Tx, event domain.JobEvent) (domain.JobEvent, error) {
+	if event.ID == "" || event.TenantID == "" || event.JobRunID == "" || strings.TrimSpace(event.Type) == "" || strings.TrimSpace(event.ActorType) == "" || event.OccurredAt.IsZero() {
+		return event, domain.Invalid("JOB_EVENT_INVALID", "JobEvent 缺少执行实例、类型或执行者")
+	}
 	if event.Payload == nil {
 		event.Payload = map[string]any{}
 	}
@@ -388,15 +391,34 @@ func appendRuntimeEventTx(ctx context.Context, tx pgx.Tx, event domain.JobEvent)
 	if event.IdempotencyKey != "" {
 		existing, err := scanRuntimeEvent(tx.QueryRow(ctx, `SELECT tenant_id,id,job_run_id,sequence,type,node_key,actor_type,actor_id,correlation_id,idempotency_key,payload,occurred_at FROM runtime_job_events WHERE tenant_id=$1 AND job_run_id=$2 AND idempotency_key=$3`, event.TenantID, event.JobRunID, event.IdempotencyKey))
 		if err == nil {
+			if err := enqueueRuntimeOutboxTx(ctx, tx, existing); err != nil {
+				return existing, err
+			}
 			return existing, nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return event, err
 		}
 	}
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(sequence),0)+1 FROM runtime_job_events WHERE tenant_id=$1 AND job_run_id=$2`, event.TenantID, event.JobRunID).Scan(&event.Sequence); err != nil {
+	var nextSequence int64
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(sequence),0)+1 FROM runtime_job_events WHERE tenant_id=$1 AND job_run_id=$2`, event.TenantID, event.JobRunID).Scan(&nextSequence); err != nil {
 		return event, err
 	}
+	if event.Sequence != 0 && event.Sequence != nextSequence {
+		return event, domain.Conflict("JOB_EVENT_SEQUENCE_CONFLICT", "JobEvent 序号必须连续")
+	}
+	event.Sequence = nextSequence
 	_, err := tx.Exec(ctx, `INSERT INTO runtime_job_events(tenant_id,id,job_run_id,sequence,type,node_key,actor_type,actor_id,correlation_id,idempotency_key,payload,occurred_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, event.TenantID, event.ID, event.JobRunID, event.Sequence, event.Type, event.NodeKey, event.ActorType, event.ActorID, event.CorrelationID, event.IdempotencyKey, jsonValue(event.Payload), event.OccurredAt)
-	return event, dbError(err)
+	if err != nil {
+		return event, dbError(err)
+	}
+	if err := enqueueRuntimeOutboxTx(ctx, tx, event); err != nil {
+		return event, err
+	}
+	return event, nil
+}
+
+func enqueueRuntimeOutboxTx(ctx context.Context, tx pgx.Tx, event domain.JobEvent) error {
+	_, err := tx.Exec(ctx, `INSERT INTO runtime_outbox(tenant_id,id,event_id,schema_version,topic,aggregate_id,payload,attempts,next_attempt_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$8) ON CONFLICT (tenant_id,event_id) DO NOTHING`, event.TenantID, event.ID, event.ID, domain.RuntimeEventSchema, "runtime.job_event", event.JobRunID, jsonValue(map[string]any{"event_id": event.ID, "job_run_id": event.JobRunID, "sequence": event.Sequence, "type": event.Type, "payload": event.Payload}), event.OccurredAt)
+	return dbError(err)
 }

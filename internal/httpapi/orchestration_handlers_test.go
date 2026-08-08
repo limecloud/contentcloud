@@ -102,6 +102,58 @@ func TestOrchestrationBFFVerticalSlice(t *testing.T) {
 	}
 }
 
+func TestOperationsExecutorBFFUsesRegisteredDevices(t *testing.T) {
+	store := memory.New()
+	service := app.New(store, slog.Default())
+	session, err := service.Register(t.Context(), "executor-bff@example.com", "long-enough-password", "执行端运营", "执行端客户")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, _, err := service.SessionActor(t.Context(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	device := domain.Device{ID: domain.NewID(), TenantID: actor.TenantID, OwnerUserID: actor.UserID, DisplayName: "内容工作站", Hostname: "content.local", Platform: "darwin", Arch: "arm64", Version: "0.20.0", Capabilities: []domain.Capability{{ID: "script_generation", Version: "1.0.0", Kind: "business_capability"}}, ProjectIDs: []string{}, LastSeenAt: now}
+	if err := store.SaveDevice(t.Context(), device); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	baseURL, _ := url.Parse(server.URL)
+	jar.SetCookies(baseURL, []*http.Cookie{{Name: "cc_session", Value: session.ID, Path: "/"}})
+	client := &http.Client{Jar: jar}
+
+	directory := callBFF[app.OperationsExecutorDirectory](t, client, http.MethodGet, server.URL+"/api/bff/operations/executors", nil)
+	if len(directory.Executors) != 1 || directory.Executors[0].ID != device.ID || directory.Executors[0].Status != "online" {
+		t.Fatalf("operations executor directory did not return registered device facts: %#v", directory)
+	}
+	detail := callBFF[app.OperationsExecutor](t, client, http.MethodGet, server.URL+"/api/bff/operations/executors/"+device.ID, nil)
+	if detail.DisplayName != "内容工作站" || detail.Hostname != "content.local" || len(detail.Capabilities) != 1 {
+		t.Fatalf("operations executor detail is incomplete: %#v", detail)
+	}
+}
+
+func TestOperationsSkillBFFReturnsExplicitUnconfiguredDirectory(t *testing.T) {
+	service := app.New(memory.New(), slog.Default(), app.WithPlatformAdminEmails("skill-bff@example.com"))
+	session, err := service.Register(t.Context(), "skill-bff@example.com", "long-enough-password", "技能包运营", "技能包客户")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	baseURL, _ := url.Parse(server.URL)
+	jar.SetCookies(baseURL, []*http.Cookie{{Name: "cc_session", Value: session.ID, Path: "/"}})
+	client := &http.Client{Jar: jar}
+
+	directory := callBFF[app.OperationsSkillDirectory](t, client, http.MethodGet, server.URL+"/api/bff/operations/skills", nil)
+	if directory.Configured || directory.Skills == nil || len(directory.Skills) != 0 {
+		t.Fatalf("unconfigured skill BFF must return an explicit empty directory: %#v", directory)
+	}
+}
+
 func TestTaskGovernanceBFFActions(t *testing.T) {
 	service := app.New(memory.New(), slog.Default())
 	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())

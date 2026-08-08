@@ -29,12 +29,11 @@ const check = (condition, message) => {
 const workspacePackage = await readJSON('package.json');
 const cliPackage = await readJSON('packages/contentcloud/package.json');
 const webPackage = await readJSON('web/package.json');
-const marketplace = await readJSON('.agents/plugins/marketplace.json');
 const registry = await readJSON('.agents/plugins/registry.json');
 const trustStore = await readJSON('.agents/plugins/trusted-keys.json');
 const environmentProfile = await readJSON('deploy/systemd/environment-profile.json');
-const plugin = await readJSON(`${pluginRelativePath}/.codex-plugin/plugin.json`);
-const mcp = await readJSON(`${pluginRelativePath}/.mcp.json`);
+const plugin = await readJSON(`${pluginRelativePath}/plugin.json`);
+const mcp = await readJSON(`${pluginRelativePath}/mcp.json`);
 const versionFile = (await readText('VERSION')).trim();
 const goSource = await readText('internal/cli/root.go');
 const codexGuideSource = await readText('internal/httpapi/codex.go');
@@ -84,20 +83,9 @@ check(plugin.name === pluginName, 'plugin manifest name must match its directory
 check(plugin.license === 'Apache-2.0', 'plugin manifest license must be Apache-2.0');
 check(cliPackage.license === plugin.license, 'npm and plugin licenses must match');
 check(license.includes('Apache License') && license.includes('Version 2.0'), 'root LICENSE must contain Apache License 2.0');
-check(plugin.skills === './skills/', 'plugin manifest must expose bundled skills from ./skills/');
-check(plugin.mcpServers === './.mcp.json', 'plugin manifest must reference ./.mcp.json');
+check(plugin.extensions?.['run.zhongcao.contentcloud']?.claims === './run.zhongcao.contentcloud/claims.json', 'plugin manifest must expose governed run claims');
 check(mcpServer?.command === 'npx', 'contentcloud-local MCP command must be npx');
 check(JSON.stringify(mcpServer?.args?.slice(-2)) === JSON.stringify(['mcp', 'serve']), 'contentcloud-local MCP must invoke mcp serve');
-
-check(marketplace.name === 'contentcloud', 'repo marketplace name must be contentcloud');
-const marketplaceEntries = Array.isArray(marketplace.plugins) ? marketplace.plugins : [];
-const marketplaceEntry = marketplaceEntries.find(entry => entry?.name === pluginName);
-check(Boolean(marketplaceEntry), `marketplace is missing ${pluginName}`);
-check(marketplaceEntry?.source?.source === 'local', 'marketplace plugin source must be local to the immutable Git ref');
-check(marketplaceEntry?.source?.path === `./${pluginRelativePath}`, 'marketplace plugin path must point to the canonical plugin directory');
-check(marketplaceEntry?.policy?.installation === 'AVAILABLE', 'marketplace installation policy must be AVAILABLE');
-check(['ON_INSTALL', 'ON_USE'].includes(marketplaceEntry?.policy?.authentication), 'marketplace authentication policy is invalid');
-check(typeof marketplaceEntry?.category === 'string' && marketplaceEntry.category !== '', 'marketplace category is required');
 
 check(registry.schema_version === '1.0', 'registry schema_version must be 1.0');
 check(registry.$schema === '../../contracts/marketplace-registry-1.0.schema.json', 'registry must reference the checked-in 1.0 schema');
@@ -238,9 +226,6 @@ for (const skill of skillDirectories) {
   const skillMarkdown = await readText(`${pluginRelativePath}/skills/${skill}/SKILL.md`);
   const declaredName = exactMatch(skillMarkdown, /^name:\s*["']?([^\n"']+)["']?\s*$/m, `${skill} skill name`);
   check(declaredName === skill, `${skill} SKILL.md declares name ${JSON.stringify(declaredName)}`);
-  await stat(resolve(pluginRoot, 'skills', skill, 'agents', 'openai.yaml')).catch(() => {
-    errors.push(`${skill} is missing agents/openai.yaml`);
-  });
 }
 
 if (registryEntry?.signature?.status !== 'verified') {
@@ -258,7 +243,7 @@ if (registryEntry?.evaluation?.status !== 'passed') {
 
 const sourceRef = registryEntry?.source?.ref;
 if (sourceRef && gitRefExists(sourceRef)) {
-  const manifestAtRef = `${sourceRef}:${pluginRelativePath}/.codex-plugin/plugin.json`;
+  const manifestAtRef = `${sourceRef}:${pluginRelativePath}/plugin.json`;
   if (!gitObjectExists(manifestAtRef)) {
     warnings.push(`${sourceRef} exists but does not contain the plugin manifest; choose a new immutable version`);
   }
@@ -272,7 +257,7 @@ if (tagged) {
   check(registryEntry?.evaluation?.status === 'passed', 'tagged release requires a passed scene evaluation');
   check(registryEntry?.lifecycle === 'evaluated' || registryEntry?.lifecycle === 'published', 'tagged release requires evaluated or published lifecycle');
   check(Boolean(sourceRef) && gitRefExists(sourceRef), 'tagged release source ref does not exist');
-  check(Boolean(sourceRef) && gitObjectExists(`${sourceRef}:${pluginRelativePath}/.codex-plugin/plugin.json`), 'tagged release source ref does not contain the plugin');
+  check(Boolean(sourceRef) && gitObjectExists(`${sourceRef}:${pluginRelativePath}/plugin.json`), 'tagged release source ref does not contain the plugin');
 }
 
 const report = {
@@ -281,7 +266,6 @@ const report = {
   version: versionFile,
   plugin: `${pluginName}@${plugin.version}`,
   plugin_digest: `sha256:${digest}`,
-  marketplace_entries: marketplaceEntries.length,
   registry_entries: registryEntries.length,
   bundled_skills: skillDirectories,
   executable_scripts: executableScripts,

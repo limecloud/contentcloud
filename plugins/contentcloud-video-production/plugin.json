@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "contentcloud-video-production",
+  "version": "0.20.0",
+  "description": "Governed local-first content production workflows.",
+  "author": {
+    "name": "GoodVision",
+    "url": "https://github.com/limecloud/contentcloud"
+  },
+  "homepage": "https://github.com/limecloud/contentcloud",
+  "repository": "https://github.com/limecloud/contentcloud",
+  "license": "Apache-2.0",
+  "keywords": [
+    "contentcloud",
+    "knowledge",
+    "marketing-video",
+    "creative-production"
+  ],
+  "extensions": {
+    "run.zhongcao.contentcloud": {
+      "claims": "./run.zhongcao.contentcloud/claims.json"
+    }
+  }
+}

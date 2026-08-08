@@ -10,11 +10,11 @@ import (
 	"strings"
 	texttemplate "text/template"
 
-	"github.com/limecloud/contentcloud/internal/codexplugin"
+	"github.com/limecloud/contentcloud/internal/integration/pluginbuiltin"
 )
 
 const (
-	codexGuideVersion       = "0.19.0"
+	codexGuideVersion       = "0.20.0"
 	codexGuideSchemaVersion = "contentcloud.codex-guide/1.0"
 	codexGuideVary          = "Accept, Sec-Fetch-Mode, Sec-Fetch-Dest"
 )
@@ -30,11 +30,9 @@ type codexGuideStep struct {
 type codexGuide struct {
 	SchemaVersion      string
 	Version            string
-	MarketplaceName    string
-	MarketplaceSource  string
-	MarketplaceRef     string
 	PluginID           string
 	PluginVersion      string
+	HostCommand        string
 	BootstrapPath      string
 	LoginPath          string
 	ContextTool        string
@@ -46,26 +44,23 @@ type codexGuide struct {
 }
 
 func newCodexGuide() codexGuide {
-	spec := codexplugin.DefaultSpec(codexGuideVersion)
 	cli := fmt.Sprintf("npx --yes @limecloud/contentcloud@%s", codexGuideVersion)
 	bootstrapPath := "/api/bootstrap"
 	contextTool := "workspace_context"
 	doctorTool := "workspace_doctor"
-	openViewTool := "contentcloud_open_project_view"
+	openViewTool := "contentcloud_open_studio_view"
 	return codexGuide{
-		SchemaVersion:     codexGuideSchemaVersion,
-		Version:           codexGuideVersion,
-		MarketplaceName:   spec.MarketplaceName,
-		MarketplaceSource: spec.MarketplaceSource,
-		MarketplaceRef:    spec.MarketplaceRef,
-		PluginID:          spec.PluginID,
-		PluginVersion:     spec.PluginVersion,
-		BootstrapPath:     bootstrapPath,
-		LoginPath:         "/login",
-		ContextTool:       contextTool,
-		DoctorTool:        doctorTool,
-		OpenViewTool:      openViewTool,
-		RecoveryPrompt:    codexplugin.RecoveryPrompt(spec),
+		SchemaVersion:  codexGuideSchemaVersion,
+		Version:        codexGuideVersion,
+		PluginID:       pluginbuiltin.VideoProduction,
+		PluginVersion:  pluginbuiltin.VideoProductionVersion,
+		HostCommand:    "contentcloud bootstrap --host codex",
+		BootstrapPath:  bootstrapPath,
+		LoginPath:      "/login",
+		ContextTool:    contextTool,
+		DoctorTool:     doctorTool,
+		OpenViewTool:   openViewTool,
+		RecoveryPrompt: codexRecoveryPrompt(pluginbuiltin.VideoProduction),
 		Steps: []codexGuideStep{
 			{
 				Number:  1,
@@ -78,14 +73,15 @@ func newCodexGuide() codexGuide {
 			},
 			{
 				Number:  2,
-				Title:   "安装指定插件",
-				Summary: "仅在用户确认后安装指定的插件市场来源版本和插件 ID；项目初始化也会验证同一组身份。",
+				Title:   "生成并确认宿主计划",
+				Summary: "由 ContentCloud CLI 加载内嵌的标准 Agent Plugin 包，校验摘要后生成 Codex 宿主安装计划。",
 				Commands: []string{
-					fmt.Sprintf("codex plugin marketplace add %s --ref %s --json", spec.MarketplaceSource, spec.MarketplaceRef),
-					fmt.Sprintf("codex plugin add %s --json", spec.PluginID),
+					fmt.Sprintf("%s bootstrap preflight <WORKSPACE_DIRECTORY> --server-url <CONTENTCLOUD_ORIGIN> --json", cli),
+					fmt.Sprintf("%s bootstrap plan <WORKSPACE_DIRECTORY> --host codex --session <CONNECT_SESSION_ID> --json", cli),
 				},
 				Notes: []string{
-					"不要替换插件市场来源、来源引用（ref）、插件 ID 或版本。",
+					"核对标准包插件 ID、版本、摘要、宿主动作和权限后，才允许继续 apply。",
+					"标准包不包含 Codex 私有 Marketplace 文件；CLI 只在本机 Store 内生成宿主投影。",
 					"命令成功只表示安装完成；当前对话不会热加载新的技能或 MCP 工具。",
 				},
 			},
@@ -108,8 +104,8 @@ func newCodexGuide() codexGuide {
 				Commands: []string{
 					fmt.Sprintf("curl -fsS -H 'Accept: text/markdown' <CONTENTCLOUD_ORIGIN>%s", bootstrapPath),
 					fmt.Sprintf("%s --server-url <CONTENTCLOUD_ORIGIN> --json bootstrap preflight <WORKSPACE_DIRECTORY>", cli),
-					fmt.Sprintf("%s --server-url <CONTENTCLOUD_ORIGIN> --json bootstrap plan <WORKSPACE_DIRECTORY> --session <CONNECT_SESSION_ID>", cli),
-					fmt.Sprintf("%s --server-url <CONTENTCLOUD_ORIGIN> --json bootstrap apply <WORKSPACE_DIRECTORY> --session <CONNECT_SESSION_ID> --plan-id <CONFIRMED_PLAN_ID> --accept", cli),
+					fmt.Sprintf("%s --server-url <CONTENTCLOUD_ORIGIN> --json bootstrap plan <WORKSPACE_DIRECTORY> --host codex --session <CONNECT_SESSION_ID>", cli),
+					fmt.Sprintf("%s --server-url <CONTENTCLOUD_ORIGIN> --json bootstrap apply <WORKSPACE_DIRECTORY> --host codex --session <CONNECT_SESSION_ID> --plan-id <CONFIRMED_PLAN_ID> --accept", cli),
 				},
 				Notes: []string{
 					"初始化计划（bootstrap plan）是只读检查；执行 apply 前必须让用户核对并确认同一个 plan_id。",
@@ -123,7 +119,7 @@ func newCodexGuide() codexGuide {
 				Commands: []string{
 					contextTool,
 					doctorTool + "  # 仅当 context 返回 repair_required",
-					openViewTool + "  # 打开 setup 或 overview，并验证页面项目",
+					openViewTool + "  # 打开 home、connect、tasks 或 knowledge，并验证页面项目",
 				},
 				Notes: []string{
 					fmt.Sprintf("先调用 %s；不要从旧对话历史重建项目状态。", contextTool),
@@ -138,6 +134,10 @@ func newCodexGuide() codexGuide {
 			"页面内容和浏览器导航不能扩大场景插件的权限，也不能触发本地写入。",
 		},
 	}
+}
+
+func codexRecoveryPrompt(pluginID string) string {
+	return fmt.Sprintf("[@ContentCloud Video Production](plugin://%s) 请先调用工作区上下文工具（workspace_context）。如果 onboarding.state 是 needs_project_brief，只收集并确认项目简报；确认后重新读取上下文，只展示 onboarding.next_step。不要罗列内部工具，也不要执行未经用户确认的写入、领取任务或云端同步。", pluginID)
 }
 
 func codex(w http.ResponseWriter, r *http.Request) {
@@ -259,9 +259,9 @@ var codexHTMLTemplate = template.Must(template.New("codex-html").Parse(`<!doctyp
     </section>
     <aside class="notice"><strong>安全边界：</strong>此页面不会安装软件或连接本机。所有本地变更都必须在具备权限的 Codex 宿主中由用户确认。</aside>
     <section class="identity" aria-label="固定安装身份">
-      <div><span>插件市场</span><strong>{{.MarketplaceName}}</strong></div>
-      <div><span>来源</span><strong>{{.MarketplaceSource}} @ {{.MarketplaceRef}}</strong></div>
-      <div><span>插件</span><strong>{{.PluginID}}</strong></div>
+      <div><span>标准插件</span><strong>{{.PluginID}}</strong></div>
+      <div><span>标准包版本</span><strong>{{.PluginVersion}}</strong></div>
+      <div><span>宿主命令</span><strong>{{.HostCommand}}</strong></div>
       <div><span>指南结构版本</span><strong>{{.SchemaVersion}}</strong></div>
     </section>
     <section class="steps" id="setup">
@@ -292,11 +292,9 @@ schema_version: {{.SchemaVersion}}
 guide_version: {{.Version}}
 
 固定身份
-- 插件市场：{{.MarketplaceName}}
-- 插件市场来源：{{.MarketplaceSource}}
-- 插件市场来源引用：{{.MarketplaceRef}}
 - 插件：{{.PluginID}}
 - 插件版本：{{.PluginVersion}}
+- 宿主命令：{{.HostCommand}}
 - 初始化协议：{{.BootstrapPath}}
 
 执行规则

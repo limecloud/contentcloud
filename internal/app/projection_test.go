@@ -15,10 +15,10 @@ func TestProjectionNextActionsUseTypedPageTargets(t *testing.T) {
 		wantView string
 		enabled  bool
 	}{
-		{name: "archived", project: domain.Project{Status: "archived"}, sections: map[string]domain.ProjectionSection{}, wantView: "overview", enabled: false},
-		{name: "onboarding", project: domain.Project{Status: "active"}, sections: map[string]domain.ProjectionSection{}, wantView: "setup", enabled: true},
+		{name: "archived", project: domain.Project{Status: "archived"}, sections: map[string]domain.ProjectionSection{}, wantView: "home", enabled: false},
+		{name: "onboarding", project: domain.Project{Status: "active"}, sections: map[string]domain.ProjectionSection{}, wantView: "connect", enabled: true},
 		{name: "knowledge", project: domain.Project{Status: "active"}, sections: map[string]domain.ProjectionSection{"onboarding": {Count: 1}}, wantView: "knowledge", enabled: true},
-		{name: "assignment", project: domain.Project{Status: "active"}, sections: map[string]domain.ProjectionSection{"onboarding": {Count: 1}, "knowledge": {Count: 1}}, wantView: "planning", enabled: true},
+		{name: "assignment", project: domain.Project{Status: "active"}, sections: map[string]domain.ProjectionSection{"onboarding": {Count: 1}, "knowledge": {Count: 1}}, wantView: "tasks", enabled: true},
 	}
 	service := &Service{}
 	for _, test := range tests {

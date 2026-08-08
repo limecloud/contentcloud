@@ -3,10 +3,13 @@ package environment
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/limecloud/contentcloud/internal/domain"
 )
+
+var registrySourceRefPattern = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`)
 
 type Registry struct {
 	SchemaURL     string          `json:"$schema,omitempty"`
@@ -135,7 +138,7 @@ func AssessRegistryEntry(entry RegistryEntry, purpose RegistryPurpose) (Registry
 }
 
 func validateRegistryEntryMetadata(entry RegistryEntry) error {
-	if !pluginIDPattern.MatchString(entry.ID) || !validPluginKind(entry.Kind) || !versionPattern.MatchString(entry.Version) || !digestPattern.MatchString(entry.Digest) || !sourceRefPattern.MatchString(entry.Source.Ref) {
+	if !pluginIDPattern.MatchString(entry.ID) || !validPluginKind(entry.Kind) || !versionPattern.MatchString(entry.Version) || !digestPattern.MatchString(entry.Digest) || !registrySourceRefPattern.MatchString(entry.Source.Ref) {
 		return domain.Invalid("REGISTRY_ENTRY_INVALID", "插件市场能力目录条目的标识、版本、来源引用或摘要无效")
 	}
 	if strings.TrimSpace(entry.Source.Repository) == "" || strings.TrimSpace(entry.License) == "" || len(entry.Permissions) == 0 || len(entry.OutputSchemas) == 0 || len(entry.CompatibleProfiles) == 0 {

@@ -139,7 +139,7 @@ func TestLaunchdDaemonStatusKeepsLastRuntimeStateWhenStopped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tracker.recordPoll(app.DaemonRuntimePolicy{CurrentVersion: "0.10.0", LatestVersion: "0.19.0", UpdateAvailable: true}, false, nil)
+	tracker.recordPoll(app.DaemonRuntimePolicy{CurrentVersion: "0.10.0", LatestVersion: "0.20.0", UpdateAvailable: true}, false, nil)
 	service := &launchdDaemonService{
 		home: t.TempDir(), executable: "/opt/contentcloud", version: "0.10.0", uid: 501, now: func() time.Time { return now },
 		run: func(string, ...string) ([]byte, error) { return nil, errors.New("service not loaded") },

@@ -2,6 +2,23 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.20.0] - 2026-08-08
+
+### Added
+
+- 引入 Runtime 统一事务命令内核与可靠 Outbox 投递，新增迁移 `00018`、`00019`，为快照、事件和投递状态提供一致的提交边界与租约围栏。
+- 增加 Operations 控制平面、执行器与技能目录 API、管理后台视图，以及插件声明、能力契约和本地运行入口。
+- 扩展 Customer Studio 的资产、知识和团队工作区，并拆分资产详情与查看器模块。
+
+### Changed
+
+- CLI bootstrap、workspace 和插件宿主统一使用新的运行时/插件边界；同步收敛架构、产品和 V8 路线文档。
+- Memory Store 与 PostgreSQL Store 对 Runtime 命令、幂等、Outbox claim/ack/retry 语义保持一致。
+
+### Fixed
+
+- 修复 Memory Store Outbox 批量 claim 回滚时复合租户 key 丢失导致的重复消息领取问题。
+
 ## [0.19.0] - 2026-08-07
 
 ### Added

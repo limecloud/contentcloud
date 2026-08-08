@@ -12,10 +12,10 @@ const codex:AgentClient={id:'codex',display_name:'Codex',capabilities};
 const digest=`sha256:${'a'.repeat(64)}`;
 
 function handoff(overrides:Partial<AgentHandoff>={}):AgentHandoff {
-  const prompt='[@ContentCloud](plugin://contentcloud-video-production@contentcloud) project project-1; workspace_context';
+  const prompt='[@ContentCloud](plugin://contentcloud-video-production) project project-1; workspace_context';
   const value:AgentHandoff={
     schema_version:'contentcloud.agent-handoff/1.0',client:codex,kind:'project',project_id:'project-1',
-    target:{kind:'project',id:'project-1'},integration:{kind:'plugin',id:'contentcloud-video-production@contentcloud',version:'0.19.0'},
+    target:{kind:'project',id:'project-1'},integration:{kind:'plugin',id:'contentcloud-video-production',version:'0.20.0'},
     requires_new_session:true,requires_workspace_selection:true,launch:{mode:'deep_link',url:`codex://new?prompt=${encodeURIComponent(prompt)}`},
     prompt,steps:['select workspace'],fallback_url:'/codex',...overrides,
   };
@@ -38,7 +38,7 @@ describe('Agent handoff contract',()=>{
   });
 
   it('requires review prompts to bind the exact revision and digest',()=>{
-    const prompt=`[@ContentCloud](plugin://contentcloud-video-production@contentcloud) workspace_context project-1 revision-1 ${digest} review_feedback_list`;
+    const prompt=`[@ContentCloud](plugin://contentcloud-video-production) workspace_context project-1 revision-1 ${digest} review_feedback_list`;
     const value=handoff({kind:'review_feedback',target:{kind:'submission_revision',id:'revision-1',digest},prompt});
     expect(validateAgentHandoff(value,{client:codex,projectID:'project-1',targetKind:'submission_revision',targetID:'revision-1',digest}).target.id).toBe('revision-1');
     expect(()=>validateAgentHandoff(handoff({kind:'review_feedback',target:{kind:'submission_revision',id:'revision-1',digest},prompt:'workspace_context project-1 revision-1 review_feedback_list'}),{client:codex,projectID:'project-1',targetKind:'submission_revision',targetID:'revision-1',digest})).toThrow();

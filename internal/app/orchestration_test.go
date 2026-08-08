@@ -513,7 +513,7 @@ func TestOrchestrationAdminCanCreateEnvironmentAndLintSOP(t *testing.T) {
 		Name:         "文章交付",
 		ContentTypes: []string{domain.ContentTypeWeChatArticle},
 		Stages:       []domain.StageDefinition{{ID: "draft", Name: "文章草稿", Order: 10, OutputSchema: "contentcloud.article/1.0", ExecutionModes: []string{"local"}, GateIDs: []string{"approval"}}},
-		Gates:        []domain.GateDefinition{{ID: "approval", Name: "客户确认", Mode: domain.GateModeRequired, Blocking: false}},
+		Gates:        []domain.GateDefinition{{ID: "approval", Name: "客户确认", Mode: domain.GateModeInternalReview, Blocking: false}},
 	}, "")
 	if err != nil {
 		t.Fatal(err)
@@ -523,7 +523,7 @@ func TestOrchestrationAdminCanCreateEnvironmentAndLintSOP(t *testing.T) {
 		t.Fatal(err)
 	}
 	if report.Valid || len(report.Errors) == 0 {
-		t.Fatalf("invalid required gate should fail lint: %#v", report)
+		t.Fatalf("non-blocking internal review should fail lint: %#v", report)
 	}
 	createdSOP.Versions[0].Gates[0].Blocking = true
 	if _, err := service.SaveSOPVersion(ctx, actor, createdSOP.Definition.ID, 1, app.SaveSOPVersionInput{Name: createdSOP.Versions[0].Name, ContentTypes: createdSOP.Versions[0].ContentTypes, Stages: createdSOP.Versions[0].Stages, Gates: createdSOP.Versions[0].Gates, DefaultExecutionMode: "local"}, ""); err != nil {

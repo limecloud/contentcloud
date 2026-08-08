@@ -1,7 +1,0 @@
-interface:
-  display_name: "ContentCloud 公众号长文"
-  short_description: "基于批准证据生成、校验并修订结构化微信公众号长文内容"
-  default_prompt: "Use $contentcloud-longform-writing to draft or revise the governed WeChat ArticleItem in the selected batch."
-
-policy:
-  allow_implicit_invocation: true

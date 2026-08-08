@@ -13,7 +13,7 @@
 - 真实媒体服务商、可持久化的轮询和回调、完整的媒体租约恢复、受限的流式下载和确定性后期处理仍未完成。
 - Codex/Claude 适配器当前仍使用 legacy CLI 进程，不保存可跨 ContentCloud 进程恢复的宿主会话；HarnessRegistry 只解决单进程实例复用，不等于真实 SDK 恢复已经完成。
 
-基线事实主要来自 `CHANGELOG.md`、`internal/domain`、`internal/runtime`、`internal/agentadapter`、Memory/PostgreSQL Store 以及迁移 `00012_v7_media_pipeline.sql`、`00014_agentic_job_runtime.sql`、`00015_runtime_agent_instances.sql`、`00016_runtime_attempts.sql`。历史路线图只能作为背景，不能代替当前代码和测试结果。
+基线事实主要来自 `CHANGELOG.md`、`internal/domain`、`internal/runtime`、`internal/agentadapter`、Memory/PostgreSQL Store 以及迁移 `00012_v7_media_pipeline.sql`、`00014_agentic_job_runtime.sql`、`00015_runtime_agent_instances.sql`、`00016_runtime_attempts.sql`、`00018_runtime_command_kernel.sql`、`00019_runtime_outbox_delivery.sql`、`00020_runtime_append_only_permissions.sql`。历史路线图只能作为背景，不能代替当前代码和测试结果。
 
 V8 的第一个工作包必须先更新权威文档和能力登记表；不能在错误的基线上继续规划。
 
@@ -44,7 +44,7 @@ V8 的第一个工作包必须先更新权威文档和能力登记表；不能�
 
 所有表都需要由 Memory Store 和 PostgreSQL Store 共同遵守同一份存储契约；迁移集成测试必须使用真实的行级安全策略（RLS）操作人上下文。
 
-当前物理落地：`00014_agentic_job_runtime.sql` 覆盖 JobPlan、JobRun、NodeRun、JobEvent、State、Checkpoint 和 ExternalEffect；`00015_runtime_agent_instances.sql` 覆盖 ContextView 与 AgentInstance；`00016_runtime_attempts.sql` 覆盖独立 RuntimeAttempt、复合外键、活动租约索引和强制 RLS。TaskRun/RunAttempt 继续作为 V7 兼容路径，MIG8-F 以及完整的 MIG8-H/MIG8-I 仍未落地。
+当前物理落地：`00014_agentic_job_runtime.sql` 覆盖 JobPlan、JobRun、NodeRun、JobEvent、State、Checkpoint 和 ExternalEffect；`00015_runtime_agent_instances.sql` 覆盖 ContextView 与 AgentInstance；`00016_runtime_attempts.sql` 覆盖独立 RuntimeAttempt、复合外键、活动租约索引和强制 RLS；`00018_runtime_command_kernel.sql` 新增与 JobEvent 同事务的 `runtime_outbox`；`00019_runtime_outbox_delivery.sql` 增加持久化消费者租约；`00020_runtime_append_only_permissions.sql` 撤掉 Runtime 角色对追加事实和不可变快照的直接修改权限。TaskRun/RunAttempt 继续作为 V7 兼容路径，MIG8-F 以及完整的 MIG8-H/MIG8-I 仍未落地。
 
 ## 4. 兼容投影
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/domain"
 	experiencestudio "github.com/limecloud/contentcloud/internal/experience/studio"
+	"github.com/limecloud/contentcloud/internal/store"
 )
 
 type WorkspaceFolderItem = experiencestudio.WorkspaceFolderItem
@@ -48,8 +49,54 @@ func (s *Service) CustomerWorkspaceMaterials(ctx context.Context, actor Actor, p
 			return WorkspaceMaterialProjection{}, domain.NotFound("项目")
 		}
 	}
-	queries := experiencestudio.NewAssetQueries(s.store, s.now)
+	queries := experiencestudio.NewAssetQueries(legacyWorkspaceAssetReader{store: s.store}, s.now)
 	return queries.WorkspaceMaterials(ctx, actor.TenantID, projectID, projectNames)
+}
+
+type legacyWorkspaceAssetReader struct{ store store.Store }
+
+func (r legacyWorkspaceAssetReader) WorkspaceFolders(ctx context.Context, tenantID, projectID string) ([]experiencestudio.WorkspaceFolderRecord, error) {
+	values, err := r.store.WorkspaceFolders(ctx, tenantID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]experiencestudio.WorkspaceFolderRecord, 0, len(values))
+	for _, value := range values {
+		result = append(result, studioWorkspaceFolderRecord(value))
+	}
+	return result, nil
+}
+
+func (r legacyWorkspaceAssetReader) WorkspaceMaterials(ctx context.Context, tenantID, projectID string) ([]experiencestudio.WorkspaceMaterialRecord, error) {
+	values, err := r.store.WorkspaceMaterials(ctx, tenantID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]experiencestudio.WorkspaceMaterialRecord, 0, len(values))
+	for _, value := range values {
+		result = append(result, studioWorkspaceMaterialRecord(value))
+	}
+	return result, nil
+}
+
+func (r legacyWorkspaceAssetReader) SourceRevision(ctx context.Context, tenantID, revisionID string) (experiencestudio.SourceRevisionRecord, error) {
+	value, err := r.store.SourceRevision(ctx, tenantID, revisionID)
+	if err != nil {
+		return experiencestudio.SourceRevisionRecord{}, err
+	}
+	return studioSourceRevisionRecord(value), nil
+}
+
+func studioWorkspaceFolderRecord(value domain.WorkspaceFolder) experiencestudio.WorkspaceFolderRecord {
+	return experiencestudio.WorkspaceFolderRecord{ID: value.ID, ParentID: value.ParentID, ProjectID: value.ProjectID, Name: value.Name, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
+}
+
+func studioWorkspaceMaterialRecord(value domain.WorkspaceMaterial) experiencestudio.WorkspaceMaterialRecord {
+	return experiencestudio.WorkspaceMaterialRecord{ID: value.ID, FolderID: value.FolderID, ProjectID: value.ProjectID, SourceRevisionID: value.SourceRevisionID, MaterialKind: value.MaterialKind, Origin: value.Origin, Usage: value.Usage, Title: value.Title, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, LastUsedAt: value.LastUsedAt}
+}
+
+func studioSourceRevisionRecord(value domain.SourceRevision) experiencestudio.SourceRevisionRecord {
+	return experiencestudio.SourceRevisionRecord{FileName: value.FileName, DeclaredMIME: value.DeclaredMIME, DetectedMIME: value.DetectedMIME, ByteSize: value.ByteSize, ProcessingStatus: value.ProcessingStatus}
 }
 
 func (s *Service) CreateCustomerWorkspaceFolder(ctx context.Context, actor Actor, input CreateWorkspaceFolderInput, requestID string) (WorkspaceFolderItem, error) {
@@ -74,7 +121,7 @@ func (s *Service) CreateCustomerWorkspaceFolder(ctx context.Context, actor Actor
 		return WorkspaceFolderItem{}, err
 	}
 	s.audit(ctx, actor, project.ID, "workspace_folder.created", "workspace_folder", folder.ID, requestID, map[string]any{"name": folder.Name})
-	return experiencestudio.ProjectWorkspaceFolder(folder, project.BrandName), nil
+	return experiencestudio.ProjectWorkspaceFolder(studioWorkspaceFolderRecord(folder), project.BrandName), nil
 }
 
 func (s *Service) UploadCustomerWorkspaceMaterial(ctx context.Context, actor Actor, projectID, folderRef, title, fileName, mimeType string, data []byte, requestID string) (WorkspaceMaterialItem, error) {
@@ -121,7 +168,7 @@ func (s *Service) UploadCustomerWorkspaceMaterial(ctx context.Context, actor Act
 		return WorkspaceMaterialItem{}, err
 	}
 	s.audit(ctx, actor, project.ID, "workspace_material.uploaded", "workspace_material", material.ID, requestID, map[string]any{"source_revision_id": revision.ID, "mime": mimeType, "byte_size": len(data)})
-	return experiencestudio.ProjectWorkspaceMaterial(material, revision, project.BrandName), nil
+	return experiencestudio.ProjectWorkspaceMaterial(studioWorkspaceMaterialRecord(material), studioSourceRevisionRecord(revision), project.BrandName), nil
 }
 
 func (s *Service) CustomerWorkspaceMaterialBytes(ctx context.Context, actor Actor, materialID string) (WorkspaceMaterialItem, []byte, error) {
@@ -141,7 +188,7 @@ func (s *Service) CustomerWorkspaceMaterialBytes(ctx context.Context, actor Acto
 	if err != nil {
 		return WorkspaceMaterialItem{}, nil, err
 	}
-	return experiencestudio.ProjectWorkspaceMaterial(material, revision, project.BrandName), data, nil
+	return experiencestudio.ProjectWorkspaceMaterial(studioWorkspaceMaterialRecord(material), studioSourceRevisionRecord(revision), project.BrandName), data, nil
 }
 
 func (s *Service) AttachCustomerWorkspaceMaterials(ctx context.Context, actor Actor, taskID string, input StudioAttachMaterialsInput, requestID string) (StudioTaskView, error) {

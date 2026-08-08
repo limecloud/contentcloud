@@ -5,16 +5,45 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/limecloud/contentcloud/internal/domain"
 )
+
+type WorkspaceFolderRecord struct {
+	ID        string
+	ParentID  string
+	ProjectID string
+	Name      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type WorkspaceMaterialRecord struct {
+	ID               string
+	FolderID         string
+	ProjectID        string
+	SourceRevisionID string
+	MaterialKind     string
+	Origin           string
+	Usage            string
+	Title            string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	LastUsedAt       *time.Time
+}
+
+type SourceRevisionRecord struct {
+	FileName         string
+	DeclaredMIME     string
+	DetectedMIME     string
+	ByteSize         int64
+	ProcessingStatus string
+}
 
 // WorkspaceAssetReader is the read-side port required to build the customer
 // material projection. Storage implementations satisfy it structurally.
 type WorkspaceAssetReader interface {
-	WorkspaceFolders(context.Context, string, string) ([]domain.WorkspaceFolder, error)
-	WorkspaceMaterials(context.Context, string, string) ([]domain.WorkspaceMaterial, error)
-	SourceRevision(context.Context, string, string) (domain.SourceRevision, error)
+	WorkspaceFolders(context.Context, string, string) ([]WorkspaceFolderRecord, error)
+	WorkspaceMaterials(context.Context, string, string) ([]WorkspaceMaterialRecord, error)
+	SourceRevision(context.Context, string, string) (SourceRevisionRecord, error)
 }
 
 type AssetQueries struct {
@@ -69,7 +98,7 @@ func (q AssetQueries) WorkspaceMaterials(ctx context.Context, tenantID, projectI
 	return result, nil
 }
 
-func ProjectWorkspaceFolder(folder domain.WorkspaceFolder, projectName string) WorkspaceFolderItem {
+func ProjectWorkspaceFolder(folder WorkspaceFolderRecord, projectName string) WorkspaceFolderItem {
 	return WorkspaceFolderItem{
 		Ref:         "folder:" + folder.ID,
 		ParentRef:   optionalRef("folder:", folder.ParentID),
@@ -81,7 +110,7 @@ func ProjectWorkspaceFolder(folder domain.WorkspaceFolder, projectName string) W
 	}
 }
 
-func ProjectWorkspaceMaterial(material domain.WorkspaceMaterial, revision domain.SourceRevision, projectName string) WorkspaceMaterialItem {
+func ProjectWorkspaceMaterial(material WorkspaceMaterialRecord, revision SourceRevisionRecord, projectName string) WorkspaceMaterialItem {
 	mimeType := strings.TrimSpace(revision.DetectedMIME)
 	if mimeType == "" {
 		mimeType = strings.TrimSpace(revision.DeclaredMIME)
@@ -125,6 +154,21 @@ func BuildAssetSurface(workspace WorkspaceMaterialProjection, results CreativeRe
 		recent.Results = recent.Results[:8]
 	}
 	return AssetSurface{Workspace: workspace, CreativeResults: results, Recent: recent, GeneratedAt: now.UTC()}
+}
+
+func BuildCreativeResultProjection(items []CreativeResultItem, now time.Time) CreativeResultProjection {
+	projected := CreativeResultProjection{Items: append([]CreativeResultItem{}, items...), Counts: map[string]int{}, GeneratedAt: now.UTC()}
+	sort.Slice(projected.Items, func(i, j int) bool {
+		return projected.Items[i].CreatedAt.After(projected.Items[j].CreatedAt)
+	})
+	for _, item := range projected.Items {
+		projected.Counts[item.ResultType]++
+		if item.Reusable {
+			projected.Counts["reusable"]++
+		}
+	}
+	projected.Counts["all"] = len(projected.Items)
+	return projected
 }
 
 func materialProcessingState(status string) string {

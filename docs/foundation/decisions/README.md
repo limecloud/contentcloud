@@ -95,6 +95,8 @@ ADR-0002-product-plane-separation.md
 | [ADR-0012](./ADR-0012-customer-asset-library-information-architecture.md) | 客户资产库信息架构（历史） | “品牌资料”演进为跨任务资产库，已由 ADR-0013/0014 取代分类与入口设计 | 旧路由兼容与历史迁移 |
 | [ADR-0013](./ADR-0013-customer-result-asset-boundary.md) | 客户创作结果边界 | 冻结五类生成结果、结果状态与复用门禁；客户入口范围由 ADR-0014 扩展 | 结果 DTO、目录收录与复用门禁 |
 | [ADR-0014](./ADR-0014-customer-asset-surface.md) | 客户资产入口 | 一个“资产”入口组合工作区资料与创作结果两个专用投影，不创建超级 Asset | 客户信息架构、资料契约与 BFF 组合 |
+| [ADR-0015](./ADR-0015-operations-control-plane.md) | 独立的平台运营后台 | 按创作产品、能力与执行、运行诊断、创作结果治理分区；客户面与运营面完全分离 | Operations BFF、发布中心、绑定规则、Runtime Explorer 和资产治理 |
+| [ADR-0016](./ADR-0016-runtime-command-kernel.md) | Runtime 统一事务命令内核 | 快照、JobEvent 和 outbox 在同一命令提交边界内完成；Service 不再组合宽写方法 | RuntimeCommandStore、outbox、故障注入和旧写路径退场 |
 
 候选编号在正式创建 ADR 文件时确认。若已有项目 ADR 编号体系，应迁入现有体系而不是并行编号。
 

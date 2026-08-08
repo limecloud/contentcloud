@@ -107,7 +107,11 @@ func TestRuntimeStartIdempotencyAndStateCAS(t *testing.T) {
 func TestEffectUnknownCannotBeRetriedBlindly(t *testing.T) {
 	repo := memory.New()
 	runtimeService := New(repo, time.Now)
-	effect, err := runtimeService.RegisterEffect(t.Context(), domain.ExternalEffect{TenantID: "tenant-1", JobRunID: "job-1", NodeRunID: "node-1", Kind: "media.generate", IdempotencyKey: "effect-1", RequestDigest: "sha256:req", Currency: "CNY", SafeSummary: map[string]any{}})
+	started, err := runtimeService.Start(t.Context(), StartInput{TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: "task-1", SOP: testSOP(), CreatedBy: "user-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	effect, err := runtimeService.RegisterEffect(t.Context(), domain.ExternalEffect{TenantID: "tenant-1", JobRunID: started.Job.ID, NodeRunID: started.Nodes[0].ID, Kind: "media.generate", IdempotencyKey: "effect-1", RequestDigest: "sha256:req", Currency: "CNY", SafeSummary: map[string]any{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +143,11 @@ func TestRuntimeResumeOnlyResumesPausedJob(t *testing.T) {
 	}
 	job.State = domain.JobRunPaused
 	job.Version++
-	if err := repo.SaveJobRun(t.Context(), job, job.Version-1); err != nil {
+	commands, ok := any(repo).(RuntimeCommandStore)
+	if !ok {
+		t.Fatal("memory store must implement RuntimeCommandStore")
+	}
+	if _, err := commands.ApplyJobTransition(t.Context(), job, job.Version-1, domain.JobEvent{ID: domain.NewID(), TenantID: job.TenantID, JobRunID: job.ID, Type: "job.paused", ActorType: "test", Payload: map[string]any{}, OccurredAt: job.UpdatedAt}); err != nil {
 		t.Fatal(err)
 	}
 	resumed, err := runtimeService.Resume(t.Context(), "tenant-1", job.ID, "user", "operator-1")

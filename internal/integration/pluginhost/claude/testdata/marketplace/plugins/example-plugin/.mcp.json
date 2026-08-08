@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "example-mcp": {
+      "type": "stdio",
+      "command": "printf",
+      "args": [
+        "example"
+      ],
+      "cwd": "${CLAUDE_PLUGIN_ROOT}"
+    }
+  }
+}

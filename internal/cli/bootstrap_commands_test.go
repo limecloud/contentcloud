@@ -19,9 +19,10 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/bootstrapcheck"
-	"github.com/limecloud/contentcloud/internal/codexplugin"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
+	"github.com/limecloud/contentcloud/internal/integration/pluginbuiltin"
+	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 	"github.com/limecloud/contentcloud/internal/localconfig"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 )
@@ -39,17 +40,17 @@ type bootstrapRunner struct {
 	rejectCanceled bool
 }
 
-func (r *bootstrapRunner) Run(ctx context.Context, name string, args ...string) (codexplugin.CommandResult, error) {
-	r.calls = append(r.calls, append([]string{name}, args...))
+func (r *bootstrapRunner) Run(ctx context.Context, command pluginhost.Command) (pluginhost.CommandResult, error) {
+	r.calls = append(r.calls, append([]string{command.Name}, command.Args...))
 	if r.rejectCanceled && ctx.Err() != nil {
-		return codexplugin.CommandResult{}, ctx.Err()
+		return pluginhost.CommandResult{}, ctx.Err()
 	}
 	if len(r.responses) == 0 {
-		return codexplugin.CommandResult{}, errors.New("unexpected Codex command")
+		return pluginhost.CommandResult{}, errors.New("unexpected plugin host command")
 	}
 	response := r.responses[0]
 	r.responses = r.responses[1:]
-	return codexplugin.CommandResult{Stdout: []byte(response.stdout), Stderr: []byte(response.stderr), ExitCode: response.exitCode}, response.err
+	return pluginhost.CommandResult{Stdout: []byte(response.stdout), Stderr: []byte(response.stderr), ExitCode: response.exitCode}, response.err
 }
 
 func TestBootstrapPlanIsReadOnlyAndUsesOnlyPublicSessionID(t *testing.T) {
@@ -60,7 +61,7 @@ func TestBootstrapPlanIsReadOnlyAndUsesOnlyPublicSessionID(t *testing.T) {
 		{stdout: `{"installed":[],"available":[]}`},
 	}}
 	var stdout, stderr bytes.Buffer
-	root := &Root{stdout: &stdout, stderr: &stderr, codexRunner: runner, bootstrapCheckHook: healthyBootstrapCheck}
+	root := &Root{stdout: &stdout, stderr: &stderr, pluginRunner: runner, pluginRuntimeHook: testPluginRuntimeHook(t, pluginhost.StatusAbsent), bootstrapCheckHook: healthyBootstrapCheck}
 	command := root.command()
 	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "plan", directory, "--session", testBootstrapSessionID})
 	if err := command.Execute(); err != nil {
@@ -73,7 +74,7 @@ func TestBootstrapPlanIsReadOnlyAndUsesOnlyPublicSessionID(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode output: %v; output=%s", err, stdout.String())
 	}
-	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.19.0" || len(envelope.Data.Plugin.Actions) != 2 || !envelope.Data.WouldEnableDaemon {
+	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.20.0" || len(envelope.Data.Plugin.Actions) != 7 || !envelope.Data.WouldEnableDaemon {
 		t.Fatalf("unexpected plan: %s", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "connect_key") || envelope.Data.AuthorizationMode != "browser_device" || !envelope.Data.WouldAuthorizeDevice {
@@ -82,7 +83,7 @@ func TestBootstrapPlanIsReadOnlyAndUsesOnlyPublicSessionID(t *testing.T) {
 	if _, err := os.Stat(directory); !os.IsNotExist(err) {
 		t.Fatalf("bootstrap plan created the target directory: %v", err)
 	}
-	if len(runner.calls) != 2 {
+	if len(runner.calls) != 0 {
 		t.Fatalf("bootstrap plan ran a mutation: %#v", runner.calls)
 	}
 }
@@ -155,7 +156,8 @@ func TestBootstrapApplyInstallsInitializesDoctorsAndRegisters(t *testing.T) {
 	root := &Root{
 		stdout:               &stdout,
 		stderr:               &stderr,
-		codexRunner:          runner,
+		pluginRunner:         runner,
+		pluginRuntimeHook:    testPluginRuntimeHook(t, pluginhost.StatusAbsent),
 		now:                  func() time.Time { return now },
 		manifestVerifierHook: fixedManifestVerifier(verifier),
 		registryVerifierHook: fixedRegistryVerifier(registryVerifier),
@@ -171,7 +173,7 @@ func TestBootstrapApplyInstallsInitializesDoctorsAndRegisters(t *testing.T) {
 		},
 	}
 	command := root.command()
-	command.SetArgs([]string{"--json", "--server-url", server.URL, "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", planID, "--accept", "--open-codex=false"})
+	command.SetArgs([]string{"--json", "--server-url", server.URL, "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", planID, "--accept", "--open-host=false"})
 	if err := command.Execute(); err != nil {
 		t.Fatalf("bootstrap apply failed: %v; stderr=%s", err, stderr.String())
 	}
@@ -210,9 +212,6 @@ func TestBootstrapApplyInstallsInitializesDoctorsAndRegisters(t *testing.T) {
 	if _, err := os.Stat(envelope.Data.BootstrapHandoffPath); err != nil {
 		t.Fatalf("bootstrap handoff was not persisted: %v", err)
 	}
-	if len(runner.responses) != 0 {
-		t.Fatalf("unused Codex responses: %d", len(runner.responses))
-	}
 }
 
 func TestBootstrapApplyUpgradesExistingPluginAndInitializesWorkspace(t *testing.T) {
@@ -230,7 +229,8 @@ func TestBootstrapApplyUpgradesExistingPluginAndInitializesWorkspace(t *testing.
 		stdout:               &stdout,
 		stderr:               &stderr,
 		serverURL:            server.URL,
-		codexRunner:          runner,
+		pluginRunner:         runner,
+		pluginRuntimeHook:    testPluginRuntimeHook(t, pluginhost.StatusInstalled),
 		now:                  func() time.Time { return now },
 		manifestVerifierHook: fixedManifestVerifier(verifier),
 		registryVerifierHook: fixedRegistryVerifier(registryVerifier),
@@ -245,7 +245,7 @@ func TestBootstrapApplyUpgradesExistingPluginAndInitializesWorkspace(t *testing.
 			}, nil, nil
 		},
 	}
-	plan, _, err := root.buildBootstrapPlan(t.Context(), directory)
+	plan, _, err := root.buildBootstrapPlan(t.Context(), directory, "codex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,12 +253,12 @@ func TestBootstrapApplyUpgradesExistingPluginAndInitializesWorkspace(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Plugin.State != "ready" || len(plan.Plugin.Actions) != 4 {
+	if plan.Plugin.State != pluginhost.StatusStaged || len(plan.Plugin.Actions) == 0 {
 		t.Fatalf("unexpected upgrade plan: %#v", plan.Plugin)
 	}
 
 	command := root.command()
-	command.SetArgs([]string{"--json", "--server-url", server.URL, "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", plan.PlanID, "--accept", "--open-codex=false"})
+	command.SetArgs([]string{"--json", "--server-url", server.URL, "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", plan.PlanID, "--accept", "--open-host=false"})
 	if err := command.Execute(); err != nil {
 		t.Fatalf("bootstrap upgrade apply failed: %v; stderr=%s", err, stderr.String())
 	}
@@ -275,20 +275,6 @@ func TestBootstrapApplyUpgradesExistingPluginAndInitializesWorkspace(t *testing.
 	doctor, err := localworkspace.Doctor(directory)
 	if err != nil || !doctor.OK {
 		t.Fatalf("upgraded workspace is unhealthy: status=%#v doctor=%#v error=%v", status, doctor, err)
-	}
-	wantMutations := []string{"plugin remove", "plugin marketplace remove", "plugin marketplace add", "plugin add"}
-	mutationIndex := 0
-	for _, call := range runner.calls {
-		joined := strings.Join(call[1:], " ")
-		if mutationIndex < len(wantMutations) && strings.HasPrefix(joined, wantMutations[mutationIndex]) {
-			mutationIndex++
-		}
-	}
-	if mutationIndex != len(wantMutations) {
-		t.Fatalf("upgrade mutations were incomplete or out of order: %#v", runner.calls)
-	}
-	if len(runner.responses) != 0 {
-		t.Fatalf("unused Codex responses: %d", len(runner.responses))
 	}
 }
 
@@ -307,9 +293,9 @@ func TestBootstrapResumeInitializesEmptyDirectoryFromSavedBinding(t *testing.T) 
 	runner := successfulBootstrapRunner()
 	daemon := &fakeUserDaemonService{}
 	var stdout, stderr bytes.Buffer
-	root := &Root{stdout: &stdout, stderr: &stderr, codexRunner: runner, now: func() time.Time { return now }, manifestVerifierHook: fixedManifestVerifier(verifier), registryVerifierHook: fixedRegistryVerifier(registryVerifier), daemonFactory: fakeDaemonFactory(daemon)}
+	root := &Root{stdout: &stdout, stderr: &stderr, pluginRunner: runner, pluginRuntimeHook: testPluginRuntimeHook(t, pluginhost.StatusAbsent), now: func() time.Time { return now }, manifestVerifierHook: fixedManifestVerifier(verifier), registryVerifierHook: fixedRegistryVerifier(registryVerifier), daemonFactory: fakeDaemonFactory(daemon)}
 	command := root.command()
-	command.SetArgs([]string{"--json", "bootstrap", "resume", directory, "--accept", "--open-codex=false"})
+	command.SetArgs([]string{"--json", "bootstrap", "resume", directory, "--accept", "--open-host=false"})
 	if err := command.Execute(); err != nil {
 		t.Fatalf("bootstrap resume failed: %v; stderr=%s", err, stderr.String())
 	}
@@ -352,16 +338,15 @@ func TestBootstrapResumeUpgradesExistingPluginWithoutReinitializingWorkspace(t *
 	}
 
 	runner := successfulBootstrapUpgradeRunner()
-	runner.responses = runner.responses[2:]
 	daemon := &fakeUserDaemonService{}
 	var stdout, stderr bytes.Buffer
 	root := &Root{
-		stdout: &stdout, stderr: &stderr, codexRunner: runner, now: func() time.Time { return now },
+		stdout: &stdout, stderr: &stderr, pluginRunner: runner, pluginRuntimeHook: testPluginRuntimeHook(t, pluginhost.StatusInstalled), now: func() time.Time { return now },
 		manifestVerifierHook: fixedManifestVerifier(verifier), registryVerifierHook: fixedRegistryVerifier(registryVerifier),
 		daemonFactory: fakeDaemonFactory(daemon),
 	}
 	command := root.command()
-	command.SetArgs([]string{"--json", "bootstrap", "resume", directory, "--accept", "--open-codex=false"})
+	command.SetArgs([]string{"--json", "bootstrap", "resume", directory, "--accept", "--open-host=false"})
 	if err := command.Execute(); err != nil {
 		t.Fatalf("bootstrap resume upgrade failed: %v; stderr=%s", err, stderr.String())
 	}
@@ -382,17 +367,6 @@ func TestBootstrapResumeUpgradesExistingPluginWithoutReinitializingWorkspace(t *
 	if status.Binding.ProjectID != "project-1" || status.Template.CLIVersion != "0.7.0" {
 		t.Fatalf("bootstrap resume silently reinitialized the Workspace: %#v", status)
 	}
-	wantMutations := []string{"plugin remove", "plugin marketplace remove", "plugin marketplace add", "plugin add"}
-	mutationIndex := 0
-	for _, call := range runner.calls {
-		joined := strings.Join(call[1:], " ")
-		if mutationIndex < len(wantMutations) && strings.HasPrefix(joined, wantMutations[mutationIndex]) {
-			mutationIndex++
-		}
-	}
-	if mutationIndex != len(wantMutations) || len(runner.responses) != 0 {
-		t.Fatalf("bootstrap resume upgrade was incomplete: calls=%#v unused=%d", runner.calls, len(runner.responses))
-	}
 }
 
 func TestBootstrapApplyAuthorizationFailureDoesNotMutatePluginOrWorkspace(t *testing.T) {
@@ -402,7 +376,8 @@ func TestBootstrapApplyAuthorizationFailureDoesNotMutatePluginOrWorkspace(t *tes
 	root := &Root{
 		stdout:               &bytes.Buffer{},
 		stderr:               &bytes.Buffer{},
-		codexRunner:          runner,
+		pluginRunner:         runner,
+		pluginRuntimeHook:    testPluginRuntimeHook(t, pluginhost.StatusAbsent),
 		manifestVerifierHook: fixedManifestVerifier(testManifestVerifier(t)),
 		registryVerifierHook: fixedRegistryVerifier(testRegistryVerifier(t)),
 		bootstrapCheckHook:   healthyBootstrapCheck,
@@ -419,7 +394,7 @@ func TestBootstrapApplyAuthorizationFailureDoesNotMutatePluginOrWorkspace(t *tes
 	if _, err := os.Stat(directory); !os.IsNotExist(err) {
 		t.Fatalf("authorization failure wrote the workspace: %v", err)
 	}
-	if len(runner.calls) != 2 {
+	if len(runner.calls) != 0 {
 		t.Fatalf("authorization failure mutated Codex: %#v", runner.calls)
 	}
 }
@@ -431,15 +406,15 @@ func TestBootstrapApplyRejectsUnconfirmedPlanID(t *testing.T) {
 		{stdout: `{"marketplaces":[]}`},
 		{stdout: `{"installed":[],"available":[]}`},
 	}}
-	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner, bootstrapCheckHook: healthyBootstrapCheck}
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, pluginRunner: runner, pluginRuntimeHook: testPluginRuntimeHook(t, pluginhost.StatusAbsent), bootstrapCheckHook: healthyBootstrapCheck}
 	command := root.command()
-	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", "bp_wrong", "--accept", "--open-codex=false"})
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", "bp_wrong", "--accept", "--open-host=false"})
 	err := command.Execute()
 	var domainError *domain.Error
 	if !errors.As(err, &domainError) || domainError.Code != "BOOTSTRAP_PLAN_STALE" {
 		t.Fatalf("unexpected error: %#v", err)
 	}
-	if len(runner.calls) != 2 {
+	if len(runner.calls) != 0 {
 		t.Fatalf("stale plan ran a mutation: %#v", runner.calls)
 	}
 }
@@ -451,15 +426,15 @@ func TestBootstrapApplyRequiresPlanIDBeforeMutation(t *testing.T) {
 		{stdout: `{"marketplaces":[]}`},
 		{stdout: `{"installed":[],"available":[]}`},
 	}}
-	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner, bootstrapCheckHook: healthyBootstrapCheck}
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, pluginRunner: runner, pluginRuntimeHook: testPluginRuntimeHook(t, pluginhost.StatusAbsent), bootstrapCheckHook: healthyBootstrapCheck}
 	command := root.command()
-	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--accept", "--open-codex=false"})
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--accept", "--open-host=false"})
 	err := command.Execute()
 	var domainError *domain.Error
 	if !errors.As(err, &domainError) || domainError.Code != "BOOTSTRAP_PLAN_ID_REQUIRED" {
 		t.Fatalf("unexpected error: %#v", err)
 	}
-	if len(runner.calls) != 2 {
+	if len(runner.calls) != 0 {
 		t.Fatalf("missing plan ID ran a mutation: %#v", runner.calls)
 	}
 }
@@ -469,18 +444,18 @@ func TestBootstrapApplyRejectsPlanAfterCodexStateChanges(t *testing.T) {
 	t.Setenv("CONTENTCLOUD_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
 	approvedPlanID := bootstrapPlanIDForTest(t, directory, "https://content.example.com")
 	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
-		{stdout: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.19.0"}}]}`},
-		{stdout: `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.19.0","installed":true,"enabled":true}],"available":[]}`},
+		{stdout: `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.20.0"}}]}`},
+		{stdout: `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.20.0","installed":true,"enabled":true}],"available":[]}`},
 	}}
-	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, codexRunner: runner, bootstrapCheckHook: healthyBootstrapCheck}
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, pluginRunner: runner, pluginRuntimeHook: testPluginRuntimeHook(t, pluginhost.StatusReady), bootstrapCheckHook: healthyBootstrapCheck}
 	command := root.command()
-	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", approvedPlanID, "--accept", "--open-codex=false"})
+	command.SetArgs([]string{"--json", "--server-url", "https://content.example.com", "bootstrap", "apply", directory, "--session", testBootstrapSessionID, "--plan-id", approvedPlanID, "--accept", "--open-host=false"})
 	err := command.Execute()
 	var domainError *domain.Error
 	if !errors.As(err, &domainError) || domainError.Code != "BOOTSTRAP_PLAN_STALE" {
 		t.Fatalf("unexpected error: %#v", err)
 	}
-	if len(runner.calls) != 2 {
+	if len(runner.calls) != 0 {
 		t.Fatalf("changed Codex state ran a mutation: %#v", runner.calls)
 	}
 }
@@ -535,13 +510,13 @@ func TestRequireHealthyWorkspaceBlocksRegistration(t *testing.T) {
 func successfulBootstrapRunner() *bootstrapRunner {
 	missingMarketplace := `{"marketplaces":[]}`
 	missingPlugin := `{"installed":[],"available":[]}`
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.19.0"}}]}`
-	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.19.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.20.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.20.0","installed":true,"enabled":true}],"available":[]}`
 	return &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
-		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.19.0","installedPath":"/tmp/plugin"}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.20.0","installedPath":"/tmp/plugin"}`},
 		{stdout: currentMarketplace}, {stdout: currentPlugin},
 	}}
 }
@@ -549,8 +524,8 @@ func successfulBootstrapRunner() *bootstrapRunner {
 func successfulBootstrapUpgradeRunner() *bootstrapRunner {
 	oldMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache-old","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.7.0"}}]}`
 	oldPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.7.0","installed":true,"enabled":true}],"available":[]}`
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.19.0"}}]}`
-	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.19.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.20.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.20.0","installed":true,"enabled":true}],"available":[]}`
 	return &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: oldMarketplace}, {stdout: oldPlugin},
 		{stdout: oldMarketplace}, {stdout: oldPlugin},
@@ -558,7 +533,7 @@ func successfulBootstrapUpgradeRunner() *bootstrapRunner {
 		{stdout: `{}`},
 		{stdout: `{}`},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
-		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.19.0","installedPath":"/tmp/plugin"}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.20.0","installedPath":"/tmp/plugin"}`},
 		{stdout: currentMarketplace}, {stdout: currentPlugin},
 	}}
 }
@@ -569,8 +544,8 @@ func bootstrapPlanIDForTest(t *testing.T, directory, serverURL string) string {
 		{stdout: `{"marketplaces":[]}`},
 		{stdout: `{"installed":[],"available":[]}`},
 	}}
-	root := &Root{serverURL: serverURL, codexRunner: runner, bootstrapCheckHook: healthyBootstrapCheck}
-	plan, _, err := root.buildBootstrapPlan(t.Context(), directory)
+	root := &Root{serverURL: serverURL, pluginRunner: runner, pluginRuntimeHook: testPluginRuntimeHook(t, pluginhost.StatusAbsent), bootstrapCheckHook: healthyBootstrapCheck}
+	plan, _, err := root.buildBootstrapPlan(t.Context(), directory, "codex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -579,6 +554,52 @@ func bootstrapPlanIDForTest(t *testing.T, directory, serverURL string) string {
 		t.Fatal(err)
 	}
 	return plan.PlanID
+}
+
+type testBootstrapHost struct {
+	status pluginhost.Status
+}
+
+func (h *testBootstrapHost) ID() pluginhost.HostID { return pluginhost.HostCodex }
+
+func (h *testBootstrapHost) Capabilities(context.Context) (pluginhost.Capabilities, error) {
+	return pluginhost.Capabilities{Skills: true, MCPStdio: true, Rollback: true}, nil
+}
+
+func (h *testBootstrapHost) Detect(_ context.Context, _ pluginhost.HostTarget) (pluginhost.State, error) {
+	return pluginhost.State{SchemaVersion: pluginhost.SchemaVersion, HostID: h.ID(), Status: h.status, Generation: "test-generation", Capabilities: pluginhost.Capabilities{Skills: true, MCPStdio: true, Rollback: true}}, nil
+}
+
+func (h *testBootstrapHost) Apply(context.Context, pluginhost.NativeApply) (pluginhost.NativeChange, []pluginhost.InstalledComponent, error) {
+	h.status = pluginhost.StatusReady
+	return pluginhost.NativeChange{Data: []byte(`{"test":true}`)}, nil, nil
+}
+
+func (h *testBootstrapHost) Remove(context.Context, pluginhost.NativeRemove) (pluginhost.NativeChange, error) {
+	h.status = pluginhost.StatusAbsent
+	return pluginhost.NativeChange{Data: []byte(`{"test":true}`)}, nil
+}
+
+func (h *testBootstrapHost) Rollback(context.Context, pluginhost.NativeChange) error { return nil }
+func (h *testBootstrapHost) Commit(context.Context, pluginhost.NativeChange) error   { return nil }
+
+func testPluginRuntimeHook(t *testing.T, initial pluginhost.Status) func(string) (*hostPluginRuntime, error) {
+	t.Helper()
+	pkg, err := pluginbuiltin.Load(t.TempDir(), pluginbuiltin.VideoProduction, Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := pluginhost.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	native := &testBootstrapHost{status: initial}
+	adapter, err := pluginhost.New(native, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &hostPluginRuntime{Adapter: adapter, Package: pkg, HostID: pluginhost.HostCodex}
+	return func(string) (*hostPluginRuntime, error) { return runtime, nil }
 }
 
 const testBootstrapSessionID = "11111111-1111-4111-8111-111111111111"
@@ -660,13 +681,17 @@ func testRegistryVerifier(t *testing.T) *environment.RegistryVerifier {
 
 func bootstrapEnvironmentFixture(t *testing.T, now time.Time) (environment.Manifest, *environment.Verifier, environment.Registry, *environment.RegistryVerifier) {
 	t.Helper()
+	standardPackage, err := pluginbuiltin.Load(t.TempDir(), pluginbuiltin.VideoProduction, Version)
+	if err != nil {
+		t.Fatal(err)
+	}
 	registryPublicKey, registryPrivateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sceneEntry := environment.RegistryEntry{
 		ID: "contentcloud-video-production", Kind: "scene_plugin", Version: Version,
-		Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v" + Version}, License: "Apache-2.0", Digest: "sha256:" + strings.Repeat("a", 64),
+		Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v" + Version}, License: "Apache-2.0", Digest: standardPackage.Digest,
 		Signature: environment.RegistrySignature{Status: "verified", Algorithm: "ed25519", KeyID: "plugin-release-bootstrap-test"}, CompatibleProfiles: []string{"contentcloud.video-production"},
 		Permissions: []string{"workspace:read"}, DataFlow: environment.RegistryDataFlow{LocalByDefault: true, CloudActions: []string{}}, OutputSchemas: []string{"contracts/content-item-3.0.schema.json"},
 		Cost:       environment.RegistryCost{Model: "included", Notice: "Included in tests."},

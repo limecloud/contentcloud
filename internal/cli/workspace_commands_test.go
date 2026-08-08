@@ -17,6 +17,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
+	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 )
 
@@ -146,7 +147,7 @@ func TestMCPListsAndCallsWorkspaceTools(t *testing.T) {
 		name, _ := tool["name"].(string)
 		names[name] = true
 	}
-	for _, name := range []string{"contentcloud_open_project_view", "workspace_context", "workspace_project_brief", "environment_execution_plan", "environment_prepare_plan", "environment_prepare_apply", "workspace_status", "workspace_doctor", "source_register", "source_list", "source_ingest", "source_verify", "local_run_init", "local_run_show", "local_run_claim", "local_run_renew", "local_run_release", "handoff_create_ready", "handoff_list_ready", "handoff_accept", "handoff_complete", "handoff_supersede", "knowledge_import", "knowledge_lint", "knowledge_query", "knowledge_diagnose", "knowledge_pack", "brief_lint", "content_batch_init", "content_item_lint", "content_batch_lint", "content_batch_finalize", "content_item_diff", "delivery_export", "article_brief_lint", "article_batch_create", "article_item_lint", "article_batch_lint", "article_batch_finalize", "article_item_diff", "wechat_package_export", "wechat_package_lint", "publish_preflight", "publish_apply", "submission_status", "review_feedback_list", "review_feedback_pull", "review_feedback_inbox", "approved_snapshot_list", "approved_snapshot_pull", "approved_snapshot_inbox", "approved_snapshot_show"} {
+	for _, name := range []string{"contentcloud_open_studio_view", "workspace_context", "workspace_project_brief", "environment_execution_plan", "environment_prepare_plan", "environment_prepare_apply", "workspace_status", "workspace_doctor", "source_register", "source_list", "source_ingest", "source_verify", "local_run_init", "local_run_show", "local_run_claim", "local_run_renew", "local_run_release", "handoff_create_ready", "handoff_list_ready", "handoff_accept", "handoff_complete", "handoff_supersede", "knowledge_import", "knowledge_lint", "knowledge_query", "knowledge_diagnose", "knowledge_pack", "brief_lint", "content_batch_init", "content_item_lint", "content_batch_lint", "content_batch_finalize", "content_item_diff", "delivery_export", "article_brief_lint", "article_batch_create", "article_item_lint", "article_batch_lint", "article_batch_finalize", "article_item_diff", "wechat_package_export", "wechat_package_lint", "publish_preflight", "publish_apply", "submission_status", "review_feedback_list", "review_feedback_pull", "review_feedback_inbox", "approved_snapshot_list", "approved_snapshot_pull", "approved_snapshot_inbox", "approved_snapshot_show"} {
 		if !names[name] {
 			t.Fatalf("MCP tool %q is missing: %#v", name, tools)
 		}
@@ -161,12 +162,12 @@ func TestMCPListsAndCallsWorkspaceTools(t *testing.T) {
 		t.Fatalf("unexpected tool result: %#v", call.Result)
 	}
 	statusLink := mcpProjectViewURLForTest(t, result)
-	if statusLink.Path != "/projects/project-1/overview" || statusLink.RawQuery != "" {
+	if statusLink.Path != "/studio" || statusLink.Query().Get("project") != "project-1" {
 		t.Fatalf("workspace_status returned an unexpected project link: %s", statusLink)
 	}
 	doctorResult := callMCPToolForTest(t, r, "workspace_doctor", map[string]any{})
 	doctorLink := mcpProjectViewURLForTest(t, doctorResult)
-	if doctorLink.Path != "/projects/project-1/setup" || doctorLink.RawQuery != "" {
+	if doctorLink.Path != "/studio/connect" || doctorLink.Query().Get("project") != "project-1" {
 		t.Fatalf("workspace_doctor returned an unexpected setup link: %s", doctorLink)
 	}
 	params, _ = json.Marshal(map[string]any{"name": "workspace_context", "arguments": map[string]any{}})
@@ -248,13 +249,13 @@ func TestMCPOpenProjectViewReturnsTrustedResourceLink(t *testing.T) {
 
 	var definition map[string]any
 	for _, tool := range mcpTools() {
-		if tool["name"] == "contentcloud_open_project_view" {
+		if tool["name"] == "contentcloud_open_studio_view" {
 			definition = tool
 			break
 		}
 	}
 	if definition == nil {
-		t.Fatal("contentcloud_open_project_view definition is missing")
+		t.Fatal("contentcloud_open_studio_view definition is missing")
 	}
 	annotations := definition["annotations"].(map[string]any)
 	if annotations["readOnlyHint"] != true || annotations["destructiveHint"] != false || annotations["idempotentHint"] != true || annotations["openWorldHint"] != true {
@@ -266,16 +267,16 @@ func TestMCPOpenProjectViewReturnsTrustedResourceLink(t *testing.T) {
 		t.Fatalf("navigation schema exposes an unsafe target: %#v", schema)
 	}
 
-	result := callMCPToolForTest(t, r, "contentcloud_open_project_view", map[string]any{"view": "overview"})
+	result := callMCPToolForTest(t, r, "contentcloud_open_studio_view", map[string]any{"view": "home"})
 	contents, ok := result["content"].([]map[string]any)
 	if !ok || len(contents) != 2 || contents[1]["type"] != "resource_link" || contents[1]["mimeType"] != "text/html" {
 		t.Fatalf("unexpected resource link content: %#v", result["content"])
 	}
-	if contents[1]["uri"] != "https://content.example.com/projects/project-1/overview" {
+	if contents[1]["uri"] != "https://content.example.com/studio?project=project-1" {
 		t.Fatalf("unexpected project URL: %#v", contents[1])
 	}
 	structured, ok := result["structuredContent"].(mcpProjectViewResult)
-	if !ok || structured.ProjectID != "project-1" || structured.View != "overview" || structured.Focus != nil || structured.BrowserHandoff.URL != contents[1]["uri"] || !structured.BrowserHandoff.Required {
+	if !ok || structured.ProjectID != "project-1" || structured.View != "home" || structured.Focus != nil || structured.BrowserHandoff.URL != contents[1]["uri"] || !structured.BrowserHandoff.Required {
 		t.Fatalf("unexpected structured navigation result: %#v", result["structuredContent"])
 	}
 	body, err := json.Marshal(result)
@@ -287,7 +288,7 @@ func TestMCPOpenProjectViewReturnsTrustedResourceLink(t *testing.T) {
 	}
 
 	digest := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	review := callMCPToolForTest(t, r, "contentcloud_open_project_view", map[string]any{"view": "review", "focus": map[string]any{"kind": "submission_revision", "id": "revision-1", "digest": digest}})
+	review := callMCPToolForTest(t, r, "contentcloud_open_studio_view", map[string]any{"view": "tasks", "focus": map[string]any{"kind": "submission_revision", "id": "revision-1", "digest": digest}})
 	reviewContent := review["content"].([]map[string]any)
 	parsed, err := url.Parse(reviewContent[1]["uri"].(string))
 	if err != nil || parsed.Query().Get("focus_kind") != "submission_revision" || parsed.Query().Get("focus_id") != "revision-1" || parsed.Query().Get("expected_digest") != digest {
@@ -306,16 +307,16 @@ func TestMCPOpenProjectViewRejectsUnsafeInputs(t *testing.T) {
 		arguments map[string]any
 		code      string
 	}{
-		{name: "arbitrary url", arguments: map[string]any{"view": "overview", "url": "https://evil.example"}, code: "MCP_PARAMS_INVALID"},
-		{name: "arbitrary host", arguments: map[string]any{"view": "overview", "host": "evil.example"}, code: "MCP_PARAMS_INVALID"},
+		{name: "arbitrary url", arguments: map[string]any{"view": "home", "url": "https://evil.example"}, code: "MCP_PARAMS_INVALID"},
+		{name: "arbitrary host", arguments: map[string]any{"view": "home", "host": "evil.example"}, code: "MCP_PARAMS_INVALID"},
 		{name: "unknown view", arguments: map[string]any{"view": "unknown"}, code: "PROJECT_VIEW_INVALID"},
-		{name: "wrong focus kind", arguments: map[string]any{"view": "review", "focus": map[string]any{"kind": "bootstrap_attempt", "id": "attempt-1"}}, code: "PROJECT_FOCUS_INVALID"},
-		{name: "unknown focus field", arguments: map[string]any{"view": "setup", "focus": map[string]any{"kind": "environment_health", "id": "doctor-1", "path": "/tmp/private"}}, code: "MCP_PARAMS_INVALID"},
-		{name: "revision digest required", arguments: map[string]any{"view": "review", "focus": map[string]any{"kind": "submission_revision", "id": "revision-1"}}, code: "PROJECT_FOCUS_DIGEST_REQUIRED"},
+		{name: "wrong focus kind", arguments: map[string]any{"view": "tasks", "focus": map[string]any{"kind": "bootstrap_attempt", "id": "attempt-1"}}, code: "PROJECT_FOCUS_INVALID"},
+		{name: "unknown focus field", arguments: map[string]any{"view": "connect", "focus": map[string]any{"kind": "environment_health", "id": "doctor-1", "path": "/tmp/private"}}, code: "MCP_PARAMS_INVALID"},
+		{name: "revision digest required", arguments: map[string]any{"view": "tasks", "focus": map[string]any{"kind": "submission_revision", "id": "revision-1"}}, code: "PROJECT_FOCUS_DIGEST_REQUIRED"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result := callMCPToolExpectErrorForTest(t, r, "contentcloud_open_project_view", test.arguments)
+			result := callMCPToolExpectErrorForTest(t, r, "contentcloud_open_studio_view", test.arguments)
 			if got := mcpToolErrorCodeForTest(t, result); got != test.code {
 				t.Fatalf("unexpected error code: got=%q want=%q result=%#v", got, test.code, result)
 			}
@@ -326,12 +327,12 @@ func TestMCPOpenProjectViewRejectsUnsafeInputs(t *testing.T) {
 	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: untrustedRoot, ProjectID: "project-1", WorkspaceID: "workspace-1", ServerURL: "http://content.example.com", CLIVersion: "test", Target: "none"}); err != nil {
 		t.Fatal(err)
 	}
-	result := callMCPToolExpectErrorForTest(t, &Root{mcpCWD: untrustedRoot}, "contentcloud_open_project_view", map[string]any{"view": "overview"})
+	result := callMCPToolExpectErrorForTest(t, &Root{mcpCWD: untrustedRoot}, "contentcloud_open_studio_view", map[string]any{"view": "home"})
 	if got := mcpToolErrorCodeForTest(t, result); got != "WEB_TARGET_UNTRUSTED" {
 		t.Fatalf("unexpected untrusted target error: %q %#v", got, result)
 	}
 
-	result = callMCPToolExpectErrorForTest(t, &Root{mcpCWD: t.TempDir()}, "contentcloud_open_project_view", map[string]any{"view": "overview"})
+	result = callMCPToolExpectErrorForTest(t, &Root{mcpCWD: t.TempDir()}, "contentcloud_open_studio_view", map[string]any{"view": "home"})
 	if got := mcpToolErrorCodeForTest(t, result); got != "WORKSPACE_NOT_BOUND" {
 		t.Fatalf("unexpected workspace resolution error: %q %#v", got, result)
 	}
@@ -342,7 +343,7 @@ func TestMCPServeSerializesProjectViewResourceLink(t *testing.T) {
 	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-1", WorkspaceID: "workspace-1", ServerURL: "https://content.example.com", CLIVersion: "test", Target: "none"}); err != nil {
 		t.Fatal(err)
 	}
-	request := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"contentcloud_open_project_view","arguments":{"view":"overview"}}}` + "\n"
+	request := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"contentcloud_open_studio_view","arguments":{"view":"home"}}}` + "\n"
 	var output bytes.Buffer
 	r := &Root{mcpCWD: root, stdout: &output}
 	if err := r.serveMCP(t.Context(), strings.NewReader(request)); err != nil {
@@ -373,7 +374,7 @@ func TestMCPServeSerializesProjectViewResourceLink(t *testing.T) {
 		t.Fatalf("unexpected serialized MCP content: %#v", response.Result)
 	}
 	link := response.Result.Content[1].URI
-	if link != "https://content.example.com/projects/project-1/overview" || response.Result.StructuredContent.ProjectID != "project-1" || response.Result.StructuredContent.View != "overview" || response.Result.StructuredContent.BrowserHandoff.URL != link || response.Result.StructuredContent.BrowserHandoff.BrowserAction != "navigate" {
+	if link != "https://content.example.com/studio?project=project-1" || response.Result.StructuredContent.ProjectID != "project-1" || response.Result.StructuredContent.View != "home" || response.Result.StructuredContent.BrowserHandoff.URL != link || response.Result.StructuredContent.BrowserHandoff.BrowserAction != "navigate" {
 		t.Fatalf("unexpected serialized navigation contract: %#v", response.Result)
 	}
 	if strings.Contains(output.String(), root) || strings.Contains(output.String(), "workspace-1") {
@@ -413,7 +414,7 @@ func TestMCPServeSerializesAttachedWorkspaceToolResourceLink(t *testing.T) {
 	if response.Result.IsError || len(response.Result.Content) != 2 || response.Result.Content[1].Type != "resource_link" || response.Result.Content[1].MimeType != "text/html" {
 		t.Fatalf("unexpected serialized workspace status content: %#v", response.Result)
 	}
-	if response.Result.Content[1].URI != "https://content.example.com/projects/project-1/overview" || !response.Result.StructuredContent.Initialized || response.Result.StructuredContent.Binding.ProjectID != "project-1" {
+	if response.Result.Content[1].URI != "https://content.example.com/studio?project=project-1" || !response.Result.StructuredContent.Initialized || response.Result.StructuredContent.Binding.ProjectID != "project-1" {
 		t.Fatalf("workspace status data or attached link changed during serialization: %#v", response.Result)
 	}
 }
@@ -498,7 +499,7 @@ func TestMCPEnvironmentPreparationRequiresExactConfirmationAndReachesReady(t *te
 		t.Fatal(err)
 	}
 	runner := &bootstrapRunner{responses: successfulTaskPackResponses()}
-	runtime := &Root{mcpCWD: root, now: func() time.Time { return now.Add(time.Minute) }, codexRunner: runner, manifestVerifierHook: fixedManifestVerifier(manifestVerifier), registryVerifierHook: fixedRegistryVerifier(registryVerifier)}
+	runtime := &Root{mcpCWD: root, now: func() time.Time { return now.Add(time.Minute) }, pluginRunner: runner, pluginRuntimeHook: testPluginRuntimeHook(t, pluginhost.StatusAbsent), manifestVerifierHook: fixedManifestVerifier(manifestVerifier), registryVerifierHook: fixedRegistryVerifier(registryVerifier)}
 	arguments := map[string]any{"run_id": "run-pack-1", "intent": "generate visual storytelling assets", "required_capabilities": []string{"contentcloud.asset.generate"}, "input_refs": []string{"50-production/briefs/brief.json"}}
 	planned := callMCPToolForTest(t, runtime, "environment_prepare_plan", arguments)
 	preparation, ok := planned["structuredContent"].(environment.PreparationPlan)
@@ -524,33 +525,16 @@ func TestMCPEnvironmentPreparationRequiresExactConfirmationAndReachesReady(t *te
 	confirmed := cloneStringAnyMap(arguments)
 	confirmed["preparation_id"] = preparation.PreparationID
 	confirmed["accept"] = true
-	applied := callMCPToolForTest(t, runtime, "environment_prepare_apply", confirmed)
-	result, ok := applied["structuredContent"].(environmentPreparationApplyResult)
-	if !ok || result.ExecutionPlan.State != "ready" || len(result.ExecutionPlan.Preparation) != 0 || len(result.InstalledPacks) != 1 || !result.InstalledPacks[0].Applied || result.BusinessFilesModified {
-		t.Fatalf("preparation apply = %#v", applied)
-	}
-	if !result.Doctor.OK || !result.Handoff.RequiresNewChat || !strings.HasPrefix(result.Handoff.DeepLink, "codex://new?") || !strings.Contains(result.Handoff.RecoveryPrompt, "contentcloud-video-production@contentcloud") {
-		t.Fatalf("preparation handoff = %#v", result.Handoff)
+	applied := callMCPToolExpectErrorForTest(t, runtime, "environment_prepare_apply", confirmed)
+	if code := mcpToolErrorCodeForTest(t, applied); code != "ENVIRONMENT_PLUGIN_ARTIFACT_UNAVAILABLE" {
+		t.Fatalf("unpublished task Pack was not blocked by standard artifact boundary: %s", code)
 	}
 	state, err := localworkspace.LoadEnvironment(root, manifestVerifier, now.Add(2*time.Minute))
-	if err != nil || len(state.Lock.Plugins) != 2 || state.Lock.Plugins[1].ID != "contentcloud-visual-storytelling" {
-		t.Fatalf("prepared environment = %#v, err = %v", state, err)
+	if err != nil || len(state.Lock.Plugins) != 1 || state.Lock.Plugins[0].ID != "contentcloud-video-production" {
+		t.Fatalf("blocked preparation changed environment.lock = %#v, err = %v", state, err)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".contentcloud", "environment-preparation.lock")); !os.IsNotExist(err) {
 		t.Fatalf("preparation lease remains after success: %v", err)
-	}
-	mutations := 0
-	for _, call := range runner.calls {
-		joined := strings.Join(call, " ")
-		if strings.Contains(joined, "plugin marketplace add") || strings.Contains(joined, "plugin remove") {
-			t.Fatalf("task Pack preparation changed Marketplace or removed a plugin: %#v", runner.calls)
-		}
-		if joined == "codex plugin add contentcloud-visual-storytelling@contentcloud --json" {
-			mutations++
-		}
-	}
-	if mutations != 1 || len(runner.responses) != 0 {
-		t.Fatalf("unexpected Codex transaction: mutations=%d remaining=%d calls=%#v", mutations, len(runner.responses), runner.calls)
 	}
 }
 
@@ -586,18 +570,11 @@ func TestWorkspacePrepareCLIPlanAndApplyUseTheSameDeterministicPlan(t *testing.T
 
 	runner := &bootstrapRunner{responses: successfulTaskPackResponses()}
 	var applyOutput, applyErrors bytes.Buffer
-	applier := &Root{stdout: &applyOutput, stderr: &applyErrors, codexRunner: runner, now: func() time.Time { return now.Add(time.Minute) }, manifestVerifierHook: fixedManifestVerifier(manifestVerifier), registryVerifierHook: fixedRegistryVerifier(registryVerifier)}
+	applier := &Root{stdout: &applyOutput, stderr: &applyErrors, pluginRunner: runner, pluginRuntimeHook: testPluginRuntimeHook(t, pluginhost.StatusAbsent), now: func() time.Time { return now.Add(time.Minute) }, manifestVerifierHook: fixedManifestVerifier(manifestVerifier), registryVerifierHook: fixedRegistryVerifier(registryVerifier)}
 	applyCommand := applier.command()
 	applyCommand.SetArgs([]string{"--json", "workspace", "prepare", "apply", "--directory", root, "--run", "run-cli-pack", "--intent", "generate visual storytelling assets", "--capability", "contentcloud.asset.generate", "--input", "50-production/briefs/brief.json", "--preparation-id", planEnvelope.Data.PreparationID, "--accept"})
-	if err := applyCommand.Execute(); err != nil {
-		t.Fatalf("workspace prepare apply failed: %v; stderr=%s", err, applyErrors.String())
-	}
-	var applyEnvelope struct {
-		OK   bool                              `json:"ok"`
-		Data environmentPreparationApplyResult `json:"data"`
-	}
-	if err := json.Unmarshal(applyOutput.Bytes(), &applyEnvelope); err != nil || !applyEnvelope.OK || applyEnvelope.Data.PreparationID != planEnvelope.Data.PreparationID || applyEnvelope.Data.ExecutionPlan.State != "ready" || !applyEnvelope.Data.Doctor.OK {
-		t.Fatalf("workspace prepare apply output: err=%v output=%s", err, applyOutput.String())
+	if err := applyCommand.Execute(); err == nil || !strings.Contains(err.Error(), "标准插件包未随当前 CLI 发布") {
+		t.Fatalf("workspace prepare apply should block unpublished standard artifact: %v; stderr=%s", err, applyErrors.String())
 	}
 }
 
@@ -615,8 +592,8 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 	if _, err := localworkspace.StoreEnvironment(root, manifest, installed, manifestVerifier, now); err != nil {
 		t.Fatal(err)
 	}
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.19.0"}}]}`
-	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.19.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.20.0"}}]}`
+	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.20.0","installed":true,"enabled":true}],"available":[]}`
 	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: currentMarketplace}, {stdout: missingPack},
@@ -624,7 +601,7 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: `{"removed":true}`},
 	}}
-	runtime := &Root{mcpCWD: root, codexRunner: runner, now: func() time.Time { return now.Add(time.Minute) }, manifestVerifierHook: fixedManifestVerifier(manifestVerifier), registryVerifierHook: fixedRegistryVerifier(registryVerifier)}
+	runtime := &Root{mcpCWD: root, pluginRunner: runner, pluginRuntimeHook: testPluginRuntimeHook(t, pluginhost.StatusAbsent), now: func() time.Time { return now.Add(time.Minute) }, manifestVerifierHook: fixedManifestVerifier(manifestVerifier), registryVerifierHook: fixedRegistryVerifier(registryVerifier)}
 	input := environmentPreparationInput{RunID: "run-pack-failure", Intent: "generate visual storytelling assets", Capabilities: []string{"contentcloud.asset.generate"}, InputRefs: []string{"50-production/briefs/brief.json"}}
 	_, _, preparation, err := runtime.resolveEnvironmentPreparation(input)
 	if err != nil {
@@ -637,28 +614,15 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 	if err != nil || len(state.Lock.Plugins) != 1 || state.Lock.Plugins[0].ID != "contentcloud-video-production" {
 		t.Fatalf("failed preparation changed environment.lock: state=%#v err=%v", state, err)
 	}
-	pluginRemovals := 0
-	for _, call := range runner.calls {
-		joined := strings.Join(call, " ")
-		if joined == "codex plugin remove contentcloud-visual-storytelling@contentcloud --json" {
-			pluginRemovals++
-		}
-		if strings.Contains(joined, "plugin marketplace remove") || strings.Contains(joined, "contentcloud-video-production@contentcloud") && strings.Contains(joined, "plugin remove") {
-			t.Fatalf("failed preparation removed an unowned component: %#v", runner.calls)
-		}
-	}
-	if pluginRemovals != 1 || len(runner.responses) != 0 {
-		t.Fatalf("failed preparation rollback = removals %d remaining %d calls=%#v", pluginRemovals, len(runner.responses), runner.calls)
-	}
 	if _, err := os.Stat(filepath.Join(root, ".contentcloud", "environment-preparation.lock")); !os.IsNotExist(err) {
 		t.Fatalf("failed preparation retained lease: %v", err)
 	}
 }
 
 func successfulTaskPackResponses() []bootstrapRunnerResponse {
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.19.0"}}]}`
-	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.19.0","installed":true,"enabled":true}],"available":[]}`
-	currentPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.19.0","installed":true,"enabled":true},{"pluginId":"contentcloud-visual-storytelling@contentcloud","name":"contentcloud-visual-storytelling","marketplaceName":"contentcloud","version":"1.2.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.20.0"}}]}`
+	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.20.0","installed":true,"enabled":true}],"available":[]}`
+	currentPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.20.0","installed":true,"enabled":true},{"pluginId":"contentcloud-visual-storytelling@contentcloud","name":"contentcloud-visual-storytelling","marketplaceName":"contentcloud","version":"1.2.0","installed":true,"enabled":true}],"available":[]}`
 	return []bootstrapRunnerResponse{
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: currentMarketplace}, {stdout: missingPack},
@@ -736,7 +700,7 @@ func TestMCPPublishApplyRequiresExactConfirmationBeforeCloudWrite(t *testing.T) 
 		t.Fatalf("confirmed publish did not return a cloud write: %#v", result)
 	}
 	publishLink := mcpProjectViewURLForTest(t, result)
-	if publishLink.Path != "/projects/project-1/review" || publishLink.Query().Get("focus_kind") != "submission_revision" || publishLink.Query().Get("focus_id") != "revision-1" || publishLink.Query().Get("expected_digest") != preflight.ContentHash {
+	if publishLink.Path != "/studio/tasks" || publishLink.Query().Get("project") != "project-1" || publishLink.Query().Get("focus_kind") != "submission_revision" || publishLink.Query().Get("focus_id") != "revision-1" || publishLink.Query().Get("expected_digest") != preflight.ContentHash {
 		t.Fatalf("publish_apply did not attach the exact created revision: %s", publishLink)
 	}
 	if requests != 1 {
@@ -784,7 +748,7 @@ func TestMCPFeedbackPullCreatesImmutableInboxForNewConversation(t *testing.T) {
 	cloudConversation := &Root{mcpCWD: root, now: func() time.Time { return now }}
 	firstPull := callMCPToolForTest(t, cloudConversation, "review_feedback_pull", map[string]any{})
 	feedbackLink := mcpProjectViewURLForTest(t, firstPull)
-	if feedbackLink.Path != "/projects/project-1/review" || feedbackLink.Query().Get("focus_kind") != "submission_revision" || feedbackLink.Query().Get("focus_id") != "revision-1" || feedbackLink.Query().Get("expected_digest") != "sha256:"+strings.Repeat("a", 64) {
+	if feedbackLink.Path != "/studio/tasks" || feedbackLink.Query().Get("project") != "project-1" || feedbackLink.Query().Get("focus_kind") != "submission_revision" || feedbackLink.Query().Get("focus_id") != "revision-1" || feedbackLink.Query().Get("expected_digest") != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("review_feedback_pull did not attach its unique revision: %s", feedbackLink)
 	}
 	cloudConversation.now = func() time.Time { return now.Add(time.Minute) }
@@ -859,12 +823,12 @@ func TestMCPApprovedSnapshotPullSupportsOfflineCrossConversationRead(t *testing.
 		t.Fatalf("unexpected approved snapshot pull: %#v", pulled)
 	}
 	batchLink := mcpProjectViewURLForTest(t, pulled)
-	if batchLink.Path != "/projects/project-1/delivery" || batchLink.RawQuery != "" {
+	if batchLink.Path != "/studio/knowledge" || batchLink.Query().Get("project") != "project-1" || batchLink.Query().Get("focus_kind") != "" {
 		t.Fatalf("batch snapshot pull must not select an arbitrary snapshot: %s", batchLink)
 	}
 	exactPull := callMCPToolForTest(t, conversationA, "approved_snapshot_pull", map[string]any{"snapshot_id": "snapshot-1"})
 	exactLink := mcpProjectViewURLForTest(t, exactPull)
-	if exactLink.Path != "/projects/project-1/delivery" || exactLink.Query().Get("focus_kind") != "snapshot" || exactLink.Query().Get("focus_id") != "snapshot-1" || exactLink.Query().Get("expected_digest") != snapshots[1].ContentHash {
+	if exactLink.Path != "/studio/knowledge" || exactLink.Query().Get("project") != "project-1" || exactLink.Query().Get("focus_kind") != "snapshot" || exactLink.Query().Get("focus_id") != "snapshot-1" || exactLink.Query().Get("expected_digest") != snapshots[1].ContentHash {
 		t.Fatalf("exact snapshot pull did not attach the selected immutable snapshot: %s", exactLink)
 	}
 
@@ -1034,7 +998,7 @@ func TestMCPProjectViewTargetSelectionDoesNotInventObjectPrecision(t *testing.T)
 		{SubmissionRevisionID: "revision-1", SubjectHash: digestA},
 		{SubmissionRevisionID: "revision-2", SubjectHash: digestB},
 	})
-	if multipleFeedback.View != "review" || multipleFeedback.Focus != nil {
+	if multipleFeedback.View != "tasks" || multipleFeedback.Focus != nil {
 		t.Fatalf("multiple feedback revisions must use the generic review view: %#v", multipleFeedback)
 	}
 
@@ -1042,7 +1006,7 @@ func TestMCPProjectViewTargetSelectionDoesNotInventObjectPrecision(t *testing.T)
 		Submission: domain.Submission{CurrentRevisionID: "revision-1"},
 		Revisions:  []domain.SubmissionRevision{{ID: "revision-1", ContentHash: "incomplete"}},
 	})
-	if invalidCurrentRevision.View != "review" || invalidCurrentRevision.Focus != nil {
+	if invalidCurrentRevision.View != "tasks" || invalidCurrentRevision.Focus != nil {
 		t.Fatalf("invalid current revision digest must not produce a focused link: %#v", invalidCurrentRevision)
 	}
 
@@ -1050,7 +1014,7 @@ func TestMCPProjectViewTargetSelectionDoesNotInventObjectPrecision(t *testing.T)
 		{ID: "snapshot-1", ContentHash: digestA},
 		{ID: "snapshot-2", ContentHash: digestB},
 	})
-	if multipleSnapshots.View != "delivery" || multipleSnapshots.Focus != nil {
+	if multipleSnapshots.View != "deliveries" || multipleSnapshots.Focus != nil {
 		t.Fatalf("multiple snapshots must use the generic delivery view: %#v", multipleSnapshots)
 	}
 }
@@ -1161,7 +1125,7 @@ func TestMCPCloudReadsUseWorkspaceCredentialAndCLIDispatch(t *testing.T) {
 		}
 		if index == 0 {
 			link := mcpProjectViewURLForTest(t, result)
-			if link.Path != "/projects/project-1/review" || link.Query().Get("focus_id") != "revision-1" || link.Query().Get("expected_digest") != digest {
+			if link.Path != "/studio/tasks" || link.Query().Get("project") != "project-1" || link.Query().Get("focus_id") != "revision-1" || link.Query().Get("expected_digest") != digest {
 				t.Fatalf("submission_status did not attach the current immutable revision: %s", link)
 			}
 		}

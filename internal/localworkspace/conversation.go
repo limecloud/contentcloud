@@ -23,7 +23,7 @@ type BootstrapHandoff struct {
 	ProjectID         string    `json:"project_id"`
 	PluginID          string    `json:"plugin_id"`
 	PluginVersion     string    `json:"plugin_version"`
-	MarketplaceRef    string    `json:"marketplace_ref"`
+	PluginDigest      string    `json:"plugin_digest"`
 	EnvironmentDigest string    `json:"environment_digest"`
 	NextCapabilityID  string    `json:"next_capability_id"`
 	NextAction        string    `json:"next_action"`
@@ -202,9 +202,9 @@ func ConversationContextWithEnvironment(directory, cwd string, now time.Time, ve
 	return context, nil
 }
 
-func StoreBootstrapHandoff(root, pluginID, pluginVersion, marketplaceRef string, now time.Time) (BootstrapHandoff, string, error) {
-	if strings.TrimSpace(pluginID) == "" || strings.TrimSpace(pluginVersion) == "" || strings.TrimSpace(marketplaceRef) == "" {
-		return BootstrapHandoff{}, "", domain.Invalid("BOOTSTRAP_HANDOFF_SPEC_INVALID", "初始化交接需要固定的插件 ID、版本和插件市场来源引用（Marketplace ref）")
+func StoreBootstrapHandoff(root, pluginID, pluginVersion, pluginDigest string, now time.Time) (BootstrapHandoff, string, error) {
+	if strings.TrimSpace(pluginID) == "" || strings.TrimSpace(pluginVersion) == "" || strings.TrimSpace(pluginDigest) == "" {
+		return BootstrapHandoff{}, "", domain.Invalid("BOOTSTRAP_HANDOFF_SPEC_INVALID", "初始化交接需要固定的插件 ID、版本和标准包摘要")
 	}
 	status, err := LoadStatus(root)
 	if err != nil {
@@ -226,7 +226,7 @@ func StoreBootstrapHandoff(root, pluginID, pluginVersion, marketplaceRef string,
 		ProjectID:         status.Binding.ProjectID,
 		PluginID:          pluginID,
 		PluginVersion:     pluginVersion,
-		MarketplaceRef:    marketplaceRef,
+		PluginDigest:      pluginDigest,
 		EnvironmentDigest: digest(templateJSON),
 		NextCapabilityID:  "contentcloud-workspace",
 		NextAction:        "先调用工作区上下文工具（workspace_context）；如果还没有项目简报，先确认项目简报，完成后只按 onboarding.next_step 继续。",
@@ -247,7 +247,7 @@ func loadBootstrapHandoff(root string) (*BootstrapHandoff, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	if handoff.SchemaVersion != "1.0" || handoff.Kind != "bootstrap_handoff" || handoff.Status != "ready" || handoff.WorkspaceID == "" || handoff.ProjectID == "" || handoff.PluginID == "" || handoff.PluginVersion == "" || handoff.MarketplaceRef == "" || handoff.EnvironmentDigest == "" || handoff.NextCapabilityID == "" || handoff.NextAction == "" || handoff.CreatedAt.IsZero() {
+	if handoff.SchemaVersion != "1.0" || handoff.Kind != "bootstrap_handoff" || handoff.Status != "ready" || handoff.WorkspaceID == "" || handoff.ProjectID == "" || handoff.PluginID == "" || handoff.PluginVersion == "" || handoff.PluginDigest == "" || handoff.EnvironmentDigest == "" || handoff.NextCapabilityID == "" || handoff.NextAction == "" || handoff.CreatedAt.IsZero() {
 		return nil, domain.Invalid("BOOTSTRAP_HANDOFF_INVALID", "初始化交接文件无效")
 	}
 	return &handoff, nil

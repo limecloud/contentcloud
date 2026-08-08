@@ -4,38 +4,36 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/limecloud/contentcloud/internal/domain"
 )
 
 type workspaceAssetReaderStub struct {
-	folders   []domain.WorkspaceFolder
-	materials []domain.WorkspaceMaterial
-	revisions map[string]domain.SourceRevision
+	folders   []WorkspaceFolderRecord
+	materials []WorkspaceMaterialRecord
+	revisions map[string]SourceRevisionRecord
 }
 
-func (s workspaceAssetReaderStub) WorkspaceFolders(context.Context, string, string) ([]domain.WorkspaceFolder, error) {
+func (s workspaceAssetReaderStub) WorkspaceFolders(context.Context, string, string) ([]WorkspaceFolderRecord, error) {
 	return s.folders, nil
 }
 
-func (s workspaceAssetReaderStub) WorkspaceMaterials(context.Context, string, string) ([]domain.WorkspaceMaterial, error) {
+func (s workspaceAssetReaderStub) WorkspaceMaterials(context.Context, string, string) ([]WorkspaceMaterialRecord, error) {
 	return s.materials, nil
 }
 
-func (s workspaceAssetReaderStub) SourceRevision(_ context.Context, _, id string) (domain.SourceRevision, error) {
+func (s workspaceAssetReaderStub) SourceRevision(_ context.Context, _, id string) (SourceRevisionRecord, error) {
 	return s.revisions[id], nil
 }
 
 func TestAssetQueriesBuildsMaterialProjectionThroughNarrowPort(t *testing.T) {
 	now := time.Date(2026, time.August, 8, 8, 0, 0, 0, time.UTC)
 	queries := NewAssetQueries(workspaceAssetReaderStub{
-		folders: []domain.WorkspaceFolder{{ID: "folder-1", ProjectID: "project-1", Name: "品牌资料"}},
-		materials: []domain.WorkspaceMaterial{{
+		folders: []WorkspaceFolderRecord{{ID: "folder-1", ProjectID: "project-1", Name: "品牌资料"}},
+		materials: []WorkspaceMaterialRecord{{
 			ID: "material-1", ProjectID: "project-1", FolderID: "folder-1", SourceRevisionID: "revision-1",
 			MaterialKind: "document", Origin: "uploaded", Usage: "project_material", Title: "品牌手册",
 		}},
-		revisions: map[string]domain.SourceRevision{
-			"revision-1": {ID: "revision-1", FileName: "brand.md", DetectedMIME: "text/markdown", ProcessingStatus: "ready"},
+		revisions: map[string]SourceRevisionRecord{
+			"revision-1": {FileName: "brand.md", DetectedMIME: "text/markdown", ProcessingStatus: "ready"},
 		},
 	}, func() time.Time { return now })
 
@@ -68,5 +66,20 @@ func TestBuildAssetSurfaceKeepsOnlyEightRecentItemsPerProjection(t *testing.T) {
 	}
 	if len(surface.Recent.Results) != 8 || surface.Recent.Results[0].Ref != "i" {
 		t.Fatalf("results were not sorted and capped: %#v", surface.Recent.Results)
+	}
+}
+
+func TestBuildCreativeResultProjectionSortsAndCountsReusableItems(t *testing.T) {
+	base := time.Date(2026, time.August, 8, 8, 0, 0, 0, time.UTC)
+	projection := BuildCreativeResultProjection([]CreativeResultItem{
+		{Ref: "result:old", ResultType: "script", CreatedAt: base, Reusable: false},
+		{Ref: "result:new", ResultType: "script", CreatedAt: base.Add(time.Minute), Reusable: true},
+		{Ref: "result:image", ResultType: "image", CreatedAt: base.Add(2 * time.Minute), Reusable: true},
+	}, base)
+	if len(projection.Items) != 3 || projection.Items[0].Ref != "result:image" {
+		t.Fatalf("results were not sorted: %#v", projection.Items)
+	}
+	if projection.Counts["all"] != 3 || projection.Counts["script"] != 2 || projection.Counts["reusable"] != 2 {
+		t.Fatalf("unexpected result counts: %#v", projection.Counts)
 	}
 }

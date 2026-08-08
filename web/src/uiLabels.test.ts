@@ -34,6 +34,8 @@ describe('用户界面中文标签', () => {
   it('覆盖内容生产主流程中的常用枚举', () => {
     expect(statusLabel('waiting_gate')).toBe('待审核决定');
     expect(statusLabel('script_only')).toBe('仅剧本');
+    expect(statusLabel('online')).toBe('在线');
+    expect(statusLabel('offline')).toBe('离线');
     expect(roleLabel('project_manager')).toBe('项目经理');
     expect(contentTypeLabel('marketing_video')).toBe('营销视频');
     expect(submissionTypeLabel('content_batch')).toBe('内容批次');

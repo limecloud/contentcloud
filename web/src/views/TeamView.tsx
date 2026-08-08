@@ -7,7 +7,13 @@ import { roleLabel } from '../uiLabels';
 
 const roles = ['tenant_admin', 'project_manager', 'strategist', 'editor', 'reviewer', 'viewer'] as const;
 
-export function TeamView({session, onChanged}: {session: Session; onChanged: () => Promise<void>}) {
+export type TeamSession = {
+  role:string;
+  user:Pick<Session['user'], 'id'|'display_name'>;
+  tenant:Pick<Session['tenant'], 'id'|'name'>;
+};
+
+export function TeamView({session, onChanged}: {session: TeamSession; onChanged: () => Promise<void>}) {
   const canViewMembers = ['tenant_admin', 'project_manager', 'reviewer'].includes(session.role);
   const isAdmin = session.role === 'tenant_admin';
   const [members, setMembers] = useState<Member[]>([]);
@@ -28,8 +34,8 @@ export function TeamView({session, onChanged}: {session: Session; onChanged: () 
     setError('');
     try {
       const [nextMembers, nextInvites] = await Promise.all([
-        api<Member[]>('/api/bff/team/members'),
-        isAdmin ? api<MembershipInvite[]>('/api/bff/team/invites') : Promise.resolve([])
+        api<Member[]>('/api/studio/team/members'),
+        isAdmin ? api<MembershipInvite[]>('/api/studio/team/invites') : Promise.resolve([])
       ]);
       setMembers(nextMembers);
       setInvites(nextInvites);
@@ -45,7 +51,7 @@ export function TeamView({session, onChanged}: {session: Session; onChanged: () 
   const invite = async () => {
     setBusy('invite'); setError(''); setNotice(''); setCreatedToken('');
     try {
-      const created = await post<MembershipInvite>('/api/bff/team/invites', inviteForm);
+      const created = await post<MembershipInvite>('/api/studio/team/invites', inviteForm);
       setCreatedToken(created.invite_token || '');
       setInviteForm({email: '', role: 'viewer'});
       setNotice('邀请已创建。邀请令牌只显示一次，请通过安全渠道发送。');
@@ -57,7 +63,7 @@ export function TeamView({session, onChanged}: {session: Session; onChanged: () 
   const accept = async () => {
     setBusy('accept'); setError(''); setNotice('');
     try {
-      await post('/api/bff/team/invites/accept', {token: acceptToken.trim()});
+      await post('/api/studio/team/invites/accept', {token: acceptToken.trim()});
       setAcceptToken('');
       setNotice('邀请已接受，新团队已加入租户切换列表。');
       await onChanged();
@@ -69,7 +75,7 @@ export function TeamView({session, onChanged}: {session: Session; onChanged: () 
   const updateRole = async (userID: string, role: string) => {
     setBusy(`role:${userID}`); setError('');
     try {
-      await patch(`/api/bff/team/members/${userID}`, {role});
+      await patch(`/api/studio/team/members/${userID}`, {role});
       if (userID === session.user.id) await onChanged();
       else await load();
     } catch (e) { setError(message(e, '角色更新失败')); }
@@ -81,7 +87,7 @@ export function TeamView({session, onChanged}: {session: Session; onChanged: () 
     const current = confirm;
     setConfirm(undefined); setBusy(`${current.kind}:${current.id}`); setError('');
     try {
-      const path = current.kind === 'member' ? `/api/bff/team/members/${current.id}/revoke` : `/api/bff/team/invites/${current.id}/revoke`;
+      const path = current.kind === 'member' ? `/api/studio/team/members/${current.id}/revoke` : `/api/studio/team/invites/${current.id}/revoke`;
       await post(path);
       if (current.kind === 'member' && current.id === session.user.id) await onChanged();
       else await load();

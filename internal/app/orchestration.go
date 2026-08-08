@@ -870,7 +870,7 @@ func (s *Service) LintSOPVersion(ctx context.Context, actor Actor, sopID string,
 	}
 	for index, gate := range value.Gates {
 		path := "gates[" + strconv.Itoa(index) + "]"
-		humanGate := gate.Mode == domain.GateModeRequired || gate.Mode == domain.GateModeInternalReview || gate.Mode == domain.GateModeClientDecision
+		humanGate := gate.Mode == domain.GateModeInternalReview || gate.Mode == domain.GateModeClientDecision
 		if humanGate && !gate.Blocking {
 			addError("gate.required_not_blocking", path+".blocking", "人工审核必须阻断后续流程阶段")
 		}

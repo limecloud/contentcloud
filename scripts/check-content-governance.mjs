@@ -71,14 +71,9 @@ for (const token of ['manual_login', 'manual_asset_upload', 'manual_preview', 'm
   requireText(deliverySkill, token, `WeChat delivery Skill is missing manual boundary ${token}`)
 }
 
-const plugin = JSON.parse(read('plugins/contentcloud-wechat-article/.codex-plugin/plugin.json'))
-if (plugin.name !== 'contentcloud-wechat-article' || plugin.skills !== './skills/' || plugin.mcpServers !== undefined) {
-  failures.push('WeChat Skill Pack must expose only its skills and reuse the governed ContentCloud MCP')
-}
-const marketplace = JSON.parse(read('.agents/plugins/marketplace.json'))
-const marketplaceEntry = marketplace.plugins?.find((entry) => entry.name === plugin.name)
-if (marketplaceEntry?.policy?.installation !== 'AVAILABLE' || marketplaceEntry?.source?.path !== './plugins/contentcloud-wechat-article') {
-  failures.push('ContentCloud Marketplace must expose the WeChat Skill Pack as available')
+const plugin = JSON.parse(read('plugins/contentcloud-wechat-article/plugin.json'))
+if (plugin.name !== 'contentcloud-wechat-article' || plugin.extensions?.['run.zhongcao.contentcloud']?.claims !== './run.zhongcao.contentcloud/claims.json') {
+  failures.push('WeChat Skill Pack must expose its governed run claims')
 }
 
 const tenantDomain = read('internal/domain/platform.go')
@@ -91,12 +86,10 @@ for (const file of ['internal/cli/local_commands.go', 'internal/cli/workspace_co
 }
 
 const workspaceRouter = read('web/src/router.tsx')
-if ((workspaceRouter.match(/\.TaskProductionPage/g) ?? []).length !== 2) {
-  failures.push('both workspace and Project task routes must use TaskProductionPage')
+if ((workspaceRouter.match(/web\/src\/workspace|\.TaskProductionPage/g) ?? []).length !== 0) {
+  failures.push('retired workspace task routes must not be reintroduced')
 }
-for (const file of ['web/src/router.tsx', 'web/src/workspace/pages.tsx', 'web/src/workspace/workOS.tsx']) {
-  forbidText(read(file), 'WorkOSTaskDetailPage', `${file} must not restore the retired task detail page`)
-}
+forbidText(workspaceRouter, 'WorkOSTaskDetailPage', 'web/src/router.tsx must not restore the retired task detail page')
 
 if (failures.length > 0) {
   console.error(failures.join('\n'))

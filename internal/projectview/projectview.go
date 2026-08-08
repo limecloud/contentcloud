@@ -11,12 +11,12 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
-const SchemaVersion = "contentcloud.project-pages/1.0"
+const SchemaVersion = "contentcloud.studio-surfaces/1.0"
 
 var (
 	idPattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 	digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
-	pages         = mustLoadContract()
+	surfaces      = mustLoadContract()
 )
 
 type FocusKindContract struct {
@@ -56,11 +56,11 @@ type Link struct {
 }
 
 func IDs() []string {
-	return append([]string(nil), pages.Order...)
+	return append([]string(nil), surfaces.Order...)
 }
 
 func Page(view string) (PageContract, bool) {
-	page, ok := pages.Views[view]
+	page, ok := surfaces.Views[view]
 	return page, ok
 }
 
@@ -80,9 +80,9 @@ func Build(serverBase, projectID string, target Target) (Link, error) {
 	if err := Validate(target); err != nil {
 		return Link{}, err
 	}
-	page := pages.Views[target.View]
+	page := surfaces.Views[target.View]
 
-	query := url.Values{}
+	query := url.Values{"project": []string{projectID}}
 	if target.Focus != nil {
 		focusContract, _ := allowedFocus(page, target.Focus.Kind)
 		if focusContract.QueryKey != "" {
@@ -96,7 +96,7 @@ func Build(serverBase, projectID string, target Target) (Link, error) {
 		}
 	}
 
-	base.Path = "/projects/" + projectID + "/" + page.Route
+	base.Path = "/" + strings.TrimPrefix(page.Route, "/")
 	base.RawPath = ""
 	base.RawQuery = query.Encode()
 	return Link{
@@ -124,7 +124,7 @@ func BuildStudioConnect(serverBase, sessionID string) (string, error) {
 }
 
 func Validate(target Target) error {
-	page, ok := pages.Views[target.View]
+	page, ok := surfaces.Views[target.View]
 	if !ok {
 		return domain.Invalid("PROJECT_VIEW_INVALID", "不支持该 Content Work OS 项目视图")
 	}
@@ -169,17 +169,17 @@ func trustedServerBase(value string) (*url.URL, error) {
 
 func mustLoadContract() Contract {
 	var contract Contract
-	if err := json.Unmarshal(contracts.ProjectPagesV1Contract, &contract); err != nil {
-		panic("invalid embedded project page contract: " + err.Error())
+	if err := json.Unmarshal(contracts.StudioSurfacesV1Contract, &contract); err != nil {
+		panic("invalid embedded Studio surface contract: " + err.Error())
 	}
 	if contract.SchemaVersion != SchemaVersion || len(contract.Order) == 0 || len(contract.Order) != len(contract.Views) {
-		panic("invalid embedded project page contract shape")
+		panic("invalid embedded Studio surface contract shape")
 	}
 	seen := map[string]bool{}
 	for _, id := range contract.Order {
 		page, ok := contract.Views[id]
 		if !ok || seen[id] || page.Route == "" || page.Label == "" || page.Title == "" {
-			panic("invalid embedded project page contract entry")
+			panic("invalid embedded Studio surface contract entry")
 		}
 		seen[id] = true
 	}

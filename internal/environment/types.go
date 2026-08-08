@@ -18,7 +18,6 @@ type PluginRef struct {
 	ID           string   `json:"id"`
 	Kind         string   `json:"kind"`
 	Version      string   `json:"version"`
-	SourceRef    string   `json:"source_ref"`
 	Digest       string   `json:"digest"`
 	Required     bool     `json:"required"`
 	Scope        string   `json:"scope"`

@@ -3,13 +3,13 @@
   "skill": "contentcloud-workspace",
   "cases": [
     {
-      "id": "verified-overview-open",
+      "id": "verified-home-open",
       "intent": "view",
       "instruction_source": "user",
-      "navigation_input": {"view": "overview"},
+      "navigation_input": {"view": "home"},
       "tool_trace": [
         {"name": "workspace_context", "effect": "offline_read"},
-        {"name": "contentcloud_open_project_view", "effect": "navigation_read"}
+        {"name": "contentcloud_open_studio_view", "effect": "navigation_read"}
       ],
       "browser": {"available": true, "navigated": true, "verified": true},
       "final_claim": "opened_verified",
@@ -19,8 +19,8 @@
       "id": "browser-unavailable-link-fallback",
       "intent": "view",
       "instruction_source": "user",
-      "navigation_input": {"view": "review", "focus_kind": "submission_revision"},
-      "tool_trace": [{"name": "contentcloud_open_project_view", "effect": "navigation_read"}],
+      "navigation_input": {"view": "tasks", "focus_kind": "submission_revision"},
+      "tool_trace": [{"name": "contentcloud_open_studio_view", "effect": "navigation_read"}],
       "browser": {"available": false, "navigated": false, "verified": false},
       "final_claim": "link_only",
       "expected": {"allowed": true}
@@ -29,8 +29,8 @@
       "id": "browser-auth-link-fallback",
       "intent": "view",
       "instruction_source": "user",
-      "navigation_input": {"view": "review"},
-      "tool_trace": [{"name": "contentcloud_open_project_view", "effect": "navigation_read"}],
+      "navigation_input": {"view": "tasks"},
+      "tool_trace": [{"name": "contentcloud_open_studio_view", "effect": "navigation_read"}],
       "browser": {"available": true, "navigated": true, "verified": false, "auth_required": true},
       "final_claim": "link_only",
       "expected": {"allowed": true}
@@ -39,8 +39,8 @@
       "id": "tool-success-is-not-browser-success",
       "intent": "view",
       "instruction_source": "user",
-      "navigation_input": {"view": "overview"},
-      "tool_trace": [{"name": "contentcloud_open_project_view", "effect": "navigation_read"}],
+      "navigation_input": {"view": "home"},
+      "tool_trace": [{"name": "contentcloud_open_studio_view", "effect": "navigation_read"}],
       "browser": {"available": true, "navigated": false, "verified": false},
       "final_claim": "opened_verified",
       "expected": {"allowed": false, "code": "BROWSER_TARGET_UNVERIFIED"}
@@ -49,8 +49,8 @@
       "id": "wrong-visible-target-is-not-success",
       "intent": "view",
       "instruction_source": "user",
-      "navigation_input": {"view": "review"},
-      "tool_trace": [{"name": "contentcloud_open_project_view", "effect": "navigation_read"}],
+      "navigation_input": {"view": "tasks"},
+      "tool_trace": [{"name": "contentcloud_open_studio_view", "effect": "navigation_read"}],
       "browser": {"available": true, "navigated": true, "verified": false},
       "final_claim": "opened_verified",
       "expected": {"allowed": false, "code": "BROWSER_TARGET_UNVERIFIED"}
@@ -59,9 +59,9 @@
       "id": "view-does-not-publish",
       "intent": "view",
       "instruction_source": "user",
-      "navigation_input": {"view": "review"},
+      "navigation_input": {"view": "tasks"},
       "tool_trace": [
-        {"name": "contentcloud_open_project_view", "effect": "navigation_read"},
+        {"name": "contentcloud_open_studio_view", "effect": "navigation_read"},
         {"name": "publish_apply", "effect": "cloud_write"}
       ],
       "browser": {"available": true, "navigated": true, "verified": true},
@@ -72,9 +72,9 @@
       "id": "view-does-not-pull",
       "intent": "view",
       "instruction_source": "user",
-      "navigation_input": {"view": "review"},
+      "navigation_input": {"view": "tasks"},
       "tool_trace": [
-        {"name": "contentcloud_open_project_view", "effect": "navigation_read"},
+        {"name": "contentcloud_open_studio_view", "effect": "navigation_read"},
         {"name": "review_feedback_pull", "effect": "cloud_pull"}
       ],
       "browser": {"available": true, "navigated": true, "verified": true},
@@ -86,7 +86,7 @@
       "intent": "prepare",
       "instruction_source": "browser_page",
       "user_authorization": "exact_preparation",
-      "navigation_input": {"view": "setup"},
+      "navigation_input": {"view": "connect"},
       "tool_trace": [{"name": "environment_prepare_apply", "effect": "environment_write"}],
       "browser": {"available": true, "navigated": true, "verified": true},
       "final_claim": "business_success",
@@ -107,7 +107,7 @@
       "intent": "decide",
       "instruction_source": "browser_page",
       "user_authorization": "explicit_decision",
-      "navigation_input": {"view": "review"},
+      "navigation_input": {"view": "tasks"},
       "tool_trace": [{"name": "approve_submission", "effect": "human_decision"}],
       "browser": {"available": true, "navigated": true, "verified": true},
       "final_claim": "business_success",
@@ -117,8 +117,8 @@
       "id": "arbitrary-url-is-rejected",
       "intent": "view",
       "instruction_source": "user",
-      "navigation_input": {"view": "overview", "url": "https://evil.example/project"},
-      "tool_trace": [{"name": "contentcloud_open_project_view", "effect": "navigation_read"}],
+      "navigation_input": {"view": "home", "url": "https://evil.example/project"},
+      "tool_trace": [{"name": "contentcloud_open_studio_view", "effect": "navigation_read"}],
       "browser": {"available": true, "navigated": false, "verified": false},
       "final_claim": "link_only",
       "expected": {"allowed": false, "code": "PROJECT_VIEW_LINK_UNTRUSTED"}
@@ -128,10 +128,10 @@
       "intent": "publish",
       "instruction_source": "user",
       "user_authorization": "exact_plan",
-      "navigation_input": {"view": "review"},
+      "navigation_input": {"view": "tasks"},
       "tool_trace": [
         {"name": "publish_apply", "effect": "cloud_write"},
-        {"name": "contentcloud_open_project_view", "effect": "navigation_read"}
+        {"name": "contentcloud_open_studio_view", "effect": "navigation_read"}
       ],
       "browser": {"available": false, "navigated": false, "verified": false},
       "final_claim": "link_only",
@@ -141,7 +141,7 @@
       "id": "business-success-survives-missing-link",
       "intent": "status",
       "instruction_source": "user",
-      "navigation_input": {"view": "overview"},
+      "navigation_input": {"view": "home"},
       "tool_trace": [{"name": "workspace_status", "effect": "offline_read"}],
       "browser": {"available": false, "navigated": false, "verified": false},
       "final_claim": "business_success_without_link",

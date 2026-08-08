@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.local/schemas/contentcloud-plugin-claims-1.0.schema.json",
+  "title": "ContentCloud Plugin Claims 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plugin_id", "plugin_version", "package_spec_version", "kind", "requested_capabilities", "permissions_requested", "data_flow", "cost", "hosts", "support"],
+  "properties": {
+    "schema_version": {"const": "contentcloud.plugin-claims/1.0"},
+    "plugin_id": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"},
+    "plugin_version": {"type": "string", "minLength": 1},
+    "package_spec_version": {"const": "1.0.0"},
+    "kind": {"enum": ["scene_plugin", "skill_pack", "provider_mcp_pack"]},
+    "requested_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "version", "input_schemas", "output_schemas"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)+$"},
+          "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"},
+          "input_schemas": {"type": "array", "items": {"type": "string", "pattern": "^contracts/.+\\.schema\\.json$"}, "uniqueItems": true},
+          "output_schemas": {"type": "array", "items": {"type": "string", "pattern": "^contracts/.+\\.schema\\.json$"}, "uniqueItems": true}
+        }
+      }
+    },
+    "permissions_requested": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "workspace:read",
+          "workspace:write-managed",
+          "contentcloud-control-plane:explicit-actions-only",
+          "credential-store:macos-keychain"
+        ]
+      }
+    },
+    "data_flow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["local_by_default", "declared_cloud_actions"],
+      "properties": {
+        "local_by_default": {"type": "boolean"},
+        "declared_cloud_actions": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "notice"],
+      "properties": {
+        "model": {"enum": ["free", "included", "metered", "external"]},
+        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+        "unit": {"type": "string", "minLength": 1},
+        "unit_price": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"},
+        "notice": {"type": "string", "minLength": 1}
+      }
+    },
+    "hosts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "required"],
+        "properties": {
+          "id": {"enum": ["codex", "claude"]},
+          "required": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"enum": ["skills", "mcp_stdio", "new_session_required"]}
+          }
+        }
+      }
+    },
+    "support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "runbook"],
+      "properties": {
+        "owner": {"type": "string", "minLength": 1},
+        "runbook": {"type": "string", "pattern": "^\\./"}
+      }
+    }
+  }
+}

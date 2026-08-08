@@ -87,9 +87,9 @@ func TestCodexHTMLAndTextSharePinnedGuideFacts(t *testing.T) {
 	facts := []string{
 		guide.SchemaVersion,
 		guide.Version,
-		guide.MarketplaceSource,
-		guide.MarketplaceRef,
 		guide.PluginID,
+		guide.PluginVersion,
+		guide.HostCommand,
 		guide.ContextTool,
 		guide.DoctorTool,
 		guide.OpenViewTool,
@@ -135,9 +135,11 @@ func TestCodexGuideContainsNoRuntimeSecretsOrAbsolutePaths(t *testing.T) {
 	if regexp.MustCompile(`(?i)(?:Bearer\s+\S+|\b(?:ct|cck|sk)[_-][A-Za-z0-9]{8,})`).MatchString(body) {
 		t.Fatal("guide contains a value shaped like a runtime secret")
 	}
-	marketplaceCommand := "codex plugin marketplace add limecloud/contentcloud --ref v0.19.0 --json"
-	if strings.Count(body, marketplaceCommand) != 1 {
-		t.Fatalf("fixed Marketplace command count = %d", strings.Count(body, marketplaceCommand))
+	if strings.Contains(body, "codex plugin marketplace add") || strings.Contains(body, "--ref v") {
+		t.Fatal("guide still exposes a Git Marketplace installation authority")
+	}
+	if !strings.Contains(body, "bootstrap plan") || !strings.Contains(body, "--host codex") {
+		t.Fatal("guide does not use the standard plugin bootstrap flow")
 	}
 	if !strings.Contains(body, "读取它不授权安装") || !strings.Contains(body, "当前对话不会热加载") {
 		t.Fatal("guide is missing authorization or new-conversation boundary")
