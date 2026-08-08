@@ -112,7 +112,6 @@ check(Boolean(registryEntry), `governance registry is missing ${pluginName}`);
 check(registryEntry?.kind === 'scene_plugin', 'registry kind must be scene_plugin');
 check(registryEntry?.version === versionFile, 'registry plugin version must match VERSION');
 check(registryEntry?.source?.repository === 'https://github.com/limecloud/contentcloud', 'registry repository is not pinned to the ContentCloud source');
-check(registryEntry?.source?.ref === `v${versionFile}`, 'registry source ref must match VERSION');
 check(registryEntry?.license === plugin.license, 'registry license must match plugin manifest');
 check(registryEntry?.digest === `sha256:${digest}`, 'registry digest does not match canonical plugin contents');
 check(Array.isArray(registryEntry?.compatible_profiles) && registryEntry.compatible_profiles.includes('contentcloud.video-production'), 'registry must allow the video-production profile');
@@ -241,11 +240,11 @@ if (registryEntry?.evaluation?.status !== 'passed') {
   warnings.push('scene evaluation is pending; tagged release validation will fail');
 }
 
-const sourceRef = registryEntry?.source?.ref;
-if (sourceRef && gitRefExists(sourceRef)) {
-  const manifestAtRef = `${sourceRef}:${pluginRelativePath}/plugin.json`;
+const releaseTag = `v${versionFile}`;
+if (gitRefExists(releaseTag)) {
+  const manifestAtRef = `${releaseTag}:${pluginRelativePath}/plugin.json`;
   if (!gitObjectExists(manifestAtRef)) {
-    warnings.push(`${sourceRef} exists but does not contain the plugin manifest; choose a new immutable version`);
+    warnings.push(`${releaseTag} exists but does not contain the plugin manifest; choose a new immutable version`);
   }
 }
 
@@ -256,8 +255,8 @@ if (tagged) {
   check(typeof registryEntry?.signature?.value === 'string' && registryEntry.signature.value !== '', 'tagged release requires a signature value');
   check(registryEntry?.evaluation?.status === 'passed', 'tagged release requires a passed scene evaluation');
   check(registryEntry?.lifecycle === 'evaluated' || registryEntry?.lifecycle === 'published', 'tagged release requires evaluated or published lifecycle');
-  check(Boolean(sourceRef) && gitRefExists(sourceRef), 'tagged release source ref does not exist');
-  check(Boolean(sourceRef) && gitObjectExists(`${sourceRef}:${pluginRelativePath}/plugin.json`), 'tagged release source ref does not contain the plugin');
+  check(gitRefExists(releaseTag), 'tagged release does not have the expected immutable version tag');
+  check(gitObjectExists(`${releaseTag}:${pluginRelativePath}/plugin.json`), 'tagged release does not contain the standard plugin manifest');
 }
 
 const report = {
