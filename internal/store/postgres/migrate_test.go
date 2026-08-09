@@ -339,6 +339,7 @@ func TestRemoveV7ExecutionMigrationDropsOnlyRetiredExecutionTables(t *testing.T)
 	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
 	for _, required := range []string{
 		"DROP CONSTRAINT IF EXISTS runtime_job_runs_tenant_id_work_task_id_fkey",
+		"DROP CONSTRAINT IF EXISTS knowledge_items_origin_run_id_fkey",
 		"DROP TABLE IF EXISTS run_progress_events",
 		"DROP TABLE IF EXISTS run_attempts",
 		"DROP TABLE IF EXISTS creative_execution_bundles",
