@@ -220,12 +220,24 @@ func TestLegacyShortVideoSOPUpgradesWithoutRebindingEnvironment(t *testing.T) {
 	if upgraded == nil || !upgraded.Definition.BuiltIn || upgraded.Definition.TemplateKey != "short_video_production" {
 		t.Fatalf("legacy SOP was not adopted as the built-in template: %#v", upgraded)
 	}
+	if upgraded.Definition.SourceRef != "content-work-os/builtin-sops@1" {
+		t.Fatalf("legacy SOP retained a historical source marker: %#v", upgraded.Definition)
+	}
 	if len(upgraded.Versions) != 2 || upgraded.Versions[0].Version != 2 || upgraded.Versions[1].Version != 1 || upgraded.Versions[0].Status != "published" {
 		t.Fatalf("legacy SOP did not receive an additive upgrade: %#v", upgraded.Versions)
 	}
 	for _, environment := range admin.Environments {
 		if environment.ID == legacyEnvironment.ID && (environment.DefaultSOPID != legacy.Definition.ID || environment.DefaultSOPVersion != 1) {
 			t.Fatalf("legacy environment was silently rebound: %#v", environment)
+		}
+	}
+	repeated, err := service.AdminWorkOS(ctx, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, summary := range repeated.SOPs {
+		if summary.Definition.ID == legacy.Definition.ID && len(summary.Versions) != 2 {
+			t.Fatalf("legacy SOP migration was not one-time: %#v", summary.Versions)
 		}
 	}
 }

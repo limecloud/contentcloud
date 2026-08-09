@@ -8,6 +8,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/localworkspace"
 	"github.com/limecloud/contentcloud/internal/mediapipeline"
 	"github.com/limecloud/contentcloud/internal/store/memory"
 )
@@ -102,6 +103,13 @@ func TestMarketingVideoGoldenJourney(t *testing.T) {
 	contentSnapshot := contentSnapshots[0]
 	if taskRevisions, err := store.TaskRevisions(ctx, actor.TenantID, task.Task.ID); err != nil || len(taskRevisions) != 0 {
 		t.Fatalf("marketing video task wrote legacy TaskRevision: revisions=%#v err=%v", taskRevisions, err)
+	}
+	workspaceBinding, err := store.WorkspaceBinding(ctx, actor.TenantID, task.Task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspaceBinding.TemplateID != localworkspace.TemplateID || workspaceBinding.TemplateVersion != localworkspace.TemplateVersion {
+		t.Fatalf("marketing video task created a stale workspace template binding: %#v", workspaceBinding)
 	}
 
 	task = startTaskStage(t, service, actor, task)
