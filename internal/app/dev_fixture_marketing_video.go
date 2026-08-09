@@ -14,11 +14,12 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/fixturev3"
+	"github.com/limecloud/contentcloud/internal/localworkspace"
 	"github.com/limecloud/contentcloud/internal/mediapipeline"
 )
 
 const (
-	marketingVideoDemoFixtureVersion = "2.2.0"
+	marketingVideoDemoFixtureVersion = localworkspace.TemplateVersion
 	marketingVideoDemoIdempotencyKey = "fixture:marketing-video-demo:jinling-gudu"
 )
 
@@ -60,7 +61,7 @@ func (s *Service) EnsureMarketingVideoDemoFixture(ctx context.Context, actor Act
 		}
 	}
 	if _, _, err := s.ensureFixtureWorkspace(ctx, actor, project, fixturev3.WorkspaceSpec{
-		TemplateID: "workspace_marketing_video", TemplateVersion: marketingVideoDemoFixtureVersion,
+		TemplateID: localworkspace.TemplateID, TemplateVersion: marketingVideoDemoFixtureVersion,
 		Targets: []string{"codex"}, DeviceName: "营销视频演示创作环境",
 	}, fixtureRequestID(requestID, "workspace")); err != nil {
 		return MarketingVideoDemoFixtureResult{}, err

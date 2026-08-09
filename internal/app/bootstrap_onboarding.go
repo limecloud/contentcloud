@@ -17,6 +17,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
+	"github.com/limecloud/contentcloud/internal/localworkspace"
 	"github.com/limecloud/contentcloud/internal/projectview"
 )
 
@@ -211,7 +212,7 @@ func (s *Service) CompleteBootstrapAuthorization(ctx context.Context, in Complet
 	}
 	deviceInput := in.Device
 	device := domain.Device{ID: domain.NewID(), DisplayName: defaultString(deviceInput.DisplayName, deviceInput.Hostname), Hostname: deviceInput.Hostname, Platform: defaultString(deviceInput.Platform, runtime.GOOS), Arch: defaultString(deviceInput.Arch, runtime.GOARCH), Version: deviceInput.Version, TokenHash: deviceTokenHash, Capabilities: append([]domain.Capability{}, deviceInput.Capabilities...), LastSeenAt: now}
-	workspace := domain.WorkspaceBinding{ID: domain.NewID(), TemplateID: "workspace_marketing_video", Targets: []string{}, CredentialHash: workspaceTokenHash, Status: "active", InitializedAt: now, LastSeenAt: now}
+	workspace := domain.WorkspaceBinding{ID: domain.NewID(), TemplateID: localworkspace.TemplateID, TemplateVersion: localworkspace.TemplateVersion, Targets: []string{}, CredentialHash: workspaceTokenHash, Status: "active", InitializedAt: now, LastSeenAt: now}
 	session, consumed, err := s.store.ConsumeBootstrapAttempt(ctx, tokenHash, device, workspace, now)
 	if err != nil {
 		return ConnectDeviceResult{}, err

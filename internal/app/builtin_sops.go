@@ -17,7 +17,6 @@ const (
 	builtinSOPArticle         = "article_collaboration"
 	builtinSOPRetrospective   = "campaign_retrospective"
 	builtinSOPSourceRef       = "content-work-os/builtin-sops@1"
-	builtinSOPLegacySourceRef = "legacy/default-short-video"
 )
 
 func builtinSOPKeyForContentType(contentType string) string {
@@ -122,20 +121,13 @@ func builtinSOPTemplates() []builtinSOPTemplate {
 }
 
 func (s *Service) ensureBuiltinSOPs(ctx context.Context, actor Actor, current []domain.SOPSummary) ([]domain.SOPSummary, error) {
+	var err error
+	current, err = s.migrateLegacyBuiltinSOPs(ctx, actor, current)
+	if err != nil {
+		return nil, err
+	}
 	for _, template := range builtinSOPTemplates() {
 		summary, found := findSOPTemplate(current, template)
-		if !found && template.Key == builtinSOPShortVideo {
-			if legacy, ok := findLegacyShortVideo(current); ok {
-				legacy.Definition.TemplateKey = template.Key
-				legacy.Definition.BuiltIn = true
-				legacy.Definition.SourceRef = builtinSOPLegacySourceRef
-				legacy.Definition.UpdatedAt = s.now().UTC()
-				if err := s.store.SaveSOPDefinition(ctx, legacy.Definition); err != nil {
-					return nil, err
-				}
-				summary, found = legacy, true
-			}
-		}
 		if !found {
 			now := s.now().UTC()
 			definition := domain.SOPDefinition{ID: template.ID, TenantID: actor.TenantID, Name: template.Name, Description: template.Description, ContentTypes: append([]string{}, template.ContentTypes...), CurrentVersion: 1, TemplateKey: template.Key, BuiltIn: true, SourceRef: template.SourceRef, CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now}
@@ -157,12 +149,52 @@ func (s *Service) ensureBuiltinSOPs(ctx context.Context, actor Actor, current []
 	return s.store.SOPs(ctx, actor.TenantID)
 }
 
+// migrateLegacyBuiltinSOPs is a one-time, tenant-scoped data migration. The
+// exact legacy shape is recognized only while the current template identity is
+// absent; once TemplateKey is written, subsequent reads take the current path.
+// Historical published versions remain immutable so existing bindings keep
+// their original digest and can still be audited.
+func (s *Service) migrateLegacyBuiltinSOPs(ctx context.Context, actor Actor, current []domain.SOPSummary) ([]domain.SOPSummary, error) {
+	template := builtinSOPTemplateForKey(builtinSOPShortVideo)
+	if _, found := findSOPTemplate(current, template); found {
+		return current, nil
+	}
+	legacy, ok := matchLegacyShortVideo(current)
+	if !ok {
+		return current, nil
+	}
+	definition := legacy.Definition
+	definition.TemplateKey = template.Key
+	definition.BuiltIn = true
+	definition.SourceRef = template.SourceRef
+	definition.UpdatedAt = s.now().UTC()
+	if err := s.store.SaveSOPDefinition(ctx, definition); err != nil {
+		return nil, err
+	}
+	for index := range current {
+		if current[index].Definition.ID == definition.ID {
+			current[index].Definition = definition
+			break
+		}
+	}
+	return current, nil
+}
+
+func builtinSOPTemplateForKey(key string) builtinSOPTemplate {
+	for _, template := range builtinSOPTemplates() {
+		if template.Key == key {
+			return template
+		}
+	}
+	return builtinSOPTemplate{}
+}
+
 // adoptBuiltinDefinition repairs metadata written before built-in templates
 // had explicit identity fields. It only adopts a known platform ID or key;
 // arbitrary same-name custom SOPs remain untouched.
 func (s *Service) adoptBuiltinDefinition(ctx context.Context, summary domain.SOPSummary, template builtinSOPTemplate) (domain.SOPSummary, error) {
 	definition := summary.Definition
-	if definition.BuiltIn && definition.TemplateKey == template.Key && definition.SourceRef != "" {
+	if definition.BuiltIn && definition.TemplateKey == template.Key && definition.SourceRef == template.SourceRef {
 		return summary, nil
 	}
 	if definition.ID != template.ID && definition.TemplateKey != template.Key {
@@ -170,9 +202,7 @@ func (s *Service) adoptBuiltinDefinition(ctx context.Context, summary domain.SOP
 	}
 	definition.TemplateKey = template.Key
 	definition.BuiltIn = true
-	if definition.SourceRef == "" {
-		definition.SourceRef = template.SourceRef
-	}
+	definition.SourceRef = template.SourceRef
 	definition.UpdatedAt = s.now().UTC()
 	if err := s.store.SaveSOPDefinition(ctx, definition); err != nil {
 		return domain.SOPSummary{}, err
@@ -228,7 +258,7 @@ func findSOPTemplate(sops []domain.SOPSummary, template builtinSOPTemplate) (dom
 	return domain.SOPSummary{}, false
 }
 
-func findLegacyShortVideo(sops []domain.SOPSummary) (domain.SOPSummary, bool) {
+func matchLegacyShortVideo(sops []domain.SOPSummary) (domain.SOPSummary, bool) {
 	for _, summary := range sops {
 		if summary.Definition.BuiltIn || summary.Definition.TemplateKey != "" || summary.Definition.Name != "短视频生产" {
 			continue

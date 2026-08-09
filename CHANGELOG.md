@@ -20,6 +20,11 @@ ContentCloud 的重要变更记录在此文件中。
 - 将 Codex 与 Claude 执行统一收敛到可恢复的 Runtime Harness、Attempt-scoped MCP Gateway 和服务端投影，移除平行 session mirror 与一次性 Adapter。
 - 更新 Operations、OpenAPI、CLI、架构与 V8 路线文档，明确 Runtime 健康、容量、公平性、Provider 恢复和本地 Memory 的当前边界。
 
+### Fixed
+
+- 统一 Bootstrap、任务工作区和营销视频演示数据使用同一 Workspace Template ID/version，避免服务端绑定与本地模板事实源漂移。
+- 将符合旧内置短视频形态的 SOP 一次性迁移到当前模板身份，同时保留历史发布版本和 digest 的审计语义。
+
 ### Removed
 
 - 迁移 `00035_runtime_outbox_subscribers.sql` 将投递租约从 outbox 消息本体迁到独立订阅回执，避免单一消费者状态污染不可变事件。

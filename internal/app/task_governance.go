@@ -871,7 +871,7 @@ func (s *Service) ensureTaskWorkspace(ctx context.Context, actor Actor, task dom
 		return domain.WorkspaceBinding{}, err
 	}
 	now := s.now().UTC()
-	binding = domain.WorkspaceBinding{ID: task.ID, TenantID: task.TenantID, ProjectID: task.ProjectID, OwnerUserID: actor.UserID, TemplateID: "task_marketing_video", TemplateVersion: "7.0.0", Targets: []string{"web"}, CredentialHash: credentialHash, Status: "active", InitializedAt: now, LastSeenAt: now}
+	binding = domain.WorkspaceBinding{ID: task.ID, TenantID: task.TenantID, ProjectID: task.ProjectID, OwnerUserID: actor.UserID, TemplateID: localworkspace.TemplateID, TemplateVersion: localworkspace.TemplateVersion, Targets: []string{"web"}, CredentialHash: credentialHash, Status: "active", InitializedAt: now, LastSeenAt: now}
 	if err := s.store.CreateWorkspaceBinding(ctx, binding); err != nil {
 		return domain.WorkspaceBinding{}, err
 	}
