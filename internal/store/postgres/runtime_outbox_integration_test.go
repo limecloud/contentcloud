@@ -80,6 +80,7 @@ func TestRuntimeOutboxPostgresClaimAndCommandRollback(t *testing.T) {
 	}
 	job := domain.JobRun{
 		ID: jobID, TenantID: tenantID, ProjectID: projectID, WorkTaskID: taskID,
+		BusinessType:   "runtime.job",
 		PlanRevisionID: plan.ID, PlanDigest: plan.Digest,
 		BindingDigest: "sha256:" + repeatHex(64, 'b'), InputDigest: "sha256:" + repeatHex(64, 'c'),
 		RuntimePolicyID: "runtime-policy/postgres-test-v1", ContractMajor: 1, ContractMinor: 0, RootJobRunID: jobID,
