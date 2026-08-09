@@ -1,6 +1,6 @@
 # 09：Runtime Infra V2：可恢复执行内核升级
 
-状态：`I0 已冻结；I1～I4 核心实现、I5 第二业务流容量边界切片已落地；真实 Provider/SDK 端到端、PostgreSQL 故障与 RLS/容量验收、Canary 未完成`。
+状态：`I0 已冻结；I1～I5 核心切片、Attempt-scoped MCP Gateway、Runtime Schema Registry、Provider HTTP ingress、Runtime Effect 关联、流式媒体对象链和 Claude stream-json/session resume 已进入代码；专用 PostgreSQL 集成库已通过迁移、核心 RLS、事务回滚、outbox receipts、fenced replay、Provider ingress httptest 和 Harness helper-process 验证；真实 Provider 凭据/回调、真实提交后故障环境、生产告警和 Canary 未完成`。
 
 更新时间：2026-08-09。
 
@@ -24,17 +24,17 @@ V8 当前已经证明了“模型和数据库状态可以完成一次调度闭�
 
 | 层 | 当前已经存在 | 仍然不能宣称的能力 | 证据 |
 | --- | --- | --- | --- |
-| 领域内核 | JobPlan、JobRun、NodeRun、JobEvent、State/StateCollection/StateRecord、Checkpoint、Effect、ToolCall 的状态转移；主要写路径已切到 `RuntimeCommandStore` | PostgreSQL 提交后故障注入、完整命令契约矩阵 | `internal/domain/runtime.go`、`internal/runtime/commands.go`、`internal/runtime/service.go` |
-| 持久化 | PostgreSQL 迁移 `00014`～`00030`、RLS、复合外键、JobRun 准入冻结字段、追加事实权限、Memory/PostgreSQL Store、outbox 租约、资源账本、typed state、ToolCall、Runtime Explorer 快照、关系化计划 revision、Fanout/Join、Provider inbox/账单、Yield、投影重建事实、SessionStore 镜像表 | 真实数据库故障注入、RLS 越权和迁移历史重建 | `migrations/00014_agentic_job_runtime.sql`～`00030_runtime_session_store.sql` |
-| 调度 | FakeHarness 的 Prepare/Start/Activate/Heartbeat/Finalize、owner/version/fence 围栏、资源预留与释放/消费/过期、优先级 aging 排序、租约回收 | PostgreSQL 多 worker 压测、跨租户公平性生产指标 | `internal/runtime/dispatch.go`、`internal/store/postgres/runtime_dispatch.go`、`runtime_resources.go` |
-| 宿主执行 | 结构化事件接口、进程级 HarnessRegistry、FakeHarness、`DurableHarness` 的本地/SessionStore 镜像、跨进程 Resume、Yield/Resume Runtime 边界 | Codex/Claude 真实 SDK 会话恢复、真实宿主故障演练 | `internal/agentadapter/harness.go`、`harness_registry.go`、`durable_harness.go`、`session_store.go` |
-| 状态与上下文 | StateCollection（四种一致性策略）、StateRecord CAS、引用型 ContextView、父子预算/工具子集校验，状态写入与事件/outbox 同事务 | Runtime state gateway 授权、生产 schema 发布/保留策略、Artifact 大值链路 | `internal/domain/runtime.go`、`internal/store/*/runtime_state_tools.go` |
-| 外部操作 | Effect 状态机（unknown/reconciling 禁止盲重试）、ToolCall 状态机、Effect 的 Attempt/Reservation 绑定、Provider inbox 去重、Provider reconciliation、账单匹配/差异/无匹配记录、资源账本 | 真实服务商端到端回调/账单和补偿演练 | `runtime_effects`、`runtime_tool_calls`、`internal/runtime/provider.go`、`internal/store/*/runtime_provider.go` |
-| 运营读取 | Durable outbox Projector、Runtime Explorer 持久化投影、投影延迟/积压指标、REST/SSE 读取、Replay 投影重建和 dry-run、Checkpoint Fork、Effect/Provider 对账入口 | 图/状态/费用完整读模型、生产告警和支持案例 | `internal/runtime/projector.go`、`internal/store/*/runtime_projection*.go`、`internal/app/runtime_explorer.go` |
+| 领域内核 | JobPlan、JobRun、NodeRun、JobEvent、State/StateCollection/StateRecord、Checkpoint、Effect、ToolCall 的状态转移；主要写路径已切到 `RuntimeCommandStore` | 真实 PostgreSQL 进程/网络提交后故障环境、完整命令契约矩阵 | `internal/domain/runtime.go`、`internal/runtime/commands.go`、`internal/runtime/service.go` |
+| 持久化 | PostgreSQL 迁移 `00014`～`00043`、RLS、复合外键、JobRun 准入冻结字段、追加事实权限、Memory/PostgreSQL Store、不可变 outbox + subscriber receipts、资源账本、typed state、ToolCall（含安全结果重放）、Runtime Explorer 快照、关系化计划 revision、Fanout/Join、Provider inbox/账单、Yield、投影重建事实、异步 Provider 到期轮询和 Runtime Schema Registry；`00036` 已删除零消费者 session 镜像表，`00037` 已增加维护心跳，`00038` 收敛 Provider poll recovery，`00039` 阻止缺失 deadline 的 unknown 提交进入重试循环，`00040` 为媒体 Job/Attempt 增加显式 Runtime Effect 关联且历史行保持空关联，`00041` 增加 Schema draft/published/retired 与保留策略，`00042` 增加幂等/Explorer 索引，`00043` 增加 ToolCall safe_result；专用 PostgreSQL 集成库已通过迁移、核心 RLS（含投影重建和维护心跳越权负向）、事务回滚和 receipt 隔离 | 真实数据库提交后故障和迁移历史重建演练 | `migrations/00014_agentic_job_runtime.sql`～`00043_runtime_tool_call_results.sql`、`internal/store/postgres/*_integration_test.go` |
+| 调度 | FakeHarness 的 Prepare/Start/Activate/Heartbeat/Finalize、owner/version/fence 围栏、资源预留与释放/消费/过期、优先级 aging 排序、租约回收；PostgreSQL 100 节点/20 worker 并发领取；Runtime FairnessReport 输出按租户资源利用率、过期 held 和 Jain 指数 | 生产公平性长时压测和提交后故障注入 | `internal/runtime/dispatch.go`、`internal/runtime/fairness.go`、`internal/store/postgres/runtime_dispatch.go`、`runtime_resources.go`、`runtime_capacity_integration_test.go` |
+| 宿主执行 | 结构化事件接口、FakeHarness、worker 侧能力探测与 Attempt capability snapshot、Codex CLI JSONL/thread ID、`exec resume`、Claude CLI stream-json/session ID/`--resume`、持续 heartbeat、fenced 脱敏事件和结构化终态 | 真实 Codex/Claude 在线模型 Start/中断/新进程 Resume、真实宿主故障演练 | `internal/agentadapter/harness.go`、`codex_harness.go`、`claude_harness.go`、`internal/cli/runtime_worker.go`、`internal/runtime/dispatch.go` |
+| 状态与上下文 | StateCollection（四种一致性策略）、StateRecord CAS、引用型 ContextView、父子预算/工具子集校验、Attempt-scoped MCP Gateway（state/child/effect 工具授权）和 Runtime Schema Registry（draft/published/retired） | 真实宿主 MCP stdio/HTTP smoke、Artifact 大值链路和 Schema JSON Schema 编译器 | `internal/runtime/mcp_gateway.go`、`internal/runtime/schema.go`、`internal/domain/runtime.go`、`internal/store/*/runtime_state_tools.go` |
+| 外部操作 | Effect 状态机（unknown/reconciling 禁止盲重试）、媒体 Job/Attempt 显式 Effect 关联、ToolCall 状态机、Effect 的 Attempt/Reservation 绑定、Provider inbox 去重、Provider reconciliation、账单匹配/差异/无匹配记录、签名/时间窗/租户绑定 ingress、资源账本 | 真实服务商端到端回调/账单和补偿演练 | `runtime_effects`、`runtime_provider_*`、`internal/runtime/provider.go`、`internal/httpapi/provider_ingress.go` |
+| 运营读取 | Durable outbox Projector、Runtime Explorer 持久化投影、投影延迟/积压指标、Job 与 nodes/effects/checkpoints 分页、事件单次上限、REST/SSE 读取、Replay 投影重建和 dry-run、Checkpoint Fork、Effect/Provider Attempt/账单/对账读模型、关系化计划边和脱敏 StateRecord 摘要 | 完整动态图操作、生产告警和支持案例 | `internal/runtime/projector.go`、`internal/store/*/runtime_projection*.go`、`internal/app/runtime_explorer.go` |
 
-本轮 `GOMAXPROCS=2 go test -p 1 ./...`、`git diff --check` 和 `node scripts/check-architecture.mjs` 已通过。`pnpm architecture` 在当前机器被 Corepack 的 pnpm 签名校验阻断，因此不把它写成项目失败；Node 直接执行同一架构脚本作为等价验证。以上仍不是 PostgreSQL RLS、提交后崩溃、生产容量、真实 Provider 或 Canary 验收。
+本轮 `GOMAXPROCS=2 go test -mod=readonly -p 1 -count=1 ./...`、专用 PostgreSQL `go test -mod=readonly -race -p 1 -count=1 ./internal/store/postgres`、HTTP/localworkspace/Runtime/Memory/PostgreSQL 定向 Go race、Web typecheck/22 个文件 111 个测试、`npm run check:plugin`、`git diff --check` 和 `node scripts/check-architecture.mjs` 均已通过。以上仍不是提交后崩溃、生产容量公平性、真实 Provider、在线宿主或 Canary 验收。
 
-I1～I4 的核心切片已落地，I5 已补上文章复盘 50 节点并行分析及第二批超限保护测试：事务命令和 outbox `claim/ack/retry`、fence 与资源账本、typed state/ToolCall/Checkpoint/Fork/Replay、Provider inbox/账单、Yield/Resume、DurableHarness + SessionStore、Projector、关系化 GraphPatch、FanoutSet/Join 均有 Memory/PostgreSQL 实现或本地持久化实现及定向测试。剩余退出条件集中在真实 Provider/SDK 端到端、PostgreSQL 故障注入与 RLS、100 节点/20 并发公平性、生产告警和 Canary。
+I1～I4 的核心切片已落地，I5 已补上文章复盘 50 节点并行分析及第二批超限保护测试：事务命令、不可变 outbox 与独立 subscriber `claim/ack/retry`、终态业务结果持久化消费、fence 与资源账本、typed state/ToolCall/Checkpoint/Fork/Replay、Provider inbox/账单、Yield/Resume、Codex JSONL/thread resume Harness、Claude stream-json/session resume Harness、Projector、关系化 GraphPatch、FanoutSet/Join 均有 Memory/PostgreSQL 实现或确定性协议测试。专用 PostgreSQL 集成库已验证迁移、核心 RLS（含投影重建和维护心跳越权负向）、事务失败回滚、fenced event replay、独立 subscriber receipt 和 100 节点/20 worker 并发领取；业务结果已覆盖“业务写成功但 ack 失败”、不同摘要拒绝、独立投影 ack、重复消费和新进程恢复；Codex/Claude helper-process 测试已覆盖真实会话标识和跨 Harness 实例 Resume，但没有调用在线模型。剩余退出条件集中在真实 Provider、在线 Codex/Claude smoke、提交后故障注入、多租户公平性、生产告警和 Canary。
 
 ## 3. 目标架构
 
@@ -95,7 +95,8 @@ ExperienceTemplateVersion + SOPVersion
 ```text
 aggregate snapshot/version
   + append-only JobEvent(sequence)
-  + outbox message(event_id, projection/reconcile target)
+  + immutable outbox message(event_id, payload)
+  + subscriber receipt(message_id, subscriber, lease/retry/ack)
 ```
 
 禁止在 application service 中先 `Save*`，再单独 `AppendJobEvent`。当前 `TransitionNode`、`CompleteNode`、`FailNode`、`MutateState` 和 `ReconcileEffect` 已改为调用 `RuntimeCommandStore` 的事务命令；Service 仍负责读取、领域校验和构造事件，不能再直接组合宽写方法。后续新聚合必须沿用同一端口形态，例如：
@@ -123,7 +124,8 @@ lease_owner + lease_expires_at + fence_token
 - 每次 Prepare 或重新领取生成新的随机 `fence_token`，写入 NodeRun、Attempt、Reservation 和本地执行信封。
 - Heartbeat、事件上报、Finalize、Cancel、Reconcile 都必须携带 token；token 不匹配直接返回稳定错误码。
 - 到期回收先写终态/释放资源，再允许新 Attempt 领取；旧 worker 即使尚未被 reaper 处理，也不能提交迟到结果。
-- 终态清除原始 lease/fence，仅在追加 JobEvent 保存 worker actor 与 fence SHA-256 摘要；相同终态重试先验证 actor、fence 摘要和结果摘要，再执行幂等业务提交。
+- 终态清除原始 lease/fence，仅在追加 JobEvent 保存 worker actor 与 fence SHA-256 摘要；相同终态重试只验证 actor、fence 摘要和结果摘要并返回同一终态。
+- 业务结果在终态前完成严格契约校验并写入内容寻址 Blob；终态事件发布独立业务 subscriber receipt，业务对象由后台消费者幂等派生，不能在 Finalize 请求内同步写入。
 - `owner + version` 保留作为并发 CAS，但不再单独承担执行隔离。
 
 ### 4.4 业务状态与宿主状态分离
@@ -144,13 +146,13 @@ lease_owner + lease_expires_at + fence_token
 | `runtime_fanout_sets/members` | `set_id/member_key/membership_digest/request_digest/status` | 成员封存、确定性子节点和 Join 输入冻结（已落地） |
 | `runtime_resource_reservations` | `resource_key/quantity/owner/fence/state/expires_at` | 已落地的配额和资源账本，拒绝超卖 |
 | `runtime_tool_calls` | `attempt_id/tool_name/request_digest/result_digest/state` | 已落地的工具授权状态和审计 |
-| `runtime_outbox` | `event_id/topic/payload/attempts/next_attempt_at/locked_by/locked_until/delivered_at` | 投影、回调、对账的可靠投递与消费者围栏 |
+| `runtime_outbox` | `event_id/topic/payload/created_at` | 与 JobEvent 同事务发布的不可变消息，不保存任何单一消费者状态 |
+| `runtime_outbox_receipts` | `message_id/subscriber/attempts/next_attempt_at/locked_by/locked_until/delivered_at` | Projector、业务结果等订阅者各自独立的租约、退避与确认 |
 | `runtime_provider_inbox` | `provider_id/message_id/received_digest/external_id/state` | Provider 回调去重、结果摘要和安全载荷镜像 |
 | `runtime_provider_reconciliations` | `effect_id/request_key/observed_state/expected_minor/observed_minor/status` | Provider 结果与预期请求/费用对账 |
 | `runtime_provider_bills` | `provider_id/bill_id/external_id/bill_digest/amount_minor/status` | 账单匹配、差异和无匹配账单事实 |
 | `runtime_yields` | `attempt_id/reason/wait_refs/state/resume_key` | 释放执行资源后的等待与恢复边界 |
 | `runtime_projection_rebuild_runs` | `job_run_id/mode/status/event_count/last_sequence/external_calls/integrity_status` | 投影 rebuild/dry-run 的运行事实和零外部调用证明 |
-| `runtime_agent_sessions/events` | `harness_kind/session_id/sequence/digest` | 宿主会话和事件的镜像观察层，不作为 Runtime 业务强事务事实 |
 | `runtime_state_collections` | `scope/schema_revision/writer_policy/retention` | 已落地的集合级类型和写入治理 |
 | `runtime_state_records` | `collection/key/value_ref/revision/digest` | 已落地的小记录 CAS，大值只存引用 |
 
@@ -226,10 +228,10 @@ Activate(tx) -> session + token fenced
 Heartbeat(tx) -> lease + progress cursor
 Yield(tx) -> release reservations, Agent runnable
 Resume(outside tx) -> new Attempt or supported session resume
-Finalize(tx) -> result envelope + receipts + release resources
+Finalize(tx) -> result refs + event/subscriber receipts + release resources
 ```
 
-`Yield` 的 Runtime 语义已实现：主控 Agent 在等待子节点、人工 Gate 或外部 Effect 时原子释放 Node/Attempt/Agent lease 与资源预留，Resume 前校验等待条件，成功后恢复 NodeReady 和 AgentRunnable。`DurableHarness` + 可注入 `SessionStore` 已证明本地跨进程 Resume；真实宿主不支持 `Resume` 时仍需使用新 Attempt + 新 ContextView 恢复并记录降级原因。
+`Yield` 的 Runtime 语义已实现：主控 Agent 在等待子节点、人工 Gate 或外部 Effect 时原子释放 Node/Attempt/Agent lease 与资源预留，Resume 前校验等待条件，成功后恢复 NodeReady 和 AgentRunnable。Codex Harness 直接保存 `thread.started` 返回的真实 thread ID，新 worker 进程通过 `codex exec resume <thread_id>` 恢复；Claude Harness 保存首个结构化事件中的真实 `session_id`，新 worker 进程通过 `--resume <session_id>` 恢复；两者都不复制 transcript，不依赖进程级 Registry 或 ContentCloud session 镜像。宿主声明 `resume=false` 或原会话不可恢复时，只能使用新 Attempt + 新 ContextView 恢复并记录降级原因。
 
 ### 6.3 Scheduler、Reaper、Reconciler 分工
 
@@ -237,6 +239,7 @@ Finalize(tx) -> result envelope + receipts + release resources
 - **Reaper**：扫描到期 lease/reservation，使用 fence token 原子收敛 Attempt/Node/Agent/Resource。
 - **Reconciler**：处理 `unknown` Effect、Provider callback、账单差异和本地 outbox 失败。
 - **Projector**：从 JobEvent/outbox 重建客户与运营读模型；停止时不影响权威状态。
+- **Business result consumer**：从成功 Attempt 的 `runtime-result:` 引用读取并核对 Blob，通过业务拥有域幂等写入对象，完成后只 ack 自己的 receipt。
 
 四类 worker 都必须幂等、可水平扩展，并把失败重试写回 `next_attempt_at`；不能依赖内存定时器或单进程 Registry 才能恢复。
 
@@ -247,11 +250,11 @@ Finalize(tx) -> result envelope + receipts + release resources
 | 阶段 | 交付 | 退出条件 |
 | --- | --- | --- |
 | I0 权威边界冻结 | ADR、命令清单、错误码、聚合 owner、事件版本、指标基线 | 已完成；Runtime `runtime_* + RuntimeCommandStore` 为 current，V7 执行模型为 dead/forbidden-to-restore |
-| I1 事务命令内核 | 聚合级 RuntimeCommandStore、JobEvent + outbox 同事务、Memory/PG 实现、outbox claim/ack/retry | 核心已完成；提交后进程终止注入和 PG 故障矩阵仍是生产门槛 |
-| I2 围栏与资源账本 | fence token、reservation、reaper、公平调度排序、租户资源配额 | 核心已完成；20 worker/多租户 PostgreSQL 压测和公平性指标待验收 |
+| I1 事务命令内核 | 聚合级 RuntimeCommandStore、JobEvent + outbox 同事务、Memory/PG 实现、subscriber claim/ack/retry | 核心已完成；专用 PG 已覆盖事务回滚、不可变消息、多订阅 receipt 和业务结果崩溃恢复，代码级提交后故障钩子已具备，真实数据库故障矩阵仍是生产门槛 |
+| I2 围栏与资源账本 | fence token、reservation、reaper、公平调度排序、租户资源配额 | 核心已完成；Memory/PostgreSQL 已覆盖 100 节点/20 worker 唯一领取，PostgreSQL 多租户 aging 公平性指标和生产压测待验收 |
 | I3 状态、Effect、恢复 | typed collection/record、ToolCall、unknown/reconciling、Checkpoint watermark、Fork/Replay、Provider inbox/账单、Yield/Resume | 核心已完成；真实 Provider 对账、故障注入和 Artifact 大值链路待验收 |
-| I4 执行器与投影 | DurableHarness + SessionStore 镜像、outbox Projector、Runtime Explorer 投影/指标、rebuild/dry-run | 核心已完成；真实 SDK 恢复、PostgreSQL RLS/投影重建和告警运维验收待补 |
-| I5 第二业务流与 Canary | 文章复盘 50 节点并行分析、超限保护、故障注入、灰度、回退和运维手册 | 第二流程容量边界测试已完成；100 节点/20 并发、故障矩阵和 Canary 待验收 |
+| I4 执行器与投影 | Codex JSONL/thread resume Harness、Claude stream-json/session resume Harness、worker capability snapshot、fenced event、outbox Projector、Runtime Explorer 投影/指标、rebuild/dry-run | 核心已完成；代码级提交后故障钩子和恢复测试已具备，真实 Codex/Claude 在线 smoke、数据库故障环境和告警运维验收待补 |
+| I5 第二业务流与 Canary | 文章复盘 50 节点并行分析、超限保护、故障注入、灰度、回退和运维手册 | 第二流程容量边界、PostgreSQL 100 节点/20 worker 领取测试和运维手册已完成；多租户公平性、故障矩阵和真实 Canary 待验收 |
 
 依赖图：
 
@@ -268,7 +271,8 @@ I3 通过后才允许 W8-10 dynamic_graph
 
 ```text
 admit -> claim/reserve -> deterministic worker -> heartbeat
-      -> finalize(result) -> event/outbox -> projection -> restart/recover
+      -> validate/blob -> finalize(result ref) -> event/outbox receipts
+      -> business materialization + projection -> restart/recover
 ```
 
 FakeHarness 继续作为 CI 基础；真实宿主和真实 Provider 不作为第一批的必要依赖。先证明“一个节点故障后能继续，且不重复产出”，再引入多节点和外部副作用。
@@ -285,12 +289,12 @@ FakeHarness 继续作为 CI 基础；真实宿主和真实 Provider 不作为第
 
 | 分类 | 当前范围 | 约束与退出条件 |
 | --- | --- | --- |
-| `current` | `runtime_*` 表、`RuntimeCommandStore`、Projector、DurableHarness、Runtime worker 协议；Customer Studio 与知识提取的 JobRun，以及运行列表/ProjectProjection/lineage 投影 | Runtime 新能力只在这些 owner 内演进；远程 worker 只能凭 Attempt ID + fence token 续租和终态收敛；架构检查禁止 current 代码重新引入 V7 命令、RunToken 或租约 API |
-| `compat` | `TaskRun` 与 `RunProgressEvent` JSON 只读 DTO、`run.list/show/events/log` CLI 展示命令 | 只从 JobRun/NodeRun/JobEvent 生成，不拥有存储、状态机或写 API；退出条件是下一版公开 API 统一采用 Runtime 术语 |
+| `current` | JobRun/NodeRun/RuntimeAttempt 及其 `runtime_*` 权威表、`RuntimeCommandStore`、不可变 outbox/subscriber receipts、Projector、业务结果 consumer、Codex JSONL/thread resume Harness、Claude stream-json/session resume Harness、Runtime worker 协议；Customer Studio 与知识提取的 JobRun；`RuntimeRun` / `RuntimeRunEvent`、`run.list/show/events/log` 以及运行列表/ProjectProjection/lineage 投影 | Runtime 新能力只在这些 owner 内演进；远程 worker 只能凭 Attempt ID + fence token 续租、上报事件和终态收敛；公开读模型只从 JobRun/NodeRun/JobEvent 生成，不拥有独立存储或状态机 |
+| `compat` | StageRun 客户业务阶段投影；本地配置旧 `device_id/workspace_id/project_id/workspace_root` 只在 `localconfig.Load()` 的一次性迁移边界解码 | StageRun 只表达 SOP 业务阶段，不参与 Runtime 调度；旧配置字段读入后立即重写为 `daemon_bindings`，CLI 运行期只消费 current 绑定；退出条件是支持的已安装 CLI 完成一次启动迁移并确认无旧配置回流，随后删除 `configFile` 旧字段解码 |
 | `deprecated` | 全局 `store.Store`/`app.Service` 宽接口 | 不再承载执行方法；后续按业务模块拆窄，方法数只能减少 |
-| `dead` | V7 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`、daemon poll/report/finish 链、RunToken、旧 daemon journal/outbox | `00034` 和代码删除已完成；禁止恢复，历史只存在于迁移 evidence |
+| `dead` | V7 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`、`TaskRun` / `RunProgressEvent` 公开 DTO 名称、`task_run` lineage 类型、daemon poll/report/finish 链、RunToken、旧 daemon journal/outbox；`DurableHarness`、`SessionStore`、`runtime_agent_sessions/events` 镜像；Runtime 内一次性 Codex/Claude Adapter、伪 session | `00034/00036`、代码与 Web 类型删除已完成；架构守卫禁止恢复，历史只存在于迁移 evidence |
 
-旧执行链已经完成生产引用归零、Store/API 删除和数据库删除迁移。保留的 `TaskRun` 名称只是公开读 DTO，不允许重新承载租约、attempt、token 或持久化字段。
+旧执行链和旧公开 DTO 已完成生产引用归零、Store/API/类型删除和数据库删除迁移。`RuntimeRun` / `RuntimeRunEvent` 是 current 读模型，不允许重新承载租约、attempt、token、终态权威或独立持久化字段。
 
 ## 8. 生产门槛与故障矩阵
 
@@ -299,6 +303,8 @@ FakeHarness 继续作为 CI 基础；真实宿主和真实 Provider 不作为第
 | 类别 | 必测故障 | 预期 |
 | --- | --- | --- |
 | 事务 | snapshot 已提交、event/outbox 未提交时进程终止 | 整体回滚或通过 outbox 重试恢复，不能部分成功 |
+| 业务交接 | Runtime 终态提交后、业务 consumer 领取前重启 | subscriber receipt 保持 pending；新进程从 output ref 读取并核对 Blob 后继续 |
+| 业务交接 | 业务对象写成功、receipt ack 前终止 | 同一 receipt 重新领取；摘要围栏和确定性对象 ID 保证幂等，不产生重复对象 |
 | 围栏 | lease 到期后旧 worker 迟到 Finalize | 稳定返回 `DISPATCH_FENCE_STALE`，不改变结果 |
 | 调度 | 多租户/多 Provider 并发抢占 | 不超卖；租户 aging 保证小任务 eventually runs |
 | 宿主 | Start 后、Activate 前重启；跨进程 Resume | Attempt 可回收；支持恢复则续会话，否则新 Attempt + ContextView |
@@ -315,13 +321,14 @@ FakeHarness 继续作为 CI 基础；真实宿主和真实 Provider 不作为第
 3. `ADR-00xx`：Fence token、执行信封和迟到上报拒绝规则。
 4. `ADR-00xx`：StateCollection 的三种写入模式和 schema 发布流程。
 5. `ADR-00xx`：Effect/ToolCall/ProviderAttempt 的所有权和 unknown 对账责任。
-6. `ADR-00xx`：真实 Codex/Claude 适配器的认证、数据保留、跨进程 SessionStore 和商业边界。
+6. [ADR-0017](../../foundation/decisions/ADR-0017-codex-runtime-harness.md)：Codex CLI JSONL/thread resume、capability snapshot、fenced event、数据保留和商业边界。
 
 ## 10. 完成定义
 
 V8.1 基础设施完成，不等于全部 V8 产品能力完成。只有同时满足以下条件，才可以打开动态执行图或对外宣称“可恢复运行时”：
 
 - 所有权威写入都由事务命令完成，状态、事件和 outbox 可一起重试。
+- 每个 outbox subscriber 独立确认；业务结果不同摘要被拒绝，进程重启和重复消费不丢失或重复写入业务事实。
 - 旧 owner、旧版本和旧 fence token 的写入全部拒绝。
 - 资源预留、释放、租约回收和费用核算没有超卖或重复记账。
 - 至少一个执行适配器可跨进程恢复，或明确记录新 Attempt 降级恢复。

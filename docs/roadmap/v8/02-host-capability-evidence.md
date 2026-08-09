@@ -4,7 +4,7 @@
 
 ## 1. 结论
 
-动态执行图（DAG）、同一执行实例（`JobRun`）内的共享状态、检查点和外部操作台账**具备技术实现条件**，但 V8 目前尚未实现，也不能把它们描述成 Codex 或 Claude Code 已经为 ContentCloud 提供的完整能力。
+动态执行图（DAG）、同一执行实例（`JobRun`）内的共享状态、检查点和外部操作台账已经有 ContentCloud 内核实现，但尚未完成生产故障、RLS、容量和真实 Provider 验收；这些能力不能被描述成 Codex 或 Claude Code 为 ContentCloud 原生提供。
 
 正确的分工是：
 
@@ -19,7 +19,7 @@ ContentCloud
 
 两种宿主都支持 MCP，因此 ContentCloud 可以向一次执行尝试（`Attempt`）暴露自建的 `state.cas`、`child.propose`、`effect.prepare` 等受限工具。智能体只能提交子任务提议，不能直接创建节点；调用是否被允许、如何提交事务、如何恢复以及如何跨租户隔离，仍必须由 ContentCloud 服务端实现。
 
-证据核验截至 2026-08-05。本文件只引用届时可访问的官方公开资料和当前仓库代码；官方文档发生变化后，实施前必须重新执行适配器兼容性验证，不能根据本文猜测新增能力。
+官方能力证据核验截至 2026-08-05，仓库实现对账更新于 2026-08-09。本文件只引用届时可访问的官方公开资料和当前仓库代码；官方文档或 CLI 协议发生变化后，必须重新执行适配器兼容性验证，不能根据本文猜测新增能力。
 
 ## 2. 官方来源
 
@@ -135,17 +135,17 @@ Codex 支持标准输入输出和 Streamable HTTP MCP，Claude Code 也支持标
 
 ## 6. 当前仓库与目标之间的差距
 
-当前 [adapter.go](../../../internal/agentadapter/adapter.go) 是一次性执行适配器，还不是持久智能体执行适配器：
+当前 Runtime 已不再通过一次性 Codex Adapter 执行。实现边界如下：
 
-| 当前行为 | 影响 | V8 演进 |
+| 当前行为 | 已解决的问题 | 剩余门槛 |
 | --- | --- | --- |
-| Codex 使用 `exec --ephemeral` | 没有可恢复线程 | 新增 App Server/SDK 适配器；旧路径标为 `legacy_one_shot` |
-| Claude 使用 `--no-session-persistence` | 没有可恢复会话 | 新增 Agent SDK 或可持久 CLI 适配器 |
-| 两者都绕过交互权限 | 动态创建子任务后影响范围增大 | 使用 `ExecutionProfile`、工具白名单、限定到执行尝试（`Attempt`）范围的网关和隔离配置 |
-| 适配器只返回一个最终 JSON | 不支持流式事件、让出执行资源和子任务等待 | 新接口支持事件流、取消、恢复和结构化结果 |
-| 智能体只读冻结 `TaskContract` | 无运行时状态工具 | 注入限定到执行尝试（`Attempt`）范围的 MCP 网关 |
+| Codex 使用 `exec --json`，首事件固定真实 thread ID，恢复使用 `exec resume <thread_id>` | 新 worker 进程可恢复 provider thread；不再自造 session 或使用 `--ephemeral` | 明确授权的在线 Start/中断/Resume smoke、CLI 版本兼容和商业使用评审 |
+| worker 探测 Harness 能力并固定到 RuntimeAttempt | 控制面不根据本机 CLI 猜测远端能力 | worker 注册/下线和容量指标仍需生产化 |
+| Harness 事件经 Attempt/owner/lease/fence/session 校验后只保存类型和摘要 | 迟到 worker 不能写入，transcript 不进入 Runtime | 生产日志泄漏扫描和告警验收 |
+| Claude 使用 `stream-json`、真实 `session_id`、`--session-id`/`--resume` 的 Runtime Harness | 事件流、结构化结果、租户绑定和跨 Harness 实例 Resume 已接入 | 真实 Claude 在线 Start/中断/Resume smoke、CLI 版本兼容和权限与数据处理评审 |
+| ContextView、Yield/Resume、State/Effect 命令、Attempt 范围 MCP Gateway 和设备命令入口已实现 | 宿主对话不再承担业务恢复，工具调用必须经过 fence、ContextView allowlist 和 ToolCall 审计 | 真实宿主 MCP stdio/HTTP smoke、在线模型中断/恢复 |
 
-单次 CLI 适配器只作为 Runtime worker 的受限执行后端；租约、fence、心跳和终态始终由 Runtime 协议管理。不能静默改变它的权限和输出行为。
+旧 `DurableHarness + SessionStore` 镜像没有生产消费者，已删除代码，并由 `00036_remove_runtime_session_mirror.sql` 前向删除表。`RuntimeAttempt.session_ref` 是唯一持久宿主绑定，完整 transcript 继续由 provider 拥有。
 
 ## 7. `AgentHarnessAdapter` 契约
 
@@ -199,9 +199,9 @@ type AgentHarnessAdapter interface {
 
 | POC | 内容 | 通过条件 |
 | --- | --- | --- |
-| POC-A Codex | App Server/SDK 启动、事件流、MCP CAS、进程中断、线程恢复/分支（`thread/resume`、`thread/fork`） | 重启适配器后可恢复对话；CAS 冲突由运行时拒绝；分支不复制业务状态 |
-| POC-B Claude | Agent SDK 启动、MCP CAS、SessionStore、会话恢复/分支（`resume`、`fork`） | 跨进程恢复；SessionStore 故障不被误判为执行实例成功 |
-| POC-C FakeHarness | 故障脚本覆盖超时、重复事件、未知外部操作和上下文压缩 | 可确定性重放，CI 不调用付费模型 |
+| POC-A Codex | CLI JSONL 启动、事件流、真实 thread ID、新进程恢复；后续补 MCP CAS 和在线中断演练 | helper-process 协议测试已通过；在线模型 smoke 与 MCP CAS 通过后才达到生产准入 |
+| POC-B Claude | CLI `stream-json` 启动、真实 `session_id`、中断、`--resume` 和脱敏事件投影 | 跨 Harness 实例恢复；宿主事件不越过 Runtime fence；真实在线 smoke 与 MCP CAS 通过后才达到生产准入 |
+| POC-C FakeHarness | 故障脚本覆盖超时、重复事件、未知外部操作和上下文压缩 | 已可确定性重放，CI 不调用付费模型 |
 
 每个适配器都要发布 `HarnessCapabilities`，由调度器按能力匹配，不根据二进制名称猜测：
 

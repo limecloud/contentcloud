@@ -145,6 +145,10 @@ type MediaGenerationJob struct {
 	AspectRatio             string     `json:"aspect_ratio"`
 	DurationSeconds         int        `json:"duration_seconds"`
 	InputArtifactRefs       []string   `json:"input_artifact_refs"`
+	RuntimeJobRunID         string     `json:"runtime_job_run_id,omitempty"`
+	RuntimeNodeRunID        string     `json:"runtime_node_run_id,omitempty"`
+	RuntimeAttemptID        string     `json:"runtime_attempt_id,omitempty"`
+	RuntimeEffectID         string     `json:"runtime_effect_id,omitempty"`
 	State                   string     `json:"state"`
 	IdempotencyKey          string     `json:"-"`
 	EstimatedCostMinor      int64      `json:"estimated_cost_minor"`
@@ -176,6 +180,12 @@ func (v MediaGenerationJob) Validate() error {
 	if !validSHA256Digest(v.ProfileDigest) {
 		return Invalid("MEDIA_JOB_PROFILE_DIGEST_INVALID", "媒体 Job 必须固定 Provider Profile digest")
 	}
+	if (v.RuntimeJobRunID == "") != (v.RuntimeNodeRunID == "") {
+		return Invalid("MEDIA_JOB_RUNTIME_SCOPE_INVALID", "媒体 Job 的 Runtime 关联必须同时包含 JobRun 和 NodeRun")
+	}
+	if v.RuntimeEffectID != "" && v.RuntimeJobRunID == "" {
+		return Invalid("MEDIA_JOB_RUNTIME_EFFECT_INVALID", "媒体 Job 不能在缺少 Runtime 作用域时绑定 ExternalEffect")
+	}
 	if v.DurationSeconds < 1 || v.MaxAttempts < 1 || v.AttemptCount < 0 || v.AttemptCount > v.MaxAttempts || v.EstimatedCostMinor < 0 || v.ActualCostMinor < 0 || strings.TrimSpace(v.Currency) == "" || v.RowVersion < 1 {
 		return Invalid("MEDIA_JOB_LIMIT_INVALID", "媒体 Job 的时长、费用、版本或重试边界无效")
 	}
@@ -205,6 +215,10 @@ type ProviderAttempt struct {
 	AttemptNumber       int            `json:"attempt_number"`
 	ProviderID          string         `json:"provider_id"`
 	RequestDigest       string         `json:"request_digest"`
+	RuntimeJobRunID     string         `json:"runtime_job_run_id,omitempty"`
+	RuntimeNodeRunID    string         `json:"runtime_node_run_id,omitempty"`
+	RuntimeAttemptID    string         `json:"runtime_attempt_id,omitempty"`
+	RuntimeEffectID     string         `json:"runtime_effect_id,omitempty"`
 	ExternalJobID       string         `json:"external_job_id,omitempty"`
 	ProviderState       string         `json:"provider_state"`
 	SafeRequestSummary  map[string]any `json:"safe_request_summary"`
@@ -242,6 +256,12 @@ func (v *ProviderAttempt) NormalizeCollections() {
 func (v ProviderAttempt) Validate() error {
 	if v.ID == "" || v.TenantID == "" || v.ProjectID == "" || v.GenerationJobID == "" || v.AttemptNumber < 1 || v.ProviderID == "" || !validSHA256Digest(v.RequestDigest) || v.ProviderState == "" || v.EstimatedCostMinor < 0 || v.ActualCostMinor < 0 || v.Currency == "" {
 		return Invalid("PROVIDER_ATTEMPT_INVALID", "Provider Attempt 缺少 Job、请求摘要、费用或状态")
+	}
+	if (v.RuntimeJobRunID == "") != (v.RuntimeNodeRunID == "") {
+		return Invalid("PROVIDER_ATTEMPT_RUNTIME_SCOPE_INVALID", "Provider Attempt 的 Runtime 关联必须同时包含 JobRun 和 NodeRun")
+	}
+	if v.RuntimeEffectID != "" && v.RuntimeJobRunID == "" {
+		return Invalid("PROVIDER_ATTEMPT_RUNTIME_EFFECT_INVALID", "Provider Attempt 不能在缺少 Runtime 作用域时绑定 ExternalEffect")
 	}
 	return nil
 }
@@ -381,14 +401,14 @@ func CanTransitionMediaJob(from, to string) bool {
 		MediaJobBudgetBlocked:        {MediaJobAwaitingCostApproval: true, MediaJobQueued: true, MediaJobCancelled: true},
 		MediaJobQueued:               {MediaJobSubmitting: true, MediaJobCancelled: true},
 		MediaJobSubmitting:           {MediaJobSubmitted: true, MediaJobRetryWait: true, MediaJobRetryableFailed: true, MediaJobFailed: true, MediaJobCancelled: true},
-		MediaJobSubmitted:            {MediaJobGenerating: true, MediaJobDownloading: true, MediaJobRetryWait: true, MediaJobFailed: true, MediaJobCancelled: true},
-		MediaJobGenerating:           {MediaJobDownloading: true, MediaJobRetryWait: true, MediaJobOutputInvalid: true, MediaJobFailed: true, MediaJobCancelled: true},
+		MediaJobSubmitted:            {MediaJobGenerating: true, MediaJobDownloading: true, MediaJobAwaitingExternal: true, MediaJobRetryWait: true, MediaJobFailed: true, MediaJobCancelled: true},
+		MediaJobGenerating:           {MediaJobDownloading: true, MediaJobAwaitingExternal: true, MediaJobRetryWait: true, MediaJobOutputInvalid: true, MediaJobFailed: true, MediaJobCancelled: true},
 		MediaJobDownloading:          {MediaJobValidating: true, MediaJobRetryWait: true, MediaJobOutputInvalid: true, MediaJobFailed: true},
 		MediaJobValidating:           {MediaJobSucceeded: true, MediaJobOutputInvalid: true, MediaJobRetryWait: true, MediaJobFailed: true},
 		MediaJobRetryWait:            {MediaJobQueued: true, MediaJobRetryableFailed: true, MediaJobCancelled: true},
 		MediaJobRetryableFailed:      {MediaJobQueued: true, MediaJobFailed: true, MediaJobCancelled: true},
 		MediaJobOutputInvalid:        {MediaJobQueued: true, MediaJobFailed: true, MediaJobCancelled: true},
-		MediaJobAwaitingExternal:     {MediaJobDownloading: true, MediaJobCancelled: true, MediaJobFailed: true},
+		MediaJobAwaitingExternal:     {MediaJobGenerating: true, MediaJobDownloading: true, MediaJobCancelled: true, MediaJobFailed: true},
 	}
 	return allowed[from][to]
 }

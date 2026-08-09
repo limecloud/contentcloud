@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,9 +10,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
@@ -110,9 +113,49 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle, err := service.PrepareRuntimeWorker(ctx, deviceActor, app.RuntimeWorkerPrepareInput{JobRunID: started.Job.ID, HarnessKind: "fake", Role: "worker", ExecutionProfileID: "rls-test", MaxTokens: 512})
+	handle, err := service.PrepareRuntimeWorker(ctx, deviceActor, app.RuntimeWorkerPrepareInput{JobRunID: started.Job.ID, HarnessKind: "fake", Capabilities: agentadapter.HarnessCapabilities{Kind: "fake", Events: true, StructuredOutput: true, Resume: true, MaxParallelSessions: 128}, Role: "worker", ExecutionProfileID: "rls-test", MaxTokens: 512})
 	if err != nil {
 		t.Fatal(err)
+	}
+	sessionRef := agentadapter.AgentSessionRef{TenantID: a.TenantID, HarnessKind: "fake", SessionID: "rls-session-" + suffix}
+	handle, err = service.ActivateRuntimeWorker(ctx, deviceActor, app.RuntimeWorkerActivateInput{AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, Session: sessionRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	harnessEvent := agentadapter.AgentEvent{Type: "turn.started", Session: sessionRef, Data: json.RawMessage(`{"phase":"started"}`), OccurredAt: time.Now().UTC()}
+	if err := service.RecordRuntimeWorkerEvent(ctx, deviceActor, app.RuntimeWorkerEventInput{AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, Event: harnessEvent}); err != nil {
+		t.Fatalf("PostgreSQL fenced Harness event failed: %v", err)
+	}
+	if err := service.RecordRuntimeWorkerEvent(ctx, deviceActor, app.RuntimeWorkerEventInput{AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, Event: harnessEvent}); err != nil {
+		t.Fatalf("PostgreSQL fenced Harness event replay failed: %v", err)
+	}
+	runtimeEvents, err := service.Runtime().Events(ctx, a.TenantID, started.Job.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptEventCount := 0
+	for _, event := range runtimeEvents {
+		if event.Type == "attempt.event" {
+			attemptEventCount++
+		}
+	}
+	if attemptEventCount != 1 {
+		t.Fatalf("PostgreSQL fenced Harness event replay created duplicates: %d", attemptEventCount)
+	}
+	if err := service.RecordRuntimeWorkerEvent(ctx, deviceActor, app.RuntimeWorkerEventInput{AttemptID: handle.Attempt.ID, FenceToken: "stale", Event: agentadapter.AgentEvent{Type: "turn.started", Session: sessionRef, OccurredAt: time.Now().UTC()}}); err == nil {
+		t.Fatal("PostgreSQL accepted a stale Harness event fence")
+	}
+	maintenanceNow := time.Now().UTC()
+	rebuildID := domain.NewID()
+	if err := store.CreateRuntimeProjectionRebuild(ctx, domain.RuntimeProjectionRebuildRun{ID: rebuildID, TenantID: a.TenantID, JobRunID: started.Job.ID, Mode: "dry_run", Status: "running", IntegrityStatus: "pending", StartedAt: maintenanceNow, Version: 1}); err != nil {
+		t.Fatal("PostgreSQL could not create projection rebuild fact: ", err)
+	}
+	if err := store.SaveRuntimeMaintenanceHeartbeat(ctx, domain.RuntimeMaintenanceHeartbeat{TenantID: a.TenantID, Kind: domain.RuntimeMaintenanceReaper, WorkerID: "reaper-a", State: "running", LastStartedAt: maintenanceNow, Version: 1, UpdatedAt: maintenanceNow}); err != nil {
+		t.Fatal("PostgreSQL could not create maintenance heartbeat: ", err)
+	}
+	runtimeSchema, err := service.Runtime().CreateRuntimeSchema(ctx, contentruntime.RuntimeSchemaInput{TenantID: a.TenantID, SchemaID: "contentcloud.rls-state", Revision: 1, Definition: map[string]any{"type": "object"}, RetentionPolicy: "30d", CreatedBy: a.UserID})
+	if err != nil {
+		t.Fatal("PostgreSQL could not create Runtime Schema: ", err)
 	}
 	conn, err := pgx.Connect(ctx, databaseURL)
 	if err != nil {
@@ -161,5 +204,32 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("tenant B saw tenant A JobRun through RLS: count=%d", count)
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM runtime_projection_rebuild_runs WHERE id=$1`, rebuildID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("tenant B saw tenant A projection rebuild through RLS: count=%d", count)
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM runtime_maintenance_heartbeats WHERE tenant_id=$1 AND kind=$2`, a.TenantID, domain.RuntimeMaintenanceReaper).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("tenant B saw tenant A maintenance heartbeat through RLS: count=%d", count)
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM runtime_schemas WHERE schema_id=$1`, runtimeSchema.SchemaID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("tenant B saw tenant A Runtime Schema through RLS: count=%d", count)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO runtime_projection_rebuild_runs(tenant_id,id,job_run_id,mode,status,event_count,last_sequence,external_calls,integrity_status,error_code,started_at,version) VALUES($1,$2,$3,'dry_run','running',0,0,0,'cross-tenant','',$4,1)`, a.TenantID, domain.NewID(), started.Job.ID, time.Now().UTC()); err == nil {
+		t.Fatal("tenant B inserted a tenant A projection rebuild through RLS")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO runtime_maintenance_heartbeats(tenant_id,kind,worker_id,state,last_started_at,version,updated_at) VALUES($1,'runtime_delivery','cross-tenant','running',$2,1,$2)`, a.TenantID, time.Now().UTC()); err == nil {
+		t.Fatal("tenant B inserted a tenant A maintenance heartbeat through RLS")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO runtime_schemas(tenant_id,schema_id,revision,status,compatibility,definition,digest,retention_policy,created_by,created_at,version) VALUES($1,'contentcloud.cross-tenant',1,'draft','backward','{}',$2,'job','cross-tenant',$3,1)`, a.TenantID, "sha256:"+strings.Repeat("d", 64), time.Now().UTC()); err == nil {
+		t.Fatal("tenant B inserted a tenant A Runtime Schema through RLS")
 	}
 }

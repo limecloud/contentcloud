@@ -793,7 +793,7 @@ func (r *Root) knowledgeCommand() *cobra.Command {
 			return err
 		}
 		input.ProjectID = projectID
-		var result domain.TaskRun
+		var result domain.RuntimeRun
 		if err := client.Dispatch(command.Context(), "knowledge.extract", input, &result); err != nil {
 			return err
 		}
@@ -848,7 +848,7 @@ func (r *Root) runCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		var result domain.TaskRun
+		var result domain.RuntimeRun
 		if err := client.Dispatch(cmd.Context(), "run.cancel", map[string]any{"id": args[0]}, &result); err != nil {
 			return err
 		}
@@ -862,7 +862,7 @@ func (r *Root) runCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		var result []domain.RunProgressEvent
+		var result []domain.RuntimeRunEvent
 		if err := client.Dispatch(cmd.Context(), "run.events", map[string]any{"id": args[0], "after": after}, &result); err != nil {
 			return err
 		}
@@ -874,11 +874,11 @@ func (r *Root) runCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		var run domain.TaskRun
+		var run domain.RuntimeRun
 		if err := client.Dispatch(cmd.Context(), "run.show", map[string]any{"id": args[0]}, &run); err != nil {
 			return err
 		}
-		var events []domain.RunProgressEvent
+		var events []domain.RuntimeRunEvent
 		if err := client.Dispatch(cmd.Context(), "run.events", map[string]any{"id": args[0], "after": 0}, &events); err != nil {
 			return err
 		}

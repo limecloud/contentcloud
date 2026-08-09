@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/httpapi"
 	"github.com/limecloud/contentcloud/internal/store/memory"
 	"github.com/limecloud/contentcloud/internal/testsupport"
 )
@@ -20,8 +24,8 @@ func TestAgentClientCatalogExposesPlannedClientsByCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, client := codexHandoffServer(t, service, session.ID)
-	response := codexHandoffRequest(t, client, server.URL+"/api/bff/agent-clients")
+	server, client := agentHandoffServer(t, service, session.ID)
+	response := agentHandoffRequest(t, client, server.URL+"/api/bff/agent-clients")
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("catalog status=%d", response.StatusCode)
@@ -78,10 +82,10 @@ func TestGenericAgentHandoffUsesStrategyAndRejectsPlannedClient(t *testing.T) {
 	if _, err := service.RegisterWorkspace(t.Context(), workspaceActor, binding, "workspace_marketing_agent", "3.0.0", []string{"codex-plugin"}, ""); err != nil {
 		t.Fatal(err)
 	}
-	server, client := codexHandoffServer(t, service, session.ID)
+	server, client := agentHandoffServer(t, service, session.ID)
 	base := server.URL + "/api/bff/projects/" + project.ID + "/agent-handoff"
 
-	response := codexHandoffRequest(t, client, base+"?client=codex")
+	response := agentHandoffRequest(t, client, base+"?client=codex")
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("Codex agent handoff status=%d", response.StatusCode)
@@ -96,14 +100,14 @@ func TestGenericAgentHandoffUsesStrategyAndRejectsPlannedClient(t *testing.T) {
 		t.Fatalf("unexpected generic handoff: %#v", envelope.Data)
 	}
 
-	planned := codexHandoffRequest(t, client, base+"?client=cursor")
+	planned := agentHandoffRequest(t, client, base+"?client=cursor")
 	defer planned.Body.Close()
-	if planned.StatusCode != http.StatusForbidden || codexHandoffErrorCode(t, planned) != "AGENT_CLIENT_CAPABILITY_UNAVAILABLE" {
+	if planned.StatusCode != http.StatusForbidden || agentHandoffErrorCode(t, planned) != "AGENT_CLIENT_CAPABILITY_UNAVAILABLE" {
 		t.Fatalf("planned client was not rejected: status=%d", planned.StatusCode)
 	}
-	extraQuery := codexHandoffRequest(t, client, base+"?client=codex&path=private")
+	extraQuery := agentHandoffRequest(t, client, base+"?client=codex&path=private")
 	defer extraQuery.Body.Close()
-	if extraQuery.StatusCode != http.StatusBadRequest || codexHandoffErrorCode(t, extraQuery) != "AGENT_CLIENT_REQUIRED" {
+	if extraQuery.StatusCode != http.StatusBadRequest || agentHandoffErrorCode(t, extraQuery) != "AGENT_CLIENT_REQUIRED" {
 		t.Fatalf("extra handoff query was not rejected: status=%d", extraQuery.StatusCode)
 	}
 }
@@ -149,10 +153,10 @@ func TestGenericReviewFeedbackHandoffBindsRevisionAndTenant(t *testing.T) {
 	if _, err := service.RequestSubmissionChanges(t.Context(), actor, revision.ID, "revise the claim", "/0/status", ""); err != nil {
 		t.Fatal(err)
 	}
-	server, client := codexHandoffServer(t, service, session.ID)
+	server, client := agentHandoffServer(t, service, session.ID)
 	base := server.URL + "/api/bff/projects/" + project.ID + "/submission-revisions/" + revision.ID + "/agent-handoff"
 
-	response := codexHandoffRequest(t, client, base+"?client=codex")
+	response := agentHandoffRequest(t, client, base+"?client=codex")
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("review handoff status=%d", response.StatusCode)
@@ -168,19 +172,64 @@ func TestGenericReviewFeedbackHandoffBindsRevisionAndTenant(t *testing.T) {
 		t.Fatalf("review handoff lost immutable target: %#v", envelope.Data)
 	}
 
-	planned := codexHandoffRequest(t, client, base+"?client=cursor")
+	planned := agentHandoffRequest(t, client, base+"?client=cursor")
 	defer planned.Body.Close()
-	if planned.StatusCode != http.StatusForbidden || codexHandoffErrorCode(t, planned) != "AGENT_CLIENT_CAPABILITY_UNAVAILABLE" {
+	if planned.StatusCode != http.StatusForbidden || agentHandoffErrorCode(t, planned) != "AGENT_CLIENT_CAPABILITY_UNAVAILABLE" {
 		t.Fatalf("planned review client was not rejected: status=%d", planned.StatusCode)
 	}
 	foreignSession, err := service.Register(t.Context(), "foreign-agent-review@example.com", "long-enough-password", "Foreign", "Other Tenant")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, foreignClient := codexHandoffServerForURL(t, server.URL, foreignSession.ID)
-	foreign := codexHandoffRequest(t, foreignClient, base+"?client=codex")
+	_, foreignClient := agentHandoffServerForURL(t, server.URL, foreignSession.ID)
+	foreign := agentHandoffRequest(t, foreignClient, base+"?client=codex")
 	defer foreign.Body.Close()
 	if foreign.StatusCode != http.StatusNotFound {
 		t.Fatalf("cross-tenant review handoff status=%d, want 404", foreign.StatusCode)
 	}
+}
+
+func agentHandoffServer(t *testing.T, service *app.Service, sessionID string) (*httptest.Server, *http.Client) {
+	t.Helper()
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), false, "").Handler())
+	t.Cleanup(server.Close)
+	_, client := agentHandoffServerForURL(t, server.URL, sessionID)
+	return server, client
+}
+
+func agentHandoffServerForURL(t *testing.T, serverURL, sessionID string) (*url.URL, *http.Client) {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseURL, err := url.Parse(serverURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jar.SetCookies(baseURL, []*http.Cookie{{Name: "cc_session", Value: sessionID, Path: "/"}})
+	return baseURL, &http.Client{Jar: jar}
+}
+
+func agentHandoffRequest(t *testing.T, client *http.Client, target string) *http.Response {
+	t.Helper()
+	response, err := client.Get(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response
+}
+
+func agentHandoffErrorCode(t *testing.T, response *http.Response) string {
+	t.Helper()
+	var envelope struct {
+		Error *domain.Error `json:"error"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Error == nil {
+		t.Fatal("expected domain error")
+	}
+	return envelope.Error.Code
 }

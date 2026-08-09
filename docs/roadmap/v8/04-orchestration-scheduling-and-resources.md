@@ -182,7 +182,7 @@ max sessions / current load
 
 调度器只能选择满足全部硬性要求的执行器。能力不匹配时，节点进入资源等待状态（`waiting(resource)`）；不得擅自取消 MCP、会话恢复或隔离要求后继续运行。
 
-Harness 实例由进程级 `HarnessRegistry` 显式注入并长期复用；零生产引用的 `SelectHarness` 兼容工厂已删除。Runtime 禁止每次领取时重新构造可恢复适配器，因为 Fake/CLI/SDK 会话表属于适配器实例，重建会使已保存的 `session_ref` 无法恢复。未知 Harness 或缺少结构化事件/结果能力时默认拒绝执行。
+Harness 实例由 worker 进程级 `HarnessRegistry` 显式注入并缓存能力探测；零生产引用的 `SelectHarness` 兼容工厂已删除。真实会话标识固定在 `RuntimeAttempt.session_ref`，Codex 恢复必须在新的适配器实例中仍能使用 provider thread ID，不能依赖 Registry 内存；FakeHarness 的内存会话只用于测试。未知 Harness 或缺少结构化事件/结果能力时默认拒绝执行。
 
 ## 7. 主控智能体让出资源与恢复执行
 

@@ -22,7 +22,7 @@
 | API 契约 | Studio BFF、Operations BFF、CLI envelope | 对应接口所有者 |
 | 事件契约 | JobEvent、AuditEvent、Projection cursor | 事件生产者所有者 |
 
-当前代码证据：`internal/agentadapter/harness.go` 提供 `AgentHarnessAdapter`、能力探测、结构化事件流和 FakeHarness；`internal/runtime/context.go` 只从引用和策略构建不可变 `ContextView`；`internal/runtime/agent.go` 与迁移 `00015_runtime_agent_instances.sql` 已实现 ContextView/AgentInstance 持久化及父子权限收敛；`internal/runtime/graph_patch.go` 只负责受限 GraphPatch 的纯校验与新计划摘要。上述实现仍不等同于真实 SDK 会话恢复、资源让出/恢复调度或动态图生产切流。
+当前代码证据：`internal/agentadapter/harness.go` 提供 `AgentHarnessAdapter`、能力探测、结构化事件流和 FakeHarness；`internal/agentadapter/codex_harness.go` 使用 Codex CLI JSONL 协议保存真实 thread ID，并通过 `codex exec resume <thread_id>` 支持跨 worker 进程恢复；`internal/agentadapter/claude_harness.go` 使用 Claude `stream-json`、真实 `session_id` 和 `--resume` 支持跨 Harness 实例恢复；`internal/runtime/context.go` 只从引用和策略构建不可变 `ContextView`；`internal/runtime/agent.go` 与迁移 `00015_runtime_agent_instances.sql` 已实现 ContextView/AgentInstance 持久化及父子权限收敛；`internal/runtime/graph_patch.go` 只负责受限 GraphPatch 的纯校验与新计划摘要。Runtime 的 Yield/Resume 已落地，但真实 Codex/Claude 在线冒烟、Provider 端到端和动态图生产切流仍是独立门槛。
 
 ## 3. 版本规则
 
@@ -286,7 +286,7 @@ NodeResult
 └── result_digest
 ```
 
-输出必须先验证 tenant、attempt、lease、Schema、大小、摘要和引用。执行者不能直接把 NodeRun 标为成功；Runtime 在业务结果持久化后完成状态转移。
+输出必须先验证 tenant、attempt、lease、Schema、大小、摘要和引用，并把结构化业务 payload 固定为内容寻址 Blob。执行者不能直接把 NodeRun 标为成功；Runtime 原子完成终态和事件/outbox receipts，业务拥有域再由持久化 subscriber 从 output ref 幂等物化对象。
 
 ## 10. API 规范
 

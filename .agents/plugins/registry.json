@@ -5,18 +5,18 @@
     {
       "id": "contentcloud-video-production",
       "kind": "scene_plugin",
-      "version": "0.21.0",
+      "version": "0.22.0",
       "source": {
         "repository": "https://github.com/limecloud/contentcloud",
-        "ref": "v0.21.0"
+        "ref": "v0.22.0"
       },
       "license": "Apache-2.0",
-      "digest": "sha256:cf373974925b915f15cb02f80ede98542e01e5151466d08e4ada82183068594c",
+      "digest": "sha256:ed4b9ab99b8ae0f9a9a5bc000ef70b37cbb55995665899a630580a41501d34d8",
       "signature": {
         "status": "verified",
         "algorithm": "ed25519",
         "key_id": "contentcloud-plugin-release-2026-07",
-        "value": "oW//urOKDcob76ZVneLri3q0hTEDSPBlHHCE2f/OAb4O3bNPLr8jFNG3aLqyKi9xEsgopIBaXe+gIQfvwxZOAQ=="
+        "value": "0P0y8K6YWbW7mBLwlsglL6Z4v4nXXgK6ZKAPGNNTxM0uV5Va4mE9p9Qe774CHzN5Izys8H1uH6FZE78tUkiDAw=="
       },
       "compatible_profiles": [
         "contentcloud.video-production"
@@ -54,8 +54,8 @@
       ],
       "evaluation": {
         "status": "passed",
-        "report": ".agents/plugins/evaluations/contentcloud-video-production-0.21.0.json",
-        "digest": "sha256:d2f9b423d0b24de8c1d19e433074257cb59acdd101c6a8fa22caf5a7beecfdd2",
+        "report": ".agents/plugins/evaluations/contentcloud-video-production-0.22.0.json",
+        "digest": "sha256:850450309d3583ba9a6b409c53126ae8b61ce2ce7f4de971f03aa8f97cfbfbae",
         "evidence": [
           "codex-plugin-transaction",
           "bootstrap-confirmation",

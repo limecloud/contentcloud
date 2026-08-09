@@ -14,11 +14,7 @@ import (
 )
 
 type Config struct {
-	ServerURL      string          `json:"server_url"`
-	DeviceID       string          `json:"device_id,omitempty"`
-	WorkspaceID    string          `json:"workspace_id,omitempty"`
-	ProjectID      string          `json:"project_id,omitempty"`
-	WorkspaceRoot  string          `json:"workspace_root,omitempty"`
+	ServerURL      string          `json:"server_url,omitempty"`
 	DaemonBindings []DaemonBinding `json:"daemon_bindings,omitempty"`
 }
 
@@ -56,17 +52,65 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	var c Config
-	if err := json.Unmarshal(b, &c); err != nil {
-		return c, fmt.Errorf("解析配置失败：%w", err)
+	var disk configFile
+	if err := json.Unmarshal(b, &disk); err != nil {
+		return Config{}, fmt.Errorf("解析配置失败：%w", err)
+	}
+	legacyKeysPresent := containsLegacyKeys(b)
+	c := Config{ServerURL: strings.TrimSpace(disk.ServerURL), DaemonBindings: disk.DaemonBindings}
+	legacy := DaemonBinding{ServerURL: disk.ServerURL, DeviceID: disk.DeviceID, Workspaces: []DaemonWorkspace{{WorkspaceID: disk.WorkspaceID, ProjectID: disk.ProjectID, Root: disk.WorkspaceRoot}}}
+	if strings.TrimSpace(legacy.DeviceID) != "" {
+		c.DaemonBindings = upsertDaemonBinding(c.DaemonBindings, legacy)
+	}
+	c.DaemonBindings = normalizeDaemonBindings(c.DaemonBindings)
+	if c.ServerURL == "" {
+		if binding, ok := c.PrimaryBinding(); ok {
+			c.ServerURL = binding.ServerURL
+		}
+	}
+	if disk.hasLegacyBinding() || legacyKeysPresent {
+		if err := savePath(path, c); err != nil {
+			return Config{}, fmt.Errorf("迁移本地配置失败：%w", err)
+		}
 	}
 	return c, nil
 }
+
+type configFile struct {
+	ServerURL      string          `json:"server_url,omitempty"`
+	DaemonBindings []DaemonBinding `json:"daemon_bindings,omitempty"`
+	DeviceID       string          `json:"device_id,omitempty"`
+	WorkspaceID    string          `json:"workspace_id,omitempty"`
+	ProjectID      string          `json:"project_id,omitempty"`
+	WorkspaceRoot  string          `json:"workspace_root,omitempty"`
+}
+
+func (c configFile) hasLegacyBinding() bool {
+	return strings.TrimSpace(c.DeviceID) != "" || strings.TrimSpace(c.WorkspaceID) != "" || strings.TrimSpace(c.ProjectID) != "" || strings.TrimSpace(c.WorkspaceRoot) != ""
+}
+
+func containsLegacyKeys(body []byte) bool {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return false
+	}
+	for _, key := range []string{"device_id", "workspace_id", "project_id", "workspace_root"} {
+		if _, ok := raw[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func Save(c Config) error {
 	path, err := Path()
 	if err != nil {
 		return err
 	}
+	return savePath(path, c)
+}
+
+func savePath(path string, c Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
@@ -81,23 +125,25 @@ func Save(c Config) error {
 	return os.Rename(tmp, path)
 }
 
-// RuntimeBindings returns the daemon registrations while preserving compatibility
-// with the original single-workspace config shape.
-func (c Config) RuntimeBindings() []DaemonBinding {
-	bindings := cloneDaemonBindings(c.DaemonBindings)
-	legacy := DaemonBinding{
-		ServerURL: strings.TrimSpace(c.ServerURL),
-		DeviceID:  strings.TrimSpace(c.DeviceID),
-		Workspaces: []DaemonWorkspace{{
-			WorkspaceID: strings.TrimSpace(c.WorkspaceID),
-			ProjectID:   strings.TrimSpace(c.ProjectID),
-			Root:        strings.TrimSpace(c.WorkspaceRoot),
-		}},
+// Bindings returns a normalized copy of the current multi-workspace bindings.
+func (c Config) Bindings() []DaemonBinding {
+	return normalizeDaemonBindings(cloneDaemonBindings(c.DaemonBindings))
+}
+
+func (c Config) PrimaryBinding() (DaemonBinding, bool) {
+	bindings := c.Bindings()
+	if len(bindings) == 0 {
+		return DaemonBinding{}, false
 	}
-	if legacy.DeviceID != "" {
-		bindings = upsertDaemonBinding(bindings, legacy)
+	return bindings[0], true
+}
+
+func (c Config) PrimaryWorkspace() (DaemonBinding, DaemonWorkspace, bool) {
+	binding, ok := c.PrimaryBinding()
+	if !ok || len(binding.Workspaces) == 0 {
+		return DaemonBinding{}, DaemonWorkspace{}, false
 	}
-	return normalizeDaemonBindings(bindings)
+	return binding, binding.Workspaces[0], true
 }
 
 func cloneDaemonBindings(bindings []DaemonBinding) []DaemonBinding {
@@ -114,6 +160,20 @@ func (c *Config) UpsertDaemonBinding(binding DaemonBinding) {
 		return
 	}
 	c.DaemonBindings = normalizeDaemonBindings(upsertDaemonBinding(c.DaemonBindings, binding))
+}
+
+func (c *Config) RemoveDaemonBinding(deviceID string) {
+	if c == nil {
+		return
+	}
+	deviceID = strings.TrimSpace(deviceID)
+	bindings := make([]DaemonBinding, 0, len(c.DaemonBindings))
+	for _, binding := range c.DaemonBindings {
+		if strings.TrimSpace(binding.DeviceID) != deviceID {
+			bindings = append(bindings, binding)
+		}
+	}
+	c.DaemonBindings = normalizeDaemonBindings(bindings)
 }
 
 func upsertDaemonBinding(bindings []DaemonBinding, incoming DaemonBinding) []DaemonBinding {

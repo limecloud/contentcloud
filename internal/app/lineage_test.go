@@ -66,7 +66,7 @@ func TestProjectLineageAndImpactTraceSourceToRating(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"source:" + sourceID, "source_revision:" + revisionID, "task_run:" + runID, "knowledge_object:" + knowledgeID, "approved_snapshot:" + approvedSnapshotID, "artifact:" + artifactID, "performance_observation:" + observationID, "rating_decision:" + ratingID} {
+	for _, key := range []string{"source:" + sourceID, "source_revision:" + revisionID, "runtime_run:" + runID, "knowledge_object:" + knowledgeID, "approved_snapshot:" + approvedSnapshotID, "artifact:" + artifactID, "performance_observation:" + observationID, "rating_decision:" + ratingID} {
 		if !hasLineageNode(graph, key) {
 			t.Fatalf("downstream graph is missing %s: %#v", key, graph.Nodes)
 		}

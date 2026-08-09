@@ -71,7 +71,7 @@ ADR-0002-product-plane-separation.md
 - Studio-first 产品定位和本地客户端角色变化。
 - 客户、租户管理、平台运营和 Runtime Explorer 产品面变化。
 - 业务事实所有权或聚合边界变化。
-- WorkTask、StageRun、TaskRun 兼容 DTO 与 JobRun/NodeRun/RuntimeAttempt 的处置，以及任何恢复 dead 执行模型的提案。
+- WorkTask、StageRun、RuntimeRun 读模型与 JobRun/NodeRun/RuntimeAttempt 的处置，以及任何恢复 dead 执行模型或旧 DTO 的提案。
 - 模块化单体与独立服务边界变化。
 - Schema major、事件排序、摘要或幂等语义变化。
 - 新执行模式、能力绑定、数据披露和外部副作用类型。
@@ -84,7 +84,7 @@ ADR-0002-product-plane-separation.md
 | ADR-0001 | Studio-first 产品定位 | Web Studio 为默认入口，本地 Agent 为高级执行面 | 面向用户的导航与定位迁移 |
 | ADR-0002 | 产品面分离 | Studio 与 Admin 独立 Shell、路由、权限和 BFF | 客户创作台实现 |
 | ADR-0003 | 事实所有权 | Runtime 只拥有执行事实，业务域拥有业务事实 | Runtime 数据模型 |
-| ADR-0004 | 运行对象收敛 | 记录 Runtime current、TaskRun compat DTO 和 V7 RunAttempt dead 的最终关系 | 下一版公开运行 API 与兼容 DTO 退场 |
+| ADR-0004 | 运行对象收敛 | 记录 Runtime current、公开读模型和 V7 执行模型 dead 的最终关系 | StageRun 业务投影退场 |
 | ADR-0005 | 模块化单体 | 先用包、端口和权限隔离，暂不拆微服务 | 目标代码目录与部署 |
 | ADR-0006 | 能力与执行绑定 | 能力声明与具体执行者分离，运行前固定绑定 | Catalog 与 Runtime 编译 |
 | ADR-0007 | 双投影单状态 | CustomerJourney 与 Operations 从同一权威状态生成 | BFF 与投影实现 |
@@ -97,6 +97,7 @@ ADR-0002-product-plane-separation.md
 | [ADR-0014](./ADR-0014-customer-asset-surface.md) | 客户资产入口 | 一个“资产”入口组合工作区资料与创作结果两个专用投影，不创建超级 Asset | 客户信息架构、资料契约与 BFF 组合 |
 | [ADR-0015](./ADR-0015-operations-control-plane.md) | 独立的平台运营后台 | 按创作产品、能力与执行、运行诊断、创作结果治理分区；客户面与运营面完全分离 | Operations BFF、发布中心、绑定规则、Runtime Explorer 和资产治理 |
 | [ADR-0016](./ADR-0016-runtime-command-kernel.md) | Runtime 统一事务命令内核 | 快照、JobEvent 和 outbox 在同一命令提交边界内完成；Service 不再组合宽写方法 | RuntimeCommandStore、outbox、故障注入和旧写路径退场 |
+| [ADR-0017](./ADR-0017-codex-runtime-harness.md) | Codex Runtime Harness | 使用官方 CLI JSONL/thread resume；会话固定在 RuntimeAttempt，事件必须经 fence 脱敏入库 | Runtime worker、Codex 会话恢复、宿主数据边界和旧 SessionStore 镜像退场 |
 
 候选编号在正式创建 ADR 文件时确认。若已有项目 ADR 编号体系，应迁入现有体系而不是并行编号。
 

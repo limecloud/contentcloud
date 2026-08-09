@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -12,7 +13,7 @@ import (
 
 const runtimeStateCollectionSelect = `SELECT tenant_id,id,job_run_id,collection_key,scope,schema_id,schema_revision,consistency,writer_node_key,max_record_bytes,max_records,retention_policy,read_policy,write_policy,revision,watermark,created_at,updated_at FROM runtime_state_collections`
 const runtimeStateRecordSelect = `SELECT tenant_id,id,collection_id,key,value,artifact_ref,schema_revision,version,digest,created_by,updated_by,created_at,updated_at FROM runtime_state_records`
-const runtimeToolCallSelect = `SELECT tenant_id,id,job_run_id,node_run_id,attempt_id,agent_instance_id,tool_name,schema_version,request_digest,safe_request,result_digest,state,error_code,started_at,finished_at,version,created_at,updated_at FROM runtime_tool_calls`
+const runtimeToolCallSelect = `SELECT tenant_id,id,job_run_id,node_run_id,attempt_id,agent_instance_id,tool_name,schema_version,request_digest,safe_request,safe_result,result_digest,state,error_code,started_at,finished_at,version,created_at,updated_at FROM runtime_tool_calls`
 
 func scanStateCollection(row pgx.Row) (domain.StateCollection, error) {
 	var value domain.StateCollection
@@ -48,10 +49,13 @@ func scanStateRecord(row pgx.Row) (domain.StateRecord, error) {
 
 func scanToolCall(row pgx.Row) (domain.ToolCall, error) {
 	var value domain.ToolCall
-	var safeRequest []byte
-	err := row.Scan(&value.TenantID, &value.ID, &value.JobRunID, &value.NodeRunID, &value.AttemptID, &value.AgentInstanceID, &value.ToolName, &value.SchemaVersion, &value.RequestDigest, &safeRequest, &value.ResultDigest, &value.State, &value.ErrorCode, &value.StartedAt, &value.FinishedAt, &value.Version, &value.CreatedAt, &value.UpdatedAt)
+	var safeRequest, safeResult []byte
+	err := row.Scan(&value.TenantID, &value.ID, &value.JobRunID, &value.NodeRunID, &value.AttemptID, &value.AgentInstanceID, &value.ToolName, &value.SchemaVersion, &value.RequestDigest, &safeRequest, &safeResult, &value.ResultDigest, &value.State, &value.ErrorCode, &value.StartedAt, &value.FinishedAt, &value.Version, &value.CreatedAt, &value.UpdatedAt)
 	if err == nil {
 		value.SafeRequest, err = decodeJSON[map[string]any](safeRequest)
+	}
+	if err == nil {
+		value.SafeResult, err = decodeJSON[map[string]any](safeResult)
 	}
 	if value.SafeRequest == nil {
 		value.SafeRequest = map[string]any{}
@@ -227,7 +231,30 @@ func (s *Store) ApplyStateRecordCommand(ctx context.Context, record domain.State
 		return record, err
 	}
 	var result domain.StateRecord
-	err := s.withTenant(ctx, record.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, record.TenantID, "runtime.apply_state_record", func(tx pgx.Tx) error {
+		if err := validateRuntimeEventTx(ctx, tx, event); err != nil {
+			return err
+		}
+		var err error
+		result, err = applyStateRecordTx(ctx, tx, record, expectedVersion)
+		if err != nil {
+			return err
+		}
+		_, err = appendRuntimeEventTx(ctx, tx, event)
+		return err
+	})
+	return result, err
+}
+
+func (s *Store) ApplyFencedStateRecordCommand(ctx context.Context, record domain.StateRecord, expectedVersion int, attemptID, fenceToken string, now time.Time, event domain.JobEvent) (domain.StateRecord, error) {
+	if err := record.Validate(); err != nil {
+		return record, err
+	}
+	var result domain.StateRecord
+	err := s.withTenantCommand(ctx, record.TenantID, "runtime.apply_fenced_state_record", func(tx pgx.Tx) error {
+		if err := validateAttemptFenceTx(ctx, tx, record.TenantID, attemptID, fenceToken, now); err != nil {
+			return err
+		}
 		if err := validateRuntimeEventTx(ctx, tx, event); err != nil {
 			return err
 		}
@@ -246,14 +273,37 @@ func (s *Store) RegisterToolCallCommand(ctx context.Context, call domain.ToolCal
 	if err := call.Validate(); err != nil {
 		return call, err
 	}
-	err := s.withTenant(ctx, call.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, call.TenantID, "runtime.register_tool_call", func(tx pgx.Tx) error {
 		if err := validateToolCallTx(ctx, tx, call); err != nil {
 			return err
 		}
 		if err := validateRuntimeEventTx(ctx, tx, event); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO runtime_tool_calls(tenant_id,id,job_run_id,node_run_id,attempt_id,agent_instance_id,tool_name,schema_version,request_digest,safe_request,result_digest,state,error_code,started_at,finished_at,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, call.TenantID, call.ID, call.JobRunID, call.NodeRunID, call.AttemptID, call.AgentInstanceID, call.ToolName, call.SchemaVersion, call.RequestDigest, jsonValue(call.SafeRequest), call.ResultDigest, call.State, call.ErrorCode, call.StartedAt, call.FinishedAt, call.Version, call.CreatedAt, call.UpdatedAt); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO runtime_tool_calls(tenant_id,id,job_run_id,node_run_id,attempt_id,agent_instance_id,tool_name,schema_version,request_digest,safe_request,safe_result,result_digest,state,error_code,started_at,finished_at,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, call.TenantID, call.ID, call.JobRunID, call.NodeRunID, call.AttemptID, call.AgentInstanceID, call.ToolName, call.SchemaVersion, call.RequestDigest, jsonValue(call.SafeRequest), jsonValue(call.SafeResult), call.ResultDigest, call.State, call.ErrorCode, call.StartedAt, call.FinishedAt, call.Version, call.CreatedAt, call.UpdatedAt); err != nil {
+			return dbError(err)
+		}
+		_, err := appendRuntimeEventTx(ctx, tx, event)
+		return err
+	})
+	return call, err
+}
+
+func (s *Store) RegisterFencedToolCallCommand(ctx context.Context, call domain.ToolCall, fenceToken string, now time.Time, event domain.JobEvent) (domain.ToolCall, error) {
+	if err := call.Validate(); err != nil {
+		return call, err
+	}
+	err := s.withTenantCommand(ctx, call.TenantID, "runtime.register_fenced_tool_call", func(tx pgx.Tx) error {
+		if err := validateAttemptFenceTx(ctx, tx, call.TenantID, call.AttemptID, fenceToken, now); err != nil {
+			return err
+		}
+		if err := validateToolCallTx(ctx, tx, call); err != nil {
+			return err
+		}
+		if err := validateRuntimeEventTx(ctx, tx, event); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO runtime_tool_calls(tenant_id,id,job_run_id,node_run_id,attempt_id,agent_instance_id,tool_name,schema_version,request_digest,safe_request,safe_result,result_digest,state,error_code,started_at,finished_at,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, call.TenantID, call.ID, call.JobRunID, call.NodeRunID, call.AttemptID, call.AgentInstanceID, call.ToolName, call.SchemaVersion, call.RequestDigest, jsonValue(call.SafeRequest), jsonValue(call.SafeResult), call.ResultDigest, call.State, call.ErrorCode, call.StartedAt, call.FinishedAt, call.Version, call.CreatedAt, call.UpdatedAt); err != nil {
 			return dbError(err)
 		}
 		_, err := appendRuntimeEventTx(ctx, tx, event)
@@ -266,7 +316,7 @@ func (s *Store) ApplyToolCallTransitionCommand(ctx context.Context, next domain.
 	if err := next.Validate(); err != nil {
 		return next, err
 	}
-	err := s.withTenant(ctx, next.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, next.TenantID, "runtime.apply_tool_call_transition", func(tx pgx.Tx) error {
 		if err := validateRuntimeEventTx(ctx, tx, event); err != nil {
 			return err
 		}
@@ -286,7 +336,47 @@ func (s *Store) ApplyToolCallTransitionCommand(ctx context.Context, next domain.
 		if err := validateToolCallTx(ctx, tx, current); err != nil {
 			return err
 		}
-		updated, err := tx.Exec(ctx, `UPDATE runtime_tool_calls SET result_digest=$3,state=$4,error_code=$5,started_at=$6,finished_at=$7,version=$8,updated_at=$9 WHERE tenant_id=$1 AND id=$2 AND version=$10`, next.TenantID, next.ID, next.ResultDigest, next.State, next.ErrorCode, next.StartedAt, next.FinishedAt, next.Version, next.UpdatedAt, expectedVersion)
+		updated, err := tx.Exec(ctx, `UPDATE runtime_tool_calls SET safe_result=$3,result_digest=$4,state=$5,error_code=$6,started_at=$7,finished_at=$8,version=$9,updated_at=$10 WHERE tenant_id=$1 AND id=$2 AND version=$11`, next.TenantID, next.ID, jsonValue(next.SafeResult), next.ResultDigest, next.State, next.ErrorCode, next.StartedAt, next.FinishedAt, next.Version, next.UpdatedAt, expectedVersion)
+		if err != nil {
+			return dbError(err)
+		}
+		if updated.RowsAffected() != 1 {
+			return domain.Conflict("TOOL_CALL_VERSION_CONFLICT", "ToolCall 已被更新")
+		}
+		_, err = appendRuntimeEventTx(ctx, tx, event)
+		return err
+	})
+	return next, err
+}
+
+func (s *Store) ApplyFencedToolCallTransitionCommand(ctx context.Context, next domain.ToolCall, expectedVersion int, fenceToken string, now time.Time, event domain.JobEvent) (domain.ToolCall, error) {
+	if err := next.Validate(); err != nil {
+		return next, err
+	}
+	err := s.withTenantCommand(ctx, next.TenantID, "runtime.apply_fenced_tool_call_transition", func(tx pgx.Tx) error {
+		if err := validateAttemptFenceTx(ctx, tx, next.TenantID, next.AttemptID, fenceToken, now); err != nil {
+			return err
+		}
+		if err := validateRuntimeEventTx(ctx, tx, event); err != nil {
+			return err
+		}
+		current, err := scanToolCall(tx.QueryRow(ctx, runtimeToolCallSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, next.TenantID, next.ID))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.NotFound("ToolCall")
+		}
+		if err != nil {
+			return err
+		}
+		if current.Version != expectedVersion || next.Version != expectedVersion+1 {
+			return domain.Conflict("TOOL_CALL_VERSION_CONFLICT", "ToolCall 已被更新")
+		}
+		if current.State == domain.ToolCallSucceeded || current.State == domain.ToolCallFailed || current.State == domain.ToolCallUnknown {
+			return domain.Conflict("TOOL_CALL_TERMINAL", "终态 ToolCall 不能原地修改")
+		}
+		if err := validateToolCallTx(ctx, tx, current); err != nil {
+			return err
+		}
+		updated, err := tx.Exec(ctx, `UPDATE runtime_tool_calls SET safe_result=$3,result_digest=$4,state=$5,error_code=$6,started_at=$7,finished_at=$8,version=$9,updated_at=$10 WHERE tenant_id=$1 AND id=$2 AND version=$11`, next.TenantID, next.ID, jsonValue(next.SafeResult), next.ResultDigest, next.State, next.ErrorCode, next.StartedAt, next.FinishedAt, next.Version, next.UpdatedAt, expectedVersion)
 		if err != nil {
 			return dbError(err)
 		}
@@ -324,7 +414,7 @@ func (s *Store) CreateToolCall(ctx context.Context, call domain.ToolCall) error 
 		if err := validateToolCallTx(ctx, tx, call); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO runtime_tool_calls(tenant_id,id,job_run_id,node_run_id,attempt_id,agent_instance_id,tool_name,schema_version,request_digest,safe_request,result_digest,state,error_code,started_at,finished_at,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, call.TenantID, call.ID, call.JobRunID, call.NodeRunID, call.AttemptID, call.AgentInstanceID, call.ToolName, call.SchemaVersion, call.RequestDigest, jsonValue(call.SafeRequest), call.ResultDigest, call.State, call.ErrorCode, call.StartedAt, call.FinishedAt, call.Version, call.CreatedAt, call.UpdatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO runtime_tool_calls(tenant_id,id,job_run_id,node_run_id,attempt_id,agent_instance_id,tool_name,schema_version,request_digest,safe_request,safe_result,result_digest,state,error_code,started_at,finished_at,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, call.TenantID, call.ID, call.JobRunID, call.NodeRunID, call.AttemptID, call.AgentInstanceID, call.ToolName, call.SchemaVersion, call.RequestDigest, jsonValue(call.SafeRequest), jsonValue(call.SafeResult), call.ResultDigest, call.State, call.ErrorCode, call.StartedAt, call.FinishedAt, call.Version, call.CreatedAt, call.UpdatedAt)
 		return dbError(err)
 	})
 }
@@ -383,6 +473,19 @@ func (s *Store) ToolCall(ctx context.Context, tenantID, id string) (domain.ToolC
 	return result, err
 }
 
+func (s *Store) ToolCallByIdempotencyKey(ctx context.Context, tenantID, attemptID, toolName, idempotencyKey string) (domain.ToolCall, error) {
+	var result domain.ToolCall
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		value, err := scanToolCall(tx.QueryRow(ctx, runtimeToolCallSelect+` WHERE tenant_id=$1 AND attempt_id=$2 AND tool_name=$3 AND safe_request->>'idempotency_key'=$4`, tenantID, attemptID, toolName, idempotencyKey))
+		result = value
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.NotFound("ToolCall")
+		}
+		return err
+	})
+	return result, err
+}
+
 func (s *Store) ToolCalls(ctx context.Context, tenantID, attemptID string) ([]domain.ToolCall, error) {
 	result := []domain.ToolCall{}
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
@@ -429,7 +532,7 @@ func (s *Store) ApplyToolCallTransition(ctx context.Context, next domain.ToolCal
 		if current.State == domain.ToolCallSucceeded || current.State == domain.ToolCallFailed || current.State == domain.ToolCallUnknown {
 			return domain.Conflict("TOOL_CALL_TERMINAL", "终态 ToolCall 不能原地修改")
 		}
-		updated, err := tx.Exec(ctx, `UPDATE runtime_tool_calls SET result_digest=$3,state=$4,error_code=$5,started_at=$6,finished_at=$7,version=$8,updated_at=$9 WHERE tenant_id=$1 AND id=$2 AND version=$10`, next.TenantID, next.ID, next.ResultDigest, next.State, next.ErrorCode, next.StartedAt, next.FinishedAt, next.Version, next.UpdatedAt, expectedVersion)
+		updated, err := tx.Exec(ctx, `UPDATE runtime_tool_calls SET safe_result=$3,result_digest=$4,state=$5,error_code=$6,started_at=$7,finished_at=$8,version=$9,updated_at=$10 WHERE tenant_id=$1 AND id=$2 AND version=$11`, next.TenantID, next.ID, jsonValue(next.SafeResult), next.ResultDigest, next.State, next.ErrorCode, next.StartedAt, next.FinishedAt, next.Version, next.UpdatedAt, expectedVersion)
 		if err != nil {
 			return dbError(err)
 		}

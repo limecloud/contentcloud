@@ -6,6 +6,9 @@ import (
 	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
+	"hash"
+	"io"
 	"strings"
 
 	"github.com/limecloud/contentcloud/internal/domain"
@@ -29,13 +32,17 @@ type Estimate struct {
 type Submission struct {
 	ExternalJobID     string
 	ProviderRequestID string
+	RetryAfterSeconds int
+	HTTPStatus        int
 }
 
 type Status struct {
-	State       string
-	Progress    int
-	OutputRef   string
-	ActualMinor int64
+	State             string
+	Progress          int
+	OutputRef         string
+	ActualMinor       int64
+	RetryAfterSeconds int
+	HTTPStatus        int
 }
 
 type Download struct {
@@ -128,6 +135,106 @@ func ValidateDownload(value Download, maxBytes int64) (map[string]any, error) {
 		return nil, domain.Invalid("MEDIA_OUTPUT_CONTAINER_INVALID", "MP4 缺少必要的容器数据块")
 	}
 	return map[string]any{"container": "mp4", "codec": "fixture", "video_track": true, "audio_track": false, "validated": true}, nil
+}
+
+type StreamValidation struct {
+	Technical map[string]any
+	SHA256    string
+	ByteSize  int64
+}
+
+// ValidateDownloadReader validates the MP4 box structure while consuming the
+// response once. The same pass computes the content digest and enforces the
+// byte ceiling, so a provider cannot make the worker buffer an unbounded body.
+func ValidateDownloadReader(reader io.Reader, mediaType string, maxBytes int64) (StreamValidation, error) {
+	if reader == nil || maxBytes <= 0 || strings.ToLower(strings.TrimSpace(mediaType)) != "video/mp4" {
+		return StreamValidation{}, domain.Invalid("MEDIA_OUTPUT_INVALID", "服务商输出流为空、媒体类型不受支持或缺少大小上限")
+	}
+	hasher := &hashReader{reader: io.LimitReader(reader, maxBytes+1), hash: sha256.New()}
+	var boxes = map[string]bool{}
+	var total int64
+	var header [8]byte
+	for {
+		n, err := io.ReadFull(hasher, header[:])
+		if err == io.EOF && n == 0 {
+			break
+		}
+		if err != nil {
+			return StreamValidation{}, domain.Invalid("MEDIA_OUTPUT_CONTAINER_INVALID", "MP4 数据块头不完整")
+		}
+		total = hasher.count
+		if total > maxBytes {
+			return StreamValidation{}, domain.Invalid("MEDIA_OUTPUT_SIZE_INVALID", "服务商输出为空或超过大小限制")
+		}
+		size32 := binary.BigEndian.Uint32(header[:4])
+		boxType := string(header[4:8])
+		if len(boxes) == 0 && boxType != "ftyp" {
+			return StreamValidation{}, domain.Invalid("MEDIA_OUTPUT_CONTAINER_INVALID", "MP4 首个数据块不是 ftyp")
+		}
+		boxes[boxType] = true
+		headerSize := int64(8)
+		var boxSize int64
+		switch size32 {
+		case 0:
+			if _, err := io.Copy(io.Discard, hasher); err != nil {
+				return StreamValidation{}, domain.Invalid("MEDIA_OUTPUT_CONTAINER_INVALID", "MP4 数据块读取失败")
+			}
+			total = hasher.count
+			break
+		case 1:
+			var extended [8]byte
+			if _, err := io.ReadFull(hasher, extended[:]); err != nil {
+				return StreamValidation{}, domain.Invalid("MEDIA_OUTPUT_CONTAINER_INVALID", "MP4 扩展数据块头不完整")
+			}
+			total = hasher.count
+			headerSize = 16
+			boxSize64 := binary.BigEndian.Uint64(extended[:])
+			if boxSize64 > uint64(^uint64(0)>>1) {
+				return StreamValidation{}, domain.Invalid("MEDIA_OUTPUT_CONTAINER_INVALID", "MP4 数据块长度无效")
+			}
+			boxSize = int64(boxSize64)
+		default:
+			boxSize = int64(size32)
+		}
+		if size32 != 0 {
+			if boxSize < headerSize {
+				return StreamValidation{}, domain.Invalid("MEDIA_OUTPUT_CONTAINER_INVALID", "MP4 数据块长度无效")
+			}
+			payload := boxSize - headerSize
+			if payload > maxBytes-total {
+				return StreamValidation{}, domain.Invalid("MEDIA_OUTPUT_SIZE_INVALID", "服务商输出为空或超过大小限制")
+			}
+			copied, copyErr := io.CopyN(io.Discard, hasher, payload)
+			if copyErr != nil || copied != payload {
+				return StreamValidation{}, domain.Invalid("MEDIA_OUTPUT_CONTAINER_INVALID", "MP4 数据块长度与响应不一致")
+			}
+			total = hasher.count
+		}
+		if size32 == 0 {
+			break
+		}
+	}
+	if total == 0 || total > maxBytes || !boxes["ftyp"] || !boxes["moov"] || !boxes["mdat"] {
+		return StreamValidation{}, domain.Invalid("MEDIA_OUTPUT_CONTAINER_INVALID", "MP4 缺少必要的容器数据块")
+	}
+	return StreamValidation{Technical: map[string]any{"container": "mp4", "codec": "provider-stream", "video_track": true, "audio_track": false, "validated": true}, SHA256: hex.EncodeToString(hasher.hash.Sum(nil)), ByteSize: total}, nil
+}
+
+type hashReader struct {
+	reader io.Reader
+	hash   hash.Hash
+	count  int64
+}
+
+func (r *hashReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.count += int64(n)
+		if _, hashErr := r.hash.Write(p[:n]); hashErr != nil {
+			return n, fmt.Errorf("计算媒体摘要失败: %w", hashErr)
+		}
+	}
+	return n, err
 }
 
 func SHA256(body []byte) string {

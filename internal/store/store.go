@@ -165,6 +165,7 @@ type Store interface {
 	CreateProviderAttempt(context.Context, domain.ProviderAttempt) error
 	SaveProviderAttempt(context.Context, domain.ProviderAttempt) error
 	ProviderAttempts(context.Context, string, string) ([]domain.ProviderAttempt, error)
+	ProviderAttemptsByRuntimeJob(context.Context, string, string) ([]domain.ProviderAttempt, error)
 	CreateMediaReview(context.Context, domain.MediaReview) error
 	SaveMediaReview(context.Context, domain.MediaReview, int) error
 	MediaReview(context.Context, string, string) (domain.MediaReview, error)

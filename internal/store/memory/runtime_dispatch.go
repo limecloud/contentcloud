@@ -9,6 +9,17 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
+func validateAttemptFenceLocked(s *Store, tenantID, attemptID, fenceToken string, now time.Time) error {
+	attempt, ok := s.runtimeAttempts[runtimePlanKey(tenantID, attemptID)]
+	if !ok {
+		return domain.NotFound("RuntimeAttempt")
+	}
+	if attempt.State != domain.RuntimeAttemptRunning || strings.TrimSpace(fenceToken) == "" || attempt.FenceToken != fenceToken || attempt.LeaseExpiresAt == nil || !attempt.LeaseExpiresAt.After(now) {
+		return domain.Conflict("MCP_GATEWAY_FENCE_STALE", "MCP 调用的 Attempt fence 或租约已失效")
+	}
+	return nil
+}
+
 func (s *Store) NextReadyNode(_ context.Context, tenantID, jobID string) (domain.NodeRun, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -375,15 +386,29 @@ func appendRuntimeEventLocked(s *Store, event domain.JobEvent) domain.JobEvent {
 		event.Payload = map[string]any{}
 	}
 	s.runtimeEvents[event.JobRunID] = append(events, event)
+	enqueueRuntimeOutboxLocked(s, event)
+	return event
+}
+
+func enqueueRuntimeOutboxLocked(s *Store, event domain.JobEvent) {
 	outboxID := runtimePlanKey(event.TenantID, event.ID)
 	if _, exists := s.runtimeOutbox[outboxID]; !exists {
 		s.runtimeOutbox[outboxID] = domain.RuntimeOutboxMessage{
 			ID: event.ID, TenantID: event.TenantID, EventID: event.ID,
 			SchemaVersion: domain.RuntimeEventSchema, Topic: "runtime.job_event",
-			AggregateID:   event.JobRunID,
-			Payload:       map[string]any{"event_id": event.ID, "job_run_id": event.JobRunID, "sequence": event.Sequence, "type": event.Type, "payload": event.Payload},
-			NextAttemptAt: event.OccurredAt, CreatedAt: event.OccurredAt,
+			AggregateID: event.JobRunID,
+			Payload:     map[string]any{"event_id": event.ID, "job_run_id": event.JobRunID, "sequence": event.Sequence, "type": event.Type, "payload": event.Payload},
+			CreatedAt:   event.OccurredAt,
 		}
 	}
-	return event
+	for _, subscriber := range domain.RuntimeOutboxSubscribers(event.Type) {
+		key := runtimeOutboxReceiptKey(event.TenantID, event.ID, subscriber)
+		if _, exists := s.runtimeOutboxReceipts[key]; !exists {
+			s.runtimeOutboxReceipts[key] = runtimeOutboxReceipt{TenantID: event.TenantID, MessageID: event.ID, Subscriber: subscriber, NextAttemptAt: event.OccurredAt, CreatedAt: event.OccurredAt}
+		}
+	}
+}
+
+func runtimeOutboxReceiptKey(tenantID, messageID, subscriber string) string {
+	return tenantID + ":" + messageID + ":" + subscriber
 }

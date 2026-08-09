@@ -105,7 +105,75 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+  /v1/providers/{provider_id}/tenants/{tenant_id}/callbacks:
+    parameters:
+      - {name: provider_id, in: path, required: true, schema: {type: string}}
+      - {name: tenant_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Runtime Admin]
+      operationId: receiveProviderCallback
+      summary: Receive a signed provider callback into the Runtime inbox
+      security: []
+      parameters:
+        - {name: X-ContentCloud-Timestamp, in: header, required: true, schema: {type: string}}
+        - {name: X-ContentCloud-Signature, in: header, required: true, schema: {type: string, pattern: '^sha256='}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message_id, external_id, provider_state]
+              properties:
+                job_run_id: {type: string}
+                effect_id: {type: string}
+                message_id: {type: string}
+                external_id: {type: string}
+                provider_state: {type: string}
+                response_digest: {type: string}
+                cost_minor: {type: integer, format: int64, minimum: 0}
+                currency: {type: string, pattern: '^[A-Z]{3}$'}
+                safe_payload: {type: object, additionalProperties: true}
+                error_code: {type: string}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /v1/providers/{provider_id}/tenants/{tenant_id}/bills:
+    parameters:
+      - {name: provider_id, in: path, required: true, schema: {type: string}}
+      - {name: tenant_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Runtime Admin]
+      operationId: recordProviderBill
+      summary: Record a signed provider bill for Runtime reconciliation
+      security: []
+      parameters:
+        - {name: X-ContentCloud-Timestamp, in: header, required: true, schema: {type: string}}
+        - {name: X-ContentCloud-Signature, in: header, required: true, schema: {type: string, pattern: '^sha256='}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bill_id, external_id, amount_minor]
+              properties:
+                job_run_id: {type: string}
+                effect_id: {type: string}
+                bill_id: {type: string}
+                external_id: {type: string}
+                bill_digest: {type: string}
+                amount_minor: {type: integer, format: int64, minimum: 0}
+                currency: {type: string, pattern: '^[A-Z]{3}$'}
+                observed_at: {type: string, format: date-time}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /v1/admin/dashboard:
+    get: *adminJSONRead
+  /v1/admin/runtime-health:
     get: *adminJSONRead
   /v1/admin/tenants/{tenant_id}:
     parameters: [{name: tenant_id, in: path, required: true, schema: {type: string, format: uuid}}]
@@ -488,7 +556,7 @@ paths:
           content: {application/octet-stream: {schema: {type: string, format: binary}}}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-  /bff/admin/runtime/jobs:
+  /bff/runtime/jobs:
     get:
       tags: [Runtime Admin]
       operationId: listRuntimeJobs
@@ -504,7 +572,7 @@ paths:
           content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeJobListEnvelope'}}}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
-  /bff/admin/runtime/jobs/{job_id}:
+  /bff/runtime/jobs/{job_id}:
     parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
     get:
       tags: [Runtime Admin]
@@ -515,22 +583,27 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-  /bff/admin/runtime/jobs/{job_id}/nodes:
-    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+  /bff/runtime/jobs/{job_id}/nodes:
+    parameters:
+      - {name: job_id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: after, in: query, required: false, schema: {type: integer, minimum: 0}}
+      - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
     get: *adminJSONRead
-  /bff/admin/runtime/jobs/{job_id}/events:
+  /bff/runtime/jobs/{job_id}/events:
     parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
     get:
       tags: [Runtime Admin]
       operationId: listRuntimeEvents
       security: [{cookieAuth: []}]
-      parameters: [{name: after, in: query, required: false, schema: {type: integer, minimum: 0}}]
+      parameters:
+        - {name: after, in: query, required: false, schema: {type: integer, minimum: 0}}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
       responses:
         '200': {$ref: '#/components/responses/Success'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-  /bff/admin/runtime/jobs/{job_id}/events/stream:
+  /bff/runtime/jobs/{job_id}/events/stream:
     parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
     get:
       tags: [Runtime Admin]
@@ -546,41 +619,27 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-  /bff/admin/runtime/jobs/{job_id}/effects:
-    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
-    get: *adminJSONRead
-  /bff/admin/runtime/jobs/{job_id}/checkpoints:
-    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
-    get: *adminJSONRead
-  /bff/admin/runtime/jobs/{job_id}/refresh:
-    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
-    post: *adminJSONWrite
-  /bff/admin/runtime/jobs/{job_id}/cancel:
-    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
-    post: *adminJSONWrite
-  /bff/admin/runtime/jobs/{job_id}/resume:
-    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
-    post: *adminJSONWrite
-  /bff/runtime/jobs:
-    $ref: '#/paths/~1bff~1admin~1runtime~1jobs'
-  /bff/runtime/jobs/{job_id}:
-    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}'
-  /bff/runtime/jobs/{job_id}/nodes:
-    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1nodes'
-  /bff/runtime/jobs/{job_id}/events:
-    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1events'
-  /bff/runtime/jobs/{job_id}/events/stream:
-    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1events~1stream'
   /bff/runtime/jobs/{job_id}/effects:
-    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1effects'
+    parameters:
+      - {name: job_id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: after, in: query, required: false, schema: {type: integer, minimum: 0}}
+      - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+    get: *adminJSONRead
   /bff/runtime/jobs/{job_id}/checkpoints:
-    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1checkpoints'
+    parameters:
+      - {name: job_id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: after, in: query, required: false, schema: {type: integer, minimum: 0}}
+      - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+    get: *adminJSONRead
   /bff/runtime/jobs/{job_id}/refresh:
-    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1refresh'
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post: *adminJSONWrite
   /bff/runtime/jobs/{job_id}/cancel:
-    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1cancel'
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post: *adminJSONWrite
   /bff/runtime/jobs/{job_id}/resume:
-    $ref: '#/paths/~1bff~1admin~1runtime~1jobs~1{job_id}~1resume'
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post: *adminJSONWrite
   /bff/session:
     get: *jsonRead
   /bff/session/switch:
@@ -1355,7 +1414,7 @@ components:
     RuntimePlanView:
       type: object
       additionalProperties: false
-      required: [id, sop_id, sop_version, sop_digest, schema_version, digest, customer_steps, compiled_at]
+      required: [id, sop_id, sop_version, sop_digest, schema_version, digest, edges, customer_steps, compiled_at]
       properties:
         id: {type: string, format: uuid}
         sop_id: {type: string}
@@ -1363,12 +1422,28 @@ components:
         sop_digest: {type: string}
         schema_version: {type: string}
         digest: {type: string}
+        edges: {type: array, items: {type: object, additionalProperties: false, required: [from, to], properties: {from: {type: string}, to: {type: string}}}}
         customer_steps: {type: array, items: {type: object}}
         compiled_at: {type: string, format: date-time}
+    RuntimeStateRecordView:
+      type: object
+      additionalProperties: false
+      required: [id, collection_id, key, schema_revision, version, digest, updated_by, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        collection_id: {type: string, format: uuid}
+        key: {type: string}
+        value: {type: object}
+        artifact_ref: {type: string}
+        schema_revision: {type: integer, minimum: 1}
+        version: {type: integer, minimum: 1}
+        digest: {type: string}
+        updated_by: {type: string}
+        updated_at: {type: string, format: date-time}
     RuntimeJobDetail:
       type: object
       additionalProperties: false
-      required: [summary, plan, nodes, events, effects, checkpoints, agents, generated_at]
+      required: [summary, plan, nodes, events, effects, checkpoints, agents, state_records, generated_at]
       properties:
         summary: {$ref: '#/components/schemas/RuntimeJobSummary'}
         plan: {$ref: '#/components/schemas/RuntimePlanView'}
@@ -1377,6 +1452,7 @@ components:
         effects: {type: array, items: {$ref: '#/components/schemas/RuntimeEffectView'}}
         checkpoints: {type: array, items: {$ref: '#/components/schemas/RuntimeCheckpointView'}}
         agents: {type: array, items: {$ref: '#/components/schemas/RuntimeAgentView'}}
+        state_records: {type: array, items: {$ref: '#/components/schemas/RuntimeStateRecordView'}}
         generated_at: {type: string, format: date-time}
     RuntimeJobListEnvelope:
       type: object
@@ -2134,14 +2210,17 @@ components:
         - runtime.worker.prepare
         - runtime.worker.activate
         - runtime.worker.heartbeat
+        - runtime.worker.mcp
+        - runtime.worker.event
         - runtime.worker.finalize
     RuntimeWorkerPrepareInput:
       type: object
       additionalProperties: false
-      required: [harness_kind, role, execution_profile_id, max_tokens, budget_minor, remaining_descendants]
+      required: [harness_kind, capabilities, role, execution_profile_id, max_tokens, budget_minor, remaining_descendants]
       properties:
         job_run_id: {type: string, format: uuid}
         harness_kind: {type: string, minLength: 1}
+        capabilities: {$ref: '#/components/schemas/RuntimeHarnessCapabilities'}
         role: {type: string, minLength: 1}
         execution_profile_id: {type: string, minLength: 1}
         workspace: {type: string}
@@ -2157,6 +2236,21 @@ components:
         lease_for_seconds: {type: integer, minimum: 1}
         context_ttl_seconds: {type: integer, minimum: 1}
         resource_requests: {type: array, items: {type: object, additionalProperties: false}}
+    RuntimeHarnessCapabilities:
+      type: object
+      additionalProperties: false
+      required: [kind, events, resume, fork, mcp_stdio, mcp_http, structured_output, sandbox_profile, max_parallel_sessions, transcript_export]
+      properties:
+        kind: {type: string, minLength: 1}
+        events: {type: boolean}
+        resume: {type: boolean}
+        fork: {type: boolean}
+        mcp_stdio: {type: boolean}
+        mcp_http: {type: boolean}
+        structured_output: {type: boolean}
+        sandbox_profile: {type: string}
+        max_parallel_sessions: {type: integer, minimum: 1, maximum: 1024}
+        transcript_export: {type: boolean}
     RuntimeWorkerSession:
       type: object
       additionalProperties: false
@@ -2180,6 +2274,23 @@ components:
       properties:
         attempt_id: {type: string, format: uuid}
         fence_token: {type: string, minLength: 1}
+    RuntimeWorkerEventInput:
+      type: object
+      additionalProperties: false
+      required: [attempt_id, fence_token, event]
+      properties:
+        attempt_id: {type: string, format: uuid}
+        fence_token: {type: string, minLength: 1}
+        event:
+          type: object
+          additionalProperties: false
+          required: [type, session, occurred_at]
+          properties:
+            type: {type: string, minLength: 1}
+            session: {$ref: '#/components/schemas/RuntimeWorkerSession'}
+            data: {type: object, additionalProperties: true}
+            error_code: {type: string}
+            occurred_at: {type: string, format: date-time}
     RuntimeWorkerFinalizeInput:
       type: object
       additionalProperties: false

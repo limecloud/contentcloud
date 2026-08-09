@@ -24,11 +24,12 @@ import (
 )
 
 type Server struct {
-	service        *app.Service
-	log            *slog.Logger
-	devMode        bool
-	webDist        string
-	devBootstrapMu sync.Mutex
+	service                 *app.Service
+	log                     *slog.Logger
+	devMode                 bool
+	webDist                 string
+	devBootstrapMu          sync.Mutex
+	providerCallbackSecrets map[string][]byte
 }
 
 type envelope struct {
@@ -42,11 +43,32 @@ type envelope struct {
 
 type actorKey struct{}
 
-func New(service *app.Service, logger *slog.Logger, devMode bool, webDist string) *Server {
+type Option func(*Server)
+
+// WithProviderCallbackSecret registers an ingress-only HMAC secret. Secrets
+// are keyed by the authenticated tenant/provider pair and are never exposed
+// in response DTOs.
+func WithProviderCallbackSecret(tenantID, providerID string, secret []byte) Option {
+	return func(server *Server) {
+		if server.providerCallbackSecrets == nil {
+			server.providerCallbackSecrets = map[string][]byte{}
+		}
+		key := strings.TrimSpace(tenantID) + ":" + strings.ToLower(strings.TrimSpace(providerID))
+		if key != ":" && len(secret) > 0 {
+			server.providerCallbackSecrets[key] = append([]byte(nil), secret...)
+		}
+	}
+}
+
+func New(service *app.Service, logger *slog.Logger, devMode bool, webDist string, options ...Option) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{service: service, log: logger, devMode: devMode, webDist: webDist}
+	server := &Server{service: service, log: logger, devMode: devMode, webDist: webDist, providerCallbackSecrets: map[string][]byte{}}
+	for _, option := range options {
+		option(server)
+	}
+	return server
 }
 
 func (s *Server) Handler() http.Handler {
@@ -65,9 +87,12 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/dev/bootstrap", s.devBootstrap)
 		}
 		r.Post("/cli/dispatch", s.dispatch)
+		r.Post("/providers/{providerID}/tenants/{tenantID}/callbacks", s.providerCallback)
+		r.Post("/providers/{providerID}/tenants/{tenantID}/bills", s.providerBill)
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(s.requireSession)
 			r.Get("/dashboard", s.platformOverview)
+			r.Get("/runtime-health", s.platformRuntimeHealth)
 			r.Patch("/tenants/{tenantID}", s.updatePlatformTenant)
 			r.Put("/tenants/{tenantID}/content-capabilities/{contentType}", s.updatePlatformTenantContentCapability)
 		})
@@ -194,7 +219,6 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/source-revisions/{id}/evidence", s.evidence)
 		r.Post("/evidence/{id}/review", s.reviewEvidence)
 		r.Get("/projects/{projectID}/projection", s.projectProjection)
-		r.Get("/projects/{projectID}/codex-handoff", s.projectCodexHandoff)
 		r.Get("/projects/{projectID}/agent-handoff", s.projectAgentHandoff)
 		r.Patch("/projects/{projectID}", s.updateProject)
 		r.Post("/projects/{projectID}/archive", s.archiveProject)
@@ -217,7 +241,7 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/tasks/{taskID}/delivery-package", s.buildTaskDeliveryPackage)
 		r.Get("/tasks/{taskID}/conversation-imports", s.taskConversationImports)
 		r.Post("/tasks/{taskID}/conversation-imports", s.createConversationImport)
-		r.Get("/tasks/{taskID}/runs", s.taskRuns)
+		r.Get("/tasks/{taskID}/runs", s.runsForTask)
 		r.Get("/tasks/{taskID}/gates", s.taskGates)
 		r.Post("/tasks/{taskID}/gates/{gateID}/decide", s.decideGate)
 		r.Get("/tasks/{taskID}/revisions", s.taskRevisions)
@@ -254,7 +278,6 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/projects/{projectID}/audit", s.audit)
 		r.Get("/projects/{projectID}/submissions", s.submissions)
 		r.Get("/projects/{projectID}/submission-revisions/{id}", s.projectSubmissionRevision)
-		r.Get("/projects/{projectID}/submission-revisions/{id}/codex-handoff", s.reviewFeedbackCodexHandoff)
 		r.Get("/projects/{projectID}/submission-revisions/{id}/agent-handoff", s.reviewFeedbackAgentHandoff)
 		r.Get("/submissions/{id}", s.submissionDetails)
 		r.Post("/submission-revisions/{id}/approve", s.approveSubmission)
@@ -870,6 +893,39 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.ok(w, r, req.Command, value)
+	case "runtime.worker.mcp":
+		actor, _, err := s.deviceFromRequest(r)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		var in app.RuntimeMCPCallInput
+		if err := strictDecodeParams(req.Params, &in); err != nil {
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Runtime MCP 调用参数错误"))
+			return
+		}
+		value, err := s.service.CallRuntimeMCP(r.Context(), actor, in)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		s.ok(w, r, req.Command, value)
+	case "runtime.worker.event":
+		actor, _, err := s.deviceFromRequest(r)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		var in app.RuntimeWorkerEventInput
+		if err := strictDecodeParams(req.Params, &in); err != nil {
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Runtime worker 事件参数错误"))
+			return
+		}
+		if err := s.service.RecordRuntimeWorkerEvent(r.Context(), actor, in); err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		s.ok(w, r, req.Command, map[string]any{"recorded": true})
 	case "runtime.worker.finalize":
 		actor, _, err := s.deviceFromRequest(r)
 		if err != nil {

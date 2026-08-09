@@ -13,6 +13,20 @@ import (
 
 const runtimeAttemptSelect = `SELECT tenant_id,id,job_run_id,node_run_id,agent_instance_id,context_view_id,attempt_no,harness_kind,capabilities,session_ref,state,lease_owner,fence_token,lease_expires_at,output_refs,result_digest,safe_summary,error_code,version,created_at,started_at,finished_at,updated_at FROM runtime_attempts`
 
+func validateAttemptFenceTx(ctx context.Context, tx pgx.Tx, tenantID, attemptID, fenceToken string, now time.Time) error {
+	attempt, err := scanRuntimeAttempt(tx.QueryRow(ctx, runtimeAttemptSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, attemptID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.NotFound("RuntimeAttempt")
+	}
+	if err != nil {
+		return err
+	}
+	if attempt.State != domain.RuntimeAttemptRunning || strings.TrimSpace(fenceToken) == "" || attempt.FenceToken != fenceToken || attempt.LeaseExpiresAt == nil || !attempt.LeaseExpiresAt.After(now) {
+		return domain.Conflict("MCP_GATEWAY_FENCE_STALE", "MCP 调用的 Attempt fence 或租约已失效")
+	}
+	return nil
+}
+
 func (s *Store) NextReadyNode(ctx context.Context, tenantID, jobID string) (domain.NodeRun, error) {
 	var result domain.NodeRun
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
@@ -128,7 +142,7 @@ func (s *Store) PrepareDispatch(ctx context.Context, node domain.NodeRun, expect
 	if err := agent.Validate(); err != nil {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, err
 	}
-	err := s.withTenant(ctx, node.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, node.TenantID, "runtime.prepare_dispatch", func(tx pgx.Tx) error {
 		currentNode, err := scanRuntimeNode(tx.QueryRow(ctx, runtimeNodeSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, node.TenantID, node.ID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("执行节点")
@@ -206,7 +220,7 @@ func (s *Store) ActivateDispatch(ctx context.Context, node domain.NodeRun, expec
 	if err := agent.Validate(); err != nil {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, err
 	}
-	err := s.withTenant(ctx, node.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, node.TenantID, "runtime.activate_dispatch", func(tx pgx.Tx) error {
 		currentNode, currentAttempt, currentAgent, err := lockDispatchState(ctx, tx, node.TenantID, node.ID, attempt.ID, agent.ID)
 		if err != nil {
 			return err
@@ -247,7 +261,7 @@ func (s *Store) HeartbeatDispatch(ctx context.Context, tenantID, attemptID, owne
 	}
 	var node domain.NodeRun
 	var attempt domain.RuntimeAttempt
-	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, tenantID, "runtime.heartbeat_dispatch", func(tx pgx.Tx) error {
 		currentAttempt, err := scanRuntimeAttempt(tx.QueryRow(ctx, runtimeAttemptSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, attemptID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("RuntimeAttempt")
@@ -307,7 +321,7 @@ func (s *Store) FinalizeDispatch(ctx context.Context, node domain.NodeRun, expec
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, err
 	}
 	resultNode, resultAttempt, resultAgent := node, attempt, agent
-	err := s.withTenant(ctx, node.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, node.TenantID, "runtime.finalize_dispatch", func(tx pgx.Tx) error {
 		currentNode, currentAttempt, currentAgent, err := lockDispatchState(ctx, tx, node.TenantID, node.ID, attempt.ID, agent.ID)
 		if err != nil {
 			return err
@@ -435,6 +449,13 @@ func appendRuntimeEventTx(ctx context.Context, tx pgx.Tx, event domain.JobEvent)
 }
 
 func enqueueRuntimeOutboxTx(ctx context.Context, tx pgx.Tx, event domain.JobEvent) error {
-	_, err := tx.Exec(ctx, `INSERT INTO runtime_outbox(tenant_id,id,event_id,schema_version,topic,aggregate_id,payload,attempts,next_attempt_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$8) ON CONFLICT (tenant_id,event_id) DO NOTHING`, event.TenantID, event.ID, event.ID, domain.RuntimeEventSchema, "runtime.job_event", event.JobRunID, jsonValue(map[string]any{"event_id": event.ID, "job_run_id": event.JobRunID, "sequence": event.Sequence, "type": event.Type, "payload": event.Payload}), event.OccurredAt)
-	return dbError(err)
+	if _, err := tx.Exec(ctx, `INSERT INTO runtime_outbox(tenant_id,id,event_id,schema_version,topic,aggregate_id,payload,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (tenant_id,event_id) DO NOTHING`, event.TenantID, event.ID, event.ID, domain.RuntimeEventSchema, "runtime.job_event", event.JobRunID, jsonValue(map[string]any{"event_id": event.ID, "job_run_id": event.JobRunID, "sequence": event.Sequence, "type": event.Type, "payload": event.Payload}), event.OccurredAt); err != nil {
+		return dbError(err)
+	}
+	for _, subscriber := range domain.RuntimeOutboxSubscribers(event.Type) {
+		if _, err := tx.Exec(ctx, `INSERT INTO runtime_outbox_receipts(tenant_id,message_id,subscriber,next_attempt_at,created_at) VALUES($1,$2,$3,$4,$4) ON CONFLICT (tenant_id,message_id,subscriber) DO NOTHING`, event.TenantID, event.ID, subscriber, event.OccurredAt); err != nil {
+			return dbError(err)
+		}
+	}
+	return nil
 }

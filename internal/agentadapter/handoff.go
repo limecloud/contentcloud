@@ -66,21 +66,21 @@ func SelectHandoff(clientID, version string) (HandoffAdapter, error) {
 }
 
 var handoffFactories = map[ClientID]func(string) HandoffAdapter{
-	ClientCodex: func(version string) HandoffAdapter { return codexHandoffAdapter{version: version} },
+	ClientCodex: func(version string) HandoffAdapter { return codexAgentHandoffAdapter{version: version} },
 }
 
-type codexHandoffAdapter struct {
+type codexAgentHandoffAdapter struct {
 	version string
 }
 
-func (adapter codexHandoffAdapter) Build(request HandoffRequest) (Handoff, error) {
+func (adapter codexAgentHandoffAdapter) Build(request HandoffRequest) (Handoff, error) {
 	client, _ := Lookup(string(ClientCodex))
 	pluginID := pluginbuiltin.VideoProduction
 	pluginVersion := adapter.version
 	if pluginVersion == "" {
 		pluginVersion = pluginbuiltin.VideoProductionVersion
 	}
-	prompt, steps, err := codexHandoffContent(pluginID, pluginVersion, request)
+	prompt, steps, err := codexAgentHandoffContent(pluginID, pluginVersion, request)
 	if err != nil {
 		return Handoff{}, err
 	}
@@ -95,7 +95,7 @@ func (adapter codexHandoffAdapter) Build(request HandoffRequest) (Handoff, error
 	}, nil
 }
 
-func codexHandoffContent(pluginID, pluginVersion string, request HandoffRequest) (string, []string, error) {
+func codexAgentHandoffContent(pluginID, pluginVersion string, request HandoffRequest) (string, []string, error) {
 	if pluginID == "" || pluginVersion == "" {
 		return "", nil, domain.Invalid("AGENT_HANDOFF_PLUGIN_INVALID", "Codex 交接缺少标准插件身份")
 	}

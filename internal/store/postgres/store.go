@@ -17,9 +17,32 @@ import (
 
 type Store struct {
 	pool *pgxpool.Pool
+	// commitFaultInjector is intentionally opt-in and primarily used by
+	// integration tests to model a process crash immediately after COMMIT.
+	// Production callers never install one.
+	commitFaultInjector func(string) error
 }
 
-func New(ctx context.Context, databaseURL string) (*Store, error) {
+// ErrPostCommitFault marks the deliberately ambiguous result where the
+// database commit succeeded but the caller lost its response. Callers must
+// retry through an idempotency key instead of assuming the command rolled
+// back.
+var ErrPostCommitFault = errors.New("postgres transaction committed before response failure")
+
+type Option func(*Store)
+
+// WithCommitFaultInjector installs a test-only command transaction hook. The
+// hook receives "<scope>:before_commit" or "<scope>:after_commit". Returning
+// an error from an after_commit phase simulates a lost response after
+// PostgreSQL accepted the command, so callers must recover through their
+// idempotency contract. Ordinary read transactions never invoke this hook.
+func WithCommitFaultInjector(injector func(string) error) Option {
+	return func(store *Store) {
+		store.commitFaultInjector = injector
+	}
+}
+
+func New(ctx context.Context, databaseURL string, options ...Option) (*Store, error) {
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, err
@@ -35,7 +58,13 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 		pool.Close()
 		return nil, err
 	}
-	return &Store{pool: pool}, nil
+	store := &Store{pool: pool}
+	for _, option := range options {
+		if option != nil {
+			option(store)
+		}
+	}
+	return store, nil
 }
 
 func (s *Store) Close() { s.pool.Close() }
@@ -58,7 +87,27 @@ func (s *Store) withTenant(ctx context.Context, tenantID string, fn func(pgx.Tx)
 	if err := fn(tx); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	scope, _ := ctx.Value(commitFaultScopeKey{}).(string)
+	if scope != "" && s.commitFaultInjector != nil {
+		if err := s.commitFaultInjector(scope + ":before_commit"); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if scope != "" && s.commitFaultInjector != nil {
+		if err := s.commitFaultInjector(scope + ":after_commit"); err != nil {
+			return fmt.Errorf("%w: %v", ErrPostCommitFault, err)
+		}
+	}
+	return nil
+}
+
+type commitFaultScopeKey struct{}
+
+func (s *Store) withTenantCommand(ctx context.Context, tenantID, scope string, fn func(pgx.Tx) error) error {
+	return s.withTenant(context.WithValue(ctx, commitFaultScopeKey{}, scope), tenantID, fn)
 }
 
 func dbError(err error) error {

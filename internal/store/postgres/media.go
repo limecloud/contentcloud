@@ -9,6 +9,13 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
 const taskStageOutputSelect = `SELECT tenant_id,id,project_id,task_id,stage_run_id,stage_id,output_type,object_id,object_version,object_digest,role,status,metadata,created_by,created_at FROM task_stage_outputs`
 
 func scanTaskStageOutput(row pgx.Row) (domain.TaskStageOutput, error) {
@@ -138,12 +145,12 @@ func (s *Store) ProviderBinding(ctx context.Context, tenantID, providerID string
 	return result, err
 }
 
-const mediaGenerationJobSelect = `SELECT tenant_id,id,project_id,task_id,stage_run_id,storyboard_snapshot_id,prompt_package_artifact_id,provider_id,profile_version,profile_digest,model,mode,aspect_ratio,duration_seconds,input_artifact_refs,state,idempotency_key,estimated_cost_minor,actual_cost_minor,currency,attempt_count,max_attempts,lease_owner,lease_expires_at,cancel_requested_at,error_code,error_detail_safe,row_version,created_by,created_at,updated_at FROM media_generation_jobs`
+const mediaGenerationJobSelect = `SELECT tenant_id,id,project_id,task_id,stage_run_id,storyboard_snapshot_id,prompt_package_artifact_id,provider_id,profile_version,profile_digest,model,mode,aspect_ratio,duration_seconds,input_artifact_refs,runtime_job_run_id,runtime_node_run_id,runtime_attempt_id,runtime_effect_id,state,idempotency_key,estimated_cost_minor,actual_cost_minor,currency,attempt_count,max_attempts,lease_owner,lease_expires_at,cancel_requested_at,error_code,error_detail_safe,row_version,created_by,created_at,updated_at FROM media_generation_jobs`
 
 func scanMediaGenerationJob(row pgx.Row) (domain.MediaGenerationJob, error) {
 	var value domain.MediaGenerationJob
 	var inputs []byte
-	err := row.Scan(&value.TenantID, &value.ID, &value.ProjectID, &value.TaskID, &value.StageRunID, &value.StoryboardSnapshotID, &value.PromptPackageArtifactID, &value.ProviderID, &value.ProfileVersion, &value.ProfileDigest, &value.Model, &value.Mode, &value.AspectRatio, &value.DurationSeconds, &inputs, &value.State, &value.IdempotencyKey, &value.EstimatedCostMinor, &value.ActualCostMinor, &value.Currency, &value.AttemptCount, &value.MaxAttempts, &value.LeaseOwner, &value.LeaseExpiresAt, &value.CancelRequestedAt, &value.ErrorCode, &value.ErrorDetailSafe, &value.RowVersion, &value.CreatedBy, &value.CreatedAt, &value.UpdatedAt)
+	err := row.Scan(&value.TenantID, &value.ID, &value.ProjectID, &value.TaskID, &value.StageRunID, &value.StoryboardSnapshotID, &value.PromptPackageArtifactID, &value.ProviderID, &value.ProfileVersion, &value.ProfileDigest, &value.Model, &value.Mode, &value.AspectRatio, &value.DurationSeconds, &inputs, &value.RuntimeJobRunID, &value.RuntimeNodeRunID, &value.RuntimeAttemptID, &value.RuntimeEffectID, &value.State, &value.IdempotencyKey, &value.EstimatedCostMinor, &value.ActualCostMinor, &value.Currency, &value.AttemptCount, &value.MaxAttempts, &value.LeaseOwner, &value.LeaseExpiresAt, &value.CancelRequestedAt, &value.ErrorCode, &value.ErrorDetailSafe, &value.RowVersion, &value.CreatedBy, &value.CreatedAt, &value.UpdatedAt)
 	if err == nil {
 		value.InputArtifactRefs, err = decodeJSON[[]string](inputs)
 	}
@@ -157,7 +164,7 @@ func (s *Store) CreateMediaGenerationJob(ctx context.Context, value domain.Media
 		return err
 	}
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO media_generation_jobs(tenant_id,id,project_id,task_id,stage_run_id,storyboard_snapshot_id,prompt_package_artifact_id,provider_id,profile_version,profile_digest,model,mode,aspect_ratio,duration_seconds,input_artifact_refs,state,idempotency_key,estimated_cost_minor,actual_cost_minor,currency,attempt_count,max_attempts,lease_owner,lease_expires_at,cancel_requested_at,error_code,error_detail_safe,row_version,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)`, value.TenantID, value.ID, value.ProjectID, value.TaskID, value.StageRunID, value.StoryboardSnapshotID, value.PromptPackageArtifactID, value.ProviderID, value.ProfileVersion, value.ProfileDigest, value.Model, value.Mode, value.AspectRatio, value.DurationSeconds, jsonArrayValue(value.InputArtifactRefs), value.State, value.IdempotencyKey, value.EstimatedCostMinor, value.ActualCostMinor, value.Currency, value.AttemptCount, value.MaxAttempts, value.LeaseOwner, value.LeaseExpiresAt, value.CancelRequestedAt, value.ErrorCode, value.ErrorDetailSafe, value.RowVersion, value.CreatedBy, value.CreatedAt, value.UpdatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO media_generation_jobs(tenant_id,id,project_id,task_id,stage_run_id,storyboard_snapshot_id,prompt_package_artifact_id,provider_id,profile_version,profile_digest,model,mode,aspect_ratio,duration_seconds,input_artifact_refs,runtime_job_run_id,runtime_node_run_id,runtime_attempt_id,runtime_effect_id,state,idempotency_key,estimated_cost_minor,actual_cost_minor,currency,attempt_count,max_attempts,lease_owner,lease_expires_at,cancel_requested_at,error_code,error_detail_safe,row_version,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)`, value.TenantID, value.ID, value.ProjectID, value.TaskID, value.StageRunID, value.StoryboardSnapshotID, value.PromptPackageArtifactID, value.ProviderID, value.ProfileVersion, value.ProfileDigest, value.Model, value.Mode, value.AspectRatio, value.DurationSeconds, jsonArrayValue(value.InputArtifactRefs), nullableString(value.RuntimeJobRunID), nullableString(value.RuntimeNodeRunID), nullableString(value.RuntimeAttemptID), nullableString(value.RuntimeEffectID), value.State, value.IdempotencyKey, value.EstimatedCostMinor, value.ActualCostMinor, value.Currency, value.AttemptCount, value.MaxAttempts, value.LeaseOwner, value.LeaseExpiresAt, value.CancelRequestedAt, value.ErrorCode, value.ErrorDetailSafe, value.RowVersion, value.CreatedBy, value.CreatedAt, value.UpdatedAt)
 		return dbError(err)
 	})
 }
@@ -249,17 +256,17 @@ func (s *Store) SaveMediaGenerationJob(ctx context.Context, value domain.MediaGe
 			return domain.Conflict("MEDIA_JOB_TRANSITION_INVALID", "媒体生成任务状态转换无效")
 		}
 		value.RowVersion = expectedVersion + 1
-		_, err = tx.Exec(ctx, `UPDATE media_generation_jobs SET state=$3,estimated_cost_minor=$4,actual_cost_minor=$5,attempt_count=$6,lease_owner=$7,lease_expires_at=$8,cancel_requested_at=$9,error_code=$10,error_detail_safe=$11,row_version=$12,updated_at=$13 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, value.State, value.EstimatedCostMinor, value.ActualCostMinor, value.AttemptCount, value.LeaseOwner, value.LeaseExpiresAt, value.CancelRequestedAt, value.ErrorCode, value.ErrorDetailSafe, value.RowVersion, value.UpdatedAt)
+		_, err = tx.Exec(ctx, `UPDATE media_generation_jobs SET runtime_attempt_id=$3,runtime_effect_id=$4,state=$5,estimated_cost_minor=$6,actual_cost_minor=$7,attempt_count=$8,lease_owner=$9,lease_expires_at=$10,cancel_requested_at=$11,error_code=$12,error_detail_safe=$13,row_version=$14,updated_at=$15 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, nullableString(value.RuntimeAttemptID), nullableString(value.RuntimeEffectID), value.State, value.EstimatedCostMinor, value.ActualCostMinor, value.AttemptCount, value.LeaseOwner, value.LeaseExpiresAt, value.CancelRequestedAt, value.ErrorCode, value.ErrorDetailSafe, value.RowVersion, value.UpdatedAt)
 		return dbError(err)
 	})
 }
 
-const providerAttemptSelect = `SELECT tenant_id,id,project_id,generation_job_id,attempt_number,provider_id,request_digest,external_job_id,provider_state,safe_request_summary,safe_response_summary,disclosure_manifest,http_status,provider_request_id,estimated_cost_minor,actual_cost_minor,currency,last_polled_at,next_poll_at,submitted_at,downloaded_at,completed_at,retry_after_seconds,error_code,error_detail_safe,created_at,updated_at FROM provider_attempts`
+const providerAttemptSelect = `SELECT tenant_id,id,project_id,generation_job_id,attempt_number,provider_id,request_digest,runtime_job_run_id,runtime_node_run_id,runtime_attempt_id,runtime_effect_id,external_job_id,provider_state,safe_request_summary,safe_response_summary,disclosure_manifest,http_status,provider_request_id,estimated_cost_minor,actual_cost_minor,currency,last_polled_at,next_poll_at,submitted_at,downloaded_at,completed_at,retry_after_seconds,error_code,error_detail_safe,created_at,updated_at FROM provider_attempts`
 
 func scanProviderAttempt(row pgx.Row) (domain.ProviderAttempt, error) {
 	var value domain.ProviderAttempt
 	var requestSummary, responseSummary, disclosure []byte
-	err := row.Scan(&value.TenantID, &value.ID, &value.ProjectID, &value.GenerationJobID, &value.AttemptNumber, &value.ProviderID, &value.RequestDigest, &value.ExternalJobID, &value.ProviderState, &requestSummary, &responseSummary, &disclosure, &value.HTTPStatus, &value.ProviderRequestID, &value.EstimatedCostMinor, &value.ActualCostMinor, &value.Currency, &value.LastPolledAt, &value.NextPollAt, &value.SubmittedAt, &value.DownloadedAt, &value.CompletedAt, &value.RetryAfterSeconds, &value.ErrorCode, &value.ErrorDetailSafe, &value.CreatedAt, &value.UpdatedAt)
+	err := row.Scan(&value.TenantID, &value.ID, &value.ProjectID, &value.GenerationJobID, &value.AttemptNumber, &value.ProviderID, &value.RequestDigest, &value.RuntimeJobRunID, &value.RuntimeNodeRunID, &value.RuntimeAttemptID, &value.RuntimeEffectID, &value.ExternalJobID, &value.ProviderState, &requestSummary, &responseSummary, &disclosure, &value.HTTPStatus, &value.ProviderRequestID, &value.EstimatedCostMinor, &value.ActualCostMinor, &value.Currency, &value.LastPolledAt, &value.NextPollAt, &value.SubmittedAt, &value.DownloadedAt, &value.CompletedAt, &value.RetryAfterSeconds, &value.ErrorCode, &value.ErrorDetailSafe, &value.CreatedAt, &value.UpdatedAt)
 	if err == nil {
 		value.SafeRequestSummary, err = decodeJSON[map[string]any](requestSummary)
 	}
@@ -279,7 +286,7 @@ func (s *Store) CreateProviderAttempt(ctx context.Context, value domain.Provider
 		return err
 	}
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO provider_attempts(tenant_id,id,project_id,generation_job_id,attempt_number,provider_id,request_digest,external_job_id,provider_state,safe_request_summary,safe_response_summary,disclosure_manifest,http_status,provider_request_id,estimated_cost_minor,actual_cost_minor,currency,last_polled_at,next_poll_at,submitted_at,downloaded_at,completed_at,retry_after_seconds,error_code,error_detail_safe,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)`, value.TenantID, value.ID, value.ProjectID, value.GenerationJobID, value.AttemptNumber, value.ProviderID, value.RequestDigest, value.ExternalJobID, value.ProviderState, jsonValue(value.SafeRequestSummary), jsonValue(value.SafeResponseSummary), jsonValue(value.DisclosureManifest), value.HTTPStatus, value.ProviderRequestID, value.EstimatedCostMinor, value.ActualCostMinor, value.Currency, value.LastPolledAt, value.NextPollAt, value.SubmittedAt, value.DownloadedAt, value.CompletedAt, value.RetryAfterSeconds, value.ErrorCode, value.ErrorDetailSafe, value.CreatedAt, value.UpdatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO provider_attempts(tenant_id,id,project_id,generation_job_id,attempt_number,provider_id,request_digest,runtime_job_run_id,runtime_node_run_id,runtime_attempt_id,runtime_effect_id,external_job_id,provider_state,safe_request_summary,safe_response_summary,disclosure_manifest,http_status,provider_request_id,estimated_cost_minor,actual_cost_minor,currency,last_polled_at,next_poll_at,submitted_at,downloaded_at,completed_at,retry_after_seconds,error_code,error_detail_safe,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)`, value.TenantID, value.ID, value.ProjectID, value.GenerationJobID, value.AttemptNumber, value.ProviderID, value.RequestDigest, nullableString(value.RuntimeJobRunID), nullableString(value.RuntimeNodeRunID), nullableString(value.RuntimeAttemptID), nullableString(value.RuntimeEffectID), value.ExternalJobID, value.ProviderState, jsonValue(value.SafeRequestSummary), jsonValue(value.SafeResponseSummary), jsonValue(value.DisclosureManifest), value.HTTPStatus, value.ProviderRequestID, value.EstimatedCostMinor, value.ActualCostMinor, value.Currency, value.LastPolledAt, value.NextPollAt, value.SubmittedAt, value.DownloadedAt, value.CompletedAt, value.RetryAfterSeconds, value.ErrorCode, value.ErrorDetailSafe, value.CreatedAt, value.UpdatedAt)
 		return dbError(err)
 	})
 }
@@ -302,6 +309,26 @@ func (s *Store) ProviderAttempts(ctx context.Context, tenantID, jobID string) ([
 	result := []domain.ProviderAttempt{}
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, providerAttemptSelect+` WHERE tenant_id=$1 AND generation_job_id=$2 ORDER BY attempt_number`, tenantID, jobID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			value, scanErr := scanProviderAttempt(rows)
+			if scanErr != nil {
+				return scanErr
+			}
+			result = append(result, value)
+		}
+		return rows.Err()
+	})
+	return result, err
+}
+
+func (s *Store) ProviderAttemptsByRuntimeJob(ctx context.Context, tenantID, runtimeJobID string) ([]domain.ProviderAttempt, error) {
+	result := []domain.ProviderAttempt{}
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, providerAttemptSelect+` WHERE tenant_id=$1 AND runtime_job_run_id=$2 ORDER BY generation_job_id,attempt_number`, tenantID, runtimeJobID)
 		if err != nil {
 			return err
 		}

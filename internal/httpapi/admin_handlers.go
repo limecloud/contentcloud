@@ -13,6 +13,12 @@ func (s *Server) platformOverview(w http.ResponseWriter, r *http.Request) {
 	s.dispatchResult(w, r, "platform.overview", value, err)
 }
 
+func (s *Server) platformRuntimeHealth(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.PlatformRuntimeHealth(r.Context(), actor)
+	s.dispatchResult(w, r, "platform.runtime_health", value, err)
+}
+
 func (s *Server) updatePlatformTenant(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	var input struct {

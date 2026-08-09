@@ -193,7 +193,7 @@ type TaskContract struct {
 	ManifestHash    string           `json:"manifest_hash"`
 }
 
-type TaskRun struct {
+type RuntimeRun struct {
 	ID                string    `json:"id"`
 	TenantID          string    `json:"tenant_id"`
 	ProjectID         string    `json:"project_id"`
@@ -225,7 +225,7 @@ type TaskRun struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
-type RunProgressEvent struct {
+type RuntimeRunEvent struct {
 	Cursor     int64     `json:"cursor"`
 	TenantID   string    `json:"-"`
 	ProjectID  string    `json:"project_id"`

@@ -41,7 +41,8 @@ func main() {
 		os.Exit(1)
 	}
 	service := app.NewWithBlob(store, logger, blobs)
-	logger.Info("contentcloud deterministic worker ready", "zero_exec", true, "capabilities", []string{"source_ingestion", "policy_validation", "context_compile", "export"})
+	runtimeWorkerID := worker.RuntimeEventWorkerID()
+	logger.Info("contentcloud deterministic worker ready", "zero_exec", true, "capabilities", []string{"runtime_event_delivery", "business_result_materialization", "runtime_projection", "source_ingestion", "policy_validation", "context_compile", "export"})
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -50,6 +51,12 @@ func main() {
 			logger.Info("worker stopped")
 			return
 		case <-ticker.C:
+			runtimeEvents, runtimeErr := worker.ProcessRuntimeEvents(ctx, store, service, runtimeWorkerID, 50)
+			if runtimeErr != nil {
+				logger.Error("process runtime events", "error", runtimeErr)
+			} else if runtimeEvents.BusinessClaimed > 0 || runtimeEvents.ProjectionClaims > 0 {
+				logger.Info("processed runtime events", "business_claimed", runtimeEvents.BusinessClaimed, "business_applied", runtimeEvents.BusinessApplied, "business_retried", runtimeEvents.BusinessRetried, "projection_claimed", runtimeEvents.ProjectionClaims, "projected", runtimeEvents.Projected)
+			}
 			processed, err := worker.ProcessPendingSources(ctx, service, 10)
 			if err != nil {
 				logger.Error("process sources", "error", err)

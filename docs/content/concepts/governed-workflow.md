@@ -41,6 +41,33 @@ Content Work OS 把创作和治理分在两个平面：本地工作区保存创�
 
 聊天记录不是项目事实源。`workspace_context` 会读取持久化状态、当前内容版本、活跃执行记录、任务交接状态和修复要求。安装插件、修改环境或转交工作后，应在同一本地工作区根目录中新建对话并重新读取上下文。
 
+## 记忆与事实的边界
+
+Content Work OS 需要记忆，但记忆不等于事实。当前本地文件、`LocalRun`、`Handoff` 和知识页面共同提供可读、可迁移的跨会话记忆；以后增加全文、语义或混合检索时，本地数据库只能作为这些文件的可重建索引。
+
+```text
+本地工作区文件 / 云端明确版本引用
+              |
+              v
+      可重建的本地检索索引
+              |
+              v
+       带来源引用的记忆召回
+              |
+              v
+     workspace_context / Agent
+```
+
+- 删除本地索引后，必须能够从工作区文件和允许读取的云端引用重新建立；索引不能保存唯一正文。
+- 摘要、偏好、历史经验和语义召回结果都是候选上下文，必须保留来源路径、对象引用或内容摘要。
+- 记忆召回不能自动修改本地候选，不能替代知识审核，也不能产生提交、批准或发布事实。
+- 文件或云端对象发生变化后，旧记忆必须标记为陈旧或重新生成，不能以“记得如此”为由覆盖当前版本。
+- 远程记忆抽取一次最多发送 8 MiB 的已允许来源正文；远程候选还必须通过本地 schema、稳定 ID、形成者、状态、时间和来源摘要校验。
+
+实现上不需要从零编写搜索引擎：本地索引会优先采用成熟的 SQLite FTS5/BM25 和文件监听组件；向量检索或完整记忆框架只有在评测证明能改善召回时才作为可替换适配器加入。无论使用哪种库，来源、范围、失效、权限和知识晋升规则仍由 Content Work OS 统一控制。
+
+当前 P0/P1/P2 的本地与受控扩展路径已落地：`workspace memory status` 检查索引新鲜度，`workspace memory rebuild` 从工作区文本重建 SQLite FTS5 投影，`workspace memory remember` 将一条明确摘要保存为绑定来源的 `memory_candidate` 记录，`workspace memory consolidate` 报告重复和冲突且不覆盖记录，`workspace memory promote` 复用既有证据审核链导入待审核知识候选，`workspace memory query` 返回带 `source_ref`、摘要、scope、trust 和 status 的候选，`workspace memory clear --yes` 只清除可重建缓存。显式记录位于 `40-work/memory/records/`，保存来源内容摘要、权限模式和形成者；同一 ID 的内容不可变，来源变化或删除后不会继续召回，冲突记录默认阻断召回。需要模型形成候选时，`workspace memory extract` 只向明确配置的远程适配器发送选定来源，返回结果仍经过本地 scope、digest 和冲突校验；`remote-query` 和 Embedding 混合查询同样是显式 opt-in，网络失败时由调用方降级本地 FTS。`workspace_context` 默认不访问远端、不发送正文，会在固定字符预算内附带少量本地候选；索引缺失、损坏、跨工作区复制或来源变化时自动回退到当前文件扫描。MCP 暴露 `memory_status`、`memory_rebuild`、`memory_remember`、`memory_consolidate`、`memory_promote`、`memory_extract`、`memory_remote_query` 和 `memory_query`；其中远程工具必须显式提供 endpoint，第三方适配器仍不自动晋升 ApprovedSnapshot。
+
 ## 服务端边界
 
 Content Work OS 服务端保持零执行（`zero-exec`）：不替用户运行智能体、技能、渲染器或客户上传的代码，也不扫描本地工作区。服务端只能看到用户明确提交的范围。

@@ -38,11 +38,20 @@ const runtimeFanoutJoinMigration = "00026_runtime_fanout_join.sql"
 const runtimeProviderInboxMigration = "00027_runtime_provider_inbox.sql"
 const runtimeYieldResumeMigration = "00028_runtime_yield_resume.sql"
 const runtimeProjectionRebuildMigration = "00029_runtime_projection_rebuild.sql"
-const runtimeSessionStoreMigration = "00030_runtime_session_store.sql"
+const runtimeSessionMirrorCreationMigration = "00030_runtime_session_store.sql"
 const runtimeBusinessBindingMigration = "00031_runtime_business_binding.sql"
 const runtimeInputSnapshotMigration = "00032_runtime_input_snapshot.sql"
 const runtimeBusinessOutputMigration = "00033_runtime_business_output.sql"
 const removeV7ExecutionMigration = "00034_remove_v7_execution.sql"
+const runtimeOutboxSubscribersMigration = "00035_runtime_outbox_subscribers.sql"
+const removeRuntimeSessionMirrorMigration = "00036_remove_runtime_session_mirror.sql"
+const runtimeMaintenanceHealthMigration = "00037_runtime_maintenance_health.sql"
+const providerPollRecoveryMigration = "00038_provider_poll_recovery.sql"
+const providerPollDeadlineMigration = "00039_provider_poll_deadline.sql"
+const mediaRuntimeEffectLinksMigration = "00040_media_runtime_effect_links.sql"
+const runtimeSchemaRegistryMigration = "00041_runtime_schema_registry.sql"
+const runtimeReadPaginationMigration = "00042_runtime_read_pagination.sql"
+const runtimeToolCallResultsMigration = "00043_runtime_tool_call_results.sql"
 
 func (s *Store) Migrate(ctx context.Context) error {
 	conn, err := s.pool.Acquire(ctx)
@@ -117,7 +126,7 @@ func validateV3MigrationSet(available, applied []string) error {
 	// Keep the pure validator compatible with callers that validate the
 	// pre-governance six-file set; Migrate itself passes the current embedded
 	// set and therefore requires every current infrastructure migration.
-	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration, runtimeFencingAndResourcesMigration, runtimeStateToolCallsMigration, runtimeProjectionMigration, runtimeJobContractMigration, runtimePlanRelationalMigration, runtimeFanoutJoinMigration, runtimeProviderInboxMigration, runtimeYieldResumeMigration, runtimeProjectionRebuildMigration, runtimeSessionStoreMigration, runtimeBusinessBindingMigration, runtimeInputSnapshotMigration, runtimeBusinessOutputMigration, removeV7ExecutionMigration}
+	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration, runtimeFencingAndResourcesMigration, runtimeStateToolCallsMigration, runtimeProjectionMigration, runtimeJobContractMigration, runtimePlanRelationalMigration, runtimeFanoutJoinMigration, runtimeProviderInboxMigration, runtimeYieldResumeMigration, runtimeProjectionRebuildMigration, runtimeSessionMirrorCreationMigration, runtimeBusinessBindingMigration, runtimeInputSnapshotMigration, runtimeBusinessOutputMigration, removeV7ExecutionMigration, runtimeOutboxSubscribersMigration, removeRuntimeSessionMirrorMigration, runtimeMaintenanceHealthMigration, providerPollRecoveryMigration, providerPollDeadlineMigration, mediaRuntimeEffectLinksMigration, runtimeSchemaRegistryMigration, runtimeReadPaginationMigration, runtimeToolCallResultsMigration}
 	for length := len(suffix); length >= 1; length-- {
 		if len(available) == len(expected)+length {
 			candidate := append([]string{}, suffix[:length]...)

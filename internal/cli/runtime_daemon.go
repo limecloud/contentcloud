@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/apiclient"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/localconfig"
@@ -30,16 +29,12 @@ func (r *Root) runtimeDaemonRun(cmd *cobra.Command, once, fixture bool, harnessK
 	if err != nil {
 		return err
 	}
-	bindings := cfg.RuntimeBindings()
+	bindings := cfg.Bindings()
 	if len(bindings) == 0 {
 		return domain.Conflict("DEVICE_BINDING_MISSING", "启动 Runtime worker 前必须先完成设备注册")
 	}
 	if !fixture {
-		adapter, selectErr := agentadapter.Select(harnessKind)
-		if selectErr != nil {
-			return selectErr
-		}
-		if detectErr := adapter.Detect(); detectErr != nil {
+		if _, _, _, detectErr := r.resolveRuntimeWorkerHarness(cmd.Context(), harnessKind, false); detectErr != nil {
 			return domain.Policy("AGENT_ADAPTER_UNAVAILABLE", "指定的本地智能体不可用", "检查安装与登录状态")
 		}
 	}

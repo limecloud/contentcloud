@@ -206,7 +206,7 @@ func (s *Service) resolveStageObject(ctx context.Context, task domain.WorkTask, 
 func validateStageOutputContract(stage domain.StageDefinition, outputs []domain.TaskStageOutput, strict bool) error {
 	if len(stage.RequiredOutputTypes) == 0 {
 		if strict && stage.CompletionPolicy != domain.StageCompletionControlOnly {
-			return domain.Policy("STAGE_OUTPUT_CONTRACT_REQUIRED", "营销视频流程阶段缺少类型化输出契约", "使用 V7 营销视频流程规范或补齐流程阶段输出契约")
+			return domain.Policy("STAGE_OUTPUT_CONTRACT_REQUIRED", "营销视频流程阶段缺少类型化输出契约", "使用当前营销视频流程规范或补齐流程阶段输出契约")
 		}
 		return nil
 	}

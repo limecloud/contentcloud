@@ -31,7 +31,7 @@ import (
 	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
-const Version = "0.21.0"
+const Version = "0.22.0"
 
 type Root struct {
 	json                   bool
@@ -48,6 +48,7 @@ type Root struct {
 	manifestVerifierHook   func() (*environment.Verifier, error)
 	registryVerifierHook   func() (*environment.RegistryVerifier, error)
 	daemonFactory          func() (userDaemonService, error)
+	runtimeHarnesses       *agentadapter.HarnessRegistry
 }
 type success struct {
 	OK        bool           `json:"ok"`
@@ -121,11 +122,13 @@ func (r *Root) down() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if cfg.DeviceID == "" {
+		binding, ok := cfg.PrimaryBinding()
+		if !ok {
 			return r.writeOK("down", map[string]any{"disconnected": true, "already_down": true})
 		}
+		deviceID := binding.DeviceID
 		if dryRun {
-			return r.writeOK("down", map[string]any{"dry_run": true, "device_id": cfg.DeviceID, "would_revoke": true, "would_clear_local_binding": true})
+			return r.writeOK("down", map[string]any{"dry_run": true, "device_id": deviceID, "would_revoke": true, "would_clear_local_binding": true})
 		}
 		if !yes {
 			return confirmationRequired("断开会撤销当前设备并清除本机设备凭据")
@@ -134,16 +137,16 @@ func (r *Root) down() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := client.Dispatch(cmd.Context(), "device.revoke", map[string]any{"device_id": cfg.DeviceID}, nil); err != nil {
+		if err := client.Dispatch(cmd.Context(), "device.revoke", map[string]any{"device_id": deviceID}, nil); err != nil {
 			return err
 		}
-		if err := localconfig.DeleteDeviceToken(cfg.DeviceID); err != nil {
+		if err := localconfig.DeleteDeviceToken(deviceID); err != nil {
 			return err
 		}
 		if err := uninstallUserDaemon(); err != nil {
 			return err
 		}
-		cfg.DeviceID, cfg.ProjectID = "", ""
+		cfg.RemoveDaemonBinding(deviceID)
 		if err := localconfig.Save(cfg); err != nil {
 			return err
 		}
@@ -166,8 +169,10 @@ func (r *Root) status() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		binding, _ := cfg.PrimaryBinding()
+		_, workspace, _ := cfg.PrimaryWorkspace()
 		credential := "missing"
-		if _, err := localconfig.DeviceToken(cfg.DeviceID); err == nil {
+		if _, err := localconfig.DeviceToken(binding.DeviceID); err == nil {
 			credential = "available"
 		}
 		var daemon any = map[string]any{"supported": runtime.GOOS == "darwin", "installed": false, "running": false}
@@ -176,7 +181,7 @@ func (r *Root) status() *cobra.Command {
 				daemon = state
 			}
 		}
-		return r.writeOK("status", map[string]any{"server_url": cfg.ServerURL, "device_id": cfg.DeviceID, "project_id": cfg.ProjectID, "device_credential": credential, "version": Version, "daemon": daemon, "daemon_bindings": cfg.RuntimeBindings()})
+		return r.writeOK("status", map[string]any{"server_url": r.resolveServer(cfg), "device_id": binding.DeviceID, "project_id": workspace.ProjectID, "device_credential": credential, "version": Version, "daemon": daemon, "daemon_bindings": cfg.Bindings()})
 	}}
 }
 
@@ -349,22 +354,21 @@ func daemonStartPrerequisites() error {
 	if err != nil {
 		return err
 	}
-	if len(cfg.RuntimeBindings()) == 0 && cfg.DeviceID == "" {
+	if len(cfg.Bindings()) == 0 {
 		return domain.Conflict("DEVICE_BINDING_MISSING", "启动自动化后台服务前必须先完成设备注册")
 	}
-	for _, binding := range cfg.RuntimeBindings() {
+	for _, binding := range cfg.Bindings() {
 		if _, err := localconfig.DeviceToken(binding.DeviceID); err != nil {
 			return &domain.Error{Type: "credential", Subtype: "device", Code: "DEVICE_CREDENTIAL_MISSING", Message: err.Error(), ExitCode: 3}
 		}
 	}
-	adapter, err := agentadapter.Select("auto")
-	if err != nil {
-		return err
+	registry := agentadapter.NewDefaultHarnessRegistry()
+	for _, kind := range []string{"codex", "claude"} {
+		if _, _, detectErr := registry.Resolve(context.Background(), kind); detectErr == nil {
+			return nil
+		}
 	}
-	if err := adapter.Detect(); err != nil {
-		return domain.Policy("AGENT_ADAPTER_UNAVAILABLE", "未检测到可用于自动化任务的 Codex 或 Claude Code", "安装并登录本机智能体客户端后重试")
-	}
-	return nil
+	return domain.Policy("AGENT_ADAPTER_UNAVAILABLE", "未检测到可用于 Runtime 的 Codex 或 Claude Code", "安装支持结构化事件的本机智能体客户端后重试")
 }
 
 func (r *Root) schemaCommand() *cobra.Command {
@@ -405,6 +409,9 @@ func (r *Root) resolveServer(cfg localconfig.Config) string {
 	}
 	if cfg.ServerURL != "" {
 		return strings.TrimRight(cfg.ServerURL, "/")
+	}
+	if binding, ok := cfg.PrimaryBinding(); ok && binding.ServerURL != "" {
+		return strings.TrimRight(binding.ServerURL, "/")
 	}
 	return "http://localhost:8080"
 }
@@ -508,7 +515,7 @@ func commandSchemas() map[string]any {
 	return map[string]any{
 		"doctor": read([]string{"--offline"}, "诊断检查"), "status": read(nil, "本地运行环境和后台服务状态"), "update": read(nil, "已验证安装程序的更新指引"),
 		"bootstrap.preflight": read([]string{"directory", "--offline"}, "稳定的前置检查 ID 和受管下一步"), "bootstrap.plan": schemaEntry("read", "browser-device", []string{"directory", "--session"}, "固定版本且只读的 Codex 插件和工作区计划"), "bootstrap.apply": write("browser-device", []string{"directory", "--session", "--plan-id", "--accept", "--open-codex"}, "已授权插件、已注册工作区和新对话交接信息"), "bootstrap.resume": write("workspace", []string{"directory", "--accept", "--open-codex"}, "重新验证并注册现有初始化工作区"), "bootstrap.diagnostics": schemaEntry("read", "workspace-for-upload", []string{"directory", "--attempt", "--upload", "--accept-upload"}, "脱敏诊断预览或已确认上传结果"),
-		"workspace.status": read([]string{"directory"}, "本地工作区绑定、模板和同步状态"), "workspace.doctor": read([]string{"directory", "--offline"}, "工作区、技能、MCP 和云端检查"), "workspace.fixture.apply": write("none", []string{"fixture.json", "--directory", "--project-id", "--workspace-id", "--device-id", "--server-url", "--target"}, "完整且确定性的 V3 验收工作区"), "workspace.execution-plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "已验证的离线 LocalExecutionPlan 和精确能力包准备信息"), "workspace.prepare.plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "已签名能力包的权限、数据流、费用和新对话影响"), "workspace.prepare.apply": write("none", []string{"--directory", "--run", "--intent", "--capability", "--input", "--preparation-id", "--accept"}, "已安装任务能力包、已验证环境锁、检查结果和新对话交接信息"), "workspace.conversation-context": read([]string{"directory", "--offline"}, "离线跨对话工作区上下文"), "workspace.project-brief.save": write("none", []string{"--directory", "--client", "--brand", "--product-or-service", "--objective", "--channel", "--audience", "--material-ref", "--notes"}, "已确认的本地项目简报和下一业务步骤"), "workspace.approved.list": read([]string{"--directory", "--type"}, "已验证的本地批准快照摘要"), "workspace.approved.show": read([]string{"snapshot-id", "--directory"}, "已验证的本地批准快照"),
+		"workspace.status": read([]string{"directory"}, "本地工作区绑定、模板和同步状态"), "workspace.doctor": read([]string{"directory", "--offline"}, "工作区、技能、MCP 和云端检查"), "workspace.fixture.apply": write("none", []string{"fixture.json", "--directory", "--project-id", "--workspace-id", "--device-id", "--server-url", "--target"}, "完整且确定性的 V3 验收工作区"), "workspace.execution-plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "已验证的离线 LocalExecutionPlan 和精确能力包准备信息"), "workspace.prepare.plan": read([]string{"--directory", "--run", "--intent", "--capability", "--input"}, "已签名能力包的权限、数据流、费用和新对话影响"), "workspace.prepare.apply": write("none", []string{"--directory", "--run", "--intent", "--capability", "--input", "--preparation-id", "--accept"}, "已安装任务能力包、已验证环境锁、检查结果和新对话交接信息"), "workspace.conversation-context": read([]string{"directory", "--offline"}, "离线跨对话工作区上下文"), "workspace.memory.status": read([]string{"--directory"}, "本地记忆索引状态和来源新鲜度"), "workspace.memory.rebuild": write("none", []string{"--directory"}, "从工作区文件重建可删除的本地记忆投影"), "workspace.memory.remember": write("none", []string{"--directory", "--id", "--kind", "--claim-key", "--source-ref", "--summary", "--formed-by"}, "保存绑定来源的本地记忆候选，不晋升为正式知识"), "workspace.memory.consolidate": read([]string{"--directory"}, "检测本地记忆候选的重复和冲突，不覆盖任何记录"), "workspace.memory.promote": write("none", []string{"--directory", "--memory-id", "--knowledge-kind", "--title", "--subject", "--predicate", "--risk-level", "--allowed-channel", "--evidence-id", "--origin-run"}, "把无冲突记忆候选导入为待审核知识候选"), "workspace.memory.extract": write("none", []string{"--directory", "--endpoint", "--provider", "--token-env", "--source-ref", "--formed-by", "--allow-private-networks", "--allow-http"}, "通过明确授权的远程抽取器形成并审计本地记忆候选"), "workspace.memory.remote-query": read([]string{"--directory", "--endpoint", "--provider", "--token-env", "--query", "--kind", "--limit", "--max-chars", "--allow-private-networks", "--allow-http"}, "通过远程适配器查询并回验来源的记忆候选"), "workspace.memory.query": read([]string{"--directory", "--query", "--kind", "--limit", "--max-chars"}, "带来源、范围和预算的记忆候选"), "workspace.memory.clear": schemaEntry("high-risk-write", "none", []string{"--directory", "--yes", "--dry-run"}, "清除本地记忆索引缓存，不删除工作区文件"), "workspace.project-brief.save": write("none", []string{"--directory", "--client", "--brand", "--product-or-service", "--objective", "--channel", "--audience", "--material-ref", "--notes"}, "已确认的本地项目简报和下一业务步骤"), "workspace.approved.list": read([]string{"--directory", "--type"}, "已验证的本地批准快照摘要"), "workspace.approved.show": read([]string{"snapshot-id", "--directory"}, "已验证的本地批准快照"),
 		"local.source.register": write("none", []string{"file", "--directory", "--id", "--title", "--kind", "--storage"}, "不可变的本地来源记录"), "local.source.list": read([]string{"--directory"}, "本地来源目录"), "local.source.show": read([]string{"source-id", "--directory"}, "本地来源记录"), "local.source.ingest": write("none", []string{"source-id", "--directory"}, "本地证据包"), "local.source.verify": read([]string{"--directory"}, "来源完整性报告"),
 		"local.run.init": write("none", []string{"--directory", "--id", "--intent", "--source-ref", "--with-ingest"}, "本地运行上下文"), "local.run.show": read([]string{"run-id", "--directory"}, "本地运行上下文"), "local.run.record": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--source-ref", "--changed-id", "--eligible-id", "--blocked-id", "--finding", "--output-path"}, "已更新的本地运行上下文"), "local.run.check": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--name", "--status", "--command", "--detail"}, "已记录的本地检查"), "local.run.advance": write("none", []string{"stage", "--directory", "--run", "--claim-token", "--revision", "--eligible-id", "--blocked-id", "--output-path"}, "已推进的本地运行上下文"), "local.run.resume": write("none", []string{"--directory", "--run", "--claim-token", "--revision"}, "已恢复的本地运行上下文"), "local.run.fail": write("none", []string{"--directory", "--run", "--claim-token", "--revision", "--finding"}, "失败的本地运行上下文"), "local.run.validate": read([]string{"--directory"}, "本地运行校验报告"),
 		"local.run.claim": write("none", []string{"--directory", "--run", "--owner", "--revision", "--ttl", "--takeover-expired"}, "单写入方运行占用"), "local.run.renew": write("none", []string{"--directory", "--run", "--claim-token", "--ttl"}, "已续期的运行占用"), "local.run.release": write("none", []string{"--directory", "--run", "--claim-token"}, "已释放的运行占用"), "local.run.claim-status": read([]string{"--directory", "--run"}, "不含敏感信息的运行占用状态"),
@@ -548,6 +555,8 @@ func commandSchemas() map[string]any {
 		"runtime.worker.prepare_next": write("device", []string{"--harness", "--role", "--execution-profile", "--workspace", "--prompt"}, "按 Runtime 公平调度领取的准备句柄"),
 		"runtime.worker.activate":     write("device", []string{"attempt-id", "fence-token", "session-id", "--harness"}, "已绑定外部会话的 RuntimeAttempt"),
 		"runtime.worker.heartbeat":    write("device", []string{"attempt-id", "fence-token"}, "续期后的 RuntimeAttempt 租约"),
+		"runtime.worker.mcp":          write("device", []string{"attempt-id", "fence-token", "tool-name", "request-id", "arguments"}, "经过 Attempt fence 和 ContextView 授权的 Runtime MCP 工具结果"),
+		"runtime.worker.event":        write("device", []string{"attempt-id", "fence-token", "event"}, "已通过 Attempt fence 固定的脱敏 Harness 事件"),
 		"runtime.worker.finalize":     write("device", []string{"attempt-id", "fence-token", "--state", "--output-ref", "--business-payload", "--result-digest"}, "已校验业务结果并收敛 RuntimeAttempt 终态"),
 		"artifact.export":             write("user", []string{"approved-snapshot-id", "--content-item", "--format"}, "由快照派生的成果文件"), "delivery.create": write("user", []string{"approved-snapshot-id", "--content-item"}, "包含三种格式的交付包"), "delivery.list": userRead([]string{"--project"}, "交付包列表"), "delivery.show": userRead([]string{"delivery-package-id"}, "交付包"), "artifact.download": userRead([]string{"artifact-id", "--out"}, "托管成果文件路径"),
 		"review.create": write("user", []string{"submission-revision-id", "--email", "--dry-run"}, "一次性客户审核链接"), "review.list": userRead([]string{"submission-revision-id"}, "客户审核授权列表"), "review.revoke": high([]string{"grant-id", "--dry-run"}, "已撤销的客户审核授权"), "review.status": userRead([]string{"submission-revision-id"}, "客户审核状态"),

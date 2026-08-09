@@ -74,7 +74,7 @@ func TestBootstrapPlanIsReadOnlyAndUsesOnlyPublicSessionID(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode output: %v; output=%s", err, stdout.String())
 	}
-	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.21.0" || len(envelope.Data.Plugin.Actions) != 7 || !envelope.Data.WouldEnableDaemon {
+	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.22.0" || len(envelope.Data.Plugin.Actions) != 7 || !envelope.Data.WouldEnableDaemon {
 		t.Fatalf("unexpected plan: %s", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "connect_key") || envelope.Data.AuthorizationMode != "browser_device" || !envelope.Data.WouldAuthorizeDevice {
@@ -167,7 +167,7 @@ func TestBootstrapApplyInstallsInitializesDoctorsAndRegisters(t *testing.T) {
 			if sessionID != testBootstrapSessionID {
 				t.Fatalf("unexpected ConnectSession: %s", sessionID)
 			}
-			return localconfig.Config{ServerURL: server.URL, DeviceID: "device-1", WorkspaceID: "workspace-1", ProjectID: "project-1"}, app.ConnectDeviceResult{
+			return localconfig.Config{ServerURL: server.URL, DaemonBindings: []localconfig.DaemonBinding{{ServerURL: server.URL, DeviceID: "device-1", Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: "workspace-1", ProjectID: "project-1"}}}}}, app.ConnectDeviceResult{
 				Device: domain.Device{ID: "device-1"}, WorkspaceID: "workspace-1", WorkspaceToken: "wt_test", ProjectID: "project-1", EnvironmentManifest: &manifest,
 			}, nil, nil
 		},
@@ -240,7 +240,7 @@ func TestBootstrapApplyUpgradesExistingPluginAndInitializesWorkspace(t *testing.
 			if sessionID != testBootstrapSessionID {
 				t.Fatalf("unexpected ConnectSession: %s", sessionID)
 			}
-			return localconfig.Config{ServerURL: server.URL, DeviceID: "device-1", WorkspaceID: "workspace-1", ProjectID: "project-1"}, app.ConnectDeviceResult{
+			return localconfig.Config{ServerURL: server.URL, DaemonBindings: []localconfig.DaemonBinding{{ServerURL: server.URL, DeviceID: "device-1", Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: "workspace-1", ProjectID: "project-1"}}}}}, app.ConnectDeviceResult{
 				Device: domain.Device{ID: "device-1"}, WorkspaceID: "workspace-1", WorkspaceToken: "wt_test", ProjectID: "project-1", EnvironmentManifest: &manifest,
 			}, nil, nil
 		},
@@ -287,7 +287,7 @@ func TestBootstrapResumeInitializesEmptyDirectoryFromSavedBinding(t *testing.T) 
 	manifest, verifier, registry, registryVerifier := bootstrapEnvironmentFixture(t, now)
 	server, registered := newBootstrapRegisterServer(t, manifest, registry)
 	defer server.Close()
-	if err := localconfig.Save(localconfig.Config{ServerURL: server.URL, DeviceID: "device-1", WorkspaceID: "workspace-1", ProjectID: "project-1"}); err != nil {
+	if err := localconfig.Save(localconfig.Config{ServerURL: server.URL, DaemonBindings: []localconfig.DaemonBinding{{ServerURL: server.URL, DeviceID: "device-1", Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: "workspace-1", ProjectID: "project-1"}}}}}); err != nil {
 		t.Fatal(err)
 	}
 	runner := successfulBootstrapRunner()
@@ -333,7 +333,7 @@ func TestBootstrapResumeUpgradesExistingPluginWithoutReinitializingWorkspace(t *
 	if err := os.WriteFile(sentinelPath, []byte("existing business content"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := localconfig.Save(localconfig.Config{ServerURL: server.URL, DeviceID: "device-1", WorkspaceID: "workspace-1", ProjectID: "project-1", WorkspaceRoot: directory}); err != nil {
+	if err := localconfig.Save(localconfig.Config{ServerURL: server.URL, DaemonBindings: []localconfig.DaemonBinding{{ServerURL: server.URL, DeviceID: "device-1", Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: "workspace-1", ProjectID: "project-1", Root: directory}}}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -510,13 +510,13 @@ func TestRequireHealthyWorkspaceBlocksRegistration(t *testing.T) {
 func successfulBootstrapRunner() *bootstrapRunner {
 	missingMarketplace := `{"marketplaces":[]}`
 	missingPlugin := `{"installed":[],"available":[]}`
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.21.0"}}]}`
-	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.21.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.22.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.22.0","installed":true,"enabled":true}],"available":[]}`
 	return &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
-		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.21.0","installedPath":"/tmp/plugin"}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.22.0","installedPath":"/tmp/plugin"}`},
 		{stdout: currentMarketplace}, {stdout: currentPlugin},
 	}}
 }
@@ -524,8 +524,8 @@ func successfulBootstrapRunner() *bootstrapRunner {
 func successfulBootstrapUpgradeRunner() *bootstrapRunner {
 	oldMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache-old","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.7.0"}}]}`
 	oldPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.7.0","installed":true,"enabled":true}],"available":[]}`
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.21.0"}}]}`
-	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.21.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.22.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.22.0","installed":true,"enabled":true}],"available":[]}`
 	return &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: oldMarketplace}, {stdout: oldPlugin},
 		{stdout: oldMarketplace}, {stdout: oldPlugin},
@@ -533,7 +533,7 @@ func successfulBootstrapUpgradeRunner() *bootstrapRunner {
 		{stdout: `{}`},
 		{stdout: `{}`},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
-		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.21.0","installedPath":"/tmp/plugin"}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.22.0","installedPath":"/tmp/plugin"}`},
 		{stdout: currentMarketplace}, {stdout: currentPlugin},
 	}}
 }

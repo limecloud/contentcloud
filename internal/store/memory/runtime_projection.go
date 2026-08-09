@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"github.com/limecloud/contentcloud/internal/domain"
 )
@@ -37,11 +38,11 @@ func (s *Store) RuntimeProjectionStats(_ context.Context, tenantID string) (doma
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	stats := domain.RuntimeProjectionStats{TenantID: tenantID}
-	for _, message := range s.runtimeOutbox {
-		if message.TenantID == tenantID && message.DeliveredAt == nil {
+	for _, receipt := range s.runtimeOutboxReceipts {
+		if receipt.TenantID == tenantID && receipt.Subscriber == domain.RuntimeOutboxSubscriberProjection && receipt.DeliveredAt == nil {
 			stats.Pending++
-			if stats.OldestPending == nil || message.CreatedAt.Before(*stats.OldestPending) {
-				created := message.CreatedAt
+			if stats.OldestPending == nil || receipt.CreatedAt.Before(*stats.OldestPending) {
+				created := receipt.CreatedAt
 				stats.OldestPending = &created
 			}
 		}
@@ -53,6 +54,61 @@ func (s *Store) RuntimeProjectionStats(_ context.Context, tenantID string) (doma
 		}
 	}
 	return stats, nil
+}
+
+func (s *Store) RuntimeOutboxStats(_ context.Context, tenantID, subscriber string) (domain.RuntimeOutboxStats, error) {
+	subscriber = strings.TrimSpace(subscriber)
+	if subscriber == "" {
+		return domain.RuntimeOutboxStats{}, domain.Invalid("OUTBOX_SUBSCRIBER_REQUIRED", "outbox 统计需要订阅者")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	stats := domain.RuntimeOutboxStats{TenantID: tenantID, Subscriber: subscriber}
+	for _, receipt := range s.runtimeOutboxReceipts {
+		if receipt.TenantID != tenantID || receipt.Subscriber != subscriber || receipt.DeliveredAt != nil {
+			continue
+		}
+		stats.Pending++
+		if stats.OldestPending == nil || receipt.CreatedAt.Before(*stats.OldestPending) {
+			created := receipt.CreatedAt
+			stats.OldestPending = &created
+		}
+	}
+	return stats, nil
+}
+
+func runtimeMaintenanceKey(tenantID, kind string) string { return tenantID + ":" + kind }
+
+func (s *Store) SaveRuntimeMaintenanceHeartbeat(_ context.Context, value domain.RuntimeMaintenanceHeartbeat) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := runtimeMaintenanceKey(value.TenantID, value.Kind)
+	if previous, ok := s.runtimeMaintenance[key]; ok {
+		if value.UpdatedAt.Before(previous.UpdatedAt) {
+			return nil
+		}
+		if value.LastSuccessAt == nil {
+			value.LastSuccessAt = previous.LastSuccessAt
+		}
+		value.Version = previous.Version + 1
+	} else {
+		value.Version = 1
+	}
+	s.runtimeMaintenance[key] = value
+	return nil
+}
+
+func (s *Store) RuntimeMaintenanceHeartbeat(_ context.Context, tenantID, kind string) (domain.RuntimeMaintenanceHeartbeat, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.runtimeMaintenance[runtimeMaintenanceKey(tenantID, kind)]
+	if !ok {
+		return value, domain.NotFound("Runtime 运维心跳")
+	}
+	return value, nil
 }
 
 func sortedProjectionNodes(nodes []domain.NodeRun) []domain.NodeRun {

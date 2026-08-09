@@ -74,7 +74,7 @@ func (s *Store) YieldDispatch(ctx context.Context, yielded domain.RuntimeYield, 
 	if err := agent.Validate(); err != nil {
 		return yielded, node, attempt, agent, err
 	}
-	err := s.withTenant(ctx, yielded.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, yielded.TenantID, "runtime.yield_dispatch", func(tx pgx.Tx) error {
 		if existing, err := scanRuntimeYield(tx.QueryRow(ctx, runtimeYieldSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, yielded.TenantID, yielded.ID)); err == nil {
 			yielded = existing
 			return nil
@@ -125,7 +125,7 @@ func (s *Store) ResolveRuntimeYield(ctx context.Context, yielded domain.RuntimeY
 	if err := yielded.Validate(); err != nil {
 		return yielded, node, agent, err
 	}
-	err := s.withTenant(ctx, yielded.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, yielded.TenantID, "runtime.resolve_yield", func(tx pgx.Tx) error {
 		currentYield, err := scanRuntimeYield(tx.QueryRow(ctx, runtimeYieldSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, yielded.TenantID, yielded.ID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("RuntimeYield")

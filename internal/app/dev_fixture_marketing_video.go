@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	marketingVideoDemoFixtureVersion = "7.0.0"
-	marketingVideoDemoIdempotencyKey = "fixture:v7:jinling-gudu:marketing-video"
+	marketingVideoDemoFixtureVersion = "2.2.0"
+	marketingVideoDemoIdempotencyKey = "fixture:marketing-video-demo:jinling-gudu"
 )
 
 type MarketingVideoDemoFixtureResult struct {
@@ -29,7 +29,7 @@ type MarketingVideoDemoFixtureResult struct {
 	Reused         bool           `json:"reused"`
 }
 
-// EnsureMarketingVideoDemoFixture materializes a complete V7 journey through
+// EnsureMarketingVideoDemoFixture materializes the current marketing-video journey through
 // canonical server objects. It is invoked only by the development HTTP route.
 func (s *Service) EnsureMarketingVideoDemoFixture(ctx context.Context, actor Actor, requestID string) (MarketingVideoDemoFixtureResult, error) {
 	if actor.Role != "tenant_admin" {
@@ -61,7 +61,7 @@ func (s *Service) EnsureMarketingVideoDemoFixture(ctx context.Context, actor Act
 	}
 	if _, _, err := s.ensureFixtureWorkspace(ctx, actor, project, fixturev3.WorkspaceSpec{
 		TemplateID: "workspace_marketing_video", TemplateVersion: marketingVideoDemoFixtureVersion,
-		Targets: []string{"codex"}, DeviceName: "V7 演示创作环境",
+		Targets: []string{"codex"}, DeviceName: "营销视频演示创作环境",
 	}, fixtureRequestID(requestID, "workspace")); err != nil {
 		return MarketingVideoDemoFixtureResult{}, err
 	}
@@ -83,7 +83,7 @@ func (s *Service) EnsureMarketingVideoDemoFixture(ctx context.Context, actor Act
 			return MarketingVideoDemoFixtureResult{}, viewErr
 		}
 		if view.Task.Status != domain.TaskStatusDelivered {
-			return MarketingVideoDemoFixtureResult{}, domain.Policy("DEV_FIXTURE_V7_INCOMPLETE", "已有 V7 演示任务未完整收敛", "检查任务当前流程阶段后重试开发环境初始化")
+			return MarketingVideoDemoFixtureResult{}, domain.Policy("DEV_FIXTURE_MARKETING_VIDEO_INCOMPLETE", "已有营销视频演示任务未完整收敛", "检查任务当前流程阶段后重试开发环境初始化")
 		}
 		return MarketingVideoDemoFixtureResult{FixtureVersion: marketingVideoDemoFixtureVersion, Project: project, Task: view, Reused: true}, nil
 	}
@@ -287,12 +287,12 @@ func (s *Service) createMarketingVideoDemoSource(ctx context.Context, actor Acto
 	now := s.now().UTC()
 	body := []byte(marketingVideoDemoSource)
 	sourceID, revisionID := domain.NewID(), domain.NewID()
-	objectKey := fmt.Sprintf("sources/%s/%s/jinling-gudu-v7.md", actor.TenantID, revisionID)
+	objectKey := fmt.Sprintf("sources/%s/%s/jinling-gudu-marketing-video.md", actor.TenantID, revisionID)
 	if err := s.blobs.Put(ctx, objectKey, body); err != nil {
 		return domain.SourceRevision{}, nil, err
 	}
-	revision := domain.SourceRevision{ID: revisionID, TenantID: actor.TenantID, ProjectID: project.ID, SourceID: sourceID, FileName: "jinling-gudu-v7-evidence.md", ObjectKey: objectKey, SHA256: mediapipeline.SHA256(body), ByteSize: int64(len(body)), DeclaredMIME: "text/markdown", DetectedMIME: "text/markdown", ProcessingStatus: "ready", ParserVersion: "dev-fixture-v7", UploadedBy: actor.UserID, CreatedAt: now}
-	if err := s.store.CreateSource(ctx, domain.Source{ID: sourceID, TenantID: actor.TenantID, ProjectID: project.ID, Name: "金陵古都香 V7 验收证据包", SourceType: "document", Status: "ready", RevisionCount: 1, LatestRevision: revision.ID, CreatedAt: now}, revision); err != nil {
+	revision := domain.SourceRevision{ID: revisionID, TenantID: actor.TenantID, ProjectID: project.ID, SourceID: sourceID, FileName: "jinling-gudu-marketing-video-evidence.md", ObjectKey: objectKey, SHA256: mediapipeline.SHA256(body), ByteSize: int64(len(body)), DeclaredMIME: "text/markdown", DetectedMIME: "text/markdown", ProcessingStatus: "ready", ParserVersion: "dev-fixture-marketing-video", UploadedBy: actor.UserID, CreatedAt: now}
+	if err := s.store.CreateSource(ctx, domain.Source{ID: sourceID, TenantID: actor.TenantID, ProjectID: project.ID, Name: "金陵古都香营销视频验收证据包", SourceType: "document", Status: "ready", RevisionCount: 1, LatestRevision: revision.ID, CreatedAt: now}, revision); err != nil {
 		return domain.SourceRevision{}, nil, err
 	}
 	quotes := []string{
@@ -325,7 +325,7 @@ func (s *Service) createMarketingVideoDemoWorkspaceMaterial(ctx context.Context,
 
 func (s *Service) createMarketingVideoDemoKnowledge(ctx context.Context, actor Actor, project domain.Project, source domain.SourceRevision, evidenceIDs []string) (domain.KnowledgeSnapshot, []string, string, error) {
 	now := s.now().UTC()
-	asset := domain.Asset{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, Name: "V7 分镜开发示意素材", AssetType: "storyboard_fixture", SourceRevisionID: source.ID, UsageMode: "development_fixture", Status: "active", CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now}
+	asset := domain.Asset{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, Name: "营销视频分镜开发示意素材", AssetType: "storyboard_fixture", SourceRevisionID: source.ID, UsageMode: "development_fixture", Status: "active", CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now}
 	if err := s.store.CreateAsset(ctx, asset); err != nil {
 		return domain.KnowledgeSnapshot{}, nil, "", err
 	}
@@ -353,7 +353,7 @@ func (s *Service) createMarketingVideoDemoKnowledge(ctx context.Context, actor A
 	refs := make([]domain.KnowledgePackObjectRef, 0, len(specs))
 	ids := make([]string, 0, len(specs))
 	for index, spec := range specs {
-		object := domain.KnowledgeObject{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, ObjectType: spec.objectType, Layer: spec.layer, Version: 1, Status: spec.status, Title: spec.title, Statement: spec.statement, Payload: spec.payload, Dimensions: []string{fmt.Sprintf("v7_demo_%d", index+1)}, AllowedChannels: []string{"douyin"}, EvidenceRefs: spec.evidence, RightsRefs: spec.rights, CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now}
+		object := domain.KnowledgeObject{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, ObjectType: spec.objectType, Layer: spec.layer, Version: 1, Status: spec.status, Title: spec.title, Statement: spec.statement, Payload: spec.payload, Dimensions: []string{fmt.Sprintf("marketing_video_demo_%d", index+1)}, AllowedChannels: []string{"douyin"}, EvidenceRefs: spec.evidence, RightsRefs: spec.rights, CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now}
 		digest, err := object.ContentDigest()
 		if err != nil {
 			return domain.KnowledgeSnapshot{}, nil, "", err
@@ -366,7 +366,7 @@ func (s *Service) createMarketingVideoDemoKnowledge(ctx context.Context, actor A
 		refs = append(refs, domain.KnowledgePackObjectRef{ObjectID: object.ID, Version: object.Version})
 		ids = append(ids, object.ID)
 	}
-	pack := domain.KnowledgePack{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, Name: "金陵古都香｜抽屉逆转 V7 知识包", Purpose: "marketing_video", Version: 1, Status: "published", ObjectRefs: refs, QueryPolicy: domain.DefaultKnowledgeQueryPolicy(), CreatedBy: actor.UserID, PublishedBy: actor.UserID, CreatedAt: now, PublishedAt: &now}
+	pack := domain.KnowledgePack{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, Name: "金陵古都香｜抽屉逆转营销视频知识包", Purpose: "marketing_video", Version: 1, Status: "published", ObjectRefs: refs, QueryPolicy: domain.DefaultKnowledgeQueryPolicy(), CreatedBy: actor.UserID, PublishedBy: actor.UserID, CreatedAt: now, PublishedAt: &now}
 	digest, err := pack.ContentDigest()
 	if err != nil {
 		return domain.KnowledgeSnapshot{}, nil, "", err
@@ -483,7 +483,7 @@ func (s *Service) reportDemoStage(ctx context.Context, actor Actor, task WorkTas
 func (s *Service) approveDemoGate(ctx context.Context, actor Actor, task WorkTaskView, requestID string) (WorkTaskView, error) {
 	for _, gate := range task.Gates {
 		if gate.Status == domain.GateEvaluationPending {
-			return s.DecideGate(ctx, actor, task.Task.ID, gate.ID, GateDecisionInput{Decision: "approved", Reason: "V7 开发演示审核通过"}, fixtureRequestID(requestID, "gate-"+gate.GateID))
+			return s.DecideGate(ctx, actor, task.Task.ID, gate.ID, GateDecisionInput{Decision: "approved", Reason: "营销视频开发演示审核通过"}, fixtureRequestID(requestID, "gate-"+gate.GateID))
 		}
 	}
 	return WorkTaskView{}, domain.NotFound("待处理的检查与审批项")
@@ -557,7 +557,7 @@ func demoMediaReview(reviews []domain.MediaReview, kind string) (domain.MediaRev
 func fixtureRequestID(base, suffix string) string {
 	base = strings.TrimSpace(base)
 	if base == "" {
-		base = "dev-fixture-v7"
+		base = "dev-fixture-marketing-video"
 	}
 	return base + ":" + suffix
 }
@@ -612,7 +612,7 @@ func marketingVideoDemoFrame(index int) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-const marketingVideoDemoSource = `# 金陵古都香 V7 验收证据包
+const marketingVideoDemoSource = `# 金陵古都香营销视频验收证据包
 
 来源范围：marketing/jinling-gudu/outputs/scripts/jinling-douyin-20260803/11-drawer-reversal.md 及关联本体页面。
 

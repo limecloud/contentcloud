@@ -59,7 +59,13 @@ func TestRuntimeOutboxPostgresClaimAndCommandRollback(t *testing.T) {
 		{`INSERT INTO sop_versions(tenant_id,id,sop_id,version,schema_version,name,content_types,stages,gates,default_execution_mode,digest,status,created_by,published_by,created_at,published_at) VALUES($1,$2,$3,1,$4,'Runtime test','["marketing_video"]','[{"id":"source","name":"Source","order":10,"output_schema":"contentcloud.source/1.0","execution_modes":["local"]}]','[]','local',$5,'published','test','test',$6,$6)`, []any{tenantID, sopVersionID, sopID, domain.SOPSchemaVersion, "sha256:" + repeatHex(64, 'a'), now}},
 		{`INSERT INTO work_tasks(tenant_id,id,project_id,environment_id,sop_id,sop_version,sop_digest,title,content_type,priority,risk_profile,status,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,1,$6,'Runtime test','marketing_video','normal','low','ready','test',$7,$7)`, []any{tenantID, taskID, projectID, environmentID, sopID, "sha256:" + repeatHex(64, 'a'), now}},
 	}
-	for _, statement := range setupStatements {
+	for index, statement := range setupStatements {
+		if index == 1 {
+			if _, err := setupTx.Exec(ctx, `SELECT set_config('app.tenant_id',$1,true)`, tenantID); err != nil {
+				_ = setupTx.Rollback(ctx)
+				t.Fatal(err)
+			}
+		}
 		if _, err := setupTx.Exec(ctx, statement.query, statement.args...); err != nil {
 			_ = setupTx.Rollback(ctx)
 			t.Fatal(err)
@@ -96,7 +102,7 @@ func TestRuntimeOutboxPostgresClaimAndCommandRollback(t *testing.T) {
 		t.Fatal("PostgreSQL store must implement RuntimeCommandStore")
 	}
 
-	claimed, err := commands.ClaimRuntimeOutbox(ctx, tenantID, "projector-a", now, time.Minute, 1)
+	claimed, err := commands.ClaimRuntimeOutbox(ctx, tenantID, domain.RuntimeOutboxSubscriberProjection, "projector-a", now, time.Minute, 1)
 	if err != nil || len(claimed) != 1 {
 		t.Fatalf("expected one claimed message, got %#v, err=%v", claimed, err)
 	}
@@ -106,14 +112,32 @@ func TestRuntimeOutboxPostgresClaimAndCommandRollback(t *testing.T) {
 	wait.Add(1)
 	go func() {
 		defer wait.Done()
-		second, secondErr = commands.ClaimRuntimeOutbox(ctx, tenantID, "projector-b", now, time.Minute, 1)
+		second, secondErr = commands.ClaimRuntimeOutbox(ctx, tenantID, domain.RuntimeOutboxSubscriberProjection, "projector-b", now, time.Minute, 1)
 	}()
 	wait.Wait()
 	if secondErr != nil || len(second) != 0 {
 		t.Fatalf("a live PostgreSQL outbox lease must exclude the second consumer: %#v, err=%v", second, secondErr)
 	}
-	if err := commands.AckRuntimeOutbox(ctx, tenantID, claimed[0].ID, "projector-a", now.Add(10*time.Second)); err != nil {
+	if err := commands.AckRuntimeOutbox(ctx, tenantID, claimed[0].ID, domain.RuntimeOutboxSubscriberProjection, "projector-a", now.Add(10*time.Second)); err != nil {
 		t.Fatal(err)
+	}
+	terminalEvent, err := commands.AppendRuntimeEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: jobID, Type: "attempt.succeeded", ActorType: "worker", Payload: map[string]any{"attempt_id": "attempt-outbox-subscriber-test"}, OccurredAt: now.Add(20 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	businessClaim, err := commands.ClaimRuntimeOutbox(ctx, tenantID, domain.RuntimeOutboxSubscriberBusinessResult, "business-a", now.Add(20*time.Second), time.Minute, 1)
+	if err != nil || len(businessClaim) != 1 || businessClaim[0].EventID != terminalEvent.ID {
+		t.Fatalf("business subscriber did not receive terminal message independently: %#v, err=%v", businessClaim, err)
+	}
+	projectionClaim, err := commands.ClaimRuntimeOutbox(ctx, tenantID, domain.RuntimeOutboxSubscriberProjection, "projector-c", now.Add(20*time.Second), time.Minute, 1)
+	if err != nil || len(projectionClaim) != 1 || projectionClaim[0].EventID != terminalEvent.ID {
+		t.Fatalf("projection subscriber did not receive terminal message independently: %#v, err=%v", projectionClaim, err)
+	}
+	if err := commands.AckRuntimeOutbox(ctx, tenantID, projectionClaim[0].ID, domain.RuntimeOutboxSubscriberProjection, "projector-c", now.Add(30*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := commands.AckRuntimeOutbox(ctx, tenantID, businessClaim[0].ID, domain.RuntimeOutboxSubscriberBusinessResult, "business-a", now.Add(30*time.Second)); err != nil {
+		t.Fatalf("projection ack must not consume the business receipt: %v", err)
 	}
 	permissionTx, err := admin.Begin(ctx)
 	if err != nil {
@@ -215,6 +239,10 @@ func TestRuntimeOutboxPostgresClaimAndCommandRollback(t *testing.T) {
 	}
 	fixtureTx, err := admin.Begin(ctx)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixtureTx.Exec(ctx, `SELECT set_config('app.tenant_id',$1,true)`, tenantID); err != nil {
+		_ = fixtureTx.Rollback(ctx)
 		t.Fatal(err)
 	}
 	for _, statement := range fixtureStatements {

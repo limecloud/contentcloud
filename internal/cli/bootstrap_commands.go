@@ -199,8 +199,7 @@ func (r *Root) bootstrapApplyCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cfg.WorkspaceRoot = status.Root
-			cfg.UpsertDaemonBinding(localconfig.DaemonBinding{ServerURL: r.resolveServer(cfg), DeviceID: cfg.DeviceID, Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: status.Binding.WorkspaceID, ProjectID: status.Binding.ProjectID, Root: status.Root}}})
+			cfg.UpsertDaemonBinding(localconfig.DaemonBinding{ServerURL: r.resolveServer(cfg), DeviceID: status.Binding.DeviceID, Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: status.Binding.WorkspaceID, ProjectID: status.Binding.ProjectID, Root: status.Root}}})
 			if err := localconfig.Save(cfg); err != nil {
 				return withBootstrapDetails(err, map[string]any{"recovery": "运行 bootstrap resume，重新保存工作区根目录"})
 			}
@@ -320,11 +319,12 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			primaryBinding, primaryWorkspace, hasPrimaryWorkspace := cfg.PrimaryWorkspace()
 			var status localworkspace.Status
 			needsInitialize := false
 			switch workspacePlan.State {
 			case "empty", "missing":
-				if cfg.DeviceID == "" || cfg.WorkspaceID == "" || cfg.ProjectID == "" {
+				if !hasPrimaryWorkspace || primaryBinding.DeviceID == "" || primaryWorkspace.WorkspaceID == "" || primaryWorkspace.ProjectID == "" {
 					return domain.Conflict("BOOTSTRAP_RESUME_BINDING_MISSING", "本机没有可恢复的 Content Work OS 设备、工作区和项目绑定")
 				}
 				server := r.resolveServer(cfg)
@@ -357,7 +357,7 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 			}
 			if needsInitialize {
 				status, err = initializePluginWorkspace(workspacePlan.Root, string(hostID), r.resolveServer(cfg), app.ConnectDeviceResult{
-					Device: domain.Device{ID: cfg.DeviceID}, WorkspaceID: cfg.WorkspaceID, ProjectID: cfg.ProjectID,
+					Device: domain.Device{ID: primaryBinding.DeviceID}, WorkspaceID: primaryWorkspace.WorkspaceID, ProjectID: primaryWorkspace.ProjectID,
 				}, r.currentTime())
 				if err != nil {
 					return err
@@ -383,7 +383,6 @@ func (r *Root) bootstrapResumeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cfg.WorkspaceRoot = status.Root
 			cfg.UpsertDaemonBinding(localconfig.DaemonBinding{ServerURL: status.Binding.ServerURL, DeviceID: status.Binding.DeviceID, Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: status.Binding.WorkspaceID, ProjectID: status.Binding.ProjectID, Root: status.Root}}})
 			if err := localconfig.Save(cfg); err != nil {
 				return err

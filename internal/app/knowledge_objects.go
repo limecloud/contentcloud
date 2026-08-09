@@ -66,7 +66,7 @@ type KnowledgeObjectView struct {
 }
 
 func (s *Service) CreateKnowledgeObject(ctx context.Context, actor Actor, in CreateKnowledgeObjectInput, requestID string) (domain.KnowledgeObject, error) {
-	if actor.Type != "device" && actor.Type != "worker" {
+	if actor.Type != "device" && actor.Type != "worker" && actor.Type != "runtime" {
 		if err := requireRole(actor, "tenant_admin", "project_manager", "strategist", "editor", "reviewer"); err != nil {
 			return domain.KnowledgeObject{}, err
 		}

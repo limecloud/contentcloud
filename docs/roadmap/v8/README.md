@@ -1,6 +1,6 @@
 # ContentCloud V8：让复杂内容任务可以持续推进
 
-状态：V8 目标方案；Runtime Infra V2 I1～I5 的核心切片、第二业务流容量边界测试和运营 Explorer 首版已进入代码，尚未达到生产上线条件。2026-08-09 起按 [Runtime Infra V2 升级说明](./09-runtime-infra-v2.md) 收敛底层实现顺序。
+状态：V8 目标方案；Runtime Infra V2 I1～I5 的核心切片、第二业务流容量边界测试、运营 Explorer 首版，以及终态业务结果的持久化消费链已进入代码，尚未达到生产上线条件。2026-08-09 起按 [Runtime Infra V2 升级说明](./09-runtime-infra-v2.md) 收敛底层实现顺序。
 
 更新时间：2026-08-09
 
@@ -12,7 +12,7 @@ V8 是 [ContentCloud 平台基线](../../foundation/README.md) 下的 Runtime �
 
 客户创作台的线性纵向切片复用 WorkTask、StageRun、SOP 和 Gate 业务能力，执行统一进入 Runtime，不等待动态执行图、共享状态和完整恢复能力全部完成，也不建立平行任务状态。
 
-当前实现边界：客户 Studio 创建任务时会固定已发布 SOP，并以绑定摘要、输入摘要、运行策略、契约版本和根执行引用幂等启动 JobRun；运营侧统一在 `/admin/jobs` 查看 JobRun、准入身份、节点、脱敏 Agent/ContextView 摘要、事件、外部副作用和检查点。Runtime 已具备独立 `runtime_attempts` 权威模型、原子准备与终态收敛、`RuntimeCommandStore`、`runtime_outbox`、资源预留、围栏、typed state/ToolCall、Provider inbox/账单对账、Yield/Resume、DurableHarness + SessionStore、Runtime Explorer 投影重建（含 dry-run）、关系化 GraphPatch 和 Fanout/Join。V7 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`、旧 daemon 领取/上报链和对应 Store/API 已删除；现有 `TaskRun` JSON 只是一层 Runtime 只读业务投影，不再对应执行表。第二业务流已用文章复盘的 50 节点容量边界测试证明不依赖业务专用调度表。真实 Provider/SDK 端到端、PostgreSQL 故障注入、RLS/容量公平性压测、生产告警和 Canary 仍属于后续验收，不能据此宣称 V8 已完成。
+当前实现边界：客户 Studio 创建任务时会固定已发布 SOP，并以绑定摘要、输入摘要、运行策略、契约版本和根执行引用幂等启动 JobRun；运营侧统一在 `/admin/jobs` 查看 JobRun、准入身份、节点、脱敏 Agent/ContextView 摘要、事件、外部副作用和检查点。Runtime 已具备独立 `runtime_attempts` 权威模型、原子准备与终态收敛、`RuntimeCommandStore`、不可变 `runtime_outbox` 与独立 subscriber receipts、资源预留、围栏、typed state/ToolCall、Attempt-scoped MCP Gateway、Runtime Schema Registry、Provider inbox/账单对账、Yield/Resume、Codex CLI JSONL/thread resume Harness、Runtime Explorer 投影重建（含 dry-run）、关系化 GraphPatch 和 Fanout/Join。知识提取的结构化结果在终态前完成严格校验和 Blob 摘要固定，终态后由持久化业务订阅幂等写入知识对象；进程崩溃和 Explorer ack 不会丢失业务结果。V7 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`、旧 daemon 领取/上报链、对应 Store/API、旧公开 DTO 名称以及零消费者 session 镜像已删除；公开读取统一为从 JobRun/NodeRun/JobEvent 生成的 `RuntimeRun` / `RuntimeRunEvent`。第二业务流已用文章复盘的 50 节点容量边界测试证明不依赖业务专用调度表。真实 Codex/Claude/MCP/Provider smoke、真实数据库提交后故障环境、生产公平性压测、生产告警和 Canary 仍属于后续验收，不能据此宣称 V8 已完成。
 
 ## 先用一句话说明
 
@@ -181,6 +181,7 @@ Codex / Claude Code：完成适合由智能体处理的具体步骤
 | [07-web-console-observability-and-operations.md](./07-web-console-observability-and-operations.md) | 用户怎样查看进度、失败和费用，以及怎样暂停、恢复和核对 |
 | [08-migration-testing-and-acceptance.md](./08-migration-testing-and-acceptance.md) | 如何兼容现有实现、分阶段启用并完成验收 |
 | [09-runtime-infra-v2.md](./09-runtime-infra-v2.md) | 把 V8 收敛为 PostgreSQL-first 的可恢复执行内核：事务命令、事件/outbox、fencing、资源账本、Effect 对账与恢复 |
+| [10-runtime-operations-runbook.md](./10-runtime-operations-runbook.md) | Runtime 健康检查、Canary 准入、排空、故障处置和前向回退 |
 | [PLAN.md](./PLAN.md) | 实施顺序、依赖、阶段门槛和主要风险 |
 | [外部参考架构与 ContentCloud 边界](../../foundation/09-reference-patterns.md) | Camunda、Dify、Temporal、Adobe、Runway 和 Frame.io 对产品分层、可恢复执行和结果资产的启发 |
 

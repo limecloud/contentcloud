@@ -41,6 +41,14 @@ func TestRuntimeExplorerBFFShowsOperationsProjection(t *testing.T) {
 	if _, ok := detail.Events[0].Payload["token"]; ok {
 		t.Fatal("runtime event payload leaked a token field")
 	}
+	nodePage := callBFF[app.RuntimeExplorerPage[app.RuntimeNodeView]](t, client, http.MethodGet, server.URL+"/api/bff/runtime/jobs/"+job.ID+"/nodes?limit=1", nil)
+	if len(nodePage.Items) != 1 || (len(detail.Nodes) > 1 && nodePage.NextAfter != 1) {
+		t.Fatalf("runtime node pagination is invalid: %#v", nodePage)
+	}
+	events := callBFF[[]app.RuntimeEventView](t, client, http.MethodGet, server.URL+"/api/bff/runtime/jobs/"+job.ID+"/events?limit=1", nil)
+	if len(events) != 1 {
+		t.Fatalf("runtime event limit was not applied: %#v", events)
+	}
 	callBFF[app.RuntimeJobDetail](t, client, http.MethodPost, server.URL+"/api/bff/runtime/jobs/"+job.ID+"/refresh", nil)
 }
 

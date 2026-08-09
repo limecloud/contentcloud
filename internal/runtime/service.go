@@ -12,10 +12,12 @@ import (
 )
 
 type Service struct {
-	repo      Repository
-	now       func() time.Time
-	compiler  Compiler
-	harnesses *agentadapter.HarnessRegistry
+	repo           Repository
+	now            func() time.Time
+	compiler       Compiler
+	harnesses      *agentadapter.HarnessRegistry
+	rollout        RolloutPolicy
+	rolloutTenants map[string]struct{}
 }
 
 const DefaultNodeLeaseDuration = 5 * time.Minute
@@ -28,17 +30,58 @@ func NewWithHarnessRegistry(repo Repository, now func() time.Time, harnesses *ag
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repo: repo, now: now, compiler: NewCompiler(domain.DefaultRuntimeLimits()), harnesses: harnesses}
+	return &Service{repo: repo, now: now, compiler: NewCompiler(domain.DefaultRuntimeLimits()), harnesses: harnesses, rollout: DefaultRolloutPolicy()}
 }
 
 func (s *Service) Repository() Repository { return s.repo }
 
-func (s *Service) commands() (RuntimeCommandStore, error) {
-	commands, ok := s.repo.(RuntimeCommandStore)
-	if !ok {
-		return nil, domain.Policy("RUNTIME_COMMAND_STORE_REQUIRED", "Runtime 必须配置事务命令存储", "升级 Runtime 存储实现后重试")
+type RolloutPolicy struct {
+	AdmissionEnabled    bool
+	DynamicGraphEnabled bool
+	TenantIDs           []string
+}
+
+func DefaultRolloutPolicy() RolloutPolicy {
+	return RolloutPolicy{AdmissionEnabled: true, DynamicGraphEnabled: true}
+}
+
+func (s *Service) SetRolloutPolicy(policy RolloutPolicy) {
+	if s == nil {
+		return
 	}
-	return commands, nil
+	s.rollout = policy
+	s.rolloutTenants = map[string]struct{}{}
+	for _, tenantID := range policy.TenantIDs {
+		if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
+			s.rolloutTenants[tenantID] = struct{}{}
+		}
+	}
+}
+
+func (s *Service) rolloutTenantAllowed(tenantID string) bool {
+	if len(s.rolloutTenants) == 0 {
+		return true
+	}
+	_, ok := s.rolloutTenants[strings.TrimSpace(tenantID)]
+	return ok
+}
+
+func (s *Service) requireAdmission(tenantID string) error {
+	if !s.rollout.AdmissionEnabled || !s.rolloutTenantAllowed(tenantID) {
+		return domain.Policy("RUNTIME_ADMISSION_DISABLED", "Runtime 新执行准入当前已关闭", "等待平台运营完成 Canary 或事故恢复后重试")
+	}
+	return nil
+}
+
+func (s *Service) requireDynamicGraph(tenantID string) error {
+	if !s.rollout.DynamicGraphEnabled || !s.rolloutTenantAllowed(tenantID) {
+		return domain.Policy("RUNTIME_DYNAMIC_GRAPH_DISABLED", "Runtime 动态执行图变更当前已关闭", "保留现有执行图并等待平台运营恢复动态能力")
+	}
+	return nil
+}
+
+func (s *Service) commands() (RuntimeCommandStore, error) {
+	return s.repo, nil
 }
 
 type StartInput struct {
@@ -99,6 +142,9 @@ func (s *Service) Start(ctx context.Context, input StartInput) (StartResult, err
 		} else if !domain.IsNotFound(lookupErr) {
 			return StartResult{}, lookupErr
 		}
+	}
+	if err := s.requireAdmission(input.TenantID); err != nil {
+		return StartResult{}, err
 	}
 	if err := s.repo.CreatePlan(ctx, plan); err != nil {
 		// A plan is immutable and can be shared by retries. If another request
@@ -186,11 +232,17 @@ func (s *Service) JobByIdempotencyKey(ctx context.Context, tenantID, key string)
 func (s *Service) Jobs(ctx context.Context, tenantID, taskID string) ([]domain.JobRun, error) {
 	return s.repo.JobRuns(ctx, tenantID, taskID)
 }
+func (s *Service) JobsPage(ctx context.Context, tenantID, projectID, state string, after, limit int) ([]domain.JobRun, bool, error) {
+	return s.repo.JobRunsPage(ctx, tenantID, projectID, state, after, limit)
+}
 func (s *Service) Plan(ctx context.Context, tenantID, id string) (domain.JobPlanRevision, error) {
 	return s.repo.Plan(ctx, tenantID, id)
 }
 func (s *Service) Nodes(ctx context.Context, tenantID, jobID string) ([]domain.NodeRun, error) {
 	return s.repo.NodeRuns(ctx, tenantID, jobID)
+}
+func (s *Service) NodesPage(ctx context.Context, tenantID, jobID string, after, limit int) ([]domain.NodeRun, bool, error) {
+	return s.repo.NodeRunsPage(ctx, tenantID, jobID, after, limit)
 }
 
 // ClaimNode is the scheduler/worker boundary for the new Runtime graph. The
@@ -251,11 +303,20 @@ func (s *Service) ExpireNodeLeases(ctx context.Context, tenantID string, now tim
 func (s *Service) Events(ctx context.Context, tenantID, jobID string, after int64) ([]domain.JobEvent, error) {
 	return s.repo.JobEvents(ctx, tenantID, jobID, after)
 }
+func (s *Service) EventsPage(ctx context.Context, tenantID, jobID string, after int64, limit int) ([]domain.JobEvent, error) {
+	return s.repo.JobEventsPage(ctx, tenantID, jobID, after, limit)
+}
 func (s *Service) Effects(ctx context.Context, tenantID, jobID string) ([]domain.ExternalEffect, error) {
 	return s.repo.Effects(ctx, tenantID, jobID)
 }
+func (s *Service) EffectsPage(ctx context.Context, tenantID, jobID string, after, limit int) ([]domain.ExternalEffect, bool, error) {
+	return s.repo.EffectsPage(ctx, tenantID, jobID, after, limit)
+}
 func (s *Service) Checkpoints(ctx context.Context, tenantID, jobID string) ([]domain.Checkpoint, error) {
 	return s.repo.Checkpoints(ctx, tenantID, jobID)
+}
+func (s *Service) CheckpointsPage(ctx context.Context, tenantID, jobID string, after, limit int) ([]domain.Checkpoint, bool, error) {
+	return s.repo.CheckpointsPage(ctx, tenantID, jobID, after, limit)
 }
 func (s *Service) CheckpointByID(ctx context.Context, tenantID, checkpointID string) (domain.Checkpoint, error) {
 	return s.repo.Checkpoint(ctx, tenantID, checkpointID)
@@ -294,6 +355,16 @@ func (s *Service) CreateStateCollection(ctx context.Context, collection domain.S
 	if job.TenantID != collection.TenantID || job.ID != collection.JobRunID {
 		return domain.Invalid("STATE_COLLECTION_SCOPE_INVALID", "状态集合必须属于当前 JobRun")
 	}
+	schema, schemaErr := s.repo.RuntimeSchema(ctx, collection.TenantID, collection.SchemaID, collection.SchemaRevision)
+	if schemaErr != nil {
+		if domain.IsNotFound(schemaErr) {
+			return domain.Policy("STATE_SCHEMA_NOT_PUBLISHED", "状态集合引用的 Runtime Schema 尚未发布", "先通过 Runtime Schema Registry 发布固定版本")
+		}
+		return schemaErr
+	}
+	if schema.Status != "published" {
+		return domain.Policy("STATE_SCHEMA_NOT_PUBLISHED", "状态集合只能引用 published Runtime Schema", "发布 Schema 后再创建状态集合")
+	}
 	if collection.Scope == "node_private" || collection.WriterNodeKey != "" {
 		if collection.WriterNodeKey == "" {
 			return domain.Invalid("STATE_COLLECTION_WRITER_REQUIRED", "节点私有或单写入者集合必须声明 WriterNodeKey")
@@ -325,6 +396,17 @@ func (s *Service) StateRecords(ctx context.Context, tenantID, collectionID strin
 }
 
 func (s *Service) StateRecordCAS(ctx context.Context, record domain.StateRecord, expectedVersion int) (domain.StateRecord, error) {
+	return s.stateRecordCAS(ctx, record, expectedVersion, "", "")
+}
+
+func (s *Service) StateRecordCASForAttempt(ctx context.Context, record domain.StateRecord, expectedVersion int, attemptID, fenceToken string) (domain.StateRecord, error) {
+	if strings.TrimSpace(attemptID) == "" || strings.TrimSpace(fenceToken) == "" {
+		return record, domain.Invalid("MCP_GATEWAY_FENCE_REQUIRED", "Attempt 状态写入需要 attempt_id 和 fence_token")
+	}
+	return s.stateRecordCAS(ctx, record, expectedVersion, strings.TrimSpace(attemptID), strings.TrimSpace(fenceToken))
+}
+
+func (s *Service) stateRecordCAS(ctx context.Context, record domain.StateRecord, expectedVersion int, attemptID, fenceToken string) (domain.StateRecord, error) {
 	if s == nil || s.repo == nil {
 		return record, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
 	}
@@ -359,28 +441,40 @@ func (s *Service) StateRecordCAS(ctx context.Context, record domain.StateRecord,
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = record.UpdatedAt
 	}
-	if commands, ok := s.repo.(RuntimeCommandStore); ok {
-		now := s.now().UTC()
-		if record.CreatedAt.IsZero() {
-			record.CreatedAt = now
-		}
-		if record.UpdatedAt.IsZero() {
-			record.UpdatedAt = now
-		}
-		actor := strings.TrimSpace(record.UpdatedBy)
-		if actor == "" {
-			actor = "runtime"
-		}
-		eventType := "state.record.updated"
-		if expectedVersion == 0 {
-			eventType = "state.record.created"
-		}
-		return commands.ApplyStateRecordCommand(ctx, record, expectedVersion, domain.JobEvent{ID: domain.NewID(), TenantID: record.TenantID, JobRunID: collection.JobRunID, Type: eventType, ActorType: "runtime", ActorID: actor, IdempotencyKey: "state-record:" + record.ID + ":" + strconv.Itoa(expectedVersion), Payload: map[string]any{"collection_id": record.CollectionID, "key": record.Key, "version": expectedVersion + 1}, OccurredAt: record.UpdatedAt})
+	now := s.now().UTC()
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
 	}
-	return s.repo.ApplyStateRecordCAS(ctx, record, expectedVersion)
+	if record.UpdatedAt.IsZero() {
+		record.UpdatedAt = now
+	}
+	actor := strings.TrimSpace(record.UpdatedBy)
+	if actor == "" {
+		actor = "runtime"
+	}
+	eventType := "state.record.updated"
+	if expectedVersion == 0 {
+		eventType = "state.record.created"
+	}
+	event := domain.JobEvent{ID: domain.NewID(), TenantID: record.TenantID, JobRunID: collection.JobRunID, Type: eventType, ActorType: "runtime", ActorID: actor, IdempotencyKey: "state-record:" + record.ID + ":" + strconv.Itoa(expectedVersion), Payload: map[string]any{"collection_id": record.CollectionID, "key": record.Key, "version": expectedVersion + 1}, OccurredAt: record.UpdatedAt}
+	if attemptID != "" {
+		return s.repo.ApplyFencedStateRecordCommand(ctx, record, expectedVersion, attemptID, fenceToken, now, event)
+	}
+	return s.repo.ApplyStateRecordCommand(ctx, record, expectedVersion, event)
 }
 
 func (s *Service) CreateToolCall(ctx context.Context, call domain.ToolCall) error {
+	return s.createToolCall(ctx, call, "")
+}
+
+func (s *Service) CreateFencedToolCall(ctx context.Context, call domain.ToolCall, fenceToken string) error {
+	if strings.TrimSpace(fenceToken) == "" {
+		return domain.Invalid("MCP_GATEWAY_FENCE_REQUIRED", "ToolCall 需要 Attempt fence_token")
+	}
+	return s.createToolCall(ctx, call, strings.TrimSpace(fenceToken))
+}
+
+func (s *Service) createToolCall(ctx context.Context, call domain.ToolCall, fenceToken string) error {
 	if s == nil || s.repo == nil {
 		return domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
 	}
@@ -406,11 +500,13 @@ func (s *Service) CreateToolCall(ctx context.Context, call domain.ToolCall) erro
 	if err := authorizeToolCall(ctx, s.repo, call, now); err != nil {
 		return err
 	}
-	if commands, ok := s.repo.(RuntimeCommandStore); ok {
-		_, err := commands.RegisterToolCallCommand(ctx, call, domain.JobEvent{ID: domain.NewID(), TenantID: call.TenantID, JobRunID: call.JobRunID, NodeKey: "", Type: "tool_call." + call.State, ActorType: "runtime", ActorID: call.AgentInstanceID, IdempotencyKey: "tool-call:" + call.ID + ":created", Payload: map[string]any{"tool_call_id": call.ID, "tool_name": call.ToolName}, OccurredAt: call.CreatedAt})
+	event := domain.JobEvent{ID: domain.NewID(), TenantID: call.TenantID, JobRunID: call.JobRunID, NodeKey: "", Type: "tool_call." + call.State, ActorType: "runtime", ActorID: call.AgentInstanceID, IdempotencyKey: "tool-call:" + call.ID + ":created", Payload: map[string]any{"tool_call_id": call.ID, "tool_name": call.ToolName}, OccurredAt: call.CreatedAt}
+	if fenceToken != "" {
+		_, err := s.repo.RegisterFencedToolCallCommand(ctx, call, fenceToken, now, event)
 		return err
 	}
-	return s.repo.CreateToolCall(ctx, call)
+	_, err := s.repo.RegisterToolCallCommand(ctx, call, event)
+	return err
 }
 
 func (s *Service) ToolCalls(ctx context.Context, tenantID, attemptID string) ([]domain.ToolCall, error) {
@@ -418,6 +514,17 @@ func (s *Service) ToolCalls(ctx context.Context, tenantID, attemptID string) ([]
 }
 
 func (s *Service) TransitionToolCall(ctx context.Context, next domain.ToolCall, expectedVersion int) (domain.ToolCall, error) {
+	return s.transitionToolCall(ctx, next, expectedVersion, "")
+}
+
+func (s *Service) TransitionFencedToolCall(ctx context.Context, next domain.ToolCall, expectedVersion int, fenceToken string) (domain.ToolCall, error) {
+	if strings.TrimSpace(fenceToken) == "" {
+		return next, domain.Invalid("MCP_GATEWAY_FENCE_REQUIRED", "ToolCall 状态变更需要 Attempt fence_token")
+	}
+	return s.transitionToolCall(ctx, next, expectedVersion, strings.TrimSpace(fenceToken))
+}
+
+func (s *Service) transitionToolCall(ctx context.Context, next domain.ToolCall, expectedVersion int, fenceToken string) (domain.ToolCall, error) {
 	if s == nil || s.repo == nil {
 		return next, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
 	}
@@ -434,10 +541,11 @@ func (s *Service) TransitionToolCall(ctx context.Context, next domain.ToolCall, 
 	if err := authorizeToolCall(ctx, s.repo, current, s.now().UTC()); err != nil {
 		return current, err
 	}
-	if commands, ok := s.repo.(RuntimeCommandStore); ok {
-		return commands.ApplyToolCallTransitionCommand(ctx, next, expectedVersion, domain.JobEvent{ID: domain.NewID(), TenantID: next.TenantID, JobRunID: next.JobRunID, NodeKey: "", Type: "tool_call." + next.State, ActorType: "runtime", ActorID: next.AgentInstanceID, IdempotencyKey: "tool-call:" + next.ID + ":" + strconv.Itoa(next.Version), Payload: map[string]any{"tool_call_id": next.ID, "state": next.State}, OccurredAt: next.UpdatedAt})
+	event := domain.JobEvent{ID: domain.NewID(), TenantID: next.TenantID, JobRunID: next.JobRunID, NodeKey: "", Type: "tool_call." + next.State, ActorType: "runtime", ActorID: next.AgentInstanceID, IdempotencyKey: "tool-call:" + next.ID + ":" + strconv.Itoa(next.Version), Payload: map[string]any{"tool_call_id": next.ID, "state": next.State}, OccurredAt: next.UpdatedAt}
+	if fenceToken != "" {
+		return s.repo.ApplyFencedToolCallTransitionCommand(ctx, next, expectedVersion, fenceToken, s.now().UTC(), event)
 	}
-	return s.repo.ApplyToolCallTransition(ctx, next, expectedVersion)
+	return s.repo.ApplyToolCallTransitionCommand(ctx, next, expectedVersion, event)
 }
 
 func stateWriteAllowed(collection domain.StateCollection, actor string) bool {
@@ -939,6 +1047,9 @@ func (s *Service) Fork(ctx context.Context, tenantID, checkpointID, createdBy, i
 			return StartResult{}, lookupErr
 		}
 	}
+	if err := s.requireAdmission(tenantID); err != nil {
+		return StartResult{}, err
+	}
 	plan, err := s.repo.Plan(ctx, tenantID, source.PlanRevisionID)
 	if err != nil {
 		return StartResult{}, err
@@ -1132,6 +1243,17 @@ func (s *Service) MutateState(ctx context.Context, tenantID, jobID string, mutat
 }
 
 func (s *Service) RegisterEffect(ctx context.Context, effect domain.ExternalEffect) (domain.ExternalEffect, error) {
+	return s.registerEffect(ctx, effect, "")
+}
+
+func (s *Service) RegisterEffectForAttempt(ctx context.Context, effect domain.ExternalEffect, fenceToken string) (domain.ExternalEffect, error) {
+	if strings.TrimSpace(effect.AttemptID) == "" || strings.TrimSpace(fenceToken) == "" {
+		return effect, domain.Invalid("MCP_GATEWAY_FENCE_REQUIRED", "Effect 需要 Attempt 和 fence_token")
+	}
+	return s.registerEffect(ctx, effect, strings.TrimSpace(fenceToken))
+}
+
+func (s *Service) registerEffect(ctx context.Context, effect domain.ExternalEffect, fenceToken string) (domain.ExternalEffect, error) {
 	if existing, err := s.repo.EffectByIdempotencyKey(ctx, effect.TenantID, effect.IdempotencyKey); err == nil {
 		return existing, nil
 	} else if !domain.IsNotFound(err) {
@@ -1164,7 +1286,11 @@ func (s *Service) RegisterEffect(ctx context.Context, effect domain.ExternalEffe
 	if err != nil {
 		return effect, err
 	}
-	return commands.RegisterEffectCommand(ctx, effect, domain.JobEvent{ID: domain.NewID(), TenantID: effect.TenantID, JobRunID: effect.JobRunID, Type: "effect.registered", ActorType: "runtime", Payload: map[string]any{"kind": effect.Kind, "idempotency_key": effect.IdempotencyKey}, OccurredAt: effect.CreatedAt})
+	event := domain.JobEvent{ID: domain.NewID(), TenantID: effect.TenantID, JobRunID: effect.JobRunID, Type: "effect.registered", ActorType: "runtime", Payload: map[string]any{"kind": effect.Kind, "idempotency_key": effect.IdempotencyKey}, OccurredAt: effect.CreatedAt}
+	if fenceToken != "" {
+		return commands.RegisterFencedEffectCommand(ctx, effect, fenceToken, effect.CreatedAt, event)
+	}
+	return commands.RegisterEffectCommand(ctx, effect, event)
 }
 
 func (s *Service) ReconcileEffect(ctx context.Context, tenantID, effectID, next, externalID, responseDigest, errorCode string, expectedVersion int) (domain.ExternalEffect, error) {

@@ -340,9 +340,9 @@ func (s *Server) buildTaskDeliveryPackage(w http.ResponseWriter, r *http.Request
 	s.dispatchResult(w, r, "task.delivery_package.build", value, err)
 }
 
-func (s *Server) taskRuns(w http.ResponseWriter, r *http.Request) {
+func (s *Server) runsForTask(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
-	value, err := s.service.WorkTaskRuns(r.Context(), actor, chi.URLParam(r, "taskID"))
+	value, err := s.service.RunsForWorkTask(r.Context(), actor, chi.URLParam(r, "taskID"))
 	s.dispatchResult(w, r, "task.runs", value, err)
 }
 

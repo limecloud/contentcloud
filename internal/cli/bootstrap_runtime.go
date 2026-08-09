@@ -110,7 +110,7 @@ func (r *Root) authorizeBootstrapDevice(ctx context.Context, sessionID, name str
 			if err := localconfig.SaveWorkspaceToken(result.WorkspaceID, result.WorkspaceToken); err != nil {
 				return cfg, result, progress, domain.E("credential", "secure_store", "WORKSPACE_CREDENTIAL_STORE_FAILED", err.Error(), 3)
 			}
-			cfg.ServerURL, cfg.DeviceID, cfg.WorkspaceID, cfg.ProjectID = server, result.Device.ID, result.WorkspaceID, result.ProjectID
+			cfg.ServerURL = server
 			cfg.UpsertDaemonBinding(localconfig.DaemonBinding{ServerURL: server, DeviceID: result.Device.ID, Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: result.WorkspaceID, ProjectID: result.ProjectID}}})
 			if err := localconfig.Save(cfg); err != nil {
 				return cfg, result, progress, err
@@ -192,10 +192,11 @@ func (r *Root) bootstrapDiagnosticCommand() *cobra.Command {
 			if !acceptUpload {
 				return domain.Policy("BOOTSTRAP_DIAGNOSTIC_CONFIRMATION_REQUIRED", "上传前必须确认当前脱敏摘要", "先预览输出，再同时传入 --upload --accept-upload")
 			}
-			if cfg.WorkspaceID == "" {
+			_, workspace, ok := cfg.PrimaryWorkspace()
+			if !ok || workspace.WorkspaceID == "" {
 				return domain.Conflict("WORKSPACE_BINDING_MISSING", "当前配置没有可用于上传诊断摘要的工作区")
 			}
-			workspaceToken, err := localconfig.WorkspaceToken(cfg.WorkspaceID)
+			workspaceToken, err := localconfig.WorkspaceToken(workspace.WorkspaceID)
 			if err != nil {
 				return domain.E("credential", "secure_store", "WORKSPACE_CREDENTIAL_UNAVAILABLE", err.Error(), 3)
 			}

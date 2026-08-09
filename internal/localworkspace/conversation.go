@@ -72,6 +72,7 @@ type WorkspaceConversationContext struct {
 	LastCloudPullAt       *time.Time                `json:"last_cloud_pull_at,omitempty"`
 	SuggestedIntents      []string                  `json:"suggested_intents"`
 	Onboarding            WorkspaceOnboarding       `json:"onboarding"`
+	Memory                WorkspaceMemoryContext    `json:"memory"`
 	Offline               bool                      `json:"offline"`
 	GeneratedAt           time.Time                 `json:"generated_at"`
 }
@@ -168,6 +169,7 @@ func ConversationContext(directory, cwd string, now time.Time) (WorkspaceConvers
 		copy.NextAction = "先调用 workspace_context；当前唯一业务下一步是确认项目简报，完成后只按 onboarding.next_step 继续。"
 		bootstrapHandoff = &copy
 	}
+	memory := WorkspaceMemory(resolution.Root, generatedAt)
 	return WorkspaceConversationContext{
 		SchemaVersion:         "1.0",
 		WorkspaceID:           status.Binding.WorkspaceID,
@@ -186,6 +188,7 @@ func ConversationContext(directory, cwd string, now time.Time) (WorkspaceConvers
 		LastCloudPullAt:       status.Sync.LastPulledAt,
 		SuggestedIntents:      intents,
 		Onboarding:            onboarding,
+		Memory:                memory,
 		Offline:               true,
 		GeneratedAt:           generatedAt,
 	}, nil

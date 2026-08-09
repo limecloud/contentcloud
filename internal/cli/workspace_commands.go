@@ -81,9 +81,181 @@ func (r *Root) workspaceCommand() *cobra.Command {
 		r.workspaceFixtureCommand(),
 		conversationContext,
 		projectBrief,
+		r.workspaceMemoryCommand(),
 		r.workspaceApprovedCommand(),
 	)
 	return cmd
+}
+
+func (r *Root) workspaceMemoryCommand() *cobra.Command {
+	command := &cobra.Command{Use: "memory", Short: "管理本地可重建的记忆检索投影"}
+	var statusDirectory string
+	status := &cobra.Command{Use: "status", Args: cobra.NoArgs, Short: "检查本地记忆索引是否存在、陈旧或损坏", RunE: func(cmd *cobra.Command, args []string) error {
+		result, err := localworkspace.MemoryStatus(statusDirectory, r.currentTime())
+		if err != nil {
+			return err
+		}
+		return r.writeOK("workspace.memory.status", result)
+	}}
+	status.Flags().StringVar(&statusDirectory, "directory", "", "Content Work OS 工作区路径")
+
+	var rebuildDirectory string
+	rebuild := &cobra.Command{Use: "rebuild", Args: cobra.NoArgs, Short: "从当前工作区文件重建本地记忆索引", RunE: func(cmd *cobra.Command, args []string) error {
+		result, err := localworkspace.RebuildMemory(rebuildDirectory, r.currentTime())
+		if err != nil {
+			return err
+		}
+		return r.writeOK("workspace.memory.rebuild", result)
+	}}
+	rebuild.Flags().StringVar(&rebuildDirectory, "directory", "", "Content Work OS 工作区路径")
+
+	var rememberDirectory, rememberID, rememberKind, rememberClaimKey, rememberSourceRef, rememberSummary, rememberFormedBy string
+	remember := &cobra.Command{Use: "remember", Args: cobra.NoArgs, Short: "保存一条绑定当前来源的本地记忆候选", RunE: func(cmd *cobra.Command, args []string) error {
+		result, err := localworkspace.RememberMemory(localworkspace.MemoryRememberOptions{Root: rememberDirectory, MemoryID: rememberID, Kind: rememberKind, ClaimKey: rememberClaimKey, SourceRef: rememberSourceRef, Summary: rememberSummary, FormedBy: rememberFormedBy, Now: r.currentTime()})
+		if err != nil {
+			return err
+		}
+		return r.writeOK("workspace.memory.remember", result)
+	}}
+	remember.Flags().StringVar(&rememberDirectory, "directory", "", "Content Work OS 工作区路径")
+	remember.Flags().StringVar(&rememberID, "id", "", "可选的稳定记忆候选 ID")
+	remember.Flags().StringVar(&rememberKind, "kind", "", "记忆类型：working、execution、knowledge 或 interaction")
+	remember.Flags().StringVar(&rememberClaimKey, "claim-key", "", "可选的主张稳定键；相同键的不同摘要会进入冲突报告")
+	remember.Flags().StringVar(&rememberSourceRef, "source-ref", "", "当前工作区内的来源文件相对路径")
+	remember.Flags().StringVar(&rememberSummary, "summary", "", "带来源的候选摘要")
+	remember.Flags().StringVar(&rememberFormedBy, "formed-by", "", "形成者或模型版本标识")
+	_ = remember.MarkFlagRequired("kind")
+	_ = remember.MarkFlagRequired("source-ref")
+	_ = remember.MarkFlagRequired("summary")
+
+	var consolidateDirectory string
+	consolidate := &cobra.Command{Use: "consolidate", Args: cobra.NoArgs, Short: "检测本地记忆候选的重复和冲突，不覆盖任何记录", RunE: func(cmd *cobra.Command, args []string) error {
+		result, err := localworkspace.ConsolidateMemory(localworkspace.MemoryConsolidationOptions{Root: consolidateDirectory, Now: r.currentTime()})
+		if err != nil {
+			return err
+		}
+		return r.writeOK("workspace.memory.consolidate", result)
+	}}
+	consolidate.Flags().StringVar(&consolidateDirectory, "directory", "", "Content Work OS 工作区路径")
+
+	var promoteDirectory, promoteID, promoteKind, promoteTitle, promoteSubject, promotePredicate, promoteRisk, promoteOriginRun string
+	var promoteChannels, promoteEvidenceIDs []string
+	promote := &cobra.Command{Use: "promote", Args: cobra.NoArgs, Short: "将一个无冲突记忆候选导入为待审核知识候选", RunE: func(cmd *cobra.Command, args []string) error {
+		result, err := localworkspace.PromoteMemory(localworkspace.MemoryPromoteOptions{Root: promoteDirectory, MemoryID: promoteID, KnowledgeKind: promoteKind, Title: promoteTitle, Subject: promoteSubject, Predicate: promotePredicate, RiskLevel: promoteRisk, AllowedChannels: promoteChannels, EvidenceIDs: promoteEvidenceIDs, OriginRunID: promoteOriginRun, Now: r.currentTime()})
+		if err != nil {
+			return err
+		}
+		return r.writeOK("workspace.memory.promote", result)
+	}}
+	promote.Flags().StringVar(&promoteDirectory, "directory", "", "Content Work OS 工作区路径")
+	promote.Flags().StringVar(&promoteID, "memory-id", "", "待晋升的记忆候选 ID")
+	promote.Flags().StringVar(&promoteKind, "knowledge-kind", "fact", "知识类型：fact、claim、visual_rule 或 methodology")
+	promote.Flags().StringVar(&promoteTitle, "title", "", "知识标题；默认使用记忆摘要")
+	promote.Flags().StringVar(&promoteSubject, "subject", "", "知识主语")
+	promote.Flags().StringVar(&promotePredicate, "predicate", "", "知识谓语")
+	promote.Flags().StringVar(&promoteRisk, "risk-level", "low", "风险级别：low、medium 或 high")
+	promote.Flags().StringSliceVar(&promoteChannels, "allowed-channel", nil, "允许使用的渠道，可重复传入")
+	promote.Flags().StringSliceVar(&promoteEvidenceIDs, "evidence-id", nil, "已接受的本地证据 ID，可重复传入")
+	promote.Flags().StringVar(&promoteOriginRun, "origin-run", "", "形成来源的本地运行 ID")
+	_ = promote.MarkFlagRequired("memory-id")
+	_ = promote.MarkFlagRequired("subject")
+	_ = promote.MarkFlagRequired("predicate")
+	_ = promote.MarkFlagRequired("evidence-id")
+
+	var extractDirectory, extractEndpoint, extractProvider, extractTokenEnv, extractFormedBy string
+	var extractSources []string
+	var extractAllowPrivate, extractAllowHTTP bool
+	extract := &cobra.Command{Use: "extract", Args: cobra.NoArgs, Short: "显式调用受控远程抽取器形成本地记忆候选", RunE: func(cmd *cobra.Command, args []string) error {
+		token := os.Getenv(strings.TrimSpace(extractTokenEnv))
+		adapter, err := localworkspace.NewMemoryRemoteAdapter(localworkspace.MemoryRemoteAdapterConfig{Provider: extractProvider, BaseURL: extractEndpoint, AuthToken: token, AllowPrivateNetworks: extractAllowPrivate, AllowInsecureHTTP: extractAllowHTTP})
+		if err != nil {
+			return err
+		}
+		result, err := localworkspace.ExtractMemory(cmd.Context(), localworkspace.MemoryExtractOptions{Root: extractDirectory, SourceRefs: extractSources, Adapter: adapter, FormedBy: extractFormedBy, Now: r.currentTime()})
+		if err != nil {
+			return err
+		}
+		return r.writeOK("workspace.memory.extract", result)
+	}}
+	extract.Flags().StringVar(&extractDirectory, "directory", "", "Content Work OS 工作区路径")
+	extract.Flags().StringVar(&extractEndpoint, "endpoint", "", "远程记忆抽取服务 HTTPS 地址")
+	extract.Flags().StringVar(&extractProvider, "provider", "custom", "远程适配器标识，例如 mem0 或 tencentdb")
+	extract.Flags().StringVar(&extractTokenEnv, "token-env", "CONTENTCLOUD_MEMORY_REMOTE_TOKEN", "从哪个环境变量读取远程服务 Token")
+	extract.Flags().StringSliceVar(&extractSources, "source-ref", nil, "要发送给抽取器的来源文件，可重复传入；为空表示全部允许来源")
+	extract.Flags().StringVar(&extractFormedBy, "formed-by", "", "候选形成者标识")
+	extract.Flags().BoolVar(&extractAllowPrivate, "allow-private-networks", false, "显式允许连接私有网络服务")
+	extract.Flags().BoolVar(&extractAllowHTTP, "allow-http", false, "显式允许 HTTP；仅建议测试环境使用")
+	_ = extract.MarkFlagRequired("endpoint")
+
+	var remoteDirectory, remoteEndpoint, remoteProvider, remoteTokenEnv, remoteQueryText string
+	var remoteKinds []string
+	var remoteLimit, remoteMaxChars int
+	var remoteAllowPrivate, remoteAllowHTTP bool
+	remoteQuery := &cobra.Command{Use: "remote-query", Args: cobra.NoArgs, Short: "显式通过受控远程适配器查询并回验本地记忆来源", RunE: func(cmd *cobra.Command, args []string) error {
+		token := os.Getenv(strings.TrimSpace(remoteTokenEnv))
+		adapter, err := localworkspace.NewMemoryRemoteAdapter(localworkspace.MemoryRemoteAdapterConfig{Provider: remoteProvider, BaseURL: remoteEndpoint, AuthToken: token, AllowPrivateNetworks: remoteAllowPrivate, AllowInsecureHTTP: remoteAllowHTTP})
+		if err != nil {
+			return err
+		}
+		result, err := localworkspace.QueryRemoteMemory(cmd.Context(), remoteDirectory, adapter, localworkspace.MemoryQueryOptions{Root: remoteDirectory, Query: remoteQueryText, Kinds: remoteKinds, Limit: remoteLimit, MaxChars: remoteMaxChars, Now: r.currentTime()})
+		if err != nil {
+			return err
+		}
+		return r.writeOK("workspace.memory.remote-query", result)
+	}}
+	remoteQuery.Flags().StringVar(&remoteDirectory, "directory", "", "Content Work OS 工作区路径")
+	remoteQuery.Flags().StringVar(&remoteEndpoint, "endpoint", "", "远程记忆查询服务 HTTPS 地址")
+	remoteQuery.Flags().StringVar(&remoteProvider, "provider", "custom", "远程适配器标识")
+	remoteQuery.Flags().StringVar(&remoteTokenEnv, "token-env", "CONTENTCLOUD_MEMORY_REMOTE_TOKEN", "从哪个环境变量读取远程服务 Token")
+	remoteQuery.Flags().StringVar(&remoteQueryText, "query", "", "查询文本")
+	remoteQuery.Flags().StringSliceVar(&remoteKinds, "kind", nil, "记忆类型，可重复传入")
+	remoteQuery.Flags().IntVar(&remoteLimit, "limit", 0, "最多返回条数")
+	remoteQuery.Flags().IntVar(&remoteMaxChars, "max-chars", 0, "摘要字符预算")
+	remoteQuery.Flags().BoolVar(&remoteAllowPrivate, "allow-private-networks", false, "显式允许连接私有网络服务")
+	remoteQuery.Flags().BoolVar(&remoteAllowHTTP, "allow-http", false, "显式允许 HTTP；仅建议测试环境使用")
+	_ = remoteQuery.MarkFlagRequired("endpoint")
+
+	var queryDirectory, queryText string
+	var queryKinds []string
+	var queryLimit, queryMaxChars int
+	query := &cobra.Command{Use: "query", Args: cobra.NoArgs, Short: "按当前工作区范围查询带来源引用的记忆候选", RunE: func(cmd *cobra.Command, args []string) error {
+		result, err := localworkspace.QueryMemory(localworkspace.MemoryQueryOptions{Root: queryDirectory, Query: queryText, Kinds: queryKinds, Limit: queryLimit, MaxChars: queryMaxChars, Now: r.currentTime()})
+		if err != nil {
+			return err
+		}
+		return r.writeOK("workspace.memory.query", result)
+	}}
+	query.Flags().StringVar(&queryDirectory, "directory", "", "Content Work OS 工作区路径")
+	query.Flags().StringVar(&queryText, "query", "", "查询文本；为空时按工作区焦点和最近修改排序")
+	query.Flags().StringSliceVar(&queryKinds, "kind", nil, "记忆类型：working、execution、knowledge、interaction，可重复传入")
+	query.Flags().IntVar(&queryLimit, "limit", 0, "最多返回条数，默认 6，最大 20")
+	query.Flags().IntVar(&queryMaxChars, "max-chars", 0, "摘要字符预算，默认 2400，最大 12000")
+
+	var clearDirectory string
+	var clearYes, clearDryRun bool
+	clear := &cobra.Command{Use: "clear", Args: cobra.NoArgs, Short: "清除本地记忆索引缓存，不删除工作区文件", RunE: func(cmd *cobra.Command, args []string) error {
+		status, err := localworkspace.MemoryStatus(clearDirectory, r.currentTime())
+		if err != nil {
+			return err
+		}
+		if clearDryRun {
+			return r.writeOK("workspace.memory.clear", map[string]any{"dry_run": true, "projection_ref": status.ProjectionRef, "state": status.State, "would_clear": status.State != localworkspace.MemoryStateMissing})
+		}
+		if !clearYes {
+			return confirmationRequired("清除本地记忆索引缓存；不会删除工作区文件，但会丢弃可重建的检索投影")
+		}
+		result, err := localworkspace.ClearMemory(clearDirectory, r.currentTime())
+		if err != nil {
+			return err
+		}
+		return r.writeOK("workspace.memory.clear", result)
+	}}
+	clear.Flags().StringVar(&clearDirectory, "directory", "", "Content Work OS 工作区路径")
+	clear.Flags().BoolVar(&clearYes, "yes", false, "确认清除本地记忆索引缓存")
+	clear.Flags().BoolVar(&clearDryRun, "dry-run", false, "只检查，不修改本地缓存")
+
+	command.AddCommand(status, rebuild, remember, consolidate, promote, extract, remoteQuery, query, clear)
+	return command
 }
 
 func (r *Root) workspaceFixtureCommand() *cobra.Command {
@@ -399,6 +571,87 @@ func mcpTools() []map[string]any {
 	directory := map[string]any{
 		"type":                 "object",
 		"properties":           map[string]any{"directory": map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"}},
+		"additionalProperties": false,
+	}
+	memoryQuery := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory": map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
+			"query":     map[string]any{"type": "string", "description": "查询文本；为空时按工作区焦点和最近修改排序"},
+			"kinds":     map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string", "enum": []string{"working", "execution", "knowledge", "interaction"}}},
+			"limit":     map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
+			"max_chars": map[string]any{"type": "integer", "minimum": 1, "maximum": 12000},
+		},
+		"additionalProperties": false,
+	}
+	memoryRemember := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":  map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
+			"memory_id":  map[string]any{"type": "string"},
+			"kind":       map[string]any{"type": "string", "enum": []string{"working", "execution", "knowledge", "interaction"}},
+			"claim_key":  map[string]any{"type": "string", "description": "可选的主张稳定键；同键不同摘要会进入冲突报告"},
+			"source_ref": map[string]any{"type": "string", "description": "当前工作区内的来源文件相对路径"},
+			"summary":    map[string]any{"type": "string"},
+			"formed_by":  map[string]any{"type": "string"},
+		},
+		"required":             []string{"kind", "source_ref", "summary"},
+		"additionalProperties": false,
+	}
+	memoryConsolidate := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory": map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
+		},
+		"additionalProperties": false,
+	}
+	memoryPromote := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":        map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
+			"memory_id":        map[string]any{"type": "string"},
+			"knowledge_kind":   map[string]any{"type": "string", "enum": []string{"fact", "claim", "visual_rule", "methodology"}},
+			"title":            map[string]any{"type": "string"},
+			"subject":          map[string]any{"type": "string"},
+			"predicate":        map[string]any{"type": "string"},
+			"risk_level":       map[string]any{"type": "string", "enum": []string{"low", "medium", "high"}},
+			"allowed_channels": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"evidence_ids":     map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string"}},
+			"origin_run":       map[string]any{"type": "string"},
+		},
+		"required":             []string{"memory_id", "knowledge_kind", "subject", "predicate", "evidence_ids"},
+		"additionalProperties": false,
+	}
+	memoryExtract := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":              map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
+			"endpoint":               map[string]any{"type": "string", "description": "远程抽取服务 HTTPS 地址"},
+			"provider":               map[string]any{"type": "string"},
+			"token_env":              map[string]any{"type": "string", "description": "服务 Token 所在环境变量名"},
+			"source_refs":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"formed_by":              map[string]any{"type": "string"},
+			"allow_private_networks": map[string]any{"type": "boolean"},
+			"allow_http":             map[string]any{"type": "boolean"},
+		},
+		"required":             []string{"endpoint"},
+		"additionalProperties": false,
+	}
+	memoryRemoteQuery := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":              map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"},
+			"endpoint":               map[string]any{"type": "string", "description": "远程查询服务 HTTPS 地址"},
+			"provider":               map[string]any{"type": "string"},
+			"token_env":              map[string]any{"type": "string"},
+			"query":                  map[string]any{"type": "string"},
+			"kinds":                  map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"working", "execution", "knowledge", "interaction"}}},
+			"limit":                  map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
+			"max_chars":              map[string]any{"type": "integer", "minimum": 1, "maximum": 12000},
+			"allow_private_networks": map[string]any{"type": "boolean"},
+			"allow_http":             map[string]any{"type": "boolean"},
+		},
+		"required":             []string{"endpoint"},
 		"additionalProperties": false,
 	}
 	readOnlyAnnotations := map[string]any{
@@ -775,6 +1028,14 @@ func mcpTools() []map[string]any {
 			}},
 		},
 		{"name": "workspace_context", "description": "读取跨对话保存的 Content Work OS 工作区状态，不访问云端，也不声明任何写入", "inputSchema": directory, "annotations": readOnlyAnnotations},
+		{"name": "memory_status", "description": "检查本地记忆投影是否存在、陈旧或损坏，不读取云端", "inputSchema": directory, "annotations": readOnlyAnnotations},
+		{"name": "memory_rebuild", "description": "从当前工作区文本文件重建可删除的本地记忆检索投影，不上传文件", "inputSchema": directory, "annotations": workspaceWriteAnnotations},
+		{"name": "memory_remember", "description": "保存一条绑定当前来源文件的本地记忆候选，不晋升为正式知识", "inputSchema": memoryRemember, "annotations": workspaceWriteAnnotations},
+		{"name": "memory_consolidate", "description": "检测本地记忆候选的重复和冲突，不覆盖任何记录", "inputSchema": memoryConsolidate, "annotations": readOnlyAnnotations},
+		{"name": "memory_promote", "description": "把无冲突记忆候选导入为待审核知识候选，不创建批准快照", "inputSchema": memoryPromote, "annotations": workspaceWriteAnnotations},
+		{"name": "memory_extract", "description": "只向明确指定的远程抽取器发送工作区来源，结果仍由本地记忆契约校验", "inputSchema": memoryExtract, "annotations": workspaceWriteAnnotations},
+		{"name": "memory_remote_query", "description": "通过远程适配器查询并回验 scope、来源 digest 和状态", "inputSchema": memoryRemoteQuery, "annotations": readOnlyAnnotations},
+		{"name": "memory_query", "description": "按当前工作区绑定范围召回带来源引用的记忆候选", "inputSchema": memoryQuery, "annotations": readOnlyAnnotations},
 		{"name": "workspace_project_brief", "description": "确认并保存项目简报，建立素材、知识和内容生产共用的本地业务上下文", "inputSchema": projectBrief, "annotations": workspaceWriteAnnotations},
 		{"name": "environment_execution_plan", "description": "离线解析已签名的本地执行计划并准确报告缺少的任务能力包，不执行安装", "inputSchema": localExecutionPlan, "annotations": readOnlyAnnotations},
 		{"name": "environment_prepare_plan", "description": "披露缺少能力包的准确权限、数据流、费用和会话影响，不执行安装", "inputSchema": localExecutionPlan, "annotations": readOnlyAnnotations},
@@ -868,6 +1129,28 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			OriginRun            string               `json:"origin_run"`
 			Channel              string               `json:"channel"`
 			At                   string               `json:"at"`
+			Query                string               `json:"query"`
+			Kinds                []string             `json:"kinds"`
+			Limit                int                  `json:"limit"`
+			MaxChars             int                  `json:"max_chars"`
+			MemoryID             string               `json:"memory_id"`
+			Kind                 string               `json:"kind"`
+			ClaimKey             string               `json:"claim_key"`
+			SourceRef            string               `json:"source_ref"`
+			SourceRefs           []string             `json:"source_refs"`
+			Summary              string               `json:"summary"`
+			FormedBy             string               `json:"formed_by"`
+			Endpoint             string               `json:"endpoint"`
+			Provider             string               `json:"provider"`
+			TokenEnv             string               `json:"token_env"`
+			AllowPrivateNetworks bool                 `json:"allow_private_networks"`
+			AllowHTTP            bool                 `json:"allow_http"`
+			KnowledgeKind        string               `json:"knowledge_kind"`
+			Subject              string               `json:"subject"`
+			Predicate            string               `json:"predicate"`
+			RiskLevel            string               `json:"risk_level"`
+			AllowedChannels      []string             `json:"allowed_channels"`
+			EvidenceIDs          []string             `json:"evidence_ids"`
 			PackID               string               `json:"pack_id"`
 			Name                 string               `json:"name"`
 			BriefID              string               `json:"brief_id"`
@@ -931,6 +1214,89 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		return openProjectViewEnvelope(link), nil
 	case "workspace_context":
 		value, err = r.workspaceConversationContext(params.Arguments.Directory)
+	case "memory_status":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.MemoryStatus(root, r.currentTime())
+	case "memory_rebuild":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.RebuildMemory(root, r.currentTime())
+	case "memory_remember":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.RememberMemory(localworkspace.MemoryRememberOptions{Root: root, MemoryID: params.Arguments.MemoryID, Kind: params.Arguments.Kind, ClaimKey: params.Arguments.ClaimKey, SourceRef: params.Arguments.SourceRef, Summary: params.Arguments.Summary, FormedBy: params.Arguments.FormedBy, Now: r.currentTime()})
+	case "memory_consolidate":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.ConsolidateMemory(localworkspace.MemoryConsolidationOptions{Root: root, Now: r.currentTime()})
+	case "memory_promote":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.PromoteMemory(localworkspace.MemoryPromoteOptions{Root: root, MemoryID: params.Arguments.MemoryID, KnowledgeKind: params.Arguments.KnowledgeKind, Title: params.Arguments.Title, Subject: params.Arguments.Subject, Predicate: params.Arguments.Predicate, RiskLevel: params.Arguments.RiskLevel, AllowedChannels: params.Arguments.AllowedChannels, EvidenceIDs: params.Arguments.EvidenceIDs, OriginRunID: params.Arguments.OriginRun, Now: r.currentTime()})
+	case "memory_extract":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		token := os.Getenv(strings.TrimSpace(params.Arguments.TokenEnv))
+		adapter, adapterErr := localworkspace.NewMemoryRemoteAdapter(localworkspace.MemoryRemoteAdapterConfig{
+			Provider:             params.Arguments.Provider,
+			BaseURL:              params.Arguments.Endpoint,
+			AuthToken:            token,
+			AllowPrivateNetworks: params.Arguments.AllowPrivateNetworks,
+			AllowInsecureHTTP:    params.Arguments.AllowHTTP,
+		})
+		if adapterErr != nil {
+			return nil, adapterErr
+		}
+		value, err = localworkspace.ExtractMemory(ctx, localworkspace.MemoryExtractOptions{
+			Root:       root,
+			SourceRefs: params.Arguments.SourceRefs,
+			Adapter:    adapter,
+			FormedBy:   params.Arguments.FormedBy,
+			Now:        r.currentTime(),
+		})
+	case "memory_remote_query":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		token := os.Getenv(strings.TrimSpace(params.Arguments.TokenEnv))
+		adapter, adapterErr := localworkspace.NewMemoryRemoteAdapter(localworkspace.MemoryRemoteAdapterConfig{
+			Provider:             params.Arguments.Provider,
+			BaseURL:              params.Arguments.Endpoint,
+			AuthToken:            token,
+			AllowPrivateNetworks: params.Arguments.AllowPrivateNetworks,
+			AllowInsecureHTTP:    params.Arguments.AllowHTTP,
+		})
+		if adapterErr != nil {
+			return nil, adapterErr
+		}
+		value, err = localworkspace.QueryRemoteMemory(ctx, root, adapter, localworkspace.MemoryQueryOptions{
+			Root:     root,
+			Query:    params.Arguments.Query,
+			Kinds:    params.Arguments.Kinds,
+			Limit:    params.Arguments.Limit,
+			MaxChars: params.Arguments.MaxChars,
+			Now:      r.currentTime(),
+		})
+	case "memory_query":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.QueryMemory(localworkspace.MemoryQueryOptions{Root: root, Query: params.Arguments.Query, Kinds: params.Arguments.Kinds, Limit: params.Arguments.Limit, MaxChars: params.Arguments.MaxChars, Now: r.currentTime()})
 	case "workspace_project_brief":
 		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
 		if resolveErr != nil {

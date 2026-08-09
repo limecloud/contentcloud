@@ -8,7 +8,7 @@ import (
 
 // RunProgress is the stable read projection for the existing run-events
 // surface. Runtime JobEvents are authoritative.
-func (s *Service) RunProgress(ctx context.Context, actor Actor, runID string, after int64) ([]domain.RunProgressEvent, error) {
+func (s *Service) RunProgress(ctx context.Context, actor Actor, runID string, after int64) ([]domain.RuntimeRunEvent, error) {
 	job, ok, err := s.runtimeJob(ctx, actor.TenantID, runID)
 	if err != nil {
 		return nil, err
@@ -23,7 +23,7 @@ func (s *Service) RunProgress(ctx context.Context, actor Actor, runID string, af
 	if err != nil {
 		return nil, err
 	}
-	result := make([]domain.RunProgressEvent, 0, len(events))
+	result := make([]domain.RuntimeRunEvent, 0, len(events))
 	for _, event := range events {
 		attemptID := ""
 		if event.Payload != nil {
@@ -31,7 +31,7 @@ func (s *Service) RunProgress(ctx context.Context, actor Actor, runID string, af
 				attemptID = value
 			}
 		}
-		result = append(result, domain.RunProgressEvent{Cursor: event.Sequence, TenantID: event.TenantID, ProjectID: job.ProjectID, RunID: job.ID, AttemptID: attemptID, DeviceID: event.ActorID, Sequence: int(event.Sequence), Phase: event.Type, Step: int(event.Sequence), Label: event.Type, OccurredAt: event.OccurredAt})
+		result = append(result, domain.RuntimeRunEvent{Cursor: event.Sequence, TenantID: event.TenantID, ProjectID: job.ProjectID, RunID: job.ID, AttemptID: attemptID, DeviceID: event.ActorID, Sequence: int(event.Sequence), Phase: event.Type, Step: int(event.Sequence), Label: event.Type, OccurredAt: event.OccurredAt})
 	}
 	return result, nil
 }

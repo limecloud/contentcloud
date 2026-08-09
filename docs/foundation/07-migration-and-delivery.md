@@ -1,6 +1,6 @@
 # 渐进迁移与交付计划
 
-状态：`执行切流已完成；Studio、知识治理、资产首切片、Runtime 内核和运营 Explorer 首版已落地，生产验证与兼容 DTO 退场仍待完成`。
+状态：`执行切流和公开 Runtime DTO 收口已完成；Studio、知识治理、资产首切片、Runtime 内核和运营 Explorer 首版已落地，生产验证仍待完成`。
 
 更新时间：2026-08-09。
 
@@ -38,7 +38,7 @@ Studio Shell -> Experience -> 灵感采集 -> 客户选择 -> 下游固定输入
 交付：
 
 - 核心对象生命周期和事实所有权矩阵。
-- WorkTask、StageRun、TaskRun 只读投影与 JobRun/NodeRun/RuntimeAttempt 的处置记录。
+- WorkTask、StageRun、RuntimeRun 读模型与 JobRun/NodeRun/RuntimeAttempt 的处置记录。
 - Studio-first 定位和旧客户入口迁移 ADR。
 - 当前 API、表、契约、路由、投影和执行路径事实地图。
 - 基线指标、Feature Flag 和回退责任人。
@@ -115,7 +115,7 @@ Studio Shell -> Experience -> 灵感采集 -> 客户选择 -> 下游固定输入
 
 1. 新 JobRun 成为一次完整执行记录。
 2. NodeRun 和独立 RuntimeAttempt 成为唯一执行事实；V7 执行表、RunAttempt 和 daemon 命令链已删除。
-3. StageRun 和 TaskRun 只通过单向投影表达业务阶段与运行摘要，不拥有租约或终态。
+3. StageRun 只通过单向投影表达业务阶段；RuntimeRun 只读模型从 JobRun/NodeRun 生成，二者都不拥有租约或终态。
 4. 状态、ContextView、预算和 Effect 台账上线。
 5. 先对试点租户、单一低风险能力切流。
 6. 观测完整窗口后扩大能力和租户。
@@ -144,14 +144,14 @@ draft -> linted -> preview -> canary -> published -> deprecated -> retired
 
 退出条件：第二业务流不增加专用调度表和内容类型分支；容量、安全和恢复门禁通过。
 
-### F7：兼容清理与基线完成（执行链清理已完成）
+### F7：兼容清理与基线完成（执行链与公开运行 DTO 清理已完成）
 
-- 保持 StageRun/TaskRun 为只读业务投影，下一版公开 API 统一 Runtime 术语后删除兼容 DTO。
+- 公开运行 API 已统一为 RuntimeRun/RuntimeRunEvent；StageRun 暂保留为只读业务阶段投影。
 - V7 执行 Adapter、双读、写路由、Store 和物理表已删除；继续清理其他达到门槛的兼容面。
 - 继续按模块拆除全局 Store/Service 中已迁移接口。
 - 更新对外文档、架构图、运行手册和能力登记。
 
-退出条件：公开运行 API 不再暴露 TaskRun 兼容命名，代码搜索无 V7 执行依赖，生产故障与回退演练通过。
+退出条件：公开运行 API 与代码搜索收口已完成；剩余退出条件是生产故障与回退演练通过，以及 StageRun 业务投影具备独立退场条件。
 
 ### 3.1 运营控制面专项阶段
 
@@ -225,7 +225,8 @@ FND-01 可以与 Runtime 基础并行，但只能使用已冻结契约，不能�
 | --- | --- | --- | --- | --- |
 | `WorkTask` | `current` | 保持业务语义，增加体验和 Job 引用 | Work | 不吸收 Runtime 节点状态 |
 | `StageRun` | `compat` | 收敛为客户阶段投影 | Work projection / Runtime adapter | Node 投影等价并停止旧权威写入 |
-| `TaskRun` | `compat` | 仅保留 Runtime 只读业务 DTO，不对应执行表 | Experience / Runtime projection | 下一版公开 API 统一 Runtime 术语 |
+| `RuntimeRun` / `RuntimeRunEvent` | `current` | 保持 Runtime 只读模型，不对应独立执行表 | Experience / Runtime projection | 不拥有租约、状态机或终态 |
+| `TaskRun` / `RunProgressEvent` | `dead` | 公开 DTO、lineage 类型和 JSON 兼容字段已删除 | Runtime governance | 禁止恢复；架构扫描保持归零 |
 | `RunAttempt` | `dead` | 表、领域对象、Store 和 API 已删除 | Runtime | 禁止恢复；历史仅保留在迁移 evidence |
 | `JobRun` / `NodeRun` / `RuntimeAttempt` | `current` | 继续完善 V8 执行、租约和恢复 | Runtime | 生产门禁通过；不与 V7 执行状态双写 |
 | `SOPVersion` / Stage / Gate | `current` | 增量扩展并由编译器直接消费 | Catalog | 不创建平行业务流水线定义 |
@@ -255,7 +256,7 @@ FND-01 可以与 Runtime 基础并行，但只能使用已冻结契约，不能�
 Runtime 执行事实已经切流，不再用 Feature Flag 在新旧执行模型之间切换。剩余开关只允许控制增量能力和产品发布范围：
 
 - Studio 场景是否可见和可创建。
-- 动态图、真实 Provider/SDK 和实验性执行器是否准入。
+- 动态图、真实 Provider、在线宿主和实验性执行器是否准入。
 - 新客户/运营投影是否可见；投影关闭不改变 Runtime 权威写入。
 - 创作资产目录是否旁路构建、客户可见和允许创建新任务引用。
 
@@ -266,8 +267,10 @@ Runtime 执行事实已经切流，不再用 Feature Flag 在新旧执行模型�
 ```text
 Runtime 权威写入
   -> JobEvent + runtime_outbox
-  -> current projector
-  -> TaskRun / RunProgressEvent compat DTO（仍有公开调用时）
+  -> runtime_outbox_receipts
+       ├── current projector
+       └── business result consumer
+  -> RuntimeRun / RuntimeRunEvent current 读模型
   -> 客户与运营读模型
 
 剩余产品面迁移
@@ -309,7 +312,7 @@ Runtime 状态禁止双写。其他业务域若无法用事件或投影桥接，
 | M4 Runtime 接管 | FND-05/06 | 线性切流、Effect、恢复和前向修复通过 |
 | M5 运营产品化 | FND-07 | 发布、Canary、租户启用和回退演练通过 |
 | M6 通用性 | FND-08/09 | 第二业务流和受限动态图通过 |
-| M7 基线完成 | FND-10 | V7 执行链保持 dead、兼容 DTO 退场、目录收敛、Runtime 历史可读 |
+| M7 基线完成 | FND-10 | V7 执行链与旧 DTO 保持 dead、目录收敛、Runtime 历史可读 |
 
 ## 12. 风险登记
 

@@ -52,14 +52,14 @@ type CreateTaskDeliveryInput struct {
 	Deliver           *bool    `json:"deliver"`
 }
 
-func (s *Service) WorkTaskRuns(ctx context.Context, actor Actor, taskID string) ([]domain.TaskRun, error) {
+func (s *Service) RunsForWorkTask(ctx context.Context, actor Actor, taskID string) ([]domain.RuntimeRun, error) {
 	if err := requireRole(actor, "tenant_admin", "project_manager", "strategist", "editor", "reviewer", "client_approver", "viewer"); err != nil {
 		return nil, err
 	}
 	if _, err := s.store.WorkTask(ctx, actor.TenantID, taskID); err != nil {
 		return nil, err
 	}
-	return s.runtimeTaskRunProjection(ctx, actor.TenantID, taskID)
+	return s.runtimeRunsForWorkTask(ctx, actor.TenantID, taskID)
 }
 
 func (s *Service) WorkTaskGates(ctx context.Context, actor Actor, taskID string) ([]domain.GateEvaluation, error) {
@@ -239,14 +239,14 @@ func (s *Service) startCurrentStage(ctx context.Context, actor Actor, task *doma
 	if err := s.store.SaveWorkTask(ctx, *task); err != nil {
 		return err
 	}
-	if err := s.ensureTaskRun(ctx, actor, *task, stageRun); err != nil {
+	if err := s.ensureRuntimeRun(ctx, actor, *task, stageRun); err != nil {
 		return err
 	}
 	s.audit(ctx, actor, task.ProjectID, "task.started", "task", task.ID, requestID, map[string]any{"stage_id": stageRun.StageID, "execution_mode": stageRun.ExecutionMode})
 	return nil
 }
 
-func (s *Service) ensureTaskRun(ctx context.Context, actor Actor, task domain.WorkTask, stageRun domain.StageRun) error {
+func (s *Service) ensureRuntimeRun(ctx context.Context, actor Actor, task domain.WorkTask, stageRun domain.StageRun) error {
 	if s.runtimeService == nil {
 		return domain.Policy("RUNTIME_UNAVAILABLE", "流程阶段需要已配置的 Runtime", "联系平台运营人员启用 Runtime")
 	}

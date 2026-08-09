@@ -167,7 +167,7 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 	for _, object := range knowledge {
 		b.node("knowledge_object", object.ID, firstNonEmpty(object.Title, object.Statement), object.Status, "knowledge", object.CreatedAt, map[string]any{"object_type": object.ObjectType, "layer": object.Layer})
 		if origin, _ := object.Payload["origin_run_id"].(string); origin != "" {
-			b.edge("task_run", origin, "knowledge_object", object.ID, "produces", "Automation Run 产出知识候选")
+			b.edge("runtime_run", origin, "knowledge_object", object.ID, "produces", "Runtime Run 产出知识候选")
 		}
 		for _, evidenceID := range object.EvidenceRefs {
 			span, spanErr := s.store.EvidenceSpan(ctx, tenantID, evidenceID)
@@ -189,15 +189,15 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 		}
 	}
 
-	runs, err := s.taskRunsForProject(ctx, tenantID, projectID)
+	runs, err := s.runtimeRunsForProject(ctx, tenantID, projectID)
 	if err != nil {
 		return nil, err
 	}
 	for _, run := range runs {
-		b.node("task_run", run.ID, runLabel(run), run.State, "automation", run.CreatedAt, map[string]any{"task_type": run.TaskType, "capability_id": run.CapabilityID, "error_code": run.ErrorCode})
+		b.node("runtime_run", run.ID, runtimeRunLabel(run), run.State, "automation", run.CreatedAt, map[string]any{"task_type": run.TaskType, "capability_id": run.CapabilityID, "error_code": run.ErrorCode})
 		if snapshot, loadErr := s.store.Snapshot(ctx, tenantID, run.InputSnapshotID); loadErr == nil {
 			for _, source := range snapshot.Sources {
-				b.edge("source_revision", source.RevisionID, "task_run", run.ID, "frozen_into", "来源版本已固定到自动化执行契约")
+				b.edge("source_revision", source.RevisionID, "runtime_run", run.ID, "frozen_into", "来源版本已固定到 Runtime 执行契约")
 			}
 		}
 	}
@@ -392,7 +392,7 @@ func lineageReviewAction(objectType string) string {
 		return "创建新的提交内容版本并重新提交审核"
 	case "approved_snapshot":
 		return "基于新的批准决策创建 ApprovedSnapshot"
-	case "task_run":
+	case "runtime_run":
 		return "检查本地客户端状态后重试任务"
 	case "artifact":
 		return "基于有效 ApprovedSnapshot 重新导出"
@@ -413,7 +413,7 @@ func lineageStageOrder(stage string) int {
 	return 99
 }
 
-func runLabel(run domain.TaskRun) string { return run.TaskType }
+func runtimeRunLabel(run domain.RuntimeRun) string { return run.TaskType }
 
 func observationLabel(observation domain.PerformanceObservation) string {
 	return fmt.Sprintf("%s · %dh · %s", observation.Platform, observation.WindowHours, observation.AccountAlias)

@@ -16,7 +16,7 @@ func TestRepositoryPluginsArePortableAgentPluginPackages(t *testing.T) {
 		skills     int
 		mcpServers int
 	}{
-		{name: "contentcloud-video-production", version: "0.21.0", kind: "scene_plugin", skills: 6, mcpServers: 1},
+		{name: "contentcloud-video-production", version: "0.22.0", kind: "scene_plugin", skills: 6, mcpServers: 1},
 		{name: "contentcloud-wechat-article", version: "0.1.0", kind: "skill_pack", skills: 4},
 	}
 

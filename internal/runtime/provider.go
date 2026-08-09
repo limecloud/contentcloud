@@ -42,8 +42,8 @@ func (s *Service) ReceiveProviderCallback(ctx context.Context, input ProviderCal
 	if s == nil || s.repo == nil {
 		return domain.ProviderInboxMessage{}, domain.ExternalEffect{}, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
 	}
-	if strings.TrimSpace(input.TenantID) == "" || strings.TrimSpace(input.JobRunID) == "" || strings.TrimSpace(input.ProviderID) == "" || strings.TrimSpace(input.MessageID) == "" || strings.TrimSpace(input.ExternalID) == "" || strings.TrimSpace(input.ProviderState) == "" {
-		return domain.ProviderInboxMessage{}, domain.ExternalEffect{}, domain.Invalid("PROVIDER_CALLBACK_INVALID", "Provider 回调缺少租户、执行实例、消息或外部任务身份")
+	if strings.TrimSpace(input.TenantID) == "" || strings.TrimSpace(input.ProviderID) == "" || strings.TrimSpace(input.MessageID) == "" || strings.TrimSpace(input.ExternalID) == "" || strings.TrimSpace(input.ProviderState) == "" {
+		return domain.ProviderInboxMessage{}, domain.ExternalEffect{}, domain.Invalid("PROVIDER_CALLBACK_INVALID", "Provider 回调缺少租户、消息或外部任务身份")
 	}
 	if input.Currency == "" {
 		input.Currency = "CNY"
@@ -98,6 +98,9 @@ func (s *Service) ReceiveProviderCallback(ctx context.Context, input ProviderCal
 		effect = &effectValue
 	} else if !domain.IsNotFound(effectErr) {
 		return domain.ProviderInboxMessage{}, domain.ExternalEffect{}, effectErr
+	}
+	if strings.TrimSpace(input.JobRunID) == "" {
+		return domain.ProviderInboxMessage{}, domain.ExternalEffect{}, domain.Invalid("PROVIDER_CALLBACK_SCOPE_REQUIRED", "无法匹配本地外部操作时必须提供 Runtime JobRun 作用域")
 	}
 	message := domain.ProviderInboxMessage{ID: domain.NewID(), TenantID: input.TenantID, JobRunID: input.JobRunID, ProviderID: input.ProviderID, MessageID: input.MessageID, ReceivedDigest: input.ReceivedDigest, ExternalID: input.ExternalID, ProviderState: input.ProviderState, ResponseDigest: input.ResponseDigest, CostMinor: input.CostMinor, Currency: input.Currency, SafePayload: input.SafePayload, State: domain.ProviderInboxReceived, Version: 1, ReceivedAt: input.ReceivedAt, CreatedAt: input.ReceivedAt, UpdatedAt: input.ReceivedAt, ErrorCode: input.ErrorCode}
 	var reconciliation *domain.ProviderReconciliation

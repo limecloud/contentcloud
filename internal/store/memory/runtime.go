@@ -126,6 +126,23 @@ func (s *Store) JobRuns(_ context.Context, tenantID, taskID string) ([]domain.Jo
 	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.After(result[j].CreatedAt) })
 	return result, nil
 }
+func (s *Store) JobRunsPage(_ context.Context, tenantID, projectID, state string, after, limit int) ([]domain.JobRun, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := []domain.JobRun{}
+	for _, value := range s.runtimeJobs {
+		if value.TenantID == tenantID && (projectID == "" || value.ProjectID == projectID) && (state == "" || value.State == state) {
+			result = append(result, value)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
+			return result[i].ID > result[j].ID
+		}
+		return result[i].UpdatedAt.After(result[j].UpdatedAt)
+	})
+	return memoryRuntimePage(result, after, limit)
+}
 func (s *Store) NodeRuns(_ context.Context, tenantID, jobID string) ([]domain.NodeRun, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -137,6 +154,23 @@ func (s *Store) NodeRuns(_ context.Context, tenantID, jobID string) ([]domain.No
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
 	return result, nil
+}
+func (s *Store) NodeRunsPage(_ context.Context, tenantID, jobID string, after, limit int) ([]domain.NodeRun, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := []domain.NodeRun{}
+	for _, value := range s.runtimeNodes {
+		if value.TenantID == tenantID && value.JobRunID == jobID {
+			result = append(result, value)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].ID < result[j].ID
+		}
+		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	})
+	return memoryRuntimePage(result, after, limit)
 }
 func (s *Store) NodeRun(_ context.Context, tenantID, id string) (domain.NodeRun, error) {
 	s.mu.RLock()
@@ -299,14 +333,7 @@ func (s *Store) AppendRuntimeEvent(_ context.Context, event domain.JobEvent) (do
 	if event.IdempotencyKey != "" {
 		for _, existing := range events {
 			if existing.IdempotencyKey == event.IdempotencyKey {
-				if _, ok := s.runtimeOutbox[runtimePlanKey(existing.TenantID, existing.ID)]; !ok {
-					s.runtimeOutbox[runtimePlanKey(existing.TenantID, existing.ID)] = domain.RuntimeOutboxMessage{
-						ID: existing.ID, EventID: existing.ID, TenantID: existing.TenantID,
-						SchemaVersion: domain.RuntimeEventSchema, Topic: "runtime.job_event", AggregateID: existing.JobRunID,
-						Payload:       map[string]any{"event_id": existing.ID, "job_run_id": existing.JobRunID, "sequence": existing.Sequence, "type": existing.Type, "payload": existing.Payload},
-						NextAttemptAt: existing.OccurredAt, CreatedAt: existing.OccurredAt,
-					}
-				}
+				enqueueRuntimeOutboxLocked(s, existing)
 				return existing, nil
 			}
 		}
@@ -329,6 +356,27 @@ func (s *Store) JobEvents(_ context.Context, tenantID, jobID string, after int64
 	for _, event := range s.runtimeEvents[jobID] {
 		if event.Sequence > after {
 			result = append(result, event)
+		}
+	}
+	return result, nil
+}
+func (s *Store) JobEventsPage(_ context.Context, tenantID, jobID string, after int64, limit int) ([]domain.JobEvent, error) {
+	if limit < 1 {
+		return nil, domain.Invalid("RUNTIME_PAGE_INVALID", "Runtime 分页参数无效")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if job, ok := s.runtimeJobs[runtimePlanKey(tenantID, jobID)]; !ok || job.TenantID != tenantID {
+		return nil, domain.NotFound("执行实例")
+	}
+	result := make([]domain.JobEvent, 0, limit)
+	for _, event := range s.runtimeEvents[jobID] {
+		if event.Sequence <= after {
+			continue
+		}
+		result = append(result, event)
+		if len(result) == limit {
+			break
 		}
 	}
 	return result, nil
@@ -377,6 +425,23 @@ func (s *Store) Checkpoints(_ context.Context, tenantID, jobID string) ([]domain
 	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.After(result[j].CreatedAt) })
 	return result, nil
 }
+func (s *Store) CheckpointsPage(_ context.Context, tenantID, jobID string, after, limit int) ([]domain.Checkpoint, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := []domain.Checkpoint{}
+	for _, value := range s.runtimeCheckpoints {
+		if value.TenantID == tenantID && value.JobRunID == jobID {
+			result = append(result, value)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].ID > result[j].ID
+		}
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+	return memoryRuntimePage(result, after, limit)
+}
 
 func (s *Store) Effect(_ context.Context, tenantID, id string) (domain.ExternalEffect, error) {
 	s.mu.RLock()
@@ -420,6 +485,37 @@ func (s *Store) Effects(_ context.Context, tenantID, jobID string) ([]domain.Ext
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
 	return result, nil
+}
+func (s *Store) EffectsPage(_ context.Context, tenantID, jobID string, after, limit int) ([]domain.ExternalEffect, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := []domain.ExternalEffect{}
+	for _, value := range s.runtimeEffects {
+		if value.TenantID == tenantID && value.JobRunID == jobID {
+			result = append(result, value)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].ID < result[j].ID
+		}
+		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	})
+	return memoryRuntimePage(result, after, limit)
+}
+
+func memoryRuntimePage[T any](values []T, after, limit int) ([]T, bool, error) {
+	if after < 0 || limit < 1 {
+		return nil, false, domain.Invalid("RUNTIME_PAGE_INVALID", "Runtime 分页参数无效")
+	}
+	if after >= len(values) {
+		return []T{}, false, nil
+	}
+	end := after + limit
+	if end >= len(values) {
+		return append([]T(nil), values[after:]...), false, nil
+	}
+	return append([]T(nil), values[after:end]...), true, nil
 }
 func (s *Store) ExpireNodeLeases(_ context.Context, tenantID string, now time.Time) error {
 	s.mu.Lock()

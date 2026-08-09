@@ -11,12 +11,38 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
-const runtimeOutboxSelect = `SELECT tenant_id,id,event_id,schema_version,topic,aggregate_id,payload,attempts,next_attempt_at,locked_by,locked_until,delivered_at,last_error,created_at FROM runtime_outbox`
+func (s *Store) AppendFencedRuntimeEvent(ctx context.Context, tenantID, attemptID, owner, fenceToken string, now time.Time, event domain.JobEvent) (domain.JobEvent, error) {
+	result := event
+	err := s.withTenantCommand(ctx, tenantID, "runtime.append_fenced_event", func(tx pgx.Tx) error {
+		var jobRunID, nodeKey, state, storedOwner, storedFence, harnessKind string
+		var leaseExpiresAt *time.Time
+		err := tx.QueryRow(ctx, `SELECT attempt.job_run_id,node.node_key,attempt.state,attempt.lease_owner,attempt.fence_token,attempt.lease_expires_at,attempt.harness_kind
+			FROM runtime_attempts attempt
+			JOIN runtime_node_runs node ON node.tenant_id=attempt.tenant_id AND node.id=attempt.node_run_id
+			WHERE attempt.tenant_id=$1 AND attempt.id=$2
+			FOR UPDATE OF attempt`, tenantID, attemptID).Scan(&jobRunID, &nodeKey, &state, &storedOwner, &storedFence, &leaseExpiresAt, &harnessKind)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.NotFound("RuntimeAttempt")
+		}
+		if err != nil {
+			return err
+		}
+		if state != domain.RuntimeAttemptRunning || storedOwner != strings.TrimSpace(owner) || storedFence == "" || storedFence != fenceToken || leaseExpiresAt == nil || !leaseExpiresAt.After(now) {
+			return domain.Conflict("DISPATCH_FENCE_STALE", "Harness 事件的执行围栏无效或已过期")
+		}
+		event.TenantID, event.JobRunID, event.NodeKey, event.ActorType, event.ActorID = tenantID, jobRunID, nodeKey, "harness", harnessKind
+		result, err = appendRuntimeEventTx(ctx, tx, event)
+		return err
+	})
+	return result, dbError(err)
+}
+
+const runtimeOutboxSelect = `SELECT m.tenant_id,m.id,m.event_id,m.schema_version,m.topic,m.aggregate_id,m.payload,r.subscriber,r.attempts,r.next_attempt_at,r.locked_by,r.locked_until,r.delivered_at,r.last_error,m.created_at FROM runtime_outbox m JOIN runtime_outbox_receipts r ON r.tenant_id=m.tenant_id AND r.message_id=m.id`
 
 func scanRuntimeOutbox(row pgx.Row) (domain.RuntimeOutboxMessage, error) {
 	var value domain.RuntimeOutboxMessage
 	var payload []byte
-	err := row.Scan(&value.TenantID, &value.ID, &value.EventID, &value.SchemaVersion, &value.Topic, &value.AggregateID, &payload, &value.Attempts, &value.NextAttemptAt, &value.LockedBy, &value.LockedUntil, &value.DeliveredAt, &value.LastError, &value.CreatedAt)
+	err := row.Scan(&value.TenantID, &value.ID, &value.EventID, &value.SchemaVersion, &value.Topic, &value.AggregateID, &payload, &value.Subscriber, &value.Attempts, &value.NextAttemptAt, &value.LockedBy, &value.LockedUntil, &value.DeliveredAt, &value.LastError, &value.CreatedAt)
 	if err == nil {
 		value.Payload, err = decodeJSON[map[string]any](payload)
 	}
@@ -31,7 +57,7 @@ func (s *Store) ClaimReadyNodeCommand(ctx context.Context, tenantID, jobID, owne
 		return domain.NodeRun{}, domain.Invalid("NODE_LEASE_INVALID", "节点租约需要执行者和正数时长")
 	}
 	var result domain.NodeRun
-	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, tenantID, "runtime.claim_ready_node", func(tx pgx.Tx) error {
 		query := runtimeNodeSelect + ` WHERE tenant_id=$1 AND state='ready'`
 		args := []any{tenantID}
 		if strings.TrimSpace(jobID) != "" {
@@ -83,7 +109,7 @@ func (s *Store) HeartbeatNodeCommand(ctx context.Context, tenantID, nodeID, owne
 		return domain.NodeRun{}, domain.Invalid("NODE_HEARTBEAT_INVALID", "节点心跳需要执行者和正数时长")
 	}
 	var result domain.NodeRun
-	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, tenantID, "runtime.heartbeat_node", func(tx pgx.Tx) error {
 		node, err := scanRuntimeNode(tx.QueryRow(ctx, runtimeNodeSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, nodeID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("执行节点")
@@ -127,7 +153,7 @@ func (s *Store) ApplyJobTransition(ctx context.Context, next domain.JobRun, expe
 	if err := next.Validate(); err != nil {
 		return next, err
 	}
-	err := s.withTenant(ctx, next.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, next.TenantID, "runtime.apply_job_transition", func(tx pgx.Tx) error {
 		current, err := scanRuntimeJob(tx.QueryRow(ctx, runtimeJobSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, next.TenantID, next.ID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("执行实例")
@@ -170,7 +196,7 @@ func (s *Store) ApplyGraphPatchCommand(ctx context.Context, next domain.JobRun, 
 			return next, domain.Invalid("NODE_RUN_SCOPE_INVALID", "GraphPatch 新节点不属于当前执行实例")
 		}
 	}
-	err := s.withTenant(ctx, next.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, next.TenantID, "runtime.apply_graph_patch", func(tx pgx.Tx) error {
 		current, err := scanRuntimeJob(tx.QueryRow(ctx, runtimeJobSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, next.TenantID, next.ID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("执行实例")
@@ -227,7 +253,7 @@ func (s *Store) ApplyNodeTransition(ctx context.Context, next domain.NodeRun, ex
 	if err := next.Validate(); err != nil {
 		return next, err
 	}
-	err := s.withTenant(ctx, next.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, next.TenantID, "runtime.apply_node_transition", func(tx pgx.Tx) error {
 		current, err := scanRuntimeNode(tx.QueryRow(ctx, runtimeNodeSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, next.TenantID, next.ID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("执行节点")
@@ -263,7 +289,7 @@ func (s *Store) ApplyStateMutation(ctx context.Context, tenantID, jobID string, 
 		return domain.RuntimeState{}, domain.Invalid("RUNTIME_STATE_MUTATION_INVALID", "状态变更需要集合名和幂等键")
 	}
 	var state domain.RuntimeState
-	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, tenantID, "runtime.apply_state_mutation", func(tx pgx.Tx) error {
 		var err error
 		state, err = scanRuntimeState(tx.QueryRow(ctx, runtimeStateSelect+` WHERE tenant_id=$1 AND job_run_id=$2 AND collection=$3 FOR UPDATE`, tenantID, jobID, mutation.Collection))
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -319,7 +345,7 @@ func (s *Store) RegisterEffectCommand(ctx context.Context, effect domain.Externa
 	if effect.ID == "" || effect.TenantID == "" || effect.JobRunID == "" || effect.Kind == "" || effect.IdempotencyKey == "" || effect.RequestDigest == "" || effect.Version < 1 || effect.CreatedAt.IsZero() || effect.UpdatedAt.IsZero() {
 		return effect, domain.Invalid("EFFECT_INVALID", "外部操作缺少执行引用、幂等键或请求摘要")
 	}
-	err := s.withTenant(ctx, effect.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, effect.TenantID, "runtime.register_effect", func(tx pgx.Tx) error {
 		existing, err := scanRuntimeEffect(tx.QueryRow(ctx, runtimeEffectSelect+` WHERE tenant_id=$1 AND idempotency_key=$2 FOR UPDATE`, effect.TenantID, effect.IdempotencyKey))
 		if err == nil {
 			effect = existing
@@ -338,8 +364,37 @@ func (s *Store) RegisterEffectCommand(ctx context.Context, effect domain.Externa
 	return effect, err
 }
 
+func (s *Store) RegisterFencedEffectCommand(ctx context.Context, effect domain.ExternalEffect, fenceToken string, now time.Time, event domain.JobEvent) (domain.ExternalEffect, error) {
+	if effect.ID == "" || effect.TenantID == "" || effect.JobRunID == "" || effect.AttemptID == "" || effect.Kind == "" || effect.IdempotencyKey == "" || effect.RequestDigest == "" || effect.Version < 1 || effect.CreatedAt.IsZero() || effect.UpdatedAt.IsZero() {
+		return effect, domain.Invalid("EFFECT_INVALID", "外部操作缺少 Attempt、幂等键或请求摘要")
+	}
+	err := s.withTenantCommand(ctx, effect.TenantID, "runtime.register_fenced_effect", func(tx pgx.Tx) error {
+		if err := validateAttemptFenceTx(ctx, tx, effect.TenantID, effect.AttemptID, fenceToken, now); err != nil {
+			return err
+		}
+		existing, err := scanRuntimeEffect(tx.QueryRow(ctx, runtimeEffectSelect+` WHERE tenant_id=$1 AND idempotency_key=$2 FOR UPDATE`, effect.TenantID, effect.IdempotencyKey))
+		if err == nil {
+			if existing.AttemptID != effect.AttemptID || existing.RequestDigest != effect.RequestDigest {
+				return domain.Conflict("EFFECT_IDEMPOTENCY_MISMATCH", "Effect 幂等键已用于不同 Attempt 或请求摘要")
+			}
+			effect = existing
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO runtime_effects(tenant_id,id,job_run_id,node_run_id,attempt_id,resource_reservation_id,kind,idempotency_key,state,external_id,request_digest,response_digest,cost_minor,currency,safe_summary,error_code,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, effect.TenantID, effect.ID, effect.JobRunID, effect.NodeRunID, effect.AttemptID, effect.ResourceReservationID, effect.Kind, effect.IdempotencyKey, effect.State, effect.ExternalID, effect.RequestDigest, effect.ResponseDigest, effect.CostMinor, effect.Currency, jsonValue(effect.SafeSummary), effect.ErrorCode, effect.Version, effect.CreatedAt, effect.UpdatedAt); err != nil {
+			return dbError(err)
+		}
+		event.TenantID, event.JobRunID = effect.TenantID, effect.JobRunID
+		_, err = appendRuntimeEventTx(ctx, tx, event)
+		return err
+	})
+	return effect, err
+}
+
 func (s *Store) ApplyEffectTransition(ctx context.Context, next domain.ExternalEffect, expectedVersion int, event domain.JobEvent) (domain.ExternalEffect, error) {
-	err := s.withTenant(ctx, next.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, next.TenantID, "runtime.apply_effect_transition", func(tx pgx.Tx) error {
 		current, err := scanRuntimeEffect(tx.QueryRow(ctx, runtimeEffectSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, next.TenantID, next.ID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("外部操作")
@@ -367,13 +422,17 @@ func (s *Store) ApplyEffectTransition(ctx context.Context, next domain.ExternalE
 	return next, err
 }
 
-func (s *Store) RuntimeOutboxMessages(ctx context.Context, tenantID string, now time.Time, limit int) ([]domain.RuntimeOutboxMessage, error) {
+func (s *Store) RuntimeOutboxMessages(ctx context.Context, tenantID, subscriber string, now time.Time, limit int) ([]domain.RuntimeOutboxMessage, error) {
+	subscriber = strings.TrimSpace(subscriber)
+	if subscriber == "" {
+		return nil, domain.Invalid("OUTBOX_SUBSCRIBER_REQUIRED", "outbox 查询需要订阅者")
+	}
 	if limit <= 0 {
 		limit = 100
 	}
 	result := []domain.RuntimeOutboxMessage{}
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, runtimeOutboxSelect+` WHERE tenant_id=$1 AND delivered_at IS NULL AND next_attempt_at<=$2 AND (locked_until IS NULL OR locked_until<=$2) ORDER BY next_attempt_at,id LIMIT $3`, tenantID, now, limit)
+		rows, err := tx.Query(ctx, runtimeOutboxSelect+` WHERE m.tenant_id=$1 AND r.subscriber=$2 AND r.delivered_at IS NULL AND r.next_attempt_at<=$3 AND (r.locked_until IS NULL OR r.locked_until<=$3) ORDER BY r.next_attempt_at,m.id LIMIT $4`, tenantID, subscriber, now, limit)
 		if err != nil {
 			return err
 		}
@@ -390,10 +449,10 @@ func (s *Store) RuntimeOutboxMessages(ctx context.Context, tenantID string, now 
 	return result, err
 }
 
-func (s *Store) ClaimRuntimeOutbox(ctx context.Context, tenantID, consumer string, now time.Time, leaseFor time.Duration, limit int) ([]domain.RuntimeOutboxMessage, error) {
-	consumer = strings.TrimSpace(consumer)
-	if consumer == "" || leaseFor <= 0 {
-		return nil, domain.Invalid("OUTBOX_CLAIM_INVALID", "outbox 认领需要消费者和正数租约")
+func (s *Store) ClaimRuntimeOutbox(ctx context.Context, tenantID, subscriber, worker string, now time.Time, leaseFor time.Duration, limit int) ([]domain.RuntimeOutboxMessage, error) {
+	subscriber, worker = strings.TrimSpace(subscriber), strings.TrimSpace(worker)
+	if subscriber == "" || worker == "" || leaseFor <= 0 {
+		return nil, domain.Invalid("OUTBOX_CLAIM_INVALID", "outbox 认领需要订阅者、工作器和正数租约")
 	}
 	if limit <= 0 {
 		limit = 100
@@ -401,7 +460,7 @@ func (s *Store) ClaimRuntimeOutbox(ctx context.Context, tenantID, consumer strin
 	lockedUntil := now.Add(leaseFor)
 	result := []domain.RuntimeOutboxMessage{}
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, runtimeOutboxSelect+` WHERE tenant_id=$1 AND delivered_at IS NULL AND next_attempt_at<=$2 AND (locked_until IS NULL OR locked_until<=$2) ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT $3`, tenantID, now, limit)
+		rows, err := tx.Query(ctx, runtimeOutboxSelect+` WHERE m.tenant_id=$1 AND r.subscriber=$2 AND r.delivered_at IS NULL AND r.next_attempt_at<=$3 AND (r.locked_until IS NULL OR r.locked_until<=$3) ORDER BY r.next_attempt_at,m.id FOR UPDATE OF r SKIP LOCKED LIMIT $4`, tenantID, subscriber, now, limit)
 		if err != nil {
 			return dbError(err)
 		}
@@ -418,14 +477,14 @@ func (s *Store) ClaimRuntimeOutbox(ctx context.Context, tenantID, consumer strin
 			return dbError(err)
 		}
 		for _, candidate := range candidates {
-			updated, err := tx.Exec(ctx, `UPDATE runtime_outbox SET locked_by=$3,locked_until=$4,attempts=attempts+1 WHERE tenant_id=$1 AND id=$2 AND delivered_at IS NULL AND (locked_until IS NULL OR locked_until<=$5)`, tenantID, candidate.ID, consumer, lockedUntil, now)
+			updated, err := tx.Exec(ctx, `UPDATE runtime_outbox_receipts SET locked_by=$4,locked_until=$5,attempts=attempts+1 WHERE tenant_id=$1 AND message_id=$2 AND subscriber=$3 AND delivered_at IS NULL AND (locked_until IS NULL OR locked_until<=$6)`, tenantID, candidate.ID, subscriber, worker, lockedUntil, now)
 			if err != nil {
 				return dbError(err)
 			}
 			if updated.RowsAffected() != 1 {
 				continue
 			}
-			candidate.LockedBy = consumer
+			candidate.LockedBy = worker
 			candidate.LockedUntil = &lockedUntil
 			candidate.Attempts++
 			result = append(result, candidate)
@@ -435,13 +494,13 @@ func (s *Store) ClaimRuntimeOutbox(ctx context.Context, tenantID, consumer strin
 	return result, err
 }
 
-func (s *Store) AckRuntimeOutbox(ctx context.Context, tenantID, messageID, consumer string, deliveredAt time.Time) error {
-	consumer = strings.TrimSpace(consumer)
-	if consumer == "" || deliveredAt.IsZero() {
-		return domain.Invalid("OUTBOX_ACK_INVALID", "outbox 确认需要消费者和确认时间")
+func (s *Store) AckRuntimeOutbox(ctx context.Context, tenantID, messageID, subscriber, worker string, deliveredAt time.Time) error {
+	subscriber, worker = strings.TrimSpace(subscriber), strings.TrimSpace(worker)
+	if subscriber == "" || worker == "" || deliveredAt.IsZero() {
+		return domain.Invalid("OUTBOX_ACK_INVALID", "outbox 确认需要订阅者、工作器和确认时间")
 	}
 	return s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE runtime_outbox SET delivered_at=$4,locked_by='',locked_until=NULL,last_error='' WHERE tenant_id=$1 AND id=$2 AND delivered_at IS NULL AND locked_by=$3 AND locked_until>$4`, tenantID, messageID, consumer, deliveredAt)
+		result, err := tx.Exec(ctx, `UPDATE runtime_outbox_receipts SET delivered_at=$5,locked_by='',locked_until=NULL,last_error='' WHERE tenant_id=$1 AND message_id=$2 AND subscriber=$3 AND delivered_at IS NULL AND locked_by=$4 AND locked_until>$5`, tenantID, messageID, subscriber, worker, deliveredAt)
 		if err != nil {
 			return dbError(err)
 		}
@@ -452,16 +511,16 @@ func (s *Store) AckRuntimeOutbox(ctx context.Context, tenantID, messageID, consu
 	})
 }
 
-func (s *Store) RetryRuntimeOutbox(ctx context.Context, tenantID, messageID, consumer string, now, nextAttemptAt time.Time, lastError string) error {
-	consumer = strings.TrimSpace(consumer)
-	if consumer == "" || now.IsZero() || nextAttemptAt.IsZero() || strings.TrimSpace(lastError) == "" {
-		return domain.Invalid("OUTBOX_RETRY_INVALID", "outbox 重试需要消费者、时间和错误原因")
+func (s *Store) RetryRuntimeOutbox(ctx context.Context, tenantID, messageID, subscriber, worker string, now, nextAttemptAt time.Time, lastError string) error {
+	subscriber, worker = strings.TrimSpace(subscriber), strings.TrimSpace(worker)
+	if subscriber == "" || worker == "" || now.IsZero() || nextAttemptAt.IsZero() || strings.TrimSpace(lastError) == "" {
+		return domain.Invalid("OUTBOX_RETRY_INVALID", "outbox 重试需要订阅者、工作器、时间和错误原因")
 	}
 	if nextAttemptAt.Before(now) {
 		return domain.Invalid("OUTBOX_RETRY_INVALID", "outbox 下次尝试时间不能早于当前时间")
 	}
 	return s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE runtime_outbox SET next_attempt_at=$4,locked_by='',locked_until=NULL,last_error=$5 WHERE tenant_id=$1 AND id=$2 AND delivered_at IS NULL AND locked_by=$3 AND locked_until>$6`, tenantID, messageID, consumer, nextAttemptAt, strings.TrimSpace(lastError), now)
+		result, err := tx.Exec(ctx, `UPDATE runtime_outbox_receipts SET next_attempt_at=$5,locked_by='',locked_until=NULL,last_error=$6 WHERE tenant_id=$1 AND message_id=$2 AND subscriber=$3 AND delivered_at IS NULL AND locked_by=$4 AND locked_until>$7`, tenantID, messageID, subscriber, worker, nextAttemptAt, strings.TrimSpace(lastError), now)
 		if err != nil {
 			return dbError(err)
 		}

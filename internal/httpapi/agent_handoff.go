@@ -80,7 +80,15 @@ func (s *Server) reviewFeedbackHandoffContext(r *http.Request) (string, string, 
 	if err == nil && len(view.Comments) == 0 && view.Submission.Status != "changes_requested" {
 		err = domain.Conflict("AGENT_HANDOFF_FEEDBACK_REQUIRED", "该提交版本尚无可恢复的审核反馈")
 	}
-	return project.ID, view.Revision.ID, codexHandoffDigest(view.Revision.ContentHash), err
+	return project.ID, view.Revision.ID, handoffDigest(view.Revision.ContentHash), err
+}
+
+func handoffDigest(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if !strings.HasPrefix(value, "sha256:") {
+		value = "sha256:" + value
+	}
+	return value
 }
 
 func newProjectAgentHandoff(clientID, projectID string) (agentadapter.Handoff, error) {

@@ -12,7 +12,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
-func TestWorkspaceSubmissionApprovalCreatesImmutableSnapshotWithoutTaskRun(t *testing.T) {
+func TestWorkspaceSubmissionApprovalDoesNotStartRuntimeRun(t *testing.T) {
 	ctx := context.Background()
 	service := app.New(memory.New(), slog.Default())
 	session, err := service.Register(ctx, "submission@example.com", "long-enough-password", "Owner", "Agency")
@@ -104,7 +104,7 @@ func TestWorkspaceSubmissionApprovalCreatesImmutableSnapshotWithoutTaskRun(t *te
 	}
 	runs, err := service.Runs(ctx, admin, project.ID)
 	if err != nil || len(runs) != 0 {
-		t.Fatalf("ordinary local publish must not create TaskRun: %#v %v", runs, err)
+		t.Fatalf("ordinary local publish must not start RuntimeRun: %#v %v", runs, err)
 	}
 }
 

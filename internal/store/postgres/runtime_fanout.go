@@ -140,7 +140,7 @@ func (s *Store) CreateFanoutSetCommand(ctx context.Context, nextJob domain.JobRu
 			return nextJob, err
 		}
 	}
-	err := s.withTenant(ctx, set.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, set.TenantID, "runtime.create_fanout", func(tx pgx.Tx) error {
 		currentJob, err := scanRuntimeJob(tx.QueryRow(ctx, runtimeJobSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, nextJob.TenantID, nextJob.ID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("执行实例")
@@ -192,7 +192,7 @@ func (s *Store) ApplyFanoutJoinCommand(ctx context.Context, set domain.FanoutSet
 		return set, err
 	}
 	var result domain.FanoutSet
-	err := s.withTenant(ctx, set.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, set.TenantID, "runtime.apply_fanout_join", func(tx pgx.Tx) error {
 		current, err := scanRuntimeFanoutSet(tx.QueryRow(ctx, runtimeFanoutSetSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, set.TenantID, set.ID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("FanoutSet")

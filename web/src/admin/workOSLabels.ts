@@ -8,7 +8,6 @@ export const workOSTerm = {
   stage: '流程阶段',
   task: '任务',
   workTask: '工作任务',
-  taskRun: '执行记录',
   revision: '内容版本',
   digest: '配置摘要',
   capability: '本地能力'

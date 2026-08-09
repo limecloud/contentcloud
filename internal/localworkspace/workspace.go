@@ -498,7 +498,7 @@ func replaceFile(path string, body []byte, mode fs.FileMode) error {
 	return os.Rename(temporaryPath, path)
 }
 
-const defaultMCPCLIVersion = "0.21.0"
+const defaultMCPCLIVersion = "0.22.0"
 
 func template(targets []string) ([]templateFile, []string, error) {
 	return templateWithCLIVersion(targets, defaultMCPCLIVersion)
@@ -507,12 +507,12 @@ func template(targets []string) ([]templateFile, []string, error) {
 func templateWithCLIVersion(targets []string, cliVersion string) ([]templateFile, []string, error) {
 	cliVersion = normalizeMCPCLIVersion(cliVersion)
 	dirs := []string{
-		".contentcloud/inbox/assignments", ".contentcloud/inbox/review-feedback", ".contentcloud/inbox/decisions", ".contentcloud/cache/approved", ".contentcloud/cache/schemas", ".contentcloud/locks/runs", ".contentcloud/mcp", ".contentcloud/tmp",
+		".contentcloud/inbox/assignments", ".contentcloud/inbox/review-feedback", ".contentcloud/inbox/decisions", ".contentcloud/cache/approved", ".contentcloud/cache/schemas", ".contentcloud/cache/memory", ".contentcloud/locks/runs", ".contentcloud/locks", ".contentcloud/mcp", ".contentcloud/tmp",
 		"00-inbox/ideas", "00-inbox/unregistered-sources",
 		"10-context/intents",
 		"20-sources/originals", "20-sources/extracts",
 		"30-knowledge/schema", "30-knowledge/pages/sources", "30-knowledge/pages/evidence", "30-knowledge/pages/facts", "30-knowledge/pages/claims", "30-knowledge/pages/assets", "30-knowledge/pages/rights", "30-knowledge/pages/conflicts", "30-knowledge/pages/domain", "30-knowledge/imports", "30-knowledge/packs",
-		"40-work/queues", "40-work/runs", "40-work/handoffs",
+		"40-work/queues", "40-work/runs", "40-work/handoffs", "40-work/memory/records",
 		"50-production/plans", "50-production/campaigns", "50-production/strategies", "50-production/offers", "50-production/briefs", "50-production/batches", "50-production/scripts", "50-production/media", "50-production/media/storyboards",
 		"60-delivery/packages", "60-delivery/exports",
 		"70-results/imports", "70-results/observations", "70-results/learnings",
@@ -522,6 +522,7 @@ func templateWithCLIVersion(targets []string, cliVersion string) ([]templateFile
 		{path: "AGENTS.md", mode: "managed_block", body: []byte(capabilityrouting.ManagedBlock())},
 		{path: "00-inbox/.gitignore", mode: "managed_replace", body: []byte("unregistered-sources/*\n!unregistered-sources/.gitkeep\n")},
 		{path: "00-inbox/unregistered-sources/.gitkeep", mode: "managed_replace", body: []byte{}},
+		{path: ".contentcloud/cache/memory/.gitignore", mode: "managed_replace", body: []byte("*\n!.gitignore\n")},
 		{path: "10-context/client.yaml", mode: "seed_once", body: []byte(contextClientYAML)},
 		{path: "10-context/project-brief.yaml", mode: "seed_once", body: []byte(contextProjectBriefYAML)},
 		{path: "10-context/project.yaml", mode: "seed_once", body: []byte(contextProjectYAML)},

@@ -851,8 +851,22 @@ type JobEvent struct {
 	OccurredAt     time.Time      `json:"occurred_at"`
 }
 
-// RuntimeOutboxMessage is the durable delivery record paired with a JobEvent.
-// It is written in the same transaction as the authoritative snapshot and event.
+const (
+	RuntimeOutboxSubscriberProjection     = "runtime_projection"
+	RuntimeOutboxSubscriberBusinessResult = "runtime_business_result"
+)
+
+func RuntimeOutboxSubscribers(eventType string) []string {
+	result := []string{RuntimeOutboxSubscriberProjection}
+	if eventType == "attempt.succeeded" {
+		result = append(result, RuntimeOutboxSubscriberBusinessResult)
+	}
+	return result
+}
+
+// RuntimeOutboxMessage joins an immutable JobEvent delivery message with one
+// subscriber's durable receipt. Each subscriber owns an independent lease,
+// retry schedule and acknowledgement.
 type RuntimeOutboxMessage struct {
 	ID            string         `json:"id"`
 	TenantID      string         `json:"tenant_id"`
@@ -861,6 +875,7 @@ type RuntimeOutboxMessage struct {
 	Topic         string         `json:"topic"`
 	AggregateID   string         `json:"aggregate_id"`
 	Payload       map[string]any `json:"payload"`
+	Subscriber    string         `json:"subscriber"`
 	Attempts      int            `json:"attempts"`
 	NextAttemptAt time.Time      `json:"next_attempt_at"`
 	LockedBy      string         `json:"locked_by,omitempty"`
@@ -885,6 +900,46 @@ type RuntimeProjectionStats struct {
 	Pending         int        `json:"pending"`
 	OldestPending   *time.Time `json:"oldest_pending,omitempty"`
 	LastProjectedAt *time.Time `json:"last_projected_at,omitempty"`
+}
+
+type RuntimeOutboxStats struct {
+	TenantID      string     `json:"tenant_id"`
+	Subscriber    string     `json:"subscriber"`
+	Pending       int        `json:"pending"`
+	OldestPending *time.Time `json:"oldest_pending,omitempty"`
+}
+
+const (
+	RuntimeMaintenanceReaper   = "runtime_reaper"
+	RuntimeMaintenanceDelivery = "runtime_delivery"
+)
+
+type RuntimeMaintenanceHeartbeat struct {
+	TenantID      string     `json:"tenant_id"`
+	Kind          string     `json:"kind"`
+	WorkerID      string     `json:"worker_id"`
+	State         string     `json:"state"`
+	LastStartedAt time.Time  `json:"last_started_at"`
+	LastSuccessAt *time.Time `json:"last_success_at,omitempty"`
+	LastErrorCode string     `json:"last_error_code,omitempty"`
+	Version       int        `json:"version"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+func (heartbeat RuntimeMaintenanceHeartbeat) Validate() error {
+	if heartbeat.TenantID == "" || heartbeat.WorkerID == "" || heartbeat.LastStartedAt.IsZero() || heartbeat.UpdatedAt.IsZero() {
+		return Invalid("RUNTIME_MAINTENANCE_HEARTBEAT_INVALID", "Runtime 运维心跳缺少租户、工作器或时间")
+	}
+	if heartbeat.Kind != RuntimeMaintenanceReaper && heartbeat.Kind != RuntimeMaintenanceDelivery {
+		return Invalid("RUNTIME_MAINTENANCE_HEARTBEAT_INVALID", "Runtime 运维心跳类型无效")
+	}
+	if heartbeat.State != "running" && heartbeat.State != "succeeded" && heartbeat.State != "failed" {
+		return Invalid("RUNTIME_MAINTENANCE_HEARTBEAT_INVALID", "Runtime 运维心跳状态无效")
+	}
+	if heartbeat.State == "succeeded" && heartbeat.LastSuccessAt == nil {
+		return Invalid("RUNTIME_MAINTENANCE_HEARTBEAT_INVALID", "成功的 Runtime 运维心跳缺少完成时间")
+	}
+	return nil
 }
 
 type RuntimeProjectionRebuildRun struct {
@@ -960,6 +1015,32 @@ type ResourceQuota struct {
 	Unit        string    `json:"unit"`
 	Version     int       `json:"version"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// RuntimeTenantCapacity is an observability projection, never a scheduler
+// authority. Held excludes reservations whose lease has already expired so a
+// stale worker cannot make a tenant appear to consume capacity forever.
+type RuntimeTenantCapacity struct {
+	TenantID       string    `json:"tenant_id"`
+	ResourceKey    string    `json:"resource_key"`
+	Unit           string    `json:"unit"`
+	Capacity       int64     `json:"capacity"`
+	Held           int64     `json:"held"`
+	ExpiredHeld    int64     `json:"expired_held"`
+	UtilizationBPS int64     `json:"utilization_bps"`
+	ObservedAt     time.Time `json:"observed_at"`
+}
+
+type RuntimeFairnessReport struct {
+	ResourceKey       string                  `json:"resource_key"`
+	Unit              string                  `json:"unit"`
+	Tenants           []RuntimeTenantCapacity `json:"tenants"`
+	TotalCapacity     int64                   `json:"total_capacity"`
+	TotalHeld         int64                   `json:"total_held"`
+	JainIndexBPS      int64                   `json:"jain_index_bps"`
+	MaxUtilizationBPS int64                   `json:"max_utilization_bps"`
+	MinUtilizationBPS int64                   `json:"min_utilization_bps"`
+	ObservedAt        time.Time               `json:"observed_at"`
 }
 
 func (quota ResourceQuota) Validate() error {
@@ -1044,6 +1125,52 @@ type StateCollection struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
+type RuntimeSchema struct {
+	TenantID        string         `json:"tenant_id"`
+	SchemaID        string         `json:"schema_id"`
+	Revision        int            `json:"revision"`
+	Status          string         `json:"status"`
+	Compatibility   string         `json:"compatibility"`
+	Definition      map[string]any `json:"definition"`
+	Digest          string         `json:"digest"`
+	RetentionPolicy string         `json:"retention_policy"`
+	RetainUntil     *time.Time     `json:"retain_until,omitempty"`
+	CreatedBy       string         `json:"created_by"`
+	CreatedAt       time.Time      `json:"created_at"`
+	PublishedAt     *time.Time     `json:"published_at,omitempty"`
+	RetiredAt       *time.Time     `json:"retired_at,omitempty"`
+	Version         int            `json:"version"`
+}
+
+func (schema RuntimeSchema) Validate() error {
+	if strings.TrimSpace(schema.TenantID) == "" || strings.TrimSpace(schema.SchemaID) == "" || schema.Revision < 1 || schema.Version < 1 || strings.TrimSpace(schema.Status) == "" || strings.TrimSpace(schema.Compatibility) == "" || schema.Definition == nil || strings.TrimSpace(schema.Digest) == "" || strings.TrimSpace(schema.RetentionPolicy) == "" || strings.TrimSpace(schema.CreatedBy) == "" || schema.CreatedAt.IsZero() {
+		return Invalid("RUNTIME_SCHEMA_INVALID", "Runtime Schema 缺少租户、版本、定义、摘要或保留策略")
+	}
+	if !validSHA256Digest(schema.Digest) {
+		return Invalid("RUNTIME_SCHEMA_DIGEST_INVALID", "Runtime Schema 摘要无效")
+	}
+	switch schema.Status {
+	case "draft":
+		if schema.PublishedAt != nil || schema.RetiredAt != nil {
+			return Invalid("RUNTIME_SCHEMA_DRAFT_INVALID", "draft Schema 不能包含发布或退役时间")
+		}
+	case "published":
+		if schema.PublishedAt == nil || schema.RetiredAt != nil {
+			return Invalid("RUNTIME_SCHEMA_PUBLISHED_INVALID", "published Schema 必须包含发布时间且不能已退役")
+		}
+	case "retired":
+		if schema.PublishedAt == nil || schema.RetiredAt == nil {
+			return Invalid("RUNTIME_SCHEMA_RETIRED_INVALID", "retired Schema 必须包含发布和退役时间")
+		}
+	default:
+		return Invalid("RUNTIME_SCHEMA_STATUS_INVALID", "Runtime Schema 状态无效")
+	}
+	if schema.Compatibility != "backward" && schema.Compatibility != "full" && schema.Compatibility != "none" {
+		return Invalid("RUNTIME_SCHEMA_COMPATIBILITY_INVALID", "Runtime Schema 兼容策略无效")
+	}
+	return nil
+}
+
 func (collection StateCollection) Validate() error {
 	if collection.ID == "" || collection.TenantID == "" || collection.JobRunID == "" || collection.CollectionKey == "" || collection.SchemaID == "" || collection.SchemaRevision < 1 || collection.MaxRecordBytes <= 0 || collection.MaxRecords <= 0 || collection.Revision < 0 || collection.UpdatedAt.IsZero() {
 		return Invalid("STATE_COLLECTION_INVALID", "状态集合缺少范围、Schema、大小或版本约束")
@@ -1101,6 +1228,7 @@ type ToolCall struct {
 	SchemaVersion   string         `json:"schema_version"`
 	RequestDigest   string         `json:"request_digest"`
 	SafeRequest     map[string]any `json:"safe_request"`
+	SafeResult      map[string]any `json:"safe_result,omitempty"`
 	ResultDigest    string         `json:"result_digest,omitempty"`
 	State           string         `json:"state"`
 	ErrorCode       string         `json:"error_code,omitempty"`
@@ -1168,7 +1296,7 @@ func (e ExternalEffect) Transition(next string) error {
 	}
 	allowed := map[string]map[string]bool{
 		EffectRegistered:   {EffectSubmitted: true, EffectUnknown: true, EffectFailed: true},
-		EffectSubmitted:    {EffectAcknowledged: true, EffectUnknown: true, EffectFailed: true},
+		EffectSubmitted:    {EffectAcknowledged: true, EffectSucceeded: true, EffectUnknown: true, EffectFailed: true},
 		EffectAcknowledged: {EffectSucceeded: true, EffectFailed: true, EffectUnknown: true},
 		EffectUnknown:      {EffectReconciling: true, EffectManual: true},
 		EffectReconciling:  {EffectSucceeded: true, EffectFailed: true, EffectManual: true},

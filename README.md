@@ -156,6 +156,13 @@ pnpm check:plugin
 
 设置 `CONTENTCLOUD_TEST_DATABASE_URL` 后，`go test ./...` 会额外执行真实 PostgreSQL migration、runtime-role RLS 隔离和来源处理生命周期测试。
 
+PostgreSQL 集成测试必须使用可重建的专用开发库；推荐先创建数据库并将 URL 指向 `contentcloud` 角色，再执行：
+
+```bash
+CONTENTCLOUD_TEST_DATABASE_URL='postgres://contentcloud@127.0.0.1:5432/<专用测试库>?sslmode=disable' \
+GOMAXPROCS=2 go test -race -p 1 -count=1 ./internal/store/postgres
+```
+
 ## 当前实现事实
 
 当前实现事实以代码、数据库迁移、契约、自动化测试、`CHANGELOG.md` 和 [`docs/content`](docs/content/README.md) 中标记为“可用”的页面为准。平台基线和 V8 记录迁移目标与差距；历史路线图仅作为背景和兼容证据，不再作为当前能力入口。

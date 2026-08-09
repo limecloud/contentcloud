@@ -16,7 +16,7 @@ func TestProjectorPersistsExplorerAfterOutboxClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	projector := NewProjector(repo, time.Now)
-	result, err := projector.RunOnce(t.Context(), "tenant-1", "runtime", "projector-1", time.Minute, 20)
+	result, err := projector.RunOnce(t.Context(), "tenant-1", "projector-1", time.Minute, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestProjectorAcksOutboxWhenProjectionIsAlreadyAhead(t *testing.T) {
 	if err := repo.SaveRuntimeExplorer(t.Context(), domain.RuntimeExplorerView{TenantID: "tenant-1", JobRunID: started.Job.ID, Job: job, Nodes: nodes, LastEventSeq: 999, SourceEventID: "newer-event", ProjectedAt: projectedAt}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := NewProjector(repo, time.Now).RunOnce(t.Context(), "tenant-1", "runtime", "projector-stale", time.Minute, 20)
+	result, err := NewProjector(repo, time.Now).RunOnce(t.Context(), "tenant-1", "projector-stale", time.Minute, 20)
 	if err != nil {
 		t.Fatal(err)
 	}

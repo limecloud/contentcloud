@@ -27,17 +27,12 @@ func TestClientRegistryResolvesAliasesAndPlannedCapabilities(t *testing.T) {
 	}
 }
 
-func TestAutomationStrategiesMatchAvailableRegistryCapabilities(t *testing.T) {
-	for _, client := range Clients() {
-		_, implemented := automationFactories[client.ID]
-		available := client.CapabilityStatus(CapabilityLocalAutomation) == SupportAvailable
-		if implemented != available {
-			t.Fatalf("automation strategy drift for %s: implemented=%t available=%t", client.ID, implemented, available)
-		}
+func TestHarnessKindsNormalizeToCanonicalNames(t *testing.T) {
+	if got := normalizeHarnessKind("claude-code"); got != "claude" {
+		t.Fatalf("Claude alias normalized to %q, want claude", got)
 	}
-	adapter, err := Select("claude")
-	if err != nil || adapter.Kind() != "claude-code" {
-		t.Fatalf("legacy Claude alias was not normalized: adapter=%#v err=%v", adapter, err)
+	if got := normalizeHarnessKind("codex"); got != "codex" {
+		t.Fatalf("Codex kind normalized to %q, want codex", got)
 	}
 }
 
@@ -59,20 +54,7 @@ func TestHandoffStrategiesMatchAvailableRegistryCapabilities(t *testing.T) {
 	}
 }
 
-func TestSelectionAndHandoffFailClosedForUnsupportedInputs(t *testing.T) {
-	for _, client := range []string{"unknown-agent", "cursor"} {
-		_, err := Select(client)
-		var domainError *domain.Error
-		if !errors.As(err, &domainError) {
-			t.Fatalf("%s selection did not return a domain error: %v", client, err)
-		}
-		if client == "unknown-agent" && domainError.Code != "AGENT_CLIENT_INVALID" {
-			t.Fatalf("unknown client error = %s", domainError.Code)
-		}
-		if client == "cursor" && domainError.Code != "AGENT_CLIENT_CAPABILITY_UNAVAILABLE" {
-			t.Fatalf("planned client error = %s", domainError.Code)
-		}
-	}
+func TestHandoffFailsClosedForUnsupportedInput(t *testing.T) {
 	adapter, err := SelectHandoff("codex", "0.10.0")
 	if err != nil {
 		t.Fatal(err)
@@ -84,22 +66,6 @@ func TestSelectionAndHandoffFailClosedForUnsupportedInputs(t *testing.T) {
 	}
 }
 
-func TestDecodeClaudeStructuredOutput(t *testing.T) {
-	pkg := domain.KnowledgeExtractionPackage{SchemaVersion: "1.0", Candidates: []domain.KnowledgeCandidate{}, Warnings: []string{"missing source"}}
-	body, _ := json.Marshal(map[string]any{"structured_output": pkg})
-	output, err := decodeClaudeOutput(body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got domain.KnowledgeExtractionPackage
-	if err := json.Unmarshal(output, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.SchemaVersion != "1.0" || len(got.Warnings) != 1 {
-		t.Fatalf("unexpected package: %#v", got)
-	}
-}
-
 func TestAgentEnvironmentDoesNotInheritUnrelatedSecret(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "provider-key")
 	t.Setenv("CONTENTCLOUD_TEST_SECRET", "do-not-inherit")
@@ -107,7 +73,7 @@ func TestAgentEnvironmentDoesNotInheritUnrelatedSecret(t *testing.T) {
 	t.Setenv("CONTENTCLOUD_WORKSPACE_TOKEN", "wt_do-not-inherit")
 	t.Setenv("CONTENTCLOUD_RUN_TOKEN", "rt_do-not-inherit")
 	providerInherited := false
-	for _, value := range agentEnvironment("codex") {
+	for _, value := range agentEnvironment("claude") {
 		if strings.Contains(value, "do-not-inherit") {
 			t.Fatalf("ContentCloud control-plane secret inherited: %s", value)
 		}
@@ -117,17 +83,6 @@ func TestAgentEnvironmentDoesNotInheritUnrelatedSecret(t *testing.T) {
 	}
 	if !providerInherited {
 		t.Fatal("provider environment was not inherited by the automation agent")
-	}
-}
-
-func TestAutomationArgumentsUsePreauthorizedFullAccess(t *testing.T) {
-	codex := strings.Join(codexRunArguments("/tmp/attempt", "/tmp/attempt/result.json"), " ")
-	if !strings.Contains(codex, "--dangerously-bypass-approvals-and-sandbox") || strings.Contains(codex, "read-only") {
-		t.Fatalf("Codex automation arguments are not full access: %s", codex)
-	}
-	claude := strings.Join(claudeRunArguments([]byte(`{"type":"object"}`), "prompt"), " ")
-	if !strings.Contains(claude, "--permission-mode bypassPermissions") || strings.Contains(claude, "--tools ") || strings.Contains(claude, "--safe-mode") {
-		t.Fatalf("Claude automation arguments disable autonomous execution: %s", claude)
 	}
 }
 

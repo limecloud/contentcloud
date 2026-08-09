@@ -65,6 +65,7 @@ type Store struct {
 	runtimeFanoutMembers      map[string]domain.FanoutMember
 	runtimeEvents             map[string][]domain.JobEvent
 	runtimeOutbox             map[string]domain.RuntimeOutboxMessage
+	runtimeOutboxReceipts     map[string]runtimeOutboxReceipt
 	runtimeContextViews       map[string]domain.ContextView
 	runtimeAgents             map[string]domain.AgentInstance
 	runtimeAttempts           map[string]domain.RuntimeAttempt
@@ -81,8 +82,10 @@ type Store struct {
 	runtimeToolCalls          map[string]domain.ToolCall
 	runtimeProjections        map[string]domain.RuntimeExplorerView
 	runtimeProjectionRebuilds map[string]domain.RuntimeProjectionRebuildRun
+	runtimeMaintenance        map[string]domain.RuntimeMaintenanceHeartbeat
 	runtimeResourceQuotas     map[string]domain.ResourceQuota
 	runtimeReservations       map[string]domain.ResourceReservation
+	runtimeSchemas            map[string]domain.RuntimeSchema
 	approvals                 map[string]domain.ApprovalDecision
 	reviewCycles              map[string]domain.ReviewCycle
 	reviewComments            map[string]domain.ReviewComment
@@ -105,9 +108,22 @@ func New() *Store {
 		connects: map[string]domain.ConnectSession{}, bootstrapAttempts: map[string]domain.BootstrapAttempt{}, bootstrapEvents: map[string]map[int64]domain.BootstrapProgressEvent{}, bootstrapDiagnostics: map[string]domain.BootstrapDiagnostic{}, devices: map[string]domain.Device{}, workspaceBindings: map[string]domain.WorkspaceBinding{}, userDeviceFlows: map[string]domain.UserDeviceFlow{}, cliTokens: map[string]domain.CLIToken{},
 		sources: map[string]domain.Source{}, revisions: map[string]domain.SourceRevision{}, evidence: map[string]domain.EvidenceSpan{}, assets: map[string]domain.Asset{}, workspaceFolders: map[string]domain.WorkspaceFolder{}, workspaceMaterials: map[string]domain.WorkspaceMaterial{}, rightsRecords: map[string]domain.RightsRecord{}, knowledgeObjects: map[string]domain.KnowledgeObject{}, knowledgeDecisions: map[string]domain.KnowledgeDecision{}, knowledgePacks: map[string]domain.KnowledgePack{}, knowledgeSnapshots: map[string]domain.KnowledgeSnapshot{}, environments: map[string]domain.Environment{}, sopDefinitions: map[string]domain.SOPDefinition{}, sopVersions: map[string]domain.SOPVersion{}, projectSOPBindings: map[string]domain.ProjectSOPBinding{}, workTasks: map[string]domain.WorkTask{}, inputItems: map[string]domain.InputItem{}, conversationImports: map[string]domain.ConversationImport{}, stageRuns: map[string]domain.StageRun{}, stageOutputs: map[string]domain.TaskStageOutput{}, providerProfiles: map[string]domain.ProviderProfile{}, providerBindings: map[string]domain.ProviderBinding{}, mediaJobs: map[string]domain.MediaGenerationJob{}, providerAttempts: map[string]domain.ProviderAttempt{}, mediaReviews: map[string]domain.MediaReview{}, gateEvaluations: map[string]domain.GateEvaluation{}, taskRevisions: map[string]domain.TaskRevision{}, taskDeliveries: map[string]domain.TaskDelivery{},
 		snapshots:    map[string]domain.ContextSnapshot{},
-		runtimePlans: map[string]domain.JobPlanRevision{}, runtimeJobs: map[string]domain.JobRun{}, runtimeNodes: map[string]domain.NodeRun{}, runtimeFanoutSets: map[string]domain.FanoutSet{}, runtimeFanoutMembers: map[string]domain.FanoutMember{}, runtimeEvents: map[string][]domain.JobEvent{}, runtimeOutbox: map[string]domain.RuntimeOutboxMessage{}, runtimeContextViews: map[string]domain.ContextView{}, runtimeAgents: map[string]domain.AgentInstance{}, runtimeAttempts: map[string]domain.RuntimeAttempt{}, runtimeStates: map[string]domain.RuntimeState{}, runtimeStateMutations: map[string]string{}, runtimeCheckpoints: map[string]domain.Checkpoint{}, runtimeEffects: map[string]domain.ExternalEffect{}, runtimeProviderInbox: map[string]domain.ProviderInboxMessage{}, runtimeProviderRecons: map[string]domain.ProviderReconciliation{}, runtimeProviderBills: map[string]domain.ProviderBillRecord{}, runtimeYields: map[string]domain.RuntimeYield{}, runtimeResourceQuotas: map[string]domain.ResourceQuota{}, runtimeReservations: map[string]domain.ResourceReservation{}, runtimeStateCollections: map[string]domain.StateCollection{}, runtimeStateRecords: map[string]domain.StateRecord{}, runtimeToolCalls: map[string]domain.ToolCall{}, runtimeProjections: map[string]domain.RuntimeExplorerView{}, runtimeProjectionRebuilds: map[string]domain.RuntimeProjectionRebuildRun{},
+		runtimePlans: map[string]domain.JobPlanRevision{}, runtimeJobs: map[string]domain.JobRun{}, runtimeNodes: map[string]domain.NodeRun{}, runtimeFanoutSets: map[string]domain.FanoutSet{}, runtimeFanoutMembers: map[string]domain.FanoutMember{}, runtimeEvents: map[string][]domain.JobEvent{}, runtimeOutbox: map[string]domain.RuntimeOutboxMessage{}, runtimeOutboxReceipts: map[string]runtimeOutboxReceipt{}, runtimeContextViews: map[string]domain.ContextView{}, runtimeAgents: map[string]domain.AgentInstance{}, runtimeAttempts: map[string]domain.RuntimeAttempt{}, runtimeStates: map[string]domain.RuntimeState{}, runtimeStateMutations: map[string]string{}, runtimeCheckpoints: map[string]domain.Checkpoint{}, runtimeEffects: map[string]domain.ExternalEffect{}, runtimeProviderInbox: map[string]domain.ProviderInboxMessage{}, runtimeProviderRecons: map[string]domain.ProviderReconciliation{}, runtimeProviderBills: map[string]domain.ProviderBillRecord{}, runtimeYields: map[string]domain.RuntimeYield{}, runtimeResourceQuotas: map[string]domain.ResourceQuota{}, runtimeReservations: map[string]domain.ResourceReservation{}, runtimeSchemas: map[string]domain.RuntimeSchema{}, runtimeStateCollections: map[string]domain.StateCollection{}, runtimeStateRecords: map[string]domain.StateRecord{}, runtimeToolCalls: map[string]domain.ToolCall{}, runtimeProjections: map[string]domain.RuntimeExplorerView{}, runtimeProjectionRebuilds: map[string]domain.RuntimeProjectionRebuildRun{}, runtimeMaintenance: map[string]domain.RuntimeMaintenanceHeartbeat{},
 		approvals: map[string]domain.ApprovalDecision{}, reviewCycles: map[string]domain.ReviewCycle{}, reviewComments: map[string]domain.ReviewComment{}, reviewGrants: map[string]domain.ReviewGrant{}, submissions: map[string]domain.Submission{}, submissionRevisions: map[string]domain.SubmissionRevision{}, approvedSnapshots: map[string]domain.ApprovedSnapshot{}, artifacts: map[string]domain.Artifact{}, deliveryPackages: map[string]domain.DeliveryPackage{}, performanceBatches: map[string]domain.PerformanceImportBatch{}, observations: map[string]domain.PerformanceObservation{}, ratingDecisions: map[string]domain.RatingDecision{}, audits: []domain.AuditEvent{},
 	}
+}
+
+type runtimeOutboxReceipt struct {
+	TenantID      string
+	MessageID     string
+	Subscriber    string
+	Attempts      int
+	NextAttemptAt time.Time
+	LockedBy      string
+	LockedUntil   *time.Time
+	DeliveredAt   *time.Time
+	LastError     string
+	CreatedAt     time.Time
 }
 
 func membershipKey(tenantID, userID string) string { return tenantID + ":" + userID }

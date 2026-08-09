@@ -31,6 +31,9 @@ func (s *Service) PatchGraph(ctx context.Context, tenantID, jobRunID, actorID st
 	if s == nil || s.repo == nil {
 		return GraphPatchResult{}, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
 	}
+	if err := s.requireDynamicGraph(tenantID); err != nil {
+		return GraphPatchResult{}, err
+	}
 	job, err := s.repo.JobRun(ctx, tenantID, jobRunID)
 	if err != nil {
 		return GraphPatchResult{}, err

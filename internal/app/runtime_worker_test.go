@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func TestRuntimeWorkerFenceOwnerAndTerminalProtocol(t *testing.T) {
 		t.Fatal(err)
 	}
 	worker := Actor{UserID: actor.UserID, TenantID: actor.TenantID, Type: "worker"}
-	handle, err := service.PrepareRuntimeWorker(t.Context(), worker, RuntimeWorkerPrepareInput{JobRunID: started.Job.ID, HarnessKind: "fake", Role: "worker", ExecutionProfileID: "profile-test", MaxTokens: 1024, BudgetMinor: 100})
+	handle, err := service.PrepareRuntimeWorker(t.Context(), worker, RuntimeWorkerPrepareInput{JobRunID: started.Job.ID, HarnessKind: "fake", Capabilities: agentadapter.HarnessCapabilities{Kind: "fake", Events: true, StructuredOutput: true, Resume: true, MaxParallelSessions: 128}, Role: "worker", ExecutionProfileID: "profile-test", MaxTokens: 1024, BudgetMinor: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +46,38 @@ func TestRuntimeWorkerFenceOwnerAndTerminalProtocol(t *testing.T) {
 	active, err := service.ActivateRuntimeWorker(t.Context(), worker, RuntimeWorkerActivateInput{AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, Session: agentadapter.AgentSessionRef{TenantID: actor.TenantID, HarnessKind: "fake", SessionID: "session-worker-1"}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	event := agentadapter.AgentEvent{Type: "item.completed", Session: agentadapter.AgentSessionRef{TenantID: actor.TenantID, HarnessKind: "fake", SessionID: "session-worker-1"}, Data: json.RawMessage(`{"item_type":"tool_call","status":"completed"}`), OccurredAt: time.Now().UTC()}
+	if err := service.RecordRuntimeWorkerEvent(t.Context(), worker, RuntimeWorkerEventInput{AttemptID: active.Attempt.ID, FenceToken: active.Attempt.FenceToken, Event: event}); err != nil {
+		t.Fatalf("current fenced Harness event was rejected: %v", err)
+	}
+	if err := service.RecordRuntimeWorkerEvent(t.Context(), worker, RuntimeWorkerEventInput{AttemptID: active.Attempt.ID, FenceToken: active.Attempt.FenceToken, Event: event}); err != nil {
+		t.Fatalf("identical fenced Harness event replay was rejected: %v", err)
+	}
+	if err := service.RecordRuntimeWorkerEvent(t.Context(), worker, RuntimeWorkerEventInput{AttemptID: active.Attempt.ID, FenceToken: "stale", Event: event}); err == nil {
+		t.Fatal("stale Harness event fence must be rejected")
+	}
+	events, err := service.Runtime().Events(t.Context(), actor.TenantID, started.Job.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptEventCount := 0
+	for _, recorded := range events {
+		if recorded.Type == "attempt.event" {
+			attemptEventCount++
+		}
+	}
+	if attemptEventCount != 1 {
+		t.Fatalf("identical Harness event replay created duplicates: %d", attemptEventCount)
+	}
+	if last := events[len(events)-1]; last.Type != "attempt.event" || last.Payload["data_digest"] == "" || strings.Contains(string(last.Payload["data_digest"].(string)), "tool_call") {
+		t.Fatalf("Harness event was not reduced to a durable digest: %#v", last)
+	}
+	if err := service.validateRuntimeBusinessResult(t.Context(), worker, started.Job.ID, json.RawMessage(`{}`)); err == nil {
+		t.Fatal("unregistered business types must not accept an unowned structured result")
+	}
+	if _, err := service.FinalizeRuntimeWorker(t.Context(), worker, RuntimeWorkerFinalizeInput{AttemptID: active.Attempt.ID, FenceToken: active.Attempt.FenceToken, State: domain.RuntimeAttemptSucceeded, OutputRefs: []string{"runtime-result:worker-controlled.json"}, SafeSummary: map[string]any{"status": "forged"}}, "worker-test-forged-ref"); err == nil {
+		t.Fatal("worker must not forge the server-owned runtime-result namespace")
 	}
 	finalized, err := service.FinalizeRuntimeWorker(t.Context(), worker, RuntimeWorkerFinalizeInput{AttemptID: active.Attempt.ID, FenceToken: active.Attempt.FenceToken, State: domain.RuntimeAttemptSucceeded, SafeSummary: map[string]any{"status": "ok"}}, "worker-test")
 	if err != nil {
@@ -90,7 +123,7 @@ func TestPrepareNextRuntimeWorkerUsesTenantPriorityAndSkipsPausedJobs(t *testing
 		t.Fatal(err)
 	}
 	worker := Actor{UserID: actor.UserID, TenantID: actor.TenantID, Type: "worker"}
-	prepare := RuntimeWorkerPrepareNextInput{RuntimeWorkerPrepareInput: RuntimeWorkerPrepareInput{HarnessKind: "fake", Role: "worker", ExecutionProfileID: "profile-test", MaxTokens: 1024, BudgetMinor: 100}}
+	prepare := RuntimeWorkerPrepareNextInput{RuntimeWorkerPrepareInput: RuntimeWorkerPrepareInput{HarnessKind: "fake", Capabilities: agentadapter.HarnessCapabilities{Kind: "fake", Events: true, StructuredOutput: true, Resume: true, MaxParallelSessions: 128}, Role: "worker", ExecutionProfileID: "profile-test", MaxTokens: 1024, BudgetMinor: 100}}
 	handle, err := service.PrepareNextRuntimeWorker(t.Context(), worker, prepare)
 	if err != nil {
 		t.Fatal(err)
@@ -116,5 +149,23 @@ func TestPrepareNextRuntimeWorkerUsesTenantPriorityAndSkipsPausedJobs(t *testing
 	}
 	if handle.Attempt.JobRunID != low.Job.ID {
 		t.Fatalf("tenant scheduler selected a paused or non-ready job: got %s want %s", handle.Attempt.JobRunID, low.Job.ID)
+	}
+}
+
+func TestRuntimeBusinessResultRefAndBackoffAreBounded(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	ref := "runtime-result:runtime/results/tenant-1/attempt-1/" + digest + ".json"
+	key, parsedDigest, err := parseRuntimeBusinessResultRef(ref, "tenant-1", "attempt-1")
+	if err != nil || key == "" || parsedDigest != digest {
+		t.Fatalf("valid scoped Runtime result ref was rejected: key=%q digest=%q err=%v", key, parsedDigest, err)
+	}
+	if _, _, err := parseRuntimeBusinessResultRef(ref, "tenant-2", "attempt-1"); err == nil {
+		t.Fatal("Runtime result ref must not cross tenant scope")
+	}
+	if _, _, err := parseRuntimeBusinessResultRef("runtime-result:runtime/results/tenant-1/attempt-1/not-a-digest.json", "tenant-1", "attempt-1"); err == nil {
+		t.Fatal("Runtime result ref must contain a SHA-256 digest")
+	}
+	if got := runtimeBusinessResultBackoff(100); got != 5*time.Minute {
+		t.Fatalf("business result retry backoff must be capped: %s", got)
 	}
 }

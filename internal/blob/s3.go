@@ -98,6 +98,21 @@ func (s *S3Store) Put(ctx context.Context, key string, data []byte) error {
 	return nil
 }
 
+func (s *S3Store) PutReader(ctx context.Context, key string, reader io.Reader, size int64) error {
+	objectKey, err := s.key(key)
+	if err != nil {
+		return err
+	}
+	input := &s3.PutObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(objectKey), Body: reader, ServerSideEncryption: types.ServerSideEncryptionAes256}
+	if size >= 0 {
+		input.ContentLength = aws.Int64(size)
+	}
+	if _, err := s.client.PutObject(ctx, input); err != nil {
+		return fmt.Errorf("写入 S3 对象失败：%w", err)
+	}
+	return nil
+}
+
 func (s *S3Store) Get(ctx context.Context, key string) ([]byte, error) {
 	objectKey, err := s.key(key)
 	if err != nil {

@@ -176,7 +176,7 @@ const auditSubjectLabels: Record<string, string> = {
   review_comment: '审核评论', review_grant: '外部审核授权', rights_record: '素材权利记录', run_attempt: '执行尝试',
   session: '登录会话', sop: '流程规范', sop_version: '流程规范版本', source: '来源', source_revision: '来源版本',
   stage_run: '流程阶段记录', submission_revision: '提交内容版本', task: '任务', task_delivery: '任务交付',
-  task_revision: '任务内容版本', task_run: '执行任务', tenant: '租户', user_device_flow: '命令行登录授权',
+	 task_revision: '任务内容版本', runtime_run: 'Runtime 运行', tenant: '租户', user_device_flow: '命令行登录授权',
   workspace_binding: '本地工作区连接'
 };
 

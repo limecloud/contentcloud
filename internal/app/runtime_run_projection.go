@@ -22,14 +22,14 @@ func (s *Service) runtimeJob(ctx context.Context, tenantID, jobID string) (domai
 	return job, true, nil
 }
 
-func (s *Service) projectRuntimeJob(ctx context.Context, job domain.JobRun) (domain.TaskRun, error) {
+func (s *Service) projectRuntimeRun(ctx context.Context, job domain.JobRun) (domain.RuntimeRun, error) {
 	plan, err := s.runtimeService.Plan(ctx, job.TenantID, job.PlanRevisionID)
 	if err != nil {
-		return domain.TaskRun{}, err
+		return domain.RuntimeRun{}, err
 	}
 	nodes, err := s.runtimeService.Nodes(ctx, job.TenantID, job.ID)
 	if err != nil {
-		return domain.TaskRun{}, err
+		return domain.RuntimeRun{}, err
 	}
 	attemptCount := 0
 	outputRefs := []string{}
@@ -37,7 +37,7 @@ func (s *Service) projectRuntimeJob(ctx context.Context, job domain.JobRun) (dom
 		attemptCount += node.AttemptCount
 		outputRefs = append(outputRefs, node.OutputRefs...)
 	}
-	projected := domain.TaskRun{
+	projected := domain.RuntimeRun{
 		ID: job.ID, TenantID: job.TenantID, ProjectID: job.ProjectID, WorkTaskID: job.WorkTaskID,
 		InputSnapshotID: job.InputSnapshotID,
 		SOPID:           plan.SOPID, SOPVersion: plan.SOPVersion, SOPDigest: plan.SOPDigest,
@@ -45,7 +45,7 @@ func (s *Service) projectRuntimeJob(ctx context.Context, job domain.JobRun) (dom
 		OutputRefs: outputRefs, IdempotencyKey: job.IdempotencyKey, TaskType: "runtime.job",
 		CapabilityID: "contentcloud.runtime", CapabilityVersion: "1.0.0",
 		InputSchema: "contentcloud.runtime-input/1.0", OutputSchema: "contentcloud.runtime-output/1.0",
-		OutputCount: len(outputRefs), DeliveryProfiles: []string{"workspace"}, State: runtimeTaskRunState(job.State),
+		OutputCount: len(outputRefs), DeliveryProfiles: []string{"workspace"}, State: runtimeRunState(job.State),
 		Priority: job.Priority, AttemptCount: attemptCount, ErrorCode: job.ErrorCode,
 		CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt,
 	}
@@ -63,7 +63,7 @@ func (s *Service) projectRuntimeJob(ctx context.Context, job domain.JobRun) (dom
 	return projected, nil
 }
 
-func (s *Service) runtimeTaskRunsForProject(ctx context.Context, tenantID, projectID string) ([]domain.TaskRun, error) {
+func (s *Service) runtimeRunsForProject(ctx context.Context, tenantID, projectID string) ([]domain.RuntimeRun, error) {
 	if s.runtimeService == nil {
 		return nil, nil
 	}
@@ -71,12 +71,12 @@ func (s *Service) runtimeTaskRunsForProject(ctx context.Context, tenantID, proje
 	if err != nil {
 		return nil, err
 	}
-	result := make([]domain.TaskRun, 0, len(jobs))
+	result := make([]domain.RuntimeRun, 0, len(jobs))
 	for _, job := range jobs {
 		if job.ProjectID != projectID {
 			continue
 		}
-		projected, err := s.projectRuntimeJob(ctx, job)
+		projected, err := s.projectRuntimeRun(ctx, job)
 		if err != nil {
 			return nil, err
 		}
@@ -86,21 +86,17 @@ func (s *Service) runtimeTaskRunsForProject(ctx context.Context, tenantID, proje
 	return result, nil
 }
 
-func (s *Service) taskRunsForProject(ctx context.Context, tenantID, projectID string) ([]domain.TaskRun, error) {
-	return s.runtimeTaskRunsForProject(ctx, tenantID, projectID)
-}
-
-func (s *Service) taskRunsForTenant(ctx context.Context, tenantID string) ([]domain.TaskRun, error) {
+func (s *Service) runtimeRunsForTenant(ctx context.Context, tenantID string) ([]domain.RuntimeRun, error) {
 	if s.runtimeService == nil {
-		return []domain.TaskRun{}, nil
+		return []domain.RuntimeRun{}, nil
 	}
 	jobs, err := s.runtimeService.Jobs(ctx, tenantID, "")
 	if err != nil {
 		return nil, err
 	}
-	runtimeRuns := make([]domain.TaskRun, 0, len(jobs))
+	runtimeRuns := make([]domain.RuntimeRun, 0, len(jobs))
 	for _, job := range jobs {
-		projected, err := s.projectRuntimeJob(ctx, job)
+		projected, err := s.projectRuntimeRun(ctx, job)
 		if err != nil {
 			return nil, err
 		}
@@ -110,23 +106,22 @@ func (s *Service) taskRunsForTenant(ctx context.Context, tenantID string) ([]dom
 	return runtimeRuns, nil
 }
 
-// runtimeTaskRunProjection keeps the existing WorkTask API readable while
-// making Runtime JobRun/NodeRun the only execution fact source for new runs.
-// An empty result means the task has not started a Runtime JobRun yet.
-func (s *Service) runtimeTaskRunProjection(ctx context.Context, tenantID, taskID string) ([]domain.TaskRun, error) {
+// runtimeRunsForWorkTask projects authoritative JobRun/NodeRun facts into the
+// WorkTask read model. An empty result means no Runtime JobRun has started.
+func (s *Service) runtimeRunsForWorkTask(ctx context.Context, tenantID, taskID string) ([]domain.RuntimeRun, error) {
 	if s.runtimeService == nil {
-		return []domain.TaskRun{}, nil
+		return []domain.RuntimeRun{}, nil
 	}
 	jobs, err := s.runtimeService.Jobs(ctx, tenantID, taskID)
 	if err != nil {
 		return nil, err
 	}
 	if len(jobs) == 0 {
-		return []domain.TaskRun{}, nil
+		return []domain.RuntimeRun{}, nil
 	}
-	result := make([]domain.TaskRun, 0, len(jobs))
+	result := make([]domain.RuntimeRun, 0, len(jobs))
 	for _, job := range jobs {
-		projected, err := s.projectRuntimeJob(ctx, job)
+		projected, err := s.projectRuntimeRun(ctx, job)
 		if err != nil {
 			return nil, err
 		}
@@ -135,7 +130,7 @@ func (s *Service) runtimeTaskRunProjection(ctx context.Context, tenantID, taskID
 	return result, nil
 }
 
-func runtimeTaskRunState(state string) string {
+func runtimeRunState(state string) string {
 	switch state {
 	case domain.JobRunCompleted:
 		return "succeeded"

@@ -154,7 +154,7 @@ func (s *Store) ReceiveProviderInboxCommand(ctx context.Context, message domain.
 		return message, domain.ExternalEffect{}, err
 	}
 	var resultEffect domain.ExternalEffect
-	err := s.withTenant(ctx, message.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, message.TenantID, "runtime.receive_provider_inbox", func(tx pgx.Tx) error {
 		existing, err := scanRuntimeProviderInbox(tx.QueryRow(ctx, runtimeProviderInboxSelect+` WHERE tenant_id=$1 AND provider_id=$2 AND message_id=$3 FOR UPDATE`, message.TenantID, message.ProviderID, message.MessageID))
 		if err == nil {
 			if existing.ReceivedDigest != message.ReceivedDigest {
@@ -252,7 +252,7 @@ func (s *Store) RecordProviderBillCommand(ctx context.Context, bill domain.Provi
 	if err := bill.Validate(); err != nil {
 		return bill, err
 	}
-	err := s.withTenant(ctx, bill.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, bill.TenantID, "runtime.record_provider_bill", func(tx pgx.Tx) error {
 		existing, err := scanRuntimeProviderBill(tx.QueryRow(ctx, runtimeProviderBillSelect+` WHERE tenant_id=$1 AND provider_id=$2 AND bill_id=$3 FOR UPDATE`, bill.TenantID, bill.ProviderID, bill.BillID))
 		if err == nil {
 			if existing.BillDigest != bill.BillDigest {
@@ -293,7 +293,7 @@ func (s *Store) ResolveProviderReconciliationCommand(ctx context.Context, reconc
 	}
 	var resultRecon domain.ProviderReconciliation
 	var resultEffect domain.ExternalEffect
-	err := s.withTenant(ctx, reconciliation.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, reconciliation.TenantID, "runtime.resolve_provider_reconciliation", func(tx pgx.Tx) error {
 		currentRecon, err := scanRuntimeProviderRecon(tx.QueryRow(ctx, runtimeProviderReconSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, reconciliation.TenantID, reconciliation.ID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("Provider 对账")

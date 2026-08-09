@@ -119,6 +119,9 @@ func (s *Service) CreateFanoutSet(ctx context.Context, input CreateFanoutSetInpu
 	} else if !domain.IsNotFound(err) {
 		return FanoutSetResult{}, err
 	}
+	if err := s.requireDynamicGraph(input.TenantID); err != nil {
+		return FanoutSetResult{}, err
+	}
 	job, err := s.repo.JobRun(ctx, input.TenantID, input.JobRunID)
 	if err != nil {
 		return FanoutSetResult{}, err

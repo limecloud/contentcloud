@@ -45,7 +45,42 @@ func TestValidateV3MigrationSetRejectsTenantCapabilitiesWithoutV5(t *testing.T) 
 }
 
 func currentMigrationSet() []string {
-	return []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration, runProgressEventsMigration, knowledgeInfrastructureMigration, orchestrationInfrastructureMigration, taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration, runtimeFencingAndResourcesMigration, runtimeStateToolCallsMigration, runtimeProjectionMigration, runtimeJobContractMigration, runtimePlanRelationalMigration, runtimeFanoutJoinMigration, runtimeProviderInboxMigration, runtimeYieldResumeMigration, runtimeProjectionRebuildMigration, runtimeSessionStoreMigration, runtimeBusinessBindingMigration, runtimeInputSnapshotMigration, runtimeBusinessOutputMigration, removeV7ExecutionMigration}
+	return []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration, runProgressEventsMigration, knowledgeInfrastructureMigration, orchestrationInfrastructureMigration, taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration, runtimeFencingAndResourcesMigration, runtimeStateToolCallsMigration, runtimeProjectionMigration, runtimeJobContractMigration, runtimePlanRelationalMigration, runtimeFanoutJoinMigration, runtimeProviderInboxMigration, runtimeYieldResumeMigration, runtimeProjectionRebuildMigration, runtimeSessionMirrorCreationMigration, runtimeBusinessBindingMigration, runtimeInputSnapshotMigration, runtimeBusinessOutputMigration, removeV7ExecutionMigration, runtimeOutboxSubscribersMigration, removeRuntimeSessionMirrorMigration, runtimeMaintenanceHealthMigration, providerPollRecoveryMigration, providerPollDeadlineMigration, mediaRuntimeEffectLinksMigration, runtimeSchemaRegistryMigration, runtimeReadPaginationMigration, runtimeToolCallResultsMigration}
+}
+
+func TestRuntimeToolCallResultsMigrationAddsDurableReplayPayload(t *testing.T) {
+	body, err := migrations.Files.ReadFile(runtimeToolCallResultsMigration)
+	if err != nil {
+		t.Fatalf("read runtime ToolCall result migration: %v", err)
+	}
+	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
+	for _, required := range []string{"ALTER TABLE runtime_tool_calls", "ADD COLUMN safe_result jsonb", "jsonb_typeof(safe_result) = 'object'"} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("runtime ToolCall result migration must contain %q", required)
+		}
+	}
+}
+
+func TestRuntimeOutboxSubscribersMigrationSeparatesMessageAndReceipts(t *testing.T) {
+	body, err := migrations.Files.ReadFile(runtimeOutboxSubscribersMigration)
+	if err != nil {
+		t.Fatalf("read Runtime outbox subscriber migration: %v", err)
+	}
+	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
+	for _, required := range []string{
+		"CREATE TABLE runtime_outbox_receipts",
+		"PRIMARY KEY (tenant_id,message_id,subscriber)",
+		"'runtime_projection'",
+		"'runtime_business_result'",
+		"payload->>'type' = 'attempt.succeeded'",
+		"ALTER TABLE runtime_outbox DROP COLUMN delivered_at",
+		"REVOKE UPDATE,DELETE ON runtime_outbox",
+		"ALTER TABLE runtime_outbox_receipts FORCE ROW LEVEL SECURITY",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("Runtime outbox subscriber migration must contain %q", required)
+		}
+	}
 }
 
 func TestRuntimePlanRelationalMigrationReplacesJSONControlPlane(t *testing.T) {
@@ -130,6 +165,45 @@ func TestRuntimeStateToolCallsMigrationKeepsHistoricalEffectsNullable(t *testing
 	}
 	if strings.Contains(up, "ALTER TABLE runtime_effects ADD COLUMN attempt_id text NOT NULL") || strings.Contains(up, "ALTER TABLE runtime_effects ADD COLUMN resource_reservation_id text NOT NULL") {
 		t.Fatal("historical effects must be allowed to keep empty attempt/reservation bindings")
+	}
+}
+
+func TestRuntimeSchemaRegistryMigrationAddsLifecycleAndRLS(t *testing.T) {
+	body, err := migrations.Files.ReadFile(runtimeSchemaRegistryMigration)
+	if err != nil {
+		t.Fatalf("read runtime schema registry migration: %v", err)
+	}
+	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
+	for _, required := range []string{
+		"CREATE TABLE runtime_schemas",
+		"status text NOT NULL CHECK (status IN ('draft','published','retired'))",
+		"retention_policy text NOT NULL",
+		"ALTER TABLE runtime_schemas FORCE ROW LEVEL SECURITY",
+		"CREATE POLICY tenant_isolation ON runtime_schemas",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("runtime schema registry migration must contain %q", required)
+		}
+	}
+}
+
+func TestRuntimeReadPaginationMigrationAddsIdempotencyAndReadIndexes(t *testing.T) {
+	body, err := migrations.Files.ReadFile(runtimeReadPaginationMigration)
+	if err != nil {
+		t.Fatalf("read runtime pagination migration: %v", err)
+	}
+	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
+	for _, required := range []string{
+		"CREATE UNIQUE INDEX runtime_tool_calls_gateway_idempotency_idx",
+		"safe_request->>'idempotency_key'",
+		"CREATE INDEX runtime_job_runs_explorer_idx",
+		"CREATE INDEX runtime_node_runs_explorer_idx",
+		"CREATE INDEX runtime_effects_explorer_idx",
+		"CREATE INDEX runtime_checkpoints_explorer_idx",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("runtime pagination migration must contain %q", required)
+		}
 	}
 }
 
@@ -313,7 +387,7 @@ func TestRuntimeProjectionRebuildMigrationRecordsDryRunFacts(t *testing.T) {
 }
 
 func TestRuntimeSessionStoreMigrationIsAnIsolatedTenantScopedMirror(t *testing.T) {
-	body, err := migrations.Files.ReadFile(runtimeSessionStoreMigration)
+	body, err := migrations.Files.ReadFile(runtimeSessionMirrorCreationMigration)
 	if err != nil {
 		t.Fatalf("read SessionStore migration: %v", err)
 	}
@@ -327,6 +401,44 @@ func TestRuntimeSessionStoreMigrationIsAnIsolatedTenantScopedMirror(t *testing.T
 	} {
 		if !strings.Contains(up, required) {
 			t.Fatalf("SessionStore migration must contain %q", required)
+		}
+	}
+}
+
+func TestRemoveRuntimeSessionMirrorMigrationDropsRetiredTables(t *testing.T) {
+	body, err := migrations.Files.ReadFile(removeRuntimeSessionMirrorMigration)
+	if err != nil {
+		t.Fatalf("read Runtime session mirror removal migration: %v", err)
+	}
+	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
+	for _, required := range []string{
+		"DROP TABLE IF EXISTS runtime_agent_session_events",
+		"DROP TABLE IF EXISTS runtime_agent_sessions",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("Runtime session mirror removal migration must contain %q", required)
+		}
+	}
+	if strings.Contains(up, "CASCADE") {
+		t.Fatal("Runtime session mirror removal migration must not cascade into unrelated tables")
+	}
+}
+
+func TestRuntimeMaintenanceHealthMigrationAddsTenantScopedHeartbeat(t *testing.T) {
+	body, err := migrations.Files.ReadFile(runtimeMaintenanceHealthMigration)
+	if err != nil {
+		t.Fatalf("read Runtime maintenance health migration: %v", err)
+	}
+	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
+	for _, required := range []string{
+		"CREATE TABLE runtime_maintenance_heartbeats",
+		"PRIMARY KEY (tenant_id,kind)",
+		"ALTER TABLE runtime_maintenance_heartbeats FORCE ROW LEVEL SECURITY",
+		"CREATE POLICY tenant_isolation ON runtime_maintenance_heartbeats",
+		"GRANT SELECT,INSERT,UPDATE ON runtime_maintenance_heartbeats TO contentcloud_runtime",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("Runtime maintenance health migration must contain %q", required)
 		}
 	}
 }

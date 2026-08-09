@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"sort"
+	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
 )
@@ -157,9 +158,18 @@ func (s *Store) CreateMediaGenerationJob(_ context.Context, value domain.MediaGe
 func (s *Store) PendingMediaGenerationJobs(_ context.Context, limit int) ([]domain.MediaGenerationJob, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	now := time.Now().UTC()
 	result := []domain.MediaGenerationJob{}
 	for _, value := range s.mediaJobs {
-		if value.State == domain.MediaJobQueued || value.State == domain.MediaJobRetryWait {
+		pending := value.State == domain.MediaJobQueued || value.State == domain.MediaJobRetryWait
+		if value.State == domain.MediaJobAwaitingExternal {
+			for _, attempt := range s.providerAttempts {
+				if attempt.TenantID == value.TenantID && attempt.GenerationJobID == value.ID && attempt.NextPollAt != nil && !attempt.NextPollAt.After(now) {
+					pending = true
+				}
+			}
+		}
+		if pending {
 			result = append(result, cloneMediaJob(value))
 		}
 	}
@@ -259,6 +269,24 @@ func (s *Store) ProviderAttempts(_ context.Context, tenantID, jobID string) ([]d
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].AttemptNumber < result[j].AttemptNumber })
+	return result, nil
+}
+
+func (s *Store) ProviderAttemptsByRuntimeJob(_ context.Context, tenantID, runtimeJobID string) ([]domain.ProviderAttempt, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := []domain.ProviderAttempt{}
+	for _, value := range s.providerAttempts {
+		if value.TenantID == tenantID && value.RuntimeJobRunID == runtimeJobID {
+			result = append(result, cloneProviderAttempt(value))
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].GenerationJobID == result[j].GenerationJobID {
+			return result[i].AttemptNumber < result[j].AttemptNumber
+		}
+		return result[i].GenerationJobID < result[j].GenerationJobID
+	})
 	return result, nil
 }
 

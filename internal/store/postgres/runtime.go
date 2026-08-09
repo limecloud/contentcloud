@@ -192,7 +192,7 @@ func (s *Store) CreateJobBundle(ctx context.Context, job domain.JobRun, nodes []
 	if err := job.Validate(); err != nil {
 		return err
 	}
-	return s.withTenant(ctx, job.TenantID, func(tx pgx.Tx) error {
+	return s.withTenantCommand(ctx, job.TenantID, "runtime.create_job_bundle", func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO runtime_job_runs(tenant_id,id,project_id,work_task_id,business_type,input_snapshot_id,business_output_count,plan_revision_id,plan_digest,binding_digest,input_digest,runtime_policy_id,contract_major,contract_minor,root_job_run_id,source_job_run_id,checkpoint_id,idempotency_key,state,priority,version,error_code,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`, job.TenantID, job.ID, job.ProjectID, job.WorkTaskID, job.BusinessType, job.InputSnapshotID, job.BusinessOutputCount, job.PlanRevisionID, job.PlanDigest, job.BindingDigest, job.InputDigest, job.RuntimePolicyID, job.ContractMajor, job.ContractMinor, job.RootJobRunID, job.SourceJobRunID, job.CheckpointID, job.IdempotencyKey, job.State, job.Priority, job.Version, job.ErrorCode, job.CreatedBy, job.CreatedAt, job.UpdatedAt)
 		if err != nil {
 			return dbError(err)
@@ -275,6 +275,36 @@ func (s *Store) JobRuns(ctx context.Context, tenantID, taskID string) ([]domain.
 	return result, err
 }
 
+func (s *Store) JobRunsPage(ctx context.Context, tenantID, projectID, state string, after, limit int) ([]domain.JobRun, bool, error) {
+	if after < 0 || limit < 1 {
+		return nil, false, domain.Invalid("RUNTIME_PAGE_INVALID", "Runtime 分页参数无效")
+	}
+	result := []domain.JobRun{}
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, runtimeJobSelect+` WHERE tenant_id=$1 AND ($2='' OR project_id=$2) AND ($3='' OR state=$3) ORDER BY updated_at DESC,id DESC OFFSET $4 LIMIT $5`, tenantID, projectID, state, after, limit+1)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			value, err := scanRuntimeJob(rows)
+			if err != nil {
+				return err
+			}
+			result = append(result, value)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(result) > limit
+	if hasMore {
+		result = result[:limit]
+	}
+	return result, hasMore, nil
+}
+
 func scanRuntimeNode(row pgx.Row) (domain.NodeRun, error) {
 	var value domain.NodeRun
 	var outputs []byte
@@ -306,6 +336,36 @@ func (s *Store) NodeRuns(ctx context.Context, tenantID, jobID string) ([]domain.
 		return rows.Err()
 	})
 	return result, err
+}
+
+func (s *Store) NodeRunsPage(ctx context.Context, tenantID, jobID string, after, limit int) ([]domain.NodeRun, bool, error) {
+	if after < 0 || limit < 1 {
+		return nil, false, domain.Invalid("RUNTIME_PAGE_INVALID", "Runtime 分页参数无效")
+	}
+	result := []domain.NodeRun{}
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, runtimeNodeSelect+` WHERE tenant_id=$1 AND job_run_id=$2 ORDER BY created_at,id OFFSET $3 LIMIT $4`, tenantID, jobID, after, limit+1)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			value, err := scanRuntimeNode(rows)
+			if err != nil {
+				return err
+			}
+			result = append(result, value)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(result) > limit
+	if hasMore {
+		result = result[:limit]
+	}
+	return result, hasMore, nil
 }
 
 func (s *Store) NodeRun(ctx context.Context, tenantID, id string) (domain.NodeRun, error) {
@@ -507,7 +567,7 @@ func scanRuntimeEvent(row pgx.Row) (domain.JobEvent, error) {
 
 func (s *Store) AppendRuntimeEvent(ctx context.Context, event domain.JobEvent) (domain.JobEvent, error) {
 	result := event
-	err := s.withTenant(ctx, event.TenantID, func(tx pgx.Tx) error {
+	err := s.withTenantCommand(ctx, event.TenantID, "runtime.append_event", func(tx pgx.Tx) error {
 		var err error
 		result, err = appendRuntimeEventTx(ctx, tx, event)
 		return err
@@ -519,6 +579,29 @@ func (s *Store) JobEvents(ctx context.Context, tenantID, jobID string, after int
 	result := []domain.JobEvent{}
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `SELECT tenant_id,id,job_run_id,sequence,type,node_key,actor_type,actor_id,correlation_id,idempotency_key,payload,occurred_at FROM runtime_job_events WHERE tenant_id=$1 AND job_run_id=$2 AND sequence>$3 ORDER BY sequence`, tenantID, jobID, after)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			value, err := scanRuntimeEvent(rows)
+			if err != nil {
+				return err
+			}
+			result = append(result, value)
+		}
+		return rows.Err()
+	})
+	return result, err
+}
+
+func (s *Store) JobEventsPage(ctx context.Context, tenantID, jobID string, after int64, limit int) ([]domain.JobEvent, error) {
+	if limit < 1 {
+		return nil, domain.Invalid("RUNTIME_PAGE_INVALID", "Runtime 分页参数无效")
+	}
+	result := []domain.JobEvent{}
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT tenant_id,id,job_run_id,sequence,type,node_key,actor_type,actor_id,correlation_id,idempotency_key,payload,occurred_at FROM runtime_job_events WHERE tenant_id=$1 AND job_run_id=$2 AND sequence>$3 ORDER BY sequence LIMIT $4`, tenantID, jobID, after, limit)
 		if err != nil {
 			return err
 		}
@@ -622,6 +705,36 @@ func (s *Store) Checkpoints(ctx context.Context, tenantID, jobID string) ([]doma
 	return result, err
 }
 
+func (s *Store) CheckpointsPage(ctx context.Context, tenantID, jobID string, after, limit int) ([]domain.Checkpoint, bool, error) {
+	if after < 0 || limit < 1 {
+		return nil, false, domain.Invalid("RUNTIME_PAGE_INVALID", "Runtime 分页参数无效")
+	}
+	result := []domain.Checkpoint{}
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, runtimeCheckpointSelect+` WHERE tenant_id=$1 AND job_run_id=$2 ORDER BY created_at DESC,id DESC OFFSET $3 LIMIT $4`, tenantID, jobID, after, limit+1)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			value, err := scanRuntimeCheckpoint(rows)
+			if err != nil {
+				return err
+			}
+			result = append(result, value)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(result) > limit
+	if hasMore {
+		result = result[:limit]
+	}
+	return result, hasMore, nil
+}
+
 func scanRuntimeEffect(row pgx.Row) (domain.ExternalEffect, error) {
 	var value domain.ExternalEffect
 	var summary []byte
@@ -703,8 +816,38 @@ func (s *Store) Effects(ctx context.Context, tenantID, jobID string) ([]domain.E
 	})
 	return result, err
 }
+
+func (s *Store) EffectsPage(ctx context.Context, tenantID, jobID string, after, limit int) ([]domain.ExternalEffect, bool, error) {
+	if after < 0 || limit < 1 {
+		return nil, false, domain.Invalid("RUNTIME_PAGE_INVALID", "Runtime 分页参数无效")
+	}
+	result := []domain.ExternalEffect{}
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, runtimeEffectSelect+` WHERE tenant_id=$1 AND job_run_id=$2 ORDER BY created_at,id OFFSET $3 LIMIT $4`, tenantID, jobID, after, limit+1)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			value, err := scanRuntimeEffect(rows)
+			if err != nil {
+				return err
+			}
+			result = append(result, value)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(result) > limit
+	if hasMore {
+		result = result[:limit]
+	}
+	return result, hasMore, nil
+}
 func (s *Store) ExpireNodeLeases(ctx context.Context, tenantID string, now time.Time) error {
-	return s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+	return s.withTenantCommand(ctx, tenantID, "runtime.expire_leases", func(tx pgx.Tx) error {
 		type expiredCandidate struct {
 			AttemptID string
 			NodeID    string

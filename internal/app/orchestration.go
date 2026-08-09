@@ -94,12 +94,12 @@ type SOPProjectImpact struct {
 }
 
 type SOPTaskImpact struct {
-	TaskID       string `json:"task_id"`
-	ProjectID    string `json:"project_id"`
-	Title        string `json:"title"`
-	Status       string `json:"status"`
-	SOPVersion   int    `json:"sop_version"`
-	TaskRunBound bool   `json:"task_run_bound"`
+	TaskID          string `json:"task_id"`
+	ProjectID       string `json:"project_id"`
+	Title           string `json:"title"`
+	Status          string `json:"status"`
+	SOPVersion      int    `json:"sop_version"`
+	RuntimeRunBound bool   `json:"runtime_run_bound"`
 }
 
 type SOPVersionImpact struct {
@@ -186,7 +186,7 @@ type WorkTaskView struct {
 	KnowledgeSnapshots []domain.KnowledgeSnapshot  `json:"knowledge_snapshots"`
 	ApprovedSnapshots  []domain.ApprovedSnapshot   `json:"approved_snapshots"`
 	StageRuns          []domain.StageRun           `json:"stage_runs"`
-	Runs               []domain.TaskRun            `json:"runs"`
+	Runs               []domain.RuntimeRun         `json:"runs"`
 	Gates              []domain.GateEvaluation     `json:"gates"`
 	Revisions          []domain.TaskRevision       `json:"revisions"`
 	Deliveries         []domain.TaskDelivery       `json:"deliveries"`
@@ -664,7 +664,7 @@ func (s *Service) SOPVersionImpact(ctx context.Context, actor Actor, sopID strin
 		if task.SOPID != sopID || task.SOPVersion != version {
 			continue
 		}
-		result.Tasks = append(result.Tasks, SOPTaskImpact{TaskID: task.ID, ProjectID: task.ProjectID, Title: task.Title, Status: task.Status, SOPVersion: task.SOPVersion, TaskRunBound: task.Status == domain.TaskStatusRunning || task.Status == domain.TaskStatusWaitingGate || task.Status == domain.TaskStatusAccepted || task.Status == domain.TaskStatusDelivered})
+		result.Tasks = append(result.Tasks, SOPTaskImpact{TaskID: task.ID, ProjectID: task.ProjectID, Title: task.Title, Status: task.Status, SOPVersion: task.SOPVersion, RuntimeRunBound: task.Status == domain.TaskStatusRunning || task.Status == domain.TaskStatusWaitingGate || task.Status == domain.TaskStatusAccepted || task.Status == domain.TaskStatusDelivered})
 	}
 	result.Counts["environments"] = len(result.Environments)
 	result.Counts["projects"] = len(result.Projects)
@@ -1458,7 +1458,7 @@ func (s *Service) WorkTask(ctx context.Context, actor Actor, id string) (WorkTas
 	if err != nil {
 		return WorkTaskView{}, err
 	}
-	runs, err := s.runtimeTaskRunProjection(ctx, actor.TenantID, id)
+	runs, err := s.runtimeRunsForWorkTask(ctx, actor.TenantID, id)
 	if err != nil {
 		return WorkTaskView{}, err
 	}

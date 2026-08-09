@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
 )
@@ -14,6 +16,26 @@ func (s *Store) ApplyStateRecordCommand(_ context.Context, record domain.StateRe
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := validateRuntimeEventLocked(s, event); err != nil {
+		return record, err
+	}
+	result, err := applyStateRecordLocked(s, record, expectedVersion)
+	if err != nil {
+		return record, err
+	}
+	appendRuntimeEventLocked(s, event)
+	return result, nil
+}
+
+func (s *Store) ApplyFencedStateRecordCommand(_ context.Context, record domain.StateRecord, expectedVersion int, attemptID, fenceToken string, now time.Time, event domain.JobEvent) (domain.StateRecord, error) {
+	if err := record.Validate(); err != nil {
+		return record, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := validateAttemptFenceLocked(s, record.TenantID, attemptID, fenceToken, now); err != nil {
+		return record, err
+	}
 	if err := validateRuntimeEventLocked(s, event); err != nil {
 		return record, err
 	}
@@ -41,6 +63,36 @@ func (s *Store) RegisterToolCallCommand(_ context.Context, call domain.ToolCall,
 	if _, ok := s.runtimeToolCalls[key]; ok {
 		return call, domain.Conflict("TOOL_CALL_EXISTS", "ToolCall 已存在")
 	}
+	if toolCallIdempotencyExistsLocked(s, call) {
+		return call, domain.Conflict("TOOL_CALL_IDEMPOTENCY_EXISTS", "ToolCall 幂等键已存在")
+	}
+	s.runtimeToolCalls[key] = call
+	appendRuntimeEventLocked(s, event)
+	return call, nil
+}
+
+func (s *Store) RegisterFencedToolCallCommand(_ context.Context, call domain.ToolCall, fenceToken string, now time.Time, event domain.JobEvent) (domain.ToolCall, error) {
+	if err := call.Validate(); err != nil {
+		return call, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := validateAttemptFenceLocked(s, call.TenantID, call.AttemptID, fenceToken, now); err != nil {
+		return call, err
+	}
+	if err := validateToolCallLocked(s, call); err != nil {
+		return call, err
+	}
+	if err := validateRuntimeEventLocked(s, event); err != nil {
+		return call, err
+	}
+	key := toolCallKey(call.TenantID, call.ID)
+	if _, ok := s.runtimeToolCalls[key]; ok {
+		return call, domain.Conflict("TOOL_CALL_EXISTS", "ToolCall 已存在")
+	}
+	if toolCallIdempotencyExistsLocked(s, call) {
+		return call, domain.Conflict("TOOL_CALL_IDEMPOTENCY_EXISTS", "ToolCall 幂等键已存在")
+	}
 	s.runtimeToolCalls[key] = call
 	appendRuntimeEventLocked(s, event)
 	return call, nil
@@ -52,6 +104,34 @@ func (s *Store) ApplyToolCallTransitionCommand(_ context.Context, next domain.To
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := validateRuntimeEventLocked(s, event); err != nil {
+		return next, err
+	}
+	key := toolCallKey(next.TenantID, next.ID)
+	current, ok := s.runtimeToolCalls[key]
+	if !ok {
+		return next, domain.NotFound("ToolCall")
+	}
+	if current.Version != expectedVersion || next.Version != expectedVersion+1 {
+		return current, domain.Conflict("TOOL_CALL_VERSION_CONFLICT", "ToolCall 已被更新")
+	}
+	if current.State == domain.ToolCallSucceeded || current.State == domain.ToolCallFailed || current.State == domain.ToolCallUnknown {
+		return current, domain.Conflict("TOOL_CALL_TERMINAL", "终态 ToolCall 不能原地修改")
+	}
+	s.runtimeToolCalls[key] = next
+	appendRuntimeEventLocked(s, event)
+	return next, nil
+}
+
+func (s *Store) ApplyFencedToolCallTransitionCommand(_ context.Context, next domain.ToolCall, expectedVersion int, fenceToken string, now time.Time, event domain.JobEvent) (domain.ToolCall, error) {
+	if err := next.Validate(); err != nil {
+		return next, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := validateAttemptFenceLocked(s, next.TenantID, next.AttemptID, fenceToken, now); err != nil {
+		return next, err
+	}
 	if err := validateRuntimeEventLocked(s, event); err != nil {
 		return next, err
 	}
@@ -220,6 +300,9 @@ func (s *Store) CreateToolCall(_ context.Context, call domain.ToolCall) error {
 	if _, ok := s.runtimeToolCalls[key]; ok {
 		return domain.Conflict("TOOL_CALL_EXISTS", "ToolCall 已存在")
 	}
+	if toolCallIdempotencyExistsLocked(s, call) {
+		return domain.Conflict("TOOL_CALL_IDEMPOTENCY_EXISTS", "ToolCall 幂等键已存在")
+	}
 	s.runtimeToolCalls[key] = call
 	return nil
 }
@@ -232,6 +315,17 @@ func (s *Store) ToolCall(_ context.Context, tenantID, id string) (domain.ToolCal
 		return domain.ToolCall{}, domain.NotFound("ToolCall")
 	}
 	return value, nil
+}
+
+func (s *Store) ToolCallByIdempotencyKey(_ context.Context, tenantID, attemptID, toolName, idempotencyKey string) (domain.ToolCall, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, value := range s.runtimeToolCalls {
+		if value.TenantID == tenantID && value.AttemptID == attemptID && value.ToolName == toolName && toolCallIdempotencyKey(value) == idempotencyKey {
+			return value, nil
+		}
+	}
+	return domain.ToolCall{}, domain.NotFound("ToolCall")
 }
 
 func (s *Store) ToolCalls(_ context.Context, tenantID, attemptID string) ([]domain.ToolCall, error) {
@@ -268,7 +362,7 @@ func (s *Store) ApplyToolCallTransition(_ context.Context, next domain.ToolCall,
 		return current, err
 	}
 	current.State = next.State
-	current.ResultDigest, current.ErrorCode = next.ResultDigest, next.ErrorCode
+	current.SafeResult, current.ResultDigest, current.ErrorCode = next.SafeResult, next.ResultDigest, next.ErrorCode
 	current.StartedAt, current.FinishedAt = next.StartedAt, next.FinishedAt
 	current.Version, current.UpdatedAt = next.Version, next.UpdatedAt
 	s.runtimeToolCalls[key] = current
@@ -305,4 +399,22 @@ func validateToolCallLocked(s *Store, call domain.ToolCall) error {
 		return domain.Policy("TOOL_CALL_NOT_ALLOWED", "当前 ContextView 未授权该工具", "仅调用 AllowedTools 中的工具")
 	}
 	return nil
+}
+
+func toolCallIdempotencyExistsLocked(s *Store, call domain.ToolCall) bool {
+	key := toolCallIdempotencyKey(call)
+	if key == "" {
+		return false
+	}
+	for _, existing := range s.runtimeToolCalls {
+		if existing.TenantID == call.TenantID && existing.AttemptID == call.AttemptID && existing.ToolName == call.ToolName && toolCallIdempotencyKey(existing) == key {
+			return true
+		}
+	}
+	return false
+}
+
+func toolCallIdempotencyKey(call domain.ToolCall) string {
+	value, _ := call.SafeRequest["idempotency_key"].(string)
+	return strings.TrimSpace(value)
 }

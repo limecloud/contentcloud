@@ -1,7 +1,7 @@
 {
   "schema_version": "contentcloud.plugin-claims/1.0",
   "plugin_id": "contentcloud-video-production",
-  "plugin_version": "0.21.0",
+  "plugin_version": "0.22.0",
   "package_spec_version": "1.0.0",
   "kind": "scene_plugin",
   "requested_capabilities": [

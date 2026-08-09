@@ -180,11 +180,11 @@ func TestPlatformAdminOverviewAndTenantStatusEndpoint(t *testing.T) {
 	}
 	demoTasks := callBFF[[]domain.WorkTask](t, client, http.MethodGet, server.URL+"/api/bff/tasks?project_id="+demoProjects[0].ID, nil)
 	if len(demoTasks) != 1 || demoTasks[0].Status != domain.TaskStatusDelivered {
-		t.Fatalf("development bootstrap did not deliver the V7 task: %#v", demoTasks)
+		t.Fatalf("development bootstrap did not deliver the marketing-video task: %#v", demoTasks)
 	}
 	demoTask := callBFF[app.WorkTaskView](t, client, http.MethodGet, server.URL+"/api/bff/tasks/"+demoTasks[0].ID, nil)
 	if len(demoTask.SourceRevisions) != 1 || len(demoTask.KnowledgeSnapshots) != 1 || len(demoTask.KnowledgeSnapshots[0].Objects) != 4 || len(demoTask.Revisions) != 1 || len(demoTask.MediaJobs) != 1 || len(demoTask.ProviderAttempts) != 1 || len(demoTask.MediaReviews) != 3 || len(demoTask.DeliveryPackages) != 1 || len(demoTask.Deliveries) != 1 {
-		t.Fatalf("development V7 fixture is incomplete: %#v", demoTask)
+		t.Fatalf("development marketing-video fixture is incomplete: %#v", demoTask)
 	}
 	response, err = client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
 	if err != nil {
@@ -194,7 +194,7 @@ func TestPlatformAdminOverviewAndTenantStatusEndpoint(t *testing.T) {
 	demoProjects = callBFF[[]domain.Project](t, client, http.MethodGet, server.URL+"/api/bff/projects", nil)
 	demoTasks = callBFF[[]domain.WorkTask](t, client, http.MethodGet, server.URL+"/api/bff/tasks?project_id="+demoProjects[0].ID, nil)
 	if len(demoProjects) != 1 || len(demoTasks) != 1 || demoTasks[0].ID != demoTask.Task.ID {
-		t.Fatalf("development V7 fixture is not idempotent: projects=%#v tasks=%#v", demoProjects, demoTasks)
+		t.Fatalf("development marketing-video fixture is not idempotent: projects=%#v tasks=%#v", demoProjects, demoTasks)
 	}
 	overview := callBFF[domain.PlatformOverview](t, client, http.MethodGet, server.URL+"/api/v1/admin/dashboard", nil)
 	if overview.Counts.Tenants != 2 || overview.Counts.Users != 2 {

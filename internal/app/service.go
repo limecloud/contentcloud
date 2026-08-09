@@ -15,6 +15,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/blob"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
+	"github.com/limecloud/contentcloud/internal/mediapipeline"
 	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
 	"github.com/limecloud/contentcloud/internal/store"
 )
@@ -28,8 +29,10 @@ type Service struct {
 	environmentControl  *environment.ControlPlane
 	automationPolicy    map[string]environment.CapabilityRequirement
 	automationPackIDs   map[string][]string
+	mediaAdapters       map[string]mediapipeline.Adapter
 	runtimeService      *contentruntime.Service
 	runtimeHarnesses    *agentadapter.HarnessRegistry
+	runtimeRollout      contentruntime.RolloutPolicy
 }
 
 type Actor struct {
@@ -45,7 +48,7 @@ type Actor struct {
 type Dashboard struct {
 	Tenant      domain.Tenant       `json:"tenant"`
 	Projects    []domain.Project    `json:"projects"`
-	RecentRuns  []domain.TaskRun    `json:"recent_runs"`
+	RecentRuns  []domain.RuntimeRun `json:"recent_runs"`
 	RecentAudit []domain.AuditEvent `json:"recent_audit"`
 	Counts      map[string]int      `json:"counts"`
 	Pipeline    []PipelineStage     `json:"pipeline"`
@@ -96,6 +99,28 @@ func WithRuntimeHarnessRegistry(registry *agentadapter.HarnessRegistry) Option {
 	}
 }
 
+func WithRuntimeRolloutPolicy(policy contentruntime.RolloutPolicy) Option {
+	return func(service *Service) {
+		service.runtimeRollout = policy
+	}
+}
+
+// WithMediaProviderAdapter registers one provider implementation at the App
+// boundary. Media workers resolve providers through this map; no second
+// provider registry or per-job fallback is allowed.
+func WithMediaProviderAdapter(providerID string, adapter mediapipeline.Adapter) Option {
+	return func(service *Service) {
+		providerID = strings.ToLower(strings.TrimSpace(providerID))
+		if providerID == "" || adapter == nil {
+			return
+		}
+		if service.mediaAdapters == nil {
+			service.mediaAdapters = map[string]mediapipeline.Adapter{}
+		}
+		service.mediaAdapters[providerID] = adapter
+	}
+}
+
 func New(st store.Store, logger *slog.Logger, options ...Option) *Service {
 	return NewWithBlob(st, logger, blob.NewMemory(), options...)
 }
@@ -107,12 +132,17 @@ func NewWithBlob(st store.Store, logger *slog.Logger, blobs blob.Store, options 
 	if blobs == nil {
 		blobs = blob.NewMemory()
 	}
-	service := &Service{store: st, now: time.Now, log: logger, blobs: blobs, platformAdminEmails: map[string]struct{}{}, automationPolicy: map[string]environment.CapabilityRequirement{}, automationPackIDs: map[string][]string{}, runtimeHarnesses: agentadapter.NewDefaultHarnessRegistry()}
+	service := &Service{store: st, now: time.Now, log: logger, blobs: blobs, platformAdminEmails: map[string]struct{}{}, automationPolicy: map[string]environment.CapabilityRequirement{}, automationPackIDs: map[string][]string{}, mediaAdapters: map[string]mediapipeline.Adapter{}, runtimeHarnesses: agentadapter.NewDefaultHarnessRegistry(), runtimeRollout: contentruntime.DefaultRolloutPolicy()}
 	for _, option := range options {
 		option(service)
 	}
 	if runtimeRepo, ok := st.(contentruntime.Repository); ok {
-		service.runtimeService = contentruntime.NewWithHarnessRegistry(runtimeRepo, service.now, service.runtimeHarnesses)
+		// Keep the Runtime clock coupled to the App clock. Tests, replay tools,
+		// and maintenance controllers may replace the App clock; capturing the
+		// original function here would make lease/backlog observations drift.
+		runtimeNow := func() time.Time { return service.now() }
+		service.runtimeService = contentruntime.NewWithHarnessRegistry(runtimeRepo, runtimeNow, service.runtimeHarnesses)
+		service.runtimeService.SetRolloutPolicy(service.runtimeRollout)
 	}
 	return service
 }
@@ -121,6 +151,12 @@ func NewWithBlob(st store.Store, logger *slog.Logger, blobs blob.Store, options 
 // to customer task adapters. Business facts still belong to their owning app
 // services; this method only exposes execution metadata and commands.
 func (s *Service) Runtime() *contentruntime.Service { return s.runtimeService }
+
+// ProviderBinding exposes only the provider binding boundary needed by
+// authenticated callback ingress. CredentialRef remains hidden from callers.
+func (s *Service) ProviderBinding(ctx context.Context, tenantID, providerID string) (domain.ProviderBinding, error) {
+	return s.store.ProviderBinding(ctx, tenantID, providerID)
+}
 
 // newRegistration 校验注册凭据并构造用户记录，不写入存储。
 func newRegistration(email, password, displayName string, now time.Time) (domain.User, error) {
@@ -238,7 +274,7 @@ func (s *Service) Dashboard(ctx context.Context, actor Actor) (Dashboard, error)
 	if err != nil {
 		return Dashboard{}, err
 	}
-	runs, _ := s.taskRunsForTenant(ctx, actor.TenantID)
+	runs, _ := s.runtimeRunsForTenant(ctx, actor.TenantID)
 	if len(runs) > 8 {
 		runs = runs[:8]
 	}
@@ -400,39 +436,39 @@ func (s *Service) Approvals(ctx context.Context, actor Actor, subjectID string) 
 	return s.store.Approvals(ctx, actor.TenantID, subjectID)
 }
 
-func (s *Service) Runs(ctx context.Context, actor Actor, projectID string) ([]domain.TaskRun, error) {
-	return s.taskRunsForProject(ctx, actor.TenantID, projectID)
+func (s *Service) Runs(ctx context.Context, actor Actor, projectID string) ([]domain.RuntimeRun, error) {
+	return s.runtimeRunsForProject(ctx, actor.TenantID, projectID)
 }
-func (s *Service) Run(ctx context.Context, actor Actor, id string) (domain.TaskRun, error) {
+func (s *Service) Run(ctx context.Context, actor Actor, id string) (domain.RuntimeRun, error) {
 	if job, ok, err := s.runtimeJob(ctx, actor.TenantID, id); err != nil {
-		return domain.TaskRun{}, err
+		return domain.RuntimeRun{}, err
 	} else if ok {
-		return s.projectRuntimeJob(ctx, job)
+		return s.projectRuntimeRun(ctx, job)
 	}
-	return domain.TaskRun{}, domain.NotFound("Runtime JobRun")
+	return domain.RuntimeRun{}, domain.NotFound("Runtime JobRun")
 }
 
-func (s *Service) CancelRun(ctx context.Context, actor Actor, runID, requestID string) (domain.TaskRun, error) {
+func (s *Service) CancelRun(ctx context.Context, actor Actor, runID, requestID string) (domain.RuntimeRun, error) {
 	if err := requireRole(actor, "tenant_admin", "project_manager", "editor"); err != nil {
-		return domain.TaskRun{}, err
+		return domain.RuntimeRun{}, err
 	}
 	if job, ok, err := s.runtimeJob(ctx, actor.TenantID, runID); err != nil {
-		return domain.TaskRun{}, err
+		return domain.RuntimeRun{}, err
 	} else if ok {
 		if _, err := s.runtimeService.Cancel(ctx, actor.TenantID, job.ID, "user", actor.UserID); err != nil {
-			return domain.TaskRun{}, err
+			return domain.RuntimeRun{}, err
 		}
-		runs, err := s.runtimeTaskRunProjection(ctx, actor.TenantID, job.WorkTaskID)
+		runs, err := s.runtimeRunsForWorkTask(ctx, actor.TenantID, job.WorkTaskID)
 		if err != nil {
-			return domain.TaskRun{}, err
+			return domain.RuntimeRun{}, err
 		}
 		if len(runs) == 0 {
-			return domain.TaskRun{}, domain.NotFound("Runtime JobRun 投影")
+			return domain.RuntimeRun{}, domain.NotFound("Runtime JobRun 投影")
 		}
 		s.audit(ctx, actor, job.ProjectID, "runtime.cancelled", "job_run", job.ID, requestID, map[string]any{})
 		return runs[0], nil
 	}
-	return domain.TaskRun{}, domain.NotFound("Runtime JobRun")
+	return domain.RuntimeRun{}, domain.NotFound("Runtime JobRun")
 }
 
 func (s *Service) Audit(ctx context.Context, actor Actor, projectID string, limit int) ([]domain.AuditEvent, error) {

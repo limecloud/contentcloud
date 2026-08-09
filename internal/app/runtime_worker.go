@@ -16,23 +16,24 @@ import (
 // server chooses the lease owner from the authenticated device; owner and
 // fence fields are never accepted from the request body.
 type RuntimeWorkerPrepareInput struct {
-	JobRunID             string                   `json:"job_run_id"`
-	HarnessKind          string                   `json:"harness_kind"`
-	Role                 string                   `json:"role"`
-	ExecutionProfileID   string                   `json:"execution_profile_id"`
-	Workspace            string                   `json:"workspace,omitempty"`
-	Prompt               string                   `json:"prompt,omitempty"`
-	OutputSchema         json.RawMessage          `json:"output_schema,omitempty"`
-	InputRefs            []string                 `json:"input_refs,omitempty"`
-	StateRefs            []string                 `json:"state_refs,omitempty"`
-	EventRefs            []string                 `json:"event_refs,omitempty"`
-	AllowedTools         []string                 `json:"allowed_tools,omitempty"`
-	MaxTokens            int                      `json:"max_tokens"`
-	BudgetMinor          int64                    `json:"budget_minor"`
-	RemainingDescendants int                      `json:"remaining_descendants"`
-	LeaseForSeconds      int                      `json:"lease_for_seconds,omitempty"`
-	ContextTTLSeconds    int                      `json:"context_ttl_seconds,omitempty"`
-	ResourceRequests     []domain.ResourceRequest `json:"resource_requests,omitempty"`
+	JobRunID             string                           `json:"job_run_id"`
+	HarnessKind          string                           `json:"harness_kind"`
+	Capabilities         agentadapter.HarnessCapabilities `json:"capabilities"`
+	Role                 string                           `json:"role"`
+	ExecutionProfileID   string                           `json:"execution_profile_id"`
+	Workspace            string                           `json:"workspace,omitempty"`
+	Prompt               string                           `json:"prompt,omitempty"`
+	OutputSchema         json.RawMessage                  `json:"output_schema,omitempty"`
+	InputRefs            []string                         `json:"input_refs,omitempty"`
+	StateRefs            []string                         `json:"state_refs,omitempty"`
+	EventRefs            []string                         `json:"event_refs,omitempty"`
+	AllowedTools         []string                         `json:"allowed_tools,omitempty"`
+	MaxTokens            int                              `json:"max_tokens"`
+	BudgetMinor          int64                            `json:"budget_minor"`
+	RemainingDescendants int                              `json:"remaining_descendants"`
+	LeaseForSeconds      int                              `json:"lease_for_seconds,omitempty"`
+	ContextTTLSeconds    int                              `json:"context_ttl_seconds,omitempty"`
+	ResourceRequests     []domain.ResourceRequest         `json:"resource_requests,omitempty"`
 }
 
 type RuntimeWorkerActivateInput struct {
@@ -50,6 +51,12 @@ type RuntimeWorkerHeartbeatInput struct {
 	FenceToken string `json:"fence_token"`
 }
 
+type RuntimeWorkerEventInput struct {
+	AttemptID  string                  `json:"attempt_id"`
+	FenceToken string                  `json:"fence_token"`
+	Event      agentadapter.AgentEvent `json:"event"`
+}
+
 type RuntimeWorkerFinalizeInput struct {
 	AttemptID       string          `json:"attempt_id"`
 	FenceToken      string          `json:"fence_token"`
@@ -61,6 +68,14 @@ type RuntimeWorkerFinalizeInput struct {
 	ErrorCode       string          `json:"error_code,omitempty"`
 	UsedCostMinor   int64           `json:"used_cost_minor"`
 	BusinessPayload json.RawMessage `json:"business_payload,omitempty"`
+}
+
+type RuntimeMCPCallInput struct {
+	AttemptID  string         `json:"attempt_id"`
+	FenceToken string         `json:"fence_token"`
+	ToolName   string         `json:"tool_name"`
+	RequestID  string         `json:"request_id"`
+	Arguments  map[string]any `json:"arguments"`
 }
 
 type RuntimeWorkerResult struct {
@@ -79,7 +94,7 @@ func (s *Service) PrepareRuntimeWorker(ctx context.Context, actor Actor, input R
 	leaseFor := secondsDuration(input.LeaseForSeconds)
 	contextTTL := secondsDuration(input.ContextTTLSeconds)
 	owner := runtimeWorkerOwner(actor)
-	handle, err := s.runtimeService.PrepareDispatch(ctx, contentruntime.DispatchInput{
+	handle, err := s.runtimeService.PrepareRemoteDispatch(ctx, contentruntime.DispatchInput{
 		TenantID: actor.TenantID, JobRunID: input.JobRunID, Owner: owner,
 		HarnessKind: strings.TrimSpace(input.HarnessKind), Role: strings.TrimSpace(input.Role),
 		ExecutionProfileID: strings.TrimSpace(input.ExecutionProfileID), Workspace: input.Workspace,
@@ -88,11 +103,24 @@ func (s *Service) PrepareRuntimeWorker(ctx context.Context, actor Actor, input R
 		EventRefs: append([]string(nil), input.EventRefs...), AllowedTools: append([]string(nil), input.AllowedTools...),
 		MaxTokens: input.MaxTokens, BudgetMinor: input.BudgetMinor, RemainingDescendants: input.RemainingDescendants,
 		LeaseFor: leaseFor, ContextTTL: contextTTL, ResourceRequests: append([]domain.ResourceRequest(nil), input.ResourceRequests...),
-	})
+	}, input.Capabilities)
 	if err != nil {
 		return contentruntime.DispatchHandle{}, err
 	}
 	return handle, nil
+}
+
+// CallRuntimeMCP is the only App-facing MCP path. Device authentication
+// supplies the tenant; the worker still has to present the Attempt fence and
+// the Runtime gateway re-checks every scope before executing a tool.
+func (s *Service) CallRuntimeMCP(ctx context.Context, actor Actor, input RuntimeMCPCallInput) (contentruntime.GatewayResponse, error) {
+	if err := requireRuntimeWorker(actor); err != nil {
+		return contentruntime.GatewayResponse{}, err
+	}
+	if s.runtimeService == nil {
+		return contentruntime.GatewayResponse{}, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+	}
+	return contentruntime.NewRuntimeMCPGateway(s.runtimeService).Call(ctx, contentruntime.GatewayRequest{TenantID: actor.TenantID, AttemptID: input.AttemptID, FenceToken: input.FenceToken, ToolName: input.ToolName, RequestID: input.RequestID, Arguments: input.Arguments})
 }
 
 func (s *Service) PrepareNextRuntimeWorker(ctx context.Context, actor Actor, input RuntimeWorkerPrepareNextInput) (contentruntime.DispatchHandle, error) {
@@ -117,12 +145,25 @@ func (s *Service) HeartbeatRuntimeWorker(ctx context.Context, actor Actor, input
 	return s.runtimeService.HeartbeatDispatch(ctx, handle)
 }
 
+func (s *Service) RecordRuntimeWorkerEvent(ctx context.Context, actor Actor, input RuntimeWorkerEventInput) error {
+	handle, err := s.workerHandle(ctx, actor, input.AttemptID, input.FenceToken)
+	if err != nil {
+		return err
+	}
+	return s.runtimeService.RecordHarnessEvent(ctx, handle, input.Event)
+}
+
 func (s *Service) FinalizeRuntimeWorker(ctx context.Context, actor Actor, input RuntimeWorkerFinalizeInput, requestID string) (RuntimeWorkerResult, error) {
 	handle, err := s.workerFinalizeHandle(ctx, actor, input.AttemptID, input.FenceToken)
 	if err != nil {
 		return RuntimeWorkerResult{}, err
 	}
 	outcome := contentruntime.DispatchOutcome{State: input.State, OutputRefs: append([]string(nil), input.OutputRefs...), OutputDigest: strings.TrimSpace(input.OutputDigest), ResultDigest: strings.TrimSpace(input.ResultDigest), SafeSummary: input.SafeSummary, ErrorCode: strings.TrimSpace(input.ErrorCode), UsedCostMinor: input.UsedCostMinor}
+	for _, ref := range outcome.OutputRefs {
+		if strings.HasPrefix(strings.TrimSpace(ref), "runtime-result:") {
+			return RuntimeWorkerResult{}, domain.Invalid("RUNTIME_BUSINESS_RESULT_REF_RESERVED", "runtime-result 引用只能由服务端从已校验的业务 payload 生成")
+		}
+	}
 	resultRef := ""
 	businessDigest := ""
 	var businessErr error
@@ -132,9 +173,10 @@ func (s *Service) FinalizeRuntimeWorker(ctx context.Context, actor Actor, input 
 			return RuntimeWorkerResult{}, err
 		}
 		outcome.OutputRefs = append(outcome.OutputRefs, resultRef)
-		if outcome.OutputDigest == "" {
-			outcome.OutputDigest = businessDigest
+		if outcome.OutputDigest != "" && outcome.OutputDigest != businessDigest {
+			return RuntimeWorkerResult{}, domain.Conflict("RUNTIME_BUSINESS_RESULT_DIGEST_CONFLICT", "worker 提交的 output digest 与结构化业务结果不一致")
 		}
+		outcome.OutputDigest = businessDigest
 		if outcome.State == domain.RuntimeAttemptSucceeded {
 			businessErr = s.validateRuntimeBusinessResult(ctx, actor, handle.Attempt.JobRunID, input.BusinessPayload)
 		}
@@ -155,11 +197,6 @@ func (s *Service) FinalizeRuntimeWorker(ctx context.Context, actor Actor, input 
 	if err != nil {
 		return RuntimeWorkerResult{}, err
 	}
-	// Runtime terminal state is authoritative. Business-owned state is written
-	// only after that commit and remains idempotent for response-loss retries.
-	if businessErr == nil && len(input.BusinessPayload) > 0 && finalized.Handle.Attempt.State == domain.RuntimeAttemptSucceeded {
-		businessErr = s.applyRuntimeBusinessResult(ctx, actor, handle.Attempt.JobRunID, input.BusinessPayload, requestID)
-	}
 	if businessErr != nil {
 		return RuntimeWorkerResult{Handle: finalized.Handle, Job: finalized.Job, BusinessResultRef: resultRef}, businessErr
 	}
@@ -168,37 +205,31 @@ func (s *Service) FinalizeRuntimeWorker(ctx context.Context, actor Actor, input 
 
 func (s *Service) validateRuntimeBusinessResult(ctx context.Context, actor Actor, jobID string, payload json.RawMessage) error {
 	run, pkg, handled, err := s.runtimeKnowledgePackage(ctx, actor, jobID, payload)
-	if err != nil || !handled {
+	if err != nil {
 		return err
+	}
+	if !handled {
+		return domain.Invalid("RUNTIME_BUSINESS_RESULT_UNSUPPORTED", "当前任务类型没有注册结构化业务结果契约")
 	}
 	_, _, err = s.validateKnowledgePackage(ctx, actor, run, pkg)
 	return err
 }
 
-func (s *Service) applyRuntimeBusinessResult(ctx context.Context, actor Actor, jobID string, payload json.RawMessage, requestID string) error {
-	run, pkg, handled, err := s.runtimeKnowledgePackage(ctx, actor, jobID, payload)
-	if err != nil || !handled {
-		return err
-	}
-	_, _, err = s.importKnowledgePackage(ctx, actor, run, pkg, requestID)
-	return err
-}
-
-func (s *Service) runtimeKnowledgePackage(ctx context.Context, actor Actor, jobID string, payload json.RawMessage) (domain.TaskRun, domain.KnowledgeExtractionPackage, bool, error) {
+func (s *Service) runtimeKnowledgePackage(ctx context.Context, actor Actor, jobID string, payload json.RawMessage) (domain.RuntimeRun, domain.KnowledgeExtractionPackage, bool, error) {
 	job, err := s.runtimeService.Job(ctx, actor.TenantID, jobID)
 	if err != nil {
-		return domain.TaskRun{}, domain.KnowledgeExtractionPackage{}, false, err
+		return domain.RuntimeRun{}, domain.KnowledgeExtractionPackage{}, false, err
 	}
 	if job.BusinessType != "knowledge_extract" {
-		return domain.TaskRun{}, domain.KnowledgeExtractionPackage{}, false, nil
+		return domain.RuntimeRun{}, domain.KnowledgeExtractionPackage{}, false, nil
 	}
 	var pkg domain.KnowledgeExtractionPackage
 	if err := decodeStrict(payload, &pkg); err != nil {
-		return domain.TaskRun{}, domain.KnowledgeExtractionPackage{}, true, domain.Invalid("RUNTIME_BUSINESS_RESULT_INVALID", "知识候选业务结果不符合严格 JSON 契约")
+		return domain.RuntimeRun{}, domain.KnowledgeExtractionPackage{}, true, domain.Invalid("RUNTIME_BUSINESS_RESULT_INVALID", "知识候选业务结果不符合严格 JSON 契约")
 	}
-	run, err := s.projectRuntimeJob(ctx, job)
+	run, err := s.projectRuntimeRun(ctx, job)
 	if err != nil {
-		return domain.TaskRun{}, domain.KnowledgeExtractionPackage{}, true, err
+		return domain.RuntimeRun{}, domain.KnowledgeExtractionPackage{}, true, err
 	}
 	return run, pkg, true, nil
 }

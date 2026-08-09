@@ -72,12 +72,12 @@ V8 不再使用含糊的“零执行”说法。准确的安全边界是：
 
 ### 5.1 当前风险
 
-当前 `internal/agentadapter/adapter.go` 中：
+历史一次性 Adapter 已删除，当前 Runtime 只允许具备结构化事件和会话恢复能力的 Harness：
 
-- Codex 使用 `--dangerously-bypass-approvals-and-sandbox --ephemeral`。
-- Claude 使用 `--permission-mode bypassPermissions --no-session-persistence`。
+- Codex 使用 workspace-write 与自动批准配置，不使用 `--ephemeral`，并通过真实 thread ID 恢复。
+- Claude 使用 `stream-json`、`--permission-mode bypassPermissions`、真实 `session_id` 和 `--resume`，事件只投影为脱敏 Runtime 事件。
 
-这种配置只适用于用户明确授权的本地单次执行，不适合作为动态多智能体运行时的默认配置。Runtime 不能直接在该配置上开放子智能体创建能力。
+两种宿主仍运行在用户预先授权的隔离执行工作区内，高权限参数不等于 ContentCloud 控制面权限。任何适配器都不能在没有独立隔离评审时开放子智能体创建能力；真实在线宿主、权限配置和数据处理评审仍是生产准入门槛。
 
 ### 5.2 隔离配置（`IsolationProfile`）
 

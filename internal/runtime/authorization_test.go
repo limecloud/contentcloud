@@ -50,6 +50,25 @@ func stateRecordForTest(collection domain.StateCollection, key, actor string) do
 	}
 }
 
+func publishStateSchemaForTest(t *testing.T, service *Service, collection domain.StateCollection) {
+	t.Helper()
+	for revision := 1; revision <= collection.SchemaRevision; revision++ {
+		if existing, err := service.RuntimeSchema(t.Context(), collection.TenantID, collection.SchemaID, revision); err == nil {
+			if existing.Status != "published" {
+				t.Fatalf("test Runtime Schema is not published: %#v", existing)
+			}
+			continue
+		}
+		draft, err := service.CreateRuntimeSchema(t.Context(), RuntimeSchemaInput{TenantID: collection.TenantID, SchemaID: collection.SchemaID, Revision: revision, Definition: map[string]any{"type": "object"}, RetentionPolicy: collection.RetentionPolicy, CreatedBy: "test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.PublishRuntimeSchema(t.Context(), collection.TenantID, collection.SchemaID, revision, draft.Version); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestStateCollectionAuthorizationAndLimits(t *testing.T) {
 	repo := memory.New()
 	service := New(repo, time.Now)
@@ -59,6 +78,7 @@ func TestStateCollectionAuthorizationAndLimits(t *testing.T) {
 	}
 	nodeKey := started.Plan.Nodes[0].Key
 	collection := stateCollectionForTest(started, nodeKey, "brief", "cas_map", 1)
+	publishStateSchemaForTest(t, service, collection)
 	if err := service.CreateStateCollection(t.Context(), collection); err != nil {
 		t.Fatal(err)
 	}
@@ -108,6 +128,7 @@ func TestStateCollectionSingleWriterRequiresWriterIdentity(t *testing.T) {
 	}
 	writerNode := started.Plan.Nodes[0].Key
 	collection := stateCollectionForTest(started, writerNode, "reducer", "single_writer", 2)
+	publishStateSchemaForTest(t, service, collection)
 	if err := service.CreateStateCollection(t.Context(), collection); err != nil {
 		t.Fatal(err)
 	}

@@ -21,40 +21,40 @@ type CreateKnowledgeExtractionRunInput struct {
 	OutputCount       int      `json:"output_count"`
 }
 
-func (s *Service) CreateKnowledgeExtractionRun(ctx context.Context, actor Actor, in CreateKnowledgeExtractionRunInput, requestID string) (domain.TaskRun, error) {
+func (s *Service) CreateKnowledgeExtractionRun(ctx context.Context, actor Actor, in CreateKnowledgeExtractionRunInput, requestID string) (domain.RuntimeRun, error) {
 	if err := requireRole(actor, "tenant_admin", "project_manager", "strategist", "editor", "reviewer"); err != nil {
-		return domain.TaskRun{}, err
+		return domain.RuntimeRun{}, err
 	}
 	project, err := s.projectForWrite(ctx, actor, in.ProjectID)
 	if err != nil {
-		return domain.TaskRun{}, err
+		return domain.RuntimeRun{}, err
 	}
 	revisionIDs := uniqueNonEmpty(in.SourceRevisionIDs)
 	if len(revisionIDs) == 0 {
-		return domain.TaskRun{}, domain.Invalid("SOURCE_REVISION_REQUIRED", "知识提取至少需要一个来源版本")
+		return domain.RuntimeRun{}, domain.Invalid("SOURCE_REVISION_REQUIRED", "知识提取至少需要一个来源版本")
 	}
 	if in.OutputCount == 0 {
 		in.OutputCount = 20
 	}
 	if in.OutputCount < 1 || in.OutputCount > 20 {
-		return domain.TaskRun{}, domain.Invalid("OUTPUT_COUNT_INVALID", "知识候选数量必须在 1 到 20 之间")
+		return domain.RuntimeRun{}, domain.Invalid("OUTPUT_COUNT_INVALID", "知识候选数量必须在 1 到 20 之间")
 	}
 	sources := make([]domain.ContractSource, 0, len(revisionIDs))
 	for _, revisionID := range revisionIDs {
 		revision, err := s.store.SourceRevision(ctx, actor.TenantID, revisionID)
 		if err != nil || revision.ProjectID != project.ID {
-			return domain.TaskRun{}, domain.Policy("SOURCE_REVISION_PROJECT_MISMATCH", "来源版本不属于当前项目", "只选择当前项目内的来源版本")
+			return domain.RuntimeRun{}, domain.Policy("SOURCE_REVISION_PROJECT_MISMATCH", "来源版本不属于当前项目", "只选择当前项目内的来源版本")
 		}
 		if revision.ProcessingStatus != "ready" {
-			return domain.TaskRun{}, domain.Policy("SOURCE_REVISION_NOT_READY", "来源版本尚未完成可信解析", "等待来源状态变为“就绪（ready）”")
+			return domain.RuntimeRun{}, domain.Policy("SOURCE_REVISION_NOT_READY", "来源版本尚未完成可信解析", "等待来源状态变为“就绪（ready）”")
 		}
 		source, err := s.store.Source(ctx, actor.TenantID, revision.SourceID)
 		if err != nil {
-			return domain.TaskRun{}, err
+			return domain.RuntimeRun{}, err
 		}
 		spans, err := s.store.Evidence(ctx, actor.TenantID, revision.ID)
 		if err != nil {
-			return domain.TaskRun{}, err
+			return domain.RuntimeRun{}, err
 		}
 		evidence := []domain.ContractEvidence{}
 		for _, span := range spans {
@@ -64,13 +64,13 @@ func (s *Service) CreateKnowledgeExtractionRun(ctx context.Context, actor Actor,
 			evidence = append(evidence, domain.ContractEvidence{ID: span.ID, LocatorKind: span.LocatorKind, Locator: span.Locator, Quote: span.QuoteText, QuoteHash: span.QuoteHash})
 		}
 		if len(evidence) == 0 {
-			return domain.TaskRun{}, domain.Policy("ACCEPTED_EVIDENCE_REQUIRED", "来源版本没有可用于提取的已接受证据", "先复核并接受至少一个证据片段")
+			return domain.RuntimeRun{}, domain.Policy("ACCEPTED_EVIDENCE_REQUIRED", "来源版本没有可用于提取的已接受证据", "先复核并接受至少一个证据片段")
 		}
 		sources = append(sources, domain.ContractSource{SourceID: source.ID, RevisionID: revision.ID, Name: source.Name, SourceType: source.SourceType, FileName: revision.FileName, SHA256: revision.SHA256, DetectedMIME: revision.DetectedMIME, Evidence: evidence})
 	}
 	snapshot, err := domain.CompileKnowledgeSnapshot(project, sources, s.now())
 	if err != nil {
-		return domain.TaskRun{}, err
+		return domain.RuntimeRun{}, err
 	}
 	// The frozen input snapshot is content-addressed so concurrent retries do
 	// not create different Runtime admission identities for the same contract.
@@ -79,21 +79,21 @@ func (s *Service) CreateKnowledgeExtractionRun(ctx context.Context, actor Actor,
 		in.IdempotencyKey = domain.NewID()
 	}
 	if s.runtimeService == nil {
-		return domain.TaskRun{}, domain.Policy("RUNTIME_UNAVAILABLE", "知识提取需要已配置的 Runtime", "联系平台运营人员启用 Runtime")
+		return domain.RuntimeRun{}, domain.Policy("RUNTIME_UNAVAILABLE", "知识提取需要已配置的 Runtime", "联系平台运营人员启用 Runtime")
 	}
 	runtimeKey := "knowledge-extraction:" + project.ID + ":" + in.IdempotencyKey
 	if existing, lookupErr := s.runtimeService.JobByIdempotencyKey(ctx, actor.TenantID, runtimeKey); lookupErr == nil {
 		if existing.ProjectID != project.ID || existing.BusinessType != "knowledge_extract" || existing.InputDigest != "sha256:"+snapshot.ManifestHash || existing.BusinessOutputCount != in.OutputCount {
-			return domain.TaskRun{}, domain.Conflict("JOB_RUN_IDEMPOTENCY_MISMATCH", "知识提取幂等键已用于不同的输入契约")
+			return domain.RuntimeRun{}, domain.Conflict("JOB_RUN_IDEMPOTENCY_MISMATCH", "知识提取幂等键已用于不同的输入契约")
 		}
-		return s.projectRuntimeJob(ctx, existing)
+		return s.projectRuntimeRun(ctx, existing)
 	} else if !domain.IsNotFound(lookupErr) {
-		return domain.TaskRun{}, lookupErr
+		return domain.RuntimeRun{}, lookupErr
 	}
 	if err := s.store.CreateSnapshot(ctx, snapshot); err != nil {
 		existing, lookupErr := s.store.Snapshot(ctx, actor.TenantID, snapshot.ID)
 		if lookupErr != nil || !sameContextSnapshotIdentity(existing, snapshot) {
-			return domain.TaskRun{}, err
+			return domain.RuntimeRun{}, err
 		}
 	}
 	start, err := s.runtimeService.Start(ctx, contentruntime.StartInput{
@@ -106,11 +106,11 @@ func (s *Service) CreateKnowledgeExtractionRun(ctx context.Context, actor Actor,
 		IdempotencyKey: runtimeKey, CorrelationID: requestID,
 	})
 	if err != nil {
-		return domain.TaskRun{}, err
+		return domain.RuntimeRun{}, err
 	}
-	projected, err := s.projectRuntimeJob(ctx, start.Job)
+	projected, err := s.projectRuntimeRun(ctx, start.Job)
 	if err != nil {
-		return domain.TaskRun{}, err
+		return domain.RuntimeRun{}, err
 	}
 	projected.InputSnapshotID = snapshot.ID
 	projected.OutputCount = in.OutputCount
@@ -144,7 +144,7 @@ func knowledgeExtractionSOP() domain.SOPVersion {
 // importKnowledgePackage is the Runtime worker business handoff boundary. It
 // validates the frozen evidence contract before creating candidates and uses a
 // package digest marker to make retries idempotent.
-func (s *Service) importKnowledgePackage(ctx context.Context, actor Actor, run domain.TaskRun, pkg domain.KnowledgeExtractionPackage, requestID string) (domain.KnowledgeExtractionResult, string, error) {
+func (s *Service) importKnowledgePackage(ctx context.Context, actor Actor, run domain.RuntimeRun, pkg domain.KnowledgeExtractionPackage, requestID string) (domain.KnowledgeExtractionResult, string, error) {
 	hash, inputs, err := s.validateKnowledgePackage(ctx, actor, run, pkg)
 	if err != nil {
 		return domain.KnowledgeExtractionResult{}, "", err
@@ -172,7 +172,7 @@ func (s *Service) importKnowledgePackage(ctx context.Context, actor Actor, run d
 	return domain.KnowledgeExtractionResult{RunID: run.ID, Objects: objects, Warnings: pkg.Warnings}, "sha256:" + hash, nil
 }
 
-func (s *Service) validateKnowledgePackage(ctx context.Context, actor Actor, run domain.TaskRun, pkg domain.KnowledgeExtractionPackage) (string, []CreateKnowledgeObjectInput, error) {
+func (s *Service) validateKnowledgePackage(ctx context.Context, actor Actor, run domain.RuntimeRun, pkg domain.KnowledgeExtractionPackage) (string, []CreateKnowledgeObjectInput, error) {
 	hash, err := domain.CanonicalHash(pkg)
 	if err != nil {
 		return "", nil, err
@@ -213,7 +213,7 @@ func (s *Service) validateKnowledgePackage(ctx context.Context, actor Actor, run
 	return hash, inputs, nil
 }
 
-func knowledgeCandidateObjectInput(run domain.TaskRun, candidate domain.KnowledgeCandidate, evidenceIDs []string, index int) CreateKnowledgeObjectInput {
+func knowledgeCandidateObjectInput(run domain.RuntimeRun, candidate domain.KnowledgeCandidate, evidenceIDs []string, index int) CreateKnowledgeObjectInput {
 	objectType, layer := knowledgeCandidateObjectType(candidate.Kind)
 	payload := map[string]any{
 		"kind":                 candidate.Kind,

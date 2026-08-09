@@ -102,13 +102,14 @@ WorkTask  用户想完成的一项工作
 
 ## 5. 现有运行对象处置
 
-当前仓库的执行事实只存在于 `JobRun`、`NodeRun` 和 `RuntimeAttempt`。`WorkTask` 仍是业务工作对象，`StageRun` 和 `TaskRun` 只承担业务投影；旧执行对象按以下状态治理，不允许用名称相似性恢复双写或猜测迁移：
+当前仓库的执行事实只存在于 `JobRun`、`NodeRun` 和 `RuntimeAttempt`。`WorkTask` 仍是业务工作对象，`StageRun` 承担业务阶段投影，`RuntimeRun`/`RuntimeRunEvent` 是 current 公开读模型；旧执行对象和旧 DTO 按以下状态治理，不允许用名称相似性恢复双写或猜测迁移：
 
 | 当前对象 | 当前语义 | 状态 | 目标动作 | 退场或保留条件 |
 | --- | --- | --- | --- | --- |
 | `WorkTask` | 用户工作对象 | `current` | 保持业务事实，继续固定体验、SOP 和 Job 引用 | 永久保留，不吸收底层执行状态 |
 | `StageRun` | SOP 业务阶段进度 | `compat` | 仅表达客户业务阶段，不拥有执行租约或终态 | 公开业务 API 可完全由 Runtime 阶段投影替代后退场 |
-| `TaskRun` | Runtime 运行的业务 JSON 投影 | `compat` | 只读适配 JobRun/NodeRun，不对应表、不提供执行写入 | 下一版公开 API 统一使用 Runtime 术语后删除 DTO |
+| `RuntimeRun` / `RuntimeRunEvent` | Runtime 运行与事件的公开读模型 | `current` | 只从 JobRun/NodeRun/JobEvent 生成，不对应独立执行表、不提供执行写入 | 保持 Runtime 术语；不得吸收租约、终态或独立存储 |
+| `TaskRun` / `RunProgressEvent` | 已删除的公开兼容 DTO 名称 | `dead` | Go/TypeScript 类型、lineage 类型和 JSON 兼容字段已清理 | 架构守卫禁止恢复；历史只保留在迁移与决策说明 |
 | `RunAttempt` | 已删除的 V7 执行租约和尝试 | `dead` | `00034_remove_v7_execution.sql` 已删除表，代码/API 已清理 | 禁止恢复；历史仅保留在迁移 evidence |
 | `JobRun` | 一项 WorkTask 的完整执行 | `current` | 继续作为 V8 执行聚合演进 | 永久保留执行历史和版本引用 |
 | `NodeRun` | 固定 JobPlanRevision 中的执行节点 | `current` | 继续作为 V8 节点权威状态演进 | 永久保留节点执行历史 |

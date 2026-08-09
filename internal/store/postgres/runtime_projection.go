@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -48,10 +49,44 @@ func (s *Store) RuntimeExplorer(ctx context.Context, tenantID, jobID string) (do
 func (s *Store) RuntimeProjectionStats(ctx context.Context, tenantID string) (domain.RuntimeProjectionStats, error) {
 	result := domain.RuntimeProjectionStats{TenantID: tenantID}
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, `SELECT count(*),min(created_at) FROM runtime_outbox WHERE tenant_id=$1 AND delivered_at IS NULL`, tenantID).Scan(&result.Pending, &result.OldestPending); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT count(*),min(created_at) FROM runtime_outbox_receipts WHERE tenant_id=$1 AND subscriber=$2 AND delivered_at IS NULL`, tenantID, domain.RuntimeOutboxSubscriberProjection).Scan(&result.Pending, &result.OldestPending); err != nil {
 			return err
 		}
 		return tx.QueryRow(ctx, `SELECT max(projected_at) FROM runtime_projection_snapshots WHERE tenant_id=$1`, tenantID).Scan(&result.LastProjectedAt)
+	})
+	return result, err
+}
+
+func (s *Store) RuntimeOutboxStats(ctx context.Context, tenantID, subscriber string) (domain.RuntimeOutboxStats, error) {
+	subscriber = strings.TrimSpace(subscriber)
+	if subscriber == "" {
+		return domain.RuntimeOutboxStats{}, domain.Invalid("OUTBOX_SUBSCRIBER_REQUIRED", "outbox 统计需要订阅者")
+	}
+	result := domain.RuntimeOutboxStats{TenantID: tenantID, Subscriber: subscriber}
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*),min(m.created_at) FROM runtime_outbox_receipts r JOIN runtime_outbox m ON m.tenant_id=r.tenant_id AND m.id=r.message_id WHERE r.tenant_id=$1 AND r.subscriber=$2 AND r.delivered_at IS NULL`, tenantID, subscriber).Scan(&result.Pending, &result.OldestPending)
+	})
+	return result, err
+}
+
+func (s *Store) SaveRuntimeMaintenanceHeartbeat(ctx context.Context, value domain.RuntimeMaintenanceHeartbeat) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO runtime_maintenance_heartbeats(tenant_id,kind,worker_id,state,last_started_at,last_success_at,last_error_code,version,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,1,$8) ON CONFLICT (tenant_id,kind) DO UPDATE SET worker_id=EXCLUDED.worker_id,state=EXCLUDED.state,last_started_at=EXCLUDED.last_started_at,last_success_at=COALESCE(EXCLUDED.last_success_at,runtime_maintenance_heartbeats.last_success_at),last_error_code=EXCLUDED.last_error_code,version=runtime_maintenance_heartbeats.version+1,updated_at=EXCLUDED.updated_at WHERE runtime_maintenance_heartbeats.updated_at<=EXCLUDED.updated_at`, value.TenantID, value.Kind, value.WorkerID, value.State, value.LastStartedAt, value.LastSuccessAt, value.LastErrorCode, value.UpdatedAt)
+		return dbError(err)
+	})
+}
+
+func (s *Store) RuntimeMaintenanceHeartbeat(ctx context.Context, tenantID, kind string) (domain.RuntimeMaintenanceHeartbeat, error) {
+	var result domain.RuntimeMaintenanceHeartbeat
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx, `SELECT tenant_id,kind,worker_id,state,last_started_at,last_success_at,last_error_code,version,updated_at FROM runtime_maintenance_heartbeats WHERE tenant_id=$1 AND kind=$2`, tenantID, kind).Scan(&result.TenantID, &result.Kind, &result.WorkerID, &result.State, &result.LastStartedAt, &result.LastSuccessAt, &result.LastErrorCode, &result.Version, &result.UpdatedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.NotFound("Runtime 运维心跳")
+		}
+		return err
 	})
 	return result, err
 }

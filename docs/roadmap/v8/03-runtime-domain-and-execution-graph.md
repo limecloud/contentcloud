@@ -35,7 +35,8 @@ WorkTask                              业务任务及其治理
 | `WorkTask` | 业务任务 / 业务聚合根 | 不改表名；增加 active/latest `JobRun` 投影 |
 | `SOPVersion` | 业务流程与人工审批节点约束 | 发布时可编译成初始 JobPlanRevision |
 | `StageRun` | 业务阶段投影 | 保留；从多个 `NodeRun` 聚合状态 |
-| `TaskRun` | Runtime 的只读业务投影 DTO | 不对应物理执行表；只由 JobRun/NodeRun 生成，后续 API 版本可改名 |
+| `RuntimeRun` | Runtime 的 current 公开读模型 | 不对应独立执行表；只由 JobRun/NodeRun 生成，不拥有租约、状态机或终态 |
+| `TaskRun` / `RunProgressEvent` | 已删除的公开兼容 DTO | 架构守卫禁止恢复；历史只保留在迁移与决策说明 |
 | `RunAttempt` | 已删除的旧执行尝试 | `00034_remove_v7_execution.sql` 已删除旧表和 Store/API |
 | `RuntimeAttempt` | V8 唯一权威执行尝试 | 独立 `runtime_attempts`，保存租约、能力快照、Harness 会话引用和结构化结果摘要 |
 | `TaskStageOutput` | 执行输出绑定（`JobOutputBinding`） | 保留物理名称；绑定 `NodeRun` 和已验证业务 `subject_ref` 时增加兼容字段，不限定为 `Artifact` |
@@ -316,7 +317,7 @@ active -> completed / failed / canceling -> cancelled
 
 子智能体的策略只能是父策略和节点策略的交集。运行时拒绝模型、工具、状态范围、网络出口或预算的权限提升。
 
-当前落地边界：`runtime_context_views`、`runtime_agent_instances` 与 `runtime_attempts` 已通过复合外键和强制 RLS 持久化。Runtime 会原子准备 Node/ContextView/AgentInstance/RuntimeAttempt/Event，在 Harness 启动后原子激活，并在终态事件到达时原子完成 Node/Attempt/Agent；租约过期会将 Attempt 置为 `expired`、Node 重新送回就绪判断，并将活跃逻辑 Agent 送回 `runnable`。同一 Node 重试会创建新的 Attempt 和 ContextView，但复用同一个根 AgentInstance。真实 Codex/Claude SDK 会话恢复、主动等待条件、资源预留和 `yielded` 语义尚未实现。
+当前落地边界：`runtime_context_views`、`runtime_agent_instances` 与 `runtime_attempts` 已通过复合外键和强制 RLS 持久化。Runtime 会原子准备 Node/ContextView/AgentInstance/RuntimeAttempt/Event，在 Harness 启动后原子激活，并在终态事件到达时原子完成 Node/Attempt/Agent；租约过期会将 Attempt 置为 `expired`、Node 重新送回就绪判断，并将活跃逻辑 Agent 送回 `runnable`。同一 Node 重试会创建新的 Attempt 和 ContextView，但复用同一个根 AgentInstance。Codex Harness 已固定真实 thread ID 并支持新 worker 进程 Resume；Yield/Resume、主动等待条件和资源预留已实现。在线 Codex/Claude 宿主演练与生产故障验收尚未完成。
 
 ## 9. 执行事件（`JobEvent`）
 

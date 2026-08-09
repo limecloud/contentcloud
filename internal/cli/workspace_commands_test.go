@@ -83,6 +83,69 @@ func TestWorkspaceProjectBriefCommandAdvancesBusinessFlow(t *testing.T) {
 	}
 }
 
+func TestWorkspaceMemoryCommandsRebuildQueryStatusAndClearDryRun(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, WorkspaceID: "workspace-memory-cli", ProjectID: "project-memory-cli", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "10-context", "project.yaml"), []byte("客户需要提高年轻白领的复购。\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) string {
+		var stdout, stderr bytes.Buffer
+		command := (&Root{stdout: &stdout, stderr: &stderr, now: func() time.Time { return time.Date(2026, 8, 9, 8, 0, 0, 0, time.UTC) }}).command()
+		command.SetArgs(append([]string{"--json"}, args...))
+		if err := command.Execute(); err != nil {
+			t.Fatalf("command %v failed: %v; stderr=%s", args, err, stderr.String())
+		}
+		return stdout.String()
+	}
+	var rebuilt struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			State string `json:"state"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(run("workspace", "memory", "rebuild", "--directory", root)), &rebuilt); err != nil || !rebuilt.OK || rebuilt.Data.State != localworkspace.MemoryStateReady {
+		t.Fatalf("unexpected rebuild response: err=%v payload=%+v", err, rebuilt)
+	}
+	var queried struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Backend    string `json:"backend"`
+			Candidates []any  `json:"candidates"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(run("workspace", "memory", "query", "--directory", root, "--query", "年轻白领")), &queried); err != nil || !queried.OK || queried.Data.Backend != localworkspace.MemoryBackendSQLiteFTS5 || len(queried.Data.Candidates) == 0 {
+		t.Fatalf("unexpected query response: err=%v payload=%+v", err, queried)
+	}
+	if payload := run("workspace", "memory", "status", "--directory", root); !strings.Contains(payload, `"state":"ready"`) {
+		t.Fatalf("status response is not ready: %s", payload)
+	}
+	if payload := run("workspace", "memory", "clear", "--directory", root, "--dry-run"); !strings.Contains(payload, `"would_clear":true`) {
+		t.Fatalf("clear dry-run did not report cache: %s", payload)
+	}
+}
+
+func TestWorkspaceMemoryRememberCommandBindsLocalSource(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, WorkspaceID: "workspace-memory-remember", ProjectID: "project-memory-remember", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "40-work", "focus.md"), []byte("当前焦点：验证候选受众反馈。\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	command := (&Root{stdout: &stdout, stderr: &stderr, now: func() time.Time { return time.Date(2026, 8, 9, 8, 0, 0, 0, time.UTC) }}).command()
+	command.SetArgs([]string{"--json", "workspace", "memory", "remember", "--directory", root, "--id", "memr_cli", "--kind", "working", "--source-ref", "40-work/focus.md", "--summary", "当前任务优先验证候选受众反馈。"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("memory remember command failed: %v; stderr=%s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"memory_id":"memr_cli"`) || !strings.Contains(stdout.String(), `"record_ref":"40-work/memory/records/memr_cli.json"`) {
+		t.Fatalf("unexpected memory remember response: %s", stdout.String())
+	}
+}
+
 func TestWorkspaceFixtureApplyMaterializesExternalPackage(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "jinling-gudu")
 	fixture := filepath.Join("..", "..", "fixtures", "v3", "jinling-gudu.json")
@@ -147,7 +210,7 @@ func TestMCPListsAndCallsWorkspaceTools(t *testing.T) {
 		name, _ := tool["name"].(string)
 		names[name] = true
 	}
-	for _, name := range []string{"contentcloud_open_studio_view", "workspace_context", "workspace_project_brief", "environment_execution_plan", "environment_prepare_plan", "environment_prepare_apply", "workspace_status", "workspace_doctor", "source_register", "source_list", "source_ingest", "source_verify", "local_run_init", "local_run_show", "local_run_claim", "local_run_renew", "local_run_release", "handoff_create_ready", "handoff_list_ready", "handoff_accept", "handoff_complete", "handoff_supersede", "knowledge_import", "knowledge_lint", "knowledge_query", "knowledge_diagnose", "knowledge_pack", "brief_lint", "content_batch_init", "content_item_lint", "content_batch_lint", "content_batch_finalize", "content_item_diff", "delivery_export", "article_brief_lint", "article_batch_create", "article_item_lint", "article_batch_lint", "article_batch_finalize", "article_item_diff", "wechat_package_export", "wechat_package_lint", "publish_preflight", "publish_apply", "submission_status", "review_feedback_list", "review_feedback_pull", "review_feedback_inbox", "approved_snapshot_list", "approved_snapshot_pull", "approved_snapshot_inbox", "approved_snapshot_show"} {
+	for _, name := range []string{"contentcloud_open_studio_view", "workspace_context", "memory_status", "memory_rebuild", "memory_remember", "memory_consolidate", "memory_promote", "memory_extract", "memory_remote_query", "memory_query", "workspace_project_brief", "environment_execution_plan", "environment_prepare_plan", "environment_prepare_apply", "workspace_status", "workspace_doctor", "source_register", "source_list", "source_ingest", "source_verify", "local_run_init", "local_run_show", "local_run_claim", "local_run_renew", "local_run_release", "handoff_create_ready", "handoff_list_ready", "handoff_accept", "handoff_complete", "handoff_supersede", "knowledge_import", "knowledge_lint", "knowledge_query", "knowledge_diagnose", "knowledge_pack", "brief_lint", "content_batch_init", "content_item_lint", "content_batch_lint", "content_batch_finalize", "content_item_diff", "delivery_export", "article_brief_lint", "article_batch_create", "article_item_lint", "article_batch_lint", "article_batch_finalize", "article_item_diff", "wechat_package_export", "wechat_package_lint", "publish_preflight", "publish_apply", "submission_status", "review_feedback_list", "review_feedback_pull", "review_feedback_inbox", "approved_snapshot_list", "approved_snapshot_pull", "approved_snapshot_inbox", "approved_snapshot_show"} {
 		if !names[name] {
 			t.Fatalf("MCP tool %q is missing: %#v", name, tools)
 		}
@@ -592,8 +655,8 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 	if _, err := localworkspace.StoreEnvironment(root, manifest, installed, manifestVerifier, now); err != nil {
 		t.Fatal(err)
 	}
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.21.0"}}]}`
-	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.21.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.22.0"}}]}`
+	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.22.0","installed":true,"enabled":true}],"available":[]}`
 	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: currentMarketplace}, {stdout: missingPack},
@@ -620,9 +683,9 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 }
 
 func successfulTaskPackResponses() []bootstrapRunnerResponse {
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.21.0"}}]}`
-	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.21.0","installed":true,"enabled":true}],"available":[]}`
-	currentPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.21.0","installed":true,"enabled":true},{"pluginId":"contentcloud-visual-storytelling@contentcloud","name":"contentcloud-visual-storytelling","marketplaceName":"contentcloud","version":"1.2.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.22.0"}}]}`
+	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.22.0","installed":true,"enabled":true}],"available":[]}`
+	currentPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.22.0","installed":true,"enabled":true},{"pluginId":"contentcloud-visual-storytelling@contentcloud","name":"contentcloud-visual-storytelling","marketplaceName":"contentcloud","version":"1.2.0","installed":true,"enabled":true}],"available":[]}`
 	return []bootstrapRunnerResponse{
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: currentMarketplace}, {stdout: missingPack},
@@ -971,6 +1034,84 @@ func callMCPToolForTest(t *testing.T, root *Root, name string, arguments map[str
 		t.Fatalf("MCP tool %s failed: error=%+v result=%#v", name, response.Error, response.Result)
 	}
 	return result
+}
+
+func TestMCPMemoryToolsUseLocalScopeAndDoNotUploadFiles(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, WorkspaceID: "workspace-mcp-memory", ProjectID: "project-mcp-memory", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "30-knowledge", "pages", "mcp-fact.md"), []byte("MCP 记忆候选：品牌需要保持年轻白领语气。\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 9, 9, 0, 0, 0, time.UTC)
+	r := &Root{mcpCWD: root, now: func() time.Time { return now }}
+	remembered := callMCPToolForTest(t, r, "memory_remember", map[string]any{"memory_id": "memr_mcp", "kind": "knowledge", "source_ref": "30-knowledge/pages/mcp-fact.md", "summary": "品牌语气优先保持年轻白领可读。", "formed_by": "workbuddy/test"})
+	if report, ok := remembered["structuredContent"].(localworkspace.MemoryRememberReport); !ok || report.Record.MemoryID != "memr_mcp" {
+		t.Fatalf("unexpected memory remember result: %#v", remembered)
+	}
+	rebuilt := callMCPToolForTest(t, r, "memory_rebuild", map[string]any{})
+	if report, ok := rebuilt["structuredContent"].(localworkspace.MemoryRebuildReport); !ok || report.State != localworkspace.MemoryStateReady {
+		t.Fatalf("unexpected memory rebuild result: %#v", rebuilt)
+	}
+	queried := callMCPToolForTest(t, r, "memory_query", map[string]any{"query": "年轻白领", "limit": 5, "max_chars": 2000})
+	result, ok := queried["structuredContent"].(localworkspace.MemoryQueryResult)
+	if !ok || result.Scope.ProjectID != "project-mcp-memory" || len(result.Candidates) == 0 || result.Candidates[0].SourceRef != "30-knowledge/pages/mcp-fact.md" {
+		t.Fatalf("unexpected memory query result: %#v", queried)
+	}
+	status := callMCPToolForTest(t, r, "memory_status", map[string]any{})
+	if value, ok := status["structuredContent"].(localworkspace.MemoryProjectionStatus); !ok || value.State != localworkspace.MemoryStateReady {
+		t.Fatalf("unexpected memory status result: %#v", status)
+	}
+}
+
+func TestMCPMemoryRemoteToolsUseExplicitAdapterAndRevalidateSource(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, WorkspaceID: "workspace-mcp-remote", ProjectID: "project-mcp-remote", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "40-work", "remote.md"), []byte("远程抽取来源：记录年轻白领偏好。\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var sourceDigest string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer mcp-remote-token" {
+			http.Error(writer, "missing token", http.StatusUnauthorized)
+			return
+		}
+		switch request.URL.Path {
+		case "/v1/memory/extract":
+			var input localworkspace.MemoryRemoteExtractRequest
+			if err := json.NewDecoder(request.Body).Decode(&input); err != nil || input.SourceRef != "40-work/remote.md" || input.Content == "" {
+				http.Error(writer, "bad extract request", http.StatusBadRequest)
+				return
+			}
+			sourceDigest = input.SourceDigest
+			_ = json.NewEncoder(writer).Encode(map[string]any{"candidates": []localworkspace.MemoryExtractedCandidate{{MemoryID: "mcp-remote-memory", Kind: "working", ClaimKey: "audience:young", Summary: "年轻白领偏好清晰直接的表达。"}}})
+		case "/v1/memory/query":
+			var input localworkspace.MemoryRemoteQueryRequest
+			if err := json.NewDecoder(request.Body).Decode(&input); err != nil || input.Scope.ProjectID != "project-mcp-remote" || input.Query != "年轻白领" {
+				http.Error(writer, "bad query request", http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"candidates": []localworkspace.MemoryCandidate{{SchemaVersion: localworkspace.MemoryEntrySchema, MemoryID: "mcp-remote-memory", Kind: "working", Scope: input.Scope, SourceRef: "40-work/remote.md", SourceDigest: sourceDigest, Summary: "年轻白领偏好清晰直接的表达。", Trust: "memory_candidate", Status: "active", FormedBy: "remote/test", ObservedAt: time.Now().UTC()}}})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("MCP_MEMORY_TOKEN", "mcp-remote-token")
+	r := &Root{mcpCWD: root, now: func() time.Time { return time.Date(2026, 8, 9, 9, 0, 0, 0, time.UTC) }}
+	extracted := callMCPToolForTest(t, r, "memory_extract", map[string]any{"endpoint": server.URL, "provider": "test", "token_env": "MCP_MEMORY_TOKEN", "source_refs": []string{"40-work/remote.md"}, "allow_private_networks": true, "allow_http": true})
+	extraction, ok := extracted["structuredContent"].(localworkspace.MemoryExtractionReport)
+	if !ok || extraction.CandidateCount != 1 || len(extraction.Remembered) != 1 || sourceDigest == "" {
+		t.Fatalf("unexpected MCP memory extraction: %#v", extracted)
+	}
+	remote := callMCPToolForTest(t, r, "memory_remote_query", map[string]any{"endpoint": server.URL, "provider": "test", "token_env": "MCP_MEMORY_TOKEN", "query": "年轻白领", "limit": 5, "max_chars": 2000, "allow_private_networks": true, "allow_http": true})
+	result, ok := remote["structuredContent"].(localworkspace.MemoryQueryResult)
+	if !ok || result.Backend != localworkspace.MemoryRemoteBackendPrefix+"test" || len(result.Candidates) != 1 || result.Candidates[0].MemoryID != "mcp-remote-memory" {
+		t.Fatalf("unexpected MCP remote memory query: %#v", remote)
+	}
 }
 
 func mcpProjectViewURLForTest(t *testing.T, result map[string]any) *url.URL {

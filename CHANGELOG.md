@@ -2,6 +2,30 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.22.0] - 2026-08-09
+
+### Added
+
+- 增加不可变 Runtime outbox、独立 subscriber receipts、终态业务结果持久化消费、租户级 reaper/delivery 健康心跳和 `/api/v1/admin/runtime-health`，对应迁移 `00035` 和 `00037`；补充 Runtime 健康、Canary、排空与前向回退手册。
+- 增加 Provider poll recovery/deadline、媒体 Job/Attempt 的 Runtime Effect 关联（`00038` 至 `00040`）、签名 callback/bill ingress、流式 Blob 写入和媒体摘要校验。
+- 增加 Claude `stream-json` Harness 的真实 `session_id`、`--resume`、中断、脱敏事件和结构化终态，并补充跨 Harness 实例恢复测试。
+- 增加 Attempt-scoped Runtime MCP Gateway、设备命令入口、state/child/effect 受限工具、fence/ContextView 授权和 ToolCall 幂等审计。
+- 增加 Runtime Schema Registry 的 draft/published/retired 生命周期与保留策略（迁移 `00041`），以及租户资源利用率、过期预留和 Jain 公平指数读模型。
+- 增加 Runtime Explorer 子资源读取索引和 MCP ToolCall 幂等唯一索引（迁移 `00042`），以及 ToolCall `safe_result` 持久化，确保成功幂等重放返回首次结果（迁移 `00043`）。
+- 增加 PostgreSQL `before_commit`/`after_commit` 故障钩子和提交成功但响应丢失后的 JobRun 幂等恢复集成用例。
+- 将本地 CLI 单工作区配置迁移到 `daemon_bindings`；旧字段只在加载边界一次性重写，运行期删除 `RuntimeBindings` fallback。
+
+### Changed
+
+- 将 Codex 与 Claude 执行统一收敛到可恢复的 Runtime Harness、Attempt-scoped MCP Gateway 和服务端投影，移除平行 session mirror 与一次性 Adapter。
+- 更新 Operations、OpenAPI、CLI、架构与 V8 路线文档，明确 Runtime 健康、容量、公平性、Provider 恢复和本地 Memory 的当前边界。
+
+### Removed
+
+- 迁移 `00035_runtime_outbox_subscribers.sql` 将投递租约从 outbox 消息本体迁到独立订阅回执，避免单一消费者状态污染不可变事件。
+- 迁移 `00036_remove_runtime_session_mirror.sql` 删除零消费者的宿主 session/event 镜像；同步删除 DurableHarness、SessionStore 和一次性 Codex Adapter，禁止恢复平行会话事实源。
+- 删除旧 Claude one-shot CLI Adapter/Harness 及其无调用测试；Claude Runtime 只保留可恢复的结构化流实现。
+
 ## [0.21.0] - 2026-08-09
 
 ### Added

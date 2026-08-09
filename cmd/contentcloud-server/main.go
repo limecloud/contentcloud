@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/blob"
 	"github.com/limecloud/contentcloud/internal/httpapi"
+	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
 	"github.com/limecloud/contentcloud/internal/serverconfig"
 	storepkg "github.com/limecloud/contentcloud/internal/store"
 	"github.com/limecloud/contentcloud/internal/store/memory"
@@ -63,6 +66,18 @@ func main() {
 		os.Exit(1)
 	}
 	serviceOptions := []app.Option{app.WithPlatformAdminEmails(adminEmails...)}
+	admissionEnabled, err := boolEnv("CONTENTCLOUD_RUNTIME_ADMISSION_ENABLED", true)
+	if err != nil {
+		logger.Error("configure Runtime admission", "error", err)
+		os.Exit(1)
+	}
+	dynamicGraphEnabled, err := boolEnv("CONTENTCLOUD_RUNTIME_DYNAMIC_GRAPH_ENABLED", true)
+	if err != nil {
+		logger.Error("configure Runtime dynamic graph", "error", err)
+		os.Exit(1)
+	}
+	canaryTenantIDs := splitValues(os.Getenv("CONTENTCLOUD_RUNTIME_CANARY_TENANT_IDS"))
+	serviceOptions = append(serviceOptions, app.WithRuntimeRolloutPolicy(contentruntime.RolloutPolicy{AdmissionEnabled: admissionEnabled, DynamicGraphEnabled: dynamicGraphEnabled, TenantIDs: canaryTenantIDs}))
 	if environmentRuntime.Enabled {
 		serviceOptions = append(serviceOptions, app.WithEnvironmentControlPlane(environmentRuntime.ControlPlane))
 		if len(environmentRuntime.AutomationRequirements) > 0 {
@@ -71,9 +86,11 @@ func main() {
 	}
 	service := app.NewWithBlob(st, logger, blobStore, serviceOptions...)
 	logger.Info("Environment Control Plane configured", "enabled", environmentRuntime.Enabled, "automation_policy", len(environmentRuntime.AutomationRequirements) > 0)
+	logger.Info("Runtime rollout configured", "admission_enabled", admissionEnabled, "dynamic_graph_enabled", dynamicGraphEnabled, "canary_tenant_count", len(canaryTenantIDs))
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	defer cancelWorker()
 	if devMode && databaseURL == "" {
+		runtimeWorkerID := worker.RuntimeEventWorkerID()
 		go func() {
 			ticker := time.NewTicker(750 * time.Millisecond)
 			defer ticker.Stop()
@@ -82,6 +99,9 @@ func main() {
 				case <-workerCtx.Done():
 					return
 				case <-ticker.C:
+					if _, err := worker.ProcessRuntimeEvents(workerCtx, st, service, runtimeWorkerID, 50); err != nil {
+						logger.Error("development runtime event delivery", "error", err)
+					}
 					if _, err := worker.ProcessPendingSources(workerCtx, service, 5); err != nil {
 						logger.Error("development source ingestion", "error", err)
 					}
@@ -92,7 +112,8 @@ func main() {
 			}
 		}()
 	}
-	server := &http.Server{Addr: addr, Handler: httpapi.New(service, logger, devMode, webDist).Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second}
+	httpOptions := providerCallbackHTTPOptions(os.Getenv("CONTENTCLOUD_PROVIDER_CALLBACK_SECRETS"))
+	server := &http.Server{Addr: addr, Handler: httpapi.New(service, logger, devMode, webDist, httpOptions...).Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		logger.Info("contentcloud server listening", "addr", addr, "dev_mode", devMode, "zero_exec", true)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -107,6 +128,22 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(ctx)
+}
+
+func providerCallbackHTTPOptions(raw string) []httpapi.Option {
+	options := []httpapi.Option{}
+	for _, entry := range splitValues(raw) {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		scope := strings.SplitN(strings.TrimSpace(parts[0]), ":", 2)
+		if len(scope) != 2 || strings.TrimSpace(scope[0]) == "" || strings.TrimSpace(scope[1]) == "" || strings.TrimSpace(parts[1]) == "" {
+			continue
+		}
+		options = append(options, httpapi.WithProviderCallbackSecret(scope[0], scope[1], []byte(parts[1])))
+	}
+	return options
 }
 
 func splitValues(value string) []string {
@@ -125,4 +162,16 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func boolEnv(key string, fallback bool) (bool, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("%s 必须是 true 或 false: %w", key, err)
+	}
+	return parsed, nil
 }

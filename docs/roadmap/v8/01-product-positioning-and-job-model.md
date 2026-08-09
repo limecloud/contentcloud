@@ -171,7 +171,7 @@ V8 保留业务对象，但执行模型只保留 Runtime 权威表：
 
 - 业务任务（`WorkTask`）继续作为用户侧业务对象；兼容期内现有状态和当前阶段字段继续可读，但 V8 不再只靠这两个字段调度执行图。
 - 执行实例（`JobRun`）是 V8 新增的运行时聚合根。
-- 执行步骤（`NodeRun`）使用独立 `runtime_node_runs`；公开 API 中的 `TaskRun` 仅是 Runtime 只读业务投影，不对应物理执行表。
+- 执行步骤（`NodeRun`）使用独立 `runtime_node_runs`；公开 API 使用从 JobRun/NodeRun 生成的 `RuntimeRun` 只读模型，不对应独立执行表。
 - 执行尝试（`RuntimeAttempt`）使用独立 `runtime_attempts`，记录执行许可、心跳、执行器和单次运行结果；旧 `RunAttempt` 已删除。
 - `StageRun` 继续服务现有页面，由执行步骤、人工审批节点和输出结果生成业务阶段投影，不直接负责调度。
 

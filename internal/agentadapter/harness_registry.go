@@ -15,9 +15,9 @@ type harnessRegistryEntry struct {
 	err     error
 }
 
-// HarnessRegistry owns long-lived adapter instances for one ContentCloud
-// process. Session references are opaque outside the adapter and remain
-// resumable because Resolve never constructs a replacement instance.
+// HarnessRegistry caches capability detection and owns active adapters for one
+// worker process. Durable session identity comes from the host and is fixed on
+// RuntimeAttempt, so resumable adapters must also work after process restart.
 type HarnessRegistry struct {
 	mu      sync.RWMutex
 	entries map[string]*harnessRegistryEntry
@@ -30,8 +30,8 @@ func NewHarnessRegistry() *HarnessRegistry {
 func NewDefaultHarnessRegistry() *HarnessRegistry {
 	registry := NewHarnessRegistry()
 	registry.mustRegister("fake", NewFakeHarness())
-	registry.mustRegister("codex", newCLIHarness(Codex{}))
-	registry.mustRegister("claude", newCLIHarness(Claude{}))
+	registry.mustRegister("codex", newCodexExecHarness())
+	registry.mustRegister("claude", newClaudeStreamHarness())
 	return registry
 }
 

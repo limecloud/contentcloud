@@ -6,14 +6,14 @@
 
 截至 2026-08-09：
 
-- 当前版本为 `v0.21.0`。Runtime Infra V2 的 I1～I4 核心切片和 I5 第二业务流容量边界切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
+- 当前版本为 `v0.22.0`。Runtime Infra V2 的 I1～I4 核心切片、I5 第二业务流容量边界和 provider-neutral HTTP/异步轮询恢复切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
 - V7 的类型化 Stage 输出、媒体领域、MediaReview、最终 Artifact、DeliveryPackage 和 Web 投影已在 `v0.16.0/v0.17.0` 落地；工作区资料文件夹、上传和资料引用已在 `v0.18.0` 首次落地。
-- V8 已落地 JobRun/NodeRun/JobEvent、独立 RuntimeAttempt、RuntimeCommandStore、事件/outbox 同事务、fence/资源预留账本、StateCollection/StateRecord CAS、ToolCall、Checkpoint watermark、Fork/Replay、ContextView/AgentInstance、FakeHarness 调度闭环、DurableHarness + SessionStore 本地跨进程 Resume、Provider inbox/账单对账、Yield/Resume、Projector 和 Runtime Explorer 投影重建/dry-run；各文档必须继续区分已实现内核与生产能力。
+- V8 已落地 JobRun/NodeRun/JobEvent、独立 RuntimeAttempt、RuntimeCommandStore、事件/outbox 同事务、不可变 outbox + subscriber receipts、终态业务结果持久化消费、fence/资源预留账本、StateCollection/StateRecord CAS、ToolCall、Checkpoint watermark、Fork/Replay、ContextView/AgentInstance、FakeHarness 调度闭环、Codex CLI JSONL/thread resume Harness、Provider inbox/账单对账、Yield/Resume、Projector 和 Runtime Explorer 投影重建/dry-run；各文档必须继续区分已实现内核、离线协议测试与生产能力。
 - 根 `README.md`、平台基线、产品需求和 V8 路线图已互相指向；历史 V1-V7 路线图不再作为当前能力事实源。
-- 真实媒体服务商、可持久化的轮询和回调、完整的媒体租约恢复、受限的流式下载和确定性后期处理仍未完成。
-- Codex/Claude 适配器当前仍使用 legacy CLI 进程，不提供真实 SDK 的跨 ContentCloud 进程会话恢复；`DurableHarness` + `SessionStore` 只证明 Runtime 边界和本地/镜像观察层的跨进程 Resume，HarnessRegistry 也只解决单进程实例复用。
+- provider-neutral HTTP 适配器、签名/超时/SSRF 防护、异步 submit/status/cancel、到期轮询恢复、有上限流式下载、Runtime Effect 关联和 Provider callback/bill HMAC ingress 已有确定性 `httptest` 契约；未知提交不会自动重试；真实媒体服务商凭据、账单补偿演练、完整的媒体租约恢复和确定性后期处理仍未完成。
+- Codex Runtime Harness 已使用官方 CLI JSONL 协议，保存 `thread.started` 的真实 thread ID，并通过 `codex exec resume <thread_id>` 在新的 Harness/worker 进程恢复；Claude Runtime Harness 已使用 `stream-json` 首事件 session ID 和 `--resume`，两者能力均在 worker 侧探测并固定到 Attempt，过程事件经 lease/fence/session 校验后只保存脱敏摘要。helper-process 测试不调用模型，真实在线 Codex/Claude smoke 尚未验收。
 
-基线事实主要来自 `CHANGELOG.md`、`internal/domain`、`internal/runtime`、`internal/agentadapter`、Memory/PostgreSQL Store 以及迁移 `00012_v7_media_pipeline.sql`、`00014_agentic_job_runtime.sql`～`00030_runtime_session_store.sql`。历史路线图只能作为背景，不能代替当前代码和测试结果。
+基线事实主要来自 `CHANGELOG.md`、`internal/domain`、`internal/runtime`、`internal/agentadapter`、`internal/mediapipeline`、Memory/PostgreSQL Store 以及迁移 `00012_v7_media_pipeline.sql`、`00014_agentic_job_runtime.sql`～`00043_runtime_tool_call_results.sql`。历史路线图只能作为背景，不能代替当前代码和测试结果。
 
 V8 的第一个工作包必须先更新权威文档和能力登记表；不能在错误的基线上继续规划。
 
@@ -25,6 +25,8 @@ V8 的第一个工作包必须先更新权威文档和能力登记表；不能�
 4. **不编造历史**：不为历史 Task 伪造 `JobEvent`、`Checkpoint`、`Artifact` 或服务商记录。
 5. **由功能开关控制准入**：开关只决定新 Job 进入哪条路径；不能把已经运行的动态图降级成线性 Stage。
 6. **优先向前恢复**：生产回退以停止新任务准入、排空、暂停或修复为主，不对已经写入数据的新表执行破坏性降级迁移。
+
+本地 CLI 配置也遵循同一边界：`daemon_bindings` 是 current 唯一运行事实；旧单工作区字段只允许在 `localconfig.Load()` 中被读取一次并立即重写，运行期不得保留 fallback 或双写。
 
 ## 3. 数据迁移
 
@@ -44,9 +46,9 @@ V8 的第一个工作包必须先更新权威文档和能力登记表；不能�
 
 所有表都需要由 Memory Store 和 PostgreSQL Store 共同遵守同一份存储契约；迁移集成测试必须使用真实的行级安全策略（RLS）操作人上下文。
 
-当前物理落地：`00014_agentic_job_runtime.sql`～`00020_runtime_append_only_permissions.sql` 建立 Runtime 基础表、ContextView/AgentInstance、RuntimeAttempt、outbox 和追加事实权限；`00021`～`00030` 增加 fence、资源账本、类型化状态、Provider 对账、Yield/Resume、投影重建和 SessionStore；`00031`～`00033` 冻结 JobRun 业务类型、输入快照和输出上限；`00034_remove_v7_execution.sql` 解开 JobRun 对单一 WorkTask 的物理外键，并删除 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`。迁移不使用 `CASCADE`，出现未识别依赖时整笔回滚。
+当前物理落地：`00014_agentic_job_runtime.sql`～`00020_runtime_append_only_permissions.sql` 建立 Runtime 基础表、ContextView/AgentInstance、RuntimeAttempt、outbox 和追加事实权限；`00021`～`00029` 增加 fence、资源账本、类型化状态、Provider 对账、Yield/Resume 和投影重建；历史 `00030` 曾增加 session 镜像；`00031`～`00033` 冻结 JobRun 业务类型、输入快照和输出上限；`00034_remove_v7_execution.sql` 解开 JobRun 对单一 WorkTask 的物理外键，并删除 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`；`00035_runtime_outbox_subscribers.sql` 将 outbox 收敛为不可变消息，并把投影与业务结果的投递状态迁到独立 subscriber receipts；`00036_remove_runtime_session_mirror.sql` 删除零消费者的 session/event 镜像表；`00037_runtime_maintenance_health.sql` 增加租户级 reaper/delivery 维护心跳及其 RLS；`00038_provider_poll_recovery.sql` 让异步 Provider 只按持久化 poll deadline 恢复，`00039_provider_poll_deadline.sql` 阻止缺失 deadline 的 unknown 提交进入重试循环；`00040_media_runtime_effect_links.sql` 为新媒体 Job/Attempt 增加可空 Runtime Job/Node/Attempt/Effect 关联，历史 V7 行保持未登记；`00041_runtime_schema_registry.sql` 增加租户隔离的 Schema draft/published/retired 生命周期和保留策略；`00042_runtime_read_pagination.sql` 增加 MCP 幂等唯一索引和 Runtime Explorer 读取索引；`00043_runtime_tool_call_results.sql` 为 ToolCall 增加受控 `safe_result`，保证成功幂等重放返回首次结果。迁移不使用 `CASCADE`，出现未识别依赖时整笔回滚。
 
-## 4. 兼容投影
+## 4. 运行读模型与业务投影
 
 ### 4.1 WorkTask
 
@@ -62,15 +64,15 @@ V8 的第一个工作包必须先更新权威文档和能力登记表；不能�
 - 尚未建立 JobRun 的任务返回空列表；读取投影不会反向补造历史。
 - 投影器可以清空后重建；正式业务对象和运行时状态不能依赖投影器反向恢复。
 
-### 4.3 TaskRun
+### 4.3 RuntimeRun
 
-- `TaskRun` 仅保留为 Runtime 的只读业务投影 DTO；`RunAttempt` 和旧执行表/API 已删除。
+- `RuntimeRun` / `RuntimeRunEvent` 是从 JobRun/NodeRun/JobEvent 生成的 current 只读模型；旧 `TaskRun` / `RunProgressEvent` DTO、`RunAttempt` 和旧执行表/API 已删除。
 - NodeRun/RuntimeAttempt 使用唯一状态机；`runtime_job_runs` 的业务键不再强制外键到 WorkTask，因此知识提取等业务流不需要伪造 WorkTask。
 - HTTP/BFF 新资源使用 NodeRun/RuntimeAttempt 术语；业务阶段兼容只通过单向投影完成。
 - `RunProgress` 只投影 JobEvent；项目运行列表、Dashboard、ProjectProjection 和 lineage 只读取 Runtime。
 - CLI daemon 与 `runtime-worker run` 共用 Runtime prepare/activate/heartbeat/finalize 协议，不再有独立 poll/report/outbox 状态机。
-- Runtime worker 使用 `runtime.worker.prepare_next`、`runtime.worker.activate`、`runtime.worker.heartbeat` 和 `runtime.worker.finalize` 四阶段协议；服务端从设备凭据派生 lease owner，远程请求只能携带 Attempt ID 与 fence token。成功结果先作为受控业务输出引用落 blob，再由业务 owner 校验并提交结构化结果。
-- 知识提取以 `BusinessType=knowledge_extract` 创建 Runtime JobRun，冻结 `InputSnapshotID`、输出上限和证据契约；重复候选包按包摘要和确定性知识对象 ID 幂等。
+- Runtime worker 使用 `runtime.worker.prepare_next`、`runtime.worker.activate`、`runtime.worker.heartbeat`、`runtime.worker.event` 和 `runtime.worker.finalize` 协议；服务端从设备凭据派生 lease owner，远程请求只能携带 Attempt ID 与 fence token。成功结果先作为受控业务输出引用落 blob，再由业务 owner 校验并提交结构化结果。
+- 知识提取以 `BusinessType=knowledge_extract` 创建 Runtime JobRun，冻结 `InputSnapshotID`、输出上限和证据契约；结果在终态前严格校验并写入内容寻址 Blob，终态后由独立 subscriber 幂等写入知识对象；重复候选包按包摘要和确定性知识对象 ID 幂等。
 
 ### 4.4 外部服务商
 
@@ -144,7 +146,7 @@ runtime_v8_explorer
 - 验证 FanoutSet 的成员集合封存和汇聚策略，覆盖零成员、部分失败、延迟上报和取消。
 - 验证比较并交换（CAS）、单写入者、只追加和指定汇总写入者约束。
 - 验证 ContextView 的选择、优先级、Token 预算和摘要稳定性。
-- 已覆盖 StateCollection/StateRecord CAS、ToolCall 终态保护、Effect unknown/reconciling 禁止盲重试、Checkpoint watermark、Fork/Replay 零外部调用、DurableHarness + SessionStore 新进程 Resume、Provider inbox 去重/摘要冲突/unknown Effect/账单匹配与差异、Yield/Resume 等待条件和幂等，以及 Memory/PostgreSQL Fanout/Join 原子写入、幂等快照、quorum 取消和 50 节点第二业务流边界；真实 Provider Reconciler、真实 SDK 恢复和 PostgreSQL 故障矩阵仍待补。
+- 已覆盖 StateCollection/StateRecord CAS、ToolCall 终态保护、Attempt-scoped MCP fence/allowlist/幂等、Schema draft/published/retired、Effect unknown/reconciling 禁止盲重试、Checkpoint watermark、Fork/Replay 零外部调用、Codex helper-process 真实 thread ID/新 Harness 实例 Resume、Provider inbox 去重/摘要冲突/unknown Effect/账单匹配与差异、Yield/Resume 等待条件和幂等，以及 Memory/PostgreSQL Fanout/Join 原子写入、幂等快照、quorum 取消、PostgreSQL 100 节点/20 worker 唯一领取、FairnessReport 和 50 节点第二业务流边界；真实 Provider Reconciler、在线 Codex/Claude/MCP 宿主演练、真实数据库提交后故障矩阵和多租户生产公平性仍待补。
 
 ### 8.2 存储与事务测试
 
@@ -153,10 +155,10 @@ runtime_v8_explorer
 - 验证 Node、RuntimeAttempt 和 AgentInstance 的联合租约过期收敛；旧 owner 和旧版本不能续租或提交结果。
 - 验证相同终态结果摘要幂等成功，不同摘要返回冲突；事件序号在 Job 锁下连续分配。
 - 验证 StateMutation、Event 和投影的原子性。
-- 验证 StateRecord/ToolCall 命令与 Event/outbox 同事务，Projector 只能在 outbox claim 成功后 ack，旧 projection 序号不能倒退。
+- 验证 StateRecord/ToolCall 命令与 Event/outbox 同事务，Projector 和业务结果 consumer 只 ack 各自 receipt，旧 projection 序号不能倒退；业务写成功但 ack 失败后必须可由新进程幂等恢复。
 - 验证 GraphPatch 版本竞争时只能接受一个写入者。
 - 验证 RLS 覆盖所有新表，并拦截跨租户或跨项目的外键攻击。
-- 迁移集合已覆盖 `00021`～`00030`，并静态核对 fence、资源账本、State/ToolCall、Projection、Provider、Yield、Projection rebuild、SessionStore 的 RLS；真实 PostgreSQL 迁移、事务失败回滚、历史 Effect 空绑定、Provider/Resume 原子性和投影表 RLS 仍需 `CONTENTCLOUD_TEST_DATABASE_URL` 集成验收。
+- 迁移集合已覆盖 `00021`～`00043`，并静态核对 fence、资源账本、State/ToolCall、Projection、Provider、Yield、Projection rebuild、outbox receipts、维护心跳、Provider poll deadline、媒体 Runtime Effect 关联、Schema Registry、Explorer 分页索引和 ToolCall `safe_result` 的约束及 session 镜像无 `CASCADE` 退役；专用 PostgreSQL 集成库已通过真实迁移、事务失败回滚、历史 Effect 空绑定、Provider/Resume 原子性、outbox subscriber receipt 隔离、Provider callback/bill ingress 和 Runtime 核心 RLS 越权测试（含投影重建、维护心跳）。代码已提供一次性 `after_commit` 故障钩子和幂等恢复集成用例；真实数据库故障环境和生产公平容量压测仍需专项验收。
 
 ### 8.3 执行适配器一致性测试
 
@@ -164,14 +166,14 @@ Fake、Codex 和 Claude 适配器使用同一套黑盒场景：
 
 - 启动、事件流、结构化输出、取消和超时。
 - MCP 读取、CAS、追加写入、过期令牌和越权工具调用。
-- 进程被终止后恢复；`DurableHarness` 已覆盖同一 spool 的新进程 Resume，真实 Codex/Claude 宿主不支持恢复时，使用新会话和 ContextView 重新开始。
+- 进程被终止后恢复；Codex 已覆盖保存真实 thread ID 后由新 Harness 实例执行 `exec resume`，Claude 已覆盖保存真实 `session_id` 后由新 Harness 实例执行 `--resume`。能力快照声明 `resume=false` 或宿主拒绝恢复时，必须创建新 Attempt 并使用新的 ContextView 重新开始。
 - 会话分支只影响智能体历史，不自动修改 JobRun。
 - 上下文压缩后仍然遵守 TaskContract 和输出数据结构。
 - 适配器版本或能力不匹配时默认拒绝执行。
 
-CI 默认只运行 `FakeHarness`；真实 Codex/Claude 冒烟测试必须在明确授权、低预算、非客户数据环境中执行，不能使用消费级登录来测试平台服务。
+CI 默认运行 FakeHarness 和不调用模型的 Codex CLI helper-process 协议测试；真实 Codex/Claude 冒烟测试必须在明确授权、低预算、非客户数据环境中执行，不能默认使用消费级登录来测试平台服务。
 
-FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启动成功但返回空事件流、重复相同/不同终态、未知事件、事件流无终态关闭、延迟超过一次心跳周期，以及租约到期。测试还必须证明 HarnessRegistry 多次 Resolve 返回同一适配器实例并保留会话状态；即使租约尚未执行批量回收，过期 owner 提交的迟到终态也必须被拒绝。
+FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启动成功但返回空事件流、重复相同/不同终态、未知事件、事件流无终态关闭、延迟超过一次心跳周期，以及租约到期。Codex 协议测试还必须覆盖首事件校验、thread ID 固定、Resume ID 一致、不同 Harness 实例恢复、结果文件和脱敏事件投影；即使租约尚未执行批量回收，过期 owner 提交的迟到事件或终态也必须被拒绝。
 
 ### 8.4 故障注入
 
@@ -183,6 +185,8 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
 | Harness.Start 返回空事件流 | Attempt 进入可重试失败，Node 和 Agent 释放执行权，不进入运行态 |
 | 租约已到期但回收任务尚未运行 | 旧 worker 的终态提交返回 `DISPATCH_LEASE_STALE`；随后回收将 Attempt 置为 `expired` 并释放 Node/Agent |
 | 终态事务提交后、worker 收到响应前终止 | 相同摘要重报返回幂等成功，不产生第二个终态事件 |
+| Runtime 终态提交后、业务结果消费前终止 | 业务 receipt 保持 pending；新进程读取相同 output ref 并完成业务写入 |
+| 业务对象写成功后、receipt ack 前终止 | 重新领取并幂等核对现有对象，不重复创建；不同 Blob 摘要拒绝并按上限退避重试 |
 | 智能体启动前、工具调用中或输出后终止守护进程 | 租约可以恢复；已提交的 `mutation` 可以幂等重报 |
 | 主控智能体提交 GraphPatch 时断网 | 相同键得到同一 Revision，或返回明确冲突 |
 | 并行拆分创建到一半时终止进程 | 事务回滚，或按确定性子节点键补齐；不能有重复节点 |

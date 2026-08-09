@@ -49,13 +49,13 @@ func (s *Service) CustomerWorkspaceMaterials(ctx context.Context, actor Actor, p
 			return WorkspaceMaterialProjection{}, domain.NotFound("项目")
 		}
 	}
-	queries := experiencestudio.NewAssetQueries(legacyWorkspaceAssetReader{store: s.store}, s.now)
+	queries := experiencestudio.NewAssetQueries(workspaceAssetReader{store: s.store}, s.now)
 	return queries.WorkspaceMaterials(ctx, actor.TenantID, projectID, projectNames)
 }
 
-type legacyWorkspaceAssetReader struct{ store store.Store }
+type workspaceAssetReader struct{ store store.Store }
 
-func (r legacyWorkspaceAssetReader) WorkspaceFolders(ctx context.Context, tenantID, projectID string) ([]experiencestudio.WorkspaceFolderRecord, error) {
+func (r workspaceAssetReader) WorkspaceFolders(ctx context.Context, tenantID, projectID string) ([]experiencestudio.WorkspaceFolderRecord, error) {
 	values, err := r.store.WorkspaceFolders(ctx, tenantID, projectID)
 	if err != nil {
 		return nil, err
@@ -67,7 +67,7 @@ func (r legacyWorkspaceAssetReader) WorkspaceFolders(ctx context.Context, tenant
 	return result, nil
 }
 
-func (r legacyWorkspaceAssetReader) WorkspaceMaterials(ctx context.Context, tenantID, projectID string) ([]experiencestudio.WorkspaceMaterialRecord, error) {
+func (r workspaceAssetReader) WorkspaceMaterials(ctx context.Context, tenantID, projectID string) ([]experiencestudio.WorkspaceMaterialRecord, error) {
 	values, err := r.store.WorkspaceMaterials(ctx, tenantID, projectID)
 	if err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func (r legacyWorkspaceAssetReader) WorkspaceMaterials(ctx context.Context, tena
 	return result, nil
 }
 
-func (r legacyWorkspaceAssetReader) SourceRevision(ctx context.Context, tenantID, revisionID string) (experiencestudio.SourceRevisionRecord, error) {
+func (r workspaceAssetReader) SourceRevision(ctx context.Context, tenantID, revisionID string) (experiencestudio.SourceRevisionRecord, error) {
 	value, err := r.store.SourceRevision(ctx, tenantID, revisionID)
 	if err != nil {
 		return experiencestudio.SourceRevisionRecord{}, err

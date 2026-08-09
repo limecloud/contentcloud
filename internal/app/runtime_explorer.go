@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"sort"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -65,6 +65,12 @@ type RuntimeJobList struct {
 	GeneratedAt time.Time           `json:"generated_at"`
 }
 
+type RuntimeExplorerPage[T any] struct {
+	Items       []T       `json:"items"`
+	NextAfter   int       `json:"next_after,omitempty"`
+	GeneratedAt time.Time `json:"generated_at"`
+}
+
 type RuntimeNodeView struct {
 	ID             string    `json:"id"`
 	NodeKey        string    `json:"node_key"`
@@ -105,6 +111,57 @@ type RuntimeEffectView struct {
 	AllowedActions []string       `json:"allowed_actions"`
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
+}
+
+type RuntimeProviderAttemptView struct {
+	ID                 string         `json:"id"`
+	GenerationJobID    string         `json:"generation_job_id"`
+	AttemptNumber      int            `json:"attempt_number"`
+	ProviderID         string         `json:"provider_id"`
+	RuntimeEffectID    string         `json:"runtime_effect_id,omitempty"`
+	ExternalJobID      string         `json:"external_job_id,omitempty"`
+	ProviderState      string         `json:"provider_state"`
+	HTTPStatus         int            `json:"http_status,omitempty"`
+	ProviderRequestID  string         `json:"provider_request_id,omitempty"`
+	EstimatedCostMinor int64          `json:"estimated_cost_minor"`
+	ActualCostMinor    int64          `json:"actual_cost_minor"`
+	Currency           string         `json:"currency"`
+	LastPolledAt       *time.Time     `json:"last_polled_at,omitempty"`
+	NextPollAt         *time.Time     `json:"next_poll_at,omitempty"`
+	ErrorCode          string         `json:"error_code,omitempty"`
+	SafeResponse       map[string]any `json:"safe_response"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+}
+
+type RuntimeProviderBillView struct {
+	ID          string    `json:"id"`
+	ProviderID  string    `json:"provider_id"`
+	BillID      string    `json:"bill_id"`
+	ExternalID  string    `json:"external_id"`
+	EffectID    string    `json:"effect_id,omitempty"`
+	AmountMinor int64     `json:"amount_minor"`
+	Currency    string    `json:"currency"`
+	Status      string    `json:"status"`
+	ObservedAt  time.Time `json:"observed_at"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type RuntimeProviderReconciliationView struct {
+	ID            string         `json:"id"`
+	EffectID      string         `json:"effect_id,omitempty"`
+	ProviderID    string         `json:"provider_id"`
+	ExternalID    string         `json:"external_id"`
+	ObservedState string         `json:"observed_state"`
+	ExpectedMinor int64          `json:"expected_minor"`
+	ObservedMinor int64          `json:"observed_minor"`
+	Currency      string         `json:"currency"`
+	Reason        string         `json:"reason,omitempty"`
+	Status        string         `json:"status"`
+	SafeSummary   map[string]any `json:"safe_summary"`
+	ResolvedAt    *time.Time     `json:"resolved_at,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
 }
 
 type RuntimeAttemptView struct {
@@ -205,22 +262,45 @@ type RuntimePlanView struct {
 	SOPDigest     string                       `json:"sop_digest"`
 	SchemaVersion string                       `json:"schema_version"`
 	Digest        string                       `json:"digest"`
+	Edges         []RuntimePlanEdgeView        `json:"edges"`
 	CustomerSteps []domain.JobPlanCustomerStep `json:"customer_steps"`
 	CompiledAt    time.Time                    `json:"compiled_at"`
 }
 
+type RuntimePlanEdgeView struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+type RuntimeStateRecordView struct {
+	ID             string         `json:"id"`
+	CollectionID   string         `json:"collection_id"`
+	Key            string         `json:"key"`
+	Value          map[string]any `json:"value,omitempty"`
+	ArtifactRef    string         `json:"artifact_ref,omitempty"`
+	SchemaRevision int            `json:"schema_revision"`
+	Version        int            `json:"version"`
+	Digest         string         `json:"digest"`
+	UpdatedBy      string         `json:"updated_by"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+}
+
 type RuntimeJobDetail struct {
-	Summary          RuntimeJobSummary            `json:"summary"`
-	Plan             RuntimePlanView              `json:"plan"`
-	Nodes            []RuntimeNodeView            `json:"nodes"`
-	Attempts         []RuntimeAttemptView         `json:"attempts"`
-	Events           []RuntimeEventView           `json:"events"`
-	Effects          []RuntimeEffectView          `json:"effects"`
-	Checkpoints      []RuntimeCheckpointView      `json:"checkpoints"`
-	Agents           []RuntimeAgentView           `json:"agents"`
-	Gates            []RuntimeGateView            `json:"gates"`
-	StateCollections []RuntimeStateCollectionView `json:"state_collections"`
-	GeneratedAt      time.Time                    `json:"generated_at"`
+	Summary                 RuntimeJobSummary                   `json:"summary"`
+	Plan                    RuntimePlanView                     `json:"plan"`
+	Nodes                   []RuntimeNodeView                   `json:"nodes"`
+	Attempts                []RuntimeAttemptView                `json:"attempts"`
+	Events                  []RuntimeEventView                  `json:"events"`
+	Effects                 []RuntimeEffectView                 `json:"effects"`
+	ProviderAttempts        []RuntimeProviderAttemptView        `json:"provider_attempts"`
+	ProviderBills           []RuntimeProviderBillView           `json:"provider_bills"`
+	ProviderReconciliations []RuntimeProviderReconciliationView `json:"provider_reconciliations"`
+	Checkpoints             []RuntimeCheckpointView             `json:"checkpoints"`
+	Agents                  []RuntimeAgentView                  `json:"agents"`
+	Gates                   []RuntimeGateView                   `json:"gates"`
+	StateCollections        []RuntimeStateCollectionView        `json:"state_collections"`
+	StateRecords            []RuntimeStateRecordView            `json:"state_records"`
+	GeneratedAt             time.Time                           `json:"generated_at"`
 }
 
 // RuntimeReplayResult is a read-only execution audit result. Replay never
@@ -244,44 +324,21 @@ func (s *Service) RuntimeJobs(ctx context.Context, actor Actor, projectID, state
 	if s.runtimeService == nil {
 		return RuntimeJobList{}, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
 	}
-	if after < 0 {
-		after = 0
-	}
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
-	jobs, err := s.runtimeService.Jobs(ctx, actor.TenantID, "")
+	after, limit = normalizeRuntimePage(after, limit)
+	jobs, hasMore, err := s.runtimeService.JobsPage(ctx, actor.TenantID, projectID, state, after, limit)
 	if err != nil {
 		return RuntimeJobList{}, err
 	}
-	filtered := make([]domain.JobRun, 0, len(jobs))
-	for _, job := range jobs {
-		if projectID != "" && job.ProjectID != projectID {
-			continue
-		}
-		if state != "" && job.State != state {
-			continue
-		}
-		filtered = append(filtered, job)
-	}
-	sort.Slice(filtered, func(i, j int) bool { return filtered[i].UpdatedAt.After(filtered[j].UpdatedAt) })
-	if after > len(filtered) {
-		after = len(filtered)
-	}
-	end := after + limit
-	if end > len(filtered) {
-		end = len(filtered)
-	}
 	result := RuntimeJobList{Items: []RuntimeJobSummary{}, GeneratedAt: s.now().UTC()}
-	for _, job := range filtered[after:end] {
+	for _, job := range jobs {
 		summary, summaryErr := s.runtimeJobSummary(ctx, actor, job)
 		if summaryErr != nil {
 			return RuntimeJobList{}, summaryErr
 		}
 		result.Items = append(result.Items, summary)
 	}
-	if end < len(filtered) {
-		result.NextAfter = end
+	if hasMore {
+		result.NextAfter = after + len(result.Items)
 	}
 	return result, nil
 }
@@ -325,6 +382,18 @@ func (s *Service) RuntimeJobDetail(ctx context.Context, actor Actor, jobID strin
 	if err != nil {
 		return RuntimeJobDetail{}, err
 	}
+	providerAttempts, err := s.store.ProviderAttemptsByRuntimeJob(ctx, actor.TenantID, job.ID)
+	if err != nil {
+		return RuntimeJobDetail{}, err
+	}
+	providerBills, err := s.runtimeService.Repository().ProviderBillRecords(ctx, actor.TenantID, "")
+	if err != nil {
+		return RuntimeJobDetail{}, err
+	}
+	providerReconciliations, err := s.runtimeService.Repository().ProviderReconciliations(ctx, actor.TenantID, "")
+	if err != nil {
+		return RuntimeJobDetail{}, err
+	}
 	stateCollections, err := s.runtimeService.StateCollections(ctx, actor.TenantID, job.ID)
 	if err != nil {
 		return RuntimeJobDetail{}, err
@@ -341,15 +410,12 @@ func (s *Service) RuntimeJobDetail(ctx context.Context, actor Actor, jobID strin
 	if err != nil {
 		return RuntimeJobDetail{}, err
 	}
-	nodeSpecs := map[string]domain.JobPlanNode{}
-	for _, node := range plan.Nodes {
-		nodeSpecs[node.Key] = node
+	planEdges := make([]RuntimePlanEdgeView, 0, len(plan.Edges))
+	for _, edge := range plan.Edges {
+		planEdges = append(planEdges, RuntimePlanEdgeView{From: edge.From, To: edge.To})
 	}
-	result := RuntimeJobDetail{Summary: summary, Plan: RuntimePlanView{ID: plan.ID, SOPID: plan.SOPID, SOPVersion: plan.SOPVersion, SOPDigest: plan.SOPDigest, SchemaVersion: plan.SchemaVersion, Digest: plan.Digest, CustomerSteps: plan.CustomerSteps, CompiledAt: plan.CompiledAt}, Nodes: []RuntimeNodeView{}, Attempts: []RuntimeAttemptView{}, Events: []RuntimeEventView{}, Effects: []RuntimeEffectView{}, Checkpoints: []RuntimeCheckpointView{}, Agents: []RuntimeAgentView{}, Gates: []RuntimeGateView{}, StateCollections: []RuntimeStateCollectionView{}, GeneratedAt: s.now().UTC()}
-	for _, node := range nodes {
-		spec := nodeSpecs[node.NodeKey]
-		result.Nodes = append(result.Nodes, RuntimeNodeView{ID: node.ID, NodeKey: node.NodeKey, Name: spec.Name, Kind: spec.Kind, CustomerStepID: spec.CustomerStepID, State: node.State, AttemptCount: node.AttemptCount, OutputDigest: node.OutputDigest, ErrorCode: node.ErrorCode, LeaseOwner: node.LeaseOwner, UpdatedAt: node.UpdatedAt})
-	}
+	result := RuntimeJobDetail{Summary: summary, Plan: RuntimePlanView{ID: plan.ID, SOPID: plan.SOPID, SOPVersion: plan.SOPVersion, SOPDigest: plan.SOPDigest, SchemaVersion: plan.SchemaVersion, Digest: plan.Digest, Edges: planEdges, CustomerSteps: plan.CustomerSteps, CompiledAt: plan.CompiledAt}, Nodes: []RuntimeNodeView{}, Attempts: []RuntimeAttemptView{}, Events: []RuntimeEventView{}, Effects: []RuntimeEffectView{}, ProviderAttempts: []RuntimeProviderAttemptView{}, ProviderBills: []RuntimeProviderBillView{}, ProviderReconciliations: []RuntimeProviderReconciliationView{}, Checkpoints: []RuntimeCheckpointView{}, Agents: []RuntimeAgentView{}, Gates: []RuntimeGateView{}, StateCollections: []RuntimeStateCollectionView{}, StateRecords: []RuntimeStateRecordView{}, GeneratedAt: s.now().UTC()}
+	result.Nodes = append(result.Nodes, runtimeNodeViews(plan, nodes)...)
 	for _, attempt := range attempts {
 		result.Attempts = append(result.Attempts, RuntimeAttemptView{
 			ID: attempt.ID, NodeRunID: attempt.NodeRunID, AttemptNo: attempt.AttemptNo, HarnessKind: attempt.HarnessKind,
@@ -358,20 +424,26 @@ func (s *Service) RuntimeJobDetail(ctx context.Context, actor Actor, jobID strin
 			ErrorCode: attempt.ErrorCode, CreatedAt: attempt.CreatedAt, StartedAt: attempt.StartedAt, FinishedAt: attempt.FinishedAt, UpdatedAt: attempt.UpdatedAt,
 		})
 	}
+	for _, attempt := range providerAttempts {
+		result.ProviderAttempts = append(result.ProviderAttempts, RuntimeProviderAttemptView{ID: attempt.ID, GenerationJobID: attempt.GenerationJobID, AttemptNumber: attempt.AttemptNumber, ProviderID: attempt.ProviderID, RuntimeEffectID: attempt.RuntimeEffectID, ExternalJobID: attempt.ExternalJobID, ProviderState: attempt.ProviderState, HTTPStatus: attempt.HTTPStatus, ProviderRequestID: attempt.ProviderRequestID, EstimatedCostMinor: attempt.EstimatedCostMinor, ActualCostMinor: attempt.ActualCostMinor, Currency: attempt.Currency, LastPolledAt: attempt.LastPolledAt, NextPollAt: attempt.NextPollAt, ErrorCode: attempt.ErrorCode, SafeResponse: sanitizeRuntimeMap(attempt.SafeResponseSummary), CreatedAt: attempt.CreatedAt, UpdatedAt: attempt.UpdatedAt})
+	}
+	for _, bill := range providerBills {
+		if bill.JobRunID != job.ID {
+			continue
+		}
+		result.ProviderBills = append(result.ProviderBills, RuntimeProviderBillView{ID: bill.ID, ProviderID: bill.ProviderID, BillID: bill.BillID, ExternalID: bill.ExternalID, EffectID: bill.EffectID, AmountMinor: bill.AmountMinor, Currency: bill.Currency, Status: bill.Status, ObservedAt: bill.ObservedAt, CreatedAt: bill.CreatedAt})
+	}
+	for _, reconciliation := range providerReconciliations {
+		if reconciliation.JobRunID != job.ID {
+			continue
+		}
+		result.ProviderReconciliations = append(result.ProviderReconciliations, RuntimeProviderReconciliationView{ID: reconciliation.ID, EffectID: reconciliation.EffectID, ProviderID: reconciliation.ProviderID, ExternalID: reconciliation.ExternalID, ObservedState: reconciliation.ObservedState, ExpectedMinor: reconciliation.ExpectedMinor, ObservedMinor: reconciliation.ObservedMinor, Currency: reconciliation.Currency, Reason: reconciliation.Reason, Status: reconciliation.Status, SafeSummary: sanitizeRuntimeMap(reconciliation.SafeSummary), ResolvedAt: reconciliation.ResolvedAt, CreatedAt: reconciliation.CreatedAt, UpdatedAt: reconciliation.UpdatedAt})
+	}
 	for _, event := range events {
 		result.Events = append(result.Events, RuntimeEventView{ID: event.ID, Sequence: event.Sequence, Type: event.Type, NodeKey: event.NodeKey, ActorType: event.ActorType, Payload: sanitizeRuntimeMap(event.Payload), OccurredAt: event.OccurredAt})
 	}
-	for _, effect := range effects {
-		allowedActions := []string{}
-		if effect.State == domain.EffectUnknown {
-			allowedActions = append(allowedActions, "reconcile")
-		}
-		result.Effects = append(result.Effects, RuntimeEffectView{ID: effect.ID, NodeRunID: effect.NodeRunID, Kind: effect.Kind, State: effect.State, ExternalID: effect.ExternalID, RequestDigest: effect.RequestDigest, ResponseDigest: effect.ResponseDigest, CostMinor: effect.CostMinor, Currency: effect.Currency, SafeSummary: sanitizeRuntimeMap(effect.SafeSummary), ErrorCode: effect.ErrorCode, Version: effect.Version, AllowedActions: allowedActions, CreatedAt: effect.CreatedAt, UpdatedAt: effect.UpdatedAt})
-	}
-	for _, checkpoint := range checkpoints {
-		allowedActions, blockedReason := runtimeCheckpointActions(job, plan, checkpoint, nodes, effects)
-		result.Checkpoints = append(result.Checkpoints, RuntimeCheckpointView{ID: checkpoint.ID, NodeKey: checkpoint.NodeKey, PlanDigest: checkpoint.PlanDigest, StateRefCount: len(checkpoint.StateRefs), OutputRefCount: len(checkpoint.OutputRefs), CompletedNodes: append([]string{}, checkpoint.CompletedNodes...), Digest: checkpoint.Digest, AllowedActions: allowedActions, BlockedReason: blockedReason, CreatedAt: checkpoint.CreatedAt})
-	}
+	result.Effects = append(result.Effects, runtimeEffectViews(effects)...)
+	result.Checkpoints = append(result.Checkpoints, runtimeCheckpointViews(job, plan, checkpoints, nodes, effects)...)
 	for _, gate := range taskContext.gates {
 		name := gate.GateID
 		mode := gate.GateMode
@@ -387,6 +459,10 @@ func (s *Service) RuntimeJobDetail(ctx context.Context, actor Actor, jobID strin
 			return RuntimeJobDetail{}, recordErr
 		}
 		result.StateCollections = append(result.StateCollections, RuntimeStateCollectionView{ID: collection.ID, CollectionKey: collection.CollectionKey, Scope: collection.Scope, SchemaID: collection.SchemaID, SchemaRevision: collection.SchemaRevision, Consistency: collection.Consistency, WriterNodeKey: collection.WriterNodeKey, RecordCount: len(records), Revision: collection.Revision, Watermark: collection.Watermark, UpdatedAt: collection.UpdatedAt})
+		for _, record := range records {
+			value, artifactRef := runtimeStateRecordValue(record)
+			result.StateRecords = append(result.StateRecords, RuntimeStateRecordView{ID: record.ID, CollectionID: record.CollectionID, Key: record.Key, Value: value, ArtifactRef: artifactRef, SchemaRevision: record.SchemaRevision, Version: record.Version, Digest: record.Digest, UpdatedBy: record.UpdatedBy, UpdatedAt: record.UpdatedAt})
+		}
 	}
 	contextViewByID := make(map[string]domain.ContextView, len(contextViews))
 	for _, view := range contextViews {
@@ -410,19 +486,156 @@ func (s *Service) RuntimeJobDetail(ctx context.Context, actor Actor, jobID strin
 	return result, nil
 }
 
-func (s *Service) RuntimeJobEvents(ctx context.Context, actor Actor, jobID string, after int64) ([]RuntimeEventView, error) {
-	detail, err := s.RuntimeJobDetail(ctx, actor, jobID)
+func (s *Service) RuntimeJobNodesPage(ctx context.Context, actor Actor, jobID string, after, limit int) (RuntimeExplorerPage[RuntimeNodeView], error) {
+	if err := requireRuntimeOperator(actor); err != nil {
+		return RuntimeExplorerPage[RuntimeNodeView]{}, err
+	}
+	if s.runtimeService == nil {
+		return RuntimeExplorerPage[RuntimeNodeView]{}, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+	}
+	job, err := s.runtimeService.Job(ctx, actor.TenantID, jobID)
+	if err != nil {
+		return RuntimeExplorerPage[RuntimeNodeView]{}, err
+	}
+	plan, err := s.runtimeService.Plan(ctx, actor.TenantID, job.PlanRevisionID)
+	if err != nil {
+		return RuntimeExplorerPage[RuntimeNodeView]{}, err
+	}
+	after, limit = normalizeRuntimePage(after, limit)
+	nodes, hasMore, err := s.runtimeService.NodesPage(ctx, actor.TenantID, job.ID, after, limit)
+	if err != nil {
+		return RuntimeExplorerPage[RuntimeNodeView]{}, err
+	}
+	result := RuntimeExplorerPage[RuntimeNodeView]{Items: runtimeNodeViews(plan, nodes), GeneratedAt: s.now().UTC()}
+	if hasMore {
+		result.NextAfter = after + len(result.Items)
+	}
+	return result, nil
+}
+
+func (s *Service) RuntimeJobEffectsPage(ctx context.Context, actor Actor, jobID string, after, limit int) (RuntimeExplorerPage[RuntimeEffectView], error) {
+	if err := requireRuntimeOperator(actor); err != nil {
+		return RuntimeExplorerPage[RuntimeEffectView]{}, err
+	}
+	if s.runtimeService == nil {
+		return RuntimeExplorerPage[RuntimeEffectView]{}, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+	}
+	job, err := s.runtimeService.Job(ctx, actor.TenantID, jobID)
+	if err != nil {
+		return RuntimeExplorerPage[RuntimeEffectView]{}, err
+	}
+	after, limit = normalizeRuntimePage(after, limit)
+	effects, hasMore, err := s.runtimeService.EffectsPage(ctx, actor.TenantID, job.ID, after, limit)
+	if err != nil {
+		return RuntimeExplorerPage[RuntimeEffectView]{}, err
+	}
+	result := RuntimeExplorerPage[RuntimeEffectView]{Items: runtimeEffectViews(effects), GeneratedAt: s.now().UTC()}
+	if hasMore {
+		result.NextAfter = after + len(result.Items)
+	}
+	return result, nil
+}
+
+func (s *Service) RuntimeJobCheckpointsPage(ctx context.Context, actor Actor, jobID string, after, limit int) (RuntimeExplorerPage[RuntimeCheckpointView], error) {
+	if err := requireRuntimeOperator(actor); err != nil {
+		return RuntimeExplorerPage[RuntimeCheckpointView]{}, err
+	}
+	if s.runtimeService == nil {
+		return RuntimeExplorerPage[RuntimeCheckpointView]{}, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+	}
+	job, err := s.runtimeService.Job(ctx, actor.TenantID, jobID)
+	if err != nil {
+		return RuntimeExplorerPage[RuntimeCheckpointView]{}, err
+	}
+	plan, err := s.runtimeService.Plan(ctx, actor.TenantID, job.PlanRevisionID)
+	if err != nil {
+		return RuntimeExplorerPage[RuntimeCheckpointView]{}, err
+	}
+	nodes, err := s.runtimeService.Nodes(ctx, actor.TenantID, job.ID)
+	if err != nil {
+		return RuntimeExplorerPage[RuntimeCheckpointView]{}, err
+	}
+	effects, err := s.runtimeService.Effects(ctx, actor.TenantID, job.ID)
+	if err != nil {
+		return RuntimeExplorerPage[RuntimeCheckpointView]{}, err
+	}
+	after, limit = normalizeRuntimePage(after, limit)
+	checkpoints, hasMore, err := s.runtimeService.CheckpointsPage(ctx, actor.TenantID, job.ID, after, limit)
+	if err != nil {
+		return RuntimeExplorerPage[RuntimeCheckpointView]{}, err
+	}
+	result := RuntimeExplorerPage[RuntimeCheckpointView]{Items: runtimeCheckpointViews(job, plan, checkpoints, nodes, effects), GeneratedAt: s.now().UTC()}
+	if hasMore {
+		result.NextAfter = after + len(result.Items)
+	}
+	return result, nil
+}
+
+func normalizeRuntimePage(after, limit int) (int, int) {
+	if after < 0 {
+		after = 0
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	return after, limit
+}
+
+func runtimeNodeViews(plan domain.JobPlanRevision, nodes []domain.NodeRun) []RuntimeNodeView {
+	nodeSpecs := make(map[string]domain.JobPlanNode, len(plan.Nodes))
+	for _, node := range plan.Nodes {
+		nodeSpecs[node.Key] = node
+	}
+	result := make([]RuntimeNodeView, 0, len(nodes))
+	for _, node := range nodes {
+		spec := nodeSpecs[node.NodeKey]
+		result = append(result, RuntimeNodeView{ID: node.ID, NodeKey: node.NodeKey, Name: spec.Name, Kind: spec.Kind, CustomerStepID: spec.CustomerStepID, State: node.State, AttemptCount: node.AttemptCount, OutputDigest: node.OutputDigest, ErrorCode: node.ErrorCode, LeaseOwner: node.LeaseOwner, UpdatedAt: node.UpdatedAt})
+	}
+	return result
+}
+
+func runtimeEffectViews(effects []domain.ExternalEffect) []RuntimeEffectView {
+	result := make([]RuntimeEffectView, 0, len(effects))
+	for _, effect := range effects {
+		allowedActions := []string{}
+		if effect.State == domain.EffectUnknown {
+			allowedActions = append(allowedActions, "reconcile")
+		}
+		result = append(result, RuntimeEffectView{ID: effect.ID, NodeRunID: effect.NodeRunID, Kind: effect.Kind, State: effect.State, ExternalID: effect.ExternalID, RequestDigest: effect.RequestDigest, ResponseDigest: effect.ResponseDigest, CostMinor: effect.CostMinor, Currency: effect.Currency, SafeSummary: sanitizeRuntimeMap(effect.SafeSummary), ErrorCode: effect.ErrorCode, Version: effect.Version, AllowedActions: allowedActions, CreatedAt: effect.CreatedAt, UpdatedAt: effect.UpdatedAt})
+	}
+	return result
+}
+
+func runtimeCheckpointViews(job domain.JobRun, plan domain.JobPlanRevision, checkpoints []domain.Checkpoint, nodes []domain.NodeRun, effects []domain.ExternalEffect) []RuntimeCheckpointView {
+	result := make([]RuntimeCheckpointView, 0, len(checkpoints))
+	for _, checkpoint := range checkpoints {
+		allowedActions, blockedReason := runtimeCheckpointActions(job, plan, checkpoint, nodes, effects)
+		result = append(result, RuntimeCheckpointView{ID: checkpoint.ID, NodeKey: checkpoint.NodeKey, PlanDigest: checkpoint.PlanDigest, StateRefCount: len(checkpoint.StateRefs), OutputRefCount: len(checkpoint.OutputRefs), CompletedNodes: append([]string{}, checkpoint.CompletedNodes...), Digest: checkpoint.Digest, AllowedActions: allowedActions, BlockedReason: blockedReason, CreatedAt: checkpoint.CreatedAt})
+	}
+	return result
+}
+
+func (s *Service) RuntimeJobEvents(ctx context.Context, actor Actor, jobID string, after int64, limits ...int) ([]RuntimeEventView, error) {
+	if err := requireRuntimeOperator(actor); err != nil {
+		return nil, err
+	}
+	if s.runtimeService == nil {
+		return nil, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+	}
+	if _, err := s.runtimeService.Job(ctx, actor.TenantID, jobID); err != nil {
+		return nil, err
+	}
+	limit := 100
+	if len(limits) > 0 && limits[0] > 0 && limits[0] <= 500 {
+		limit = limits[0]
+	}
+	events, err := s.runtimeService.EventsPage(ctx, actor.TenantID, jobID, after, limit)
 	if err != nil {
 		return nil, err
 	}
-	if after <= 0 {
-		return detail.Events, nil
-	}
-	result := make([]RuntimeEventView, 0, len(detail.Events))
-	for _, event := range detail.Events {
-		if event.Sequence > after {
-			result = append(result, event)
-		}
+	result := make([]RuntimeEventView, 0, len(events))
+	for _, event := range events {
+		result = append(result, RuntimeEventView{ID: event.ID, Sequence: event.Sequence, Type: event.Type, NodeKey: event.NodeKey, ActorType: event.ActorType, Payload: sanitizeRuntimeMap(event.Payload), OccurredAt: event.OccurredAt})
 	}
 	return result, nil
 }
@@ -580,7 +793,7 @@ func (s *Service) runtimeTaskContext(ctx context.Context, actor Actor, job domai
 			}
 			sop := knowledgeExtractionSOP()
 			return runtimeTaskContext{
-				task:    domain.WorkTask{ID: job.WorkTaskID, TenantID: job.TenantID, ProjectID: job.ProjectID, SOPID: sop.SOPID, SOPVersion: sop.Version, SOPDigest: sop.Digest, Title: "知识候选提取", Intent: "从已接受证据生成可审核知识候选", ContentType: "knowledge_extract", Status: runtimeTaskRunState(job.State), CurrentStageID: "knowledge_extract", NextAction: "等待 Runtime worker 提交结构化候选"},
+				task:    domain.WorkTask{ID: job.WorkTaskID, TenantID: job.TenantID, ProjectID: job.ProjectID, SOPID: sop.SOPID, SOPVersion: sop.Version, SOPDigest: sop.Digest, Title: "知识候选提取", Intent: "从已接受证据生成可审核知识候选", ContentType: "knowledge_extract", Status: runtimeRunState(job.State), CurrentStageID: "knowledge_extract", NextAction: "等待 Runtime worker 提交结构化候选"},
 				project: project, environment: domain.Environment{ID: "runtime-knowledge", TenantID: job.TenantID, Name: "知识提取 Runtime", Slug: "knowledge-extract", Status: "active"}, sopDefinition: domain.SOPDefinition{ID: sop.SOPID, TenantID: job.TenantID, Name: sop.Name, CurrentVersion: sop.Version}, sop: sop,
 				stageRuns: []domain.StageRun{}, gates: []domain.GateEvaluation{}, gateDefinitions: map[string]domain.GateDefinition{},
 			}, nil
@@ -872,4 +1085,18 @@ func sanitizeRuntimeMap(input map[string]any) map[string]any {
 		}
 	}
 	return result
+}
+
+func runtimeStateRecordValue(record domain.StateRecord) (map[string]any, string) {
+	if record.ArtifactRef != "" {
+		return nil, record.ArtifactRef
+	}
+	if record.Value == nil {
+		return map[string]any{}, ""
+	}
+	body, err := json.Marshal(record.Value)
+	if err != nil || len(body) > 32<<10 {
+		return map[string]any{"redacted": "value_too_large", "digest": record.Digest}, ""
+	}
+	return sanitizeRuntimeMap(record.Value), ""
 }

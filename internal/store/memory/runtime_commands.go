@@ -19,6 +19,29 @@ func validateCommandEvent(s *Store, event domain.JobEvent) error {
 	return nil
 }
 
+func (s *Store) AppendFencedRuntimeEvent(_ context.Context, tenantID, attemptID, owner, fenceToken string, now time.Time, event domain.JobEvent) (domain.JobEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	attempt, ok := s.runtimeAttempts[runtimePlanKey(tenantID, attemptID)]
+	if !ok {
+		return event, domain.NotFound("RuntimeAttempt")
+	}
+	if attempt.State != domain.RuntimeAttemptRunning || attempt.LeaseOwner != strings.TrimSpace(owner) || attempt.FenceToken == "" || attempt.FenceToken != fenceToken || attempt.LeaseExpiresAt == nil || !attempt.LeaseExpiresAt.After(now) {
+		return event, domain.Conflict("DISPATCH_FENCE_STALE", "Harness 事件的执行围栏无效或已过期")
+	}
+	event.TenantID, event.JobRunID, event.ActorType, event.ActorID = tenantID, attempt.JobRunID, "harness", attempt.HarnessKind
+	if err := validateCommandEvent(s, event); err != nil {
+		return event, err
+	}
+	for _, existing := range s.runtimeEvents[event.JobRunID] {
+		if event.IdempotencyKey != "" && existing.IdempotencyKey == event.IdempotencyKey {
+			enqueueRuntimeOutboxLocked(s, existing)
+			return existing, nil
+		}
+	}
+	return appendRuntimeEventLocked(s, event), nil
+}
+
 func (s *Store) ClaimReadyNodeCommand(_ context.Context, tenantID, jobID, owner string, now time.Time, leaseFor time.Duration, event domain.JobEvent) (domain.NodeRun, error) {
 	if strings.TrimSpace(owner) == "" || leaseFor <= 0 {
 		return domain.NodeRun{}, domain.Invalid("NODE_LEASE_INVALID", "节点租约需要执行者和正数时长")
@@ -317,6 +340,33 @@ func (s *Store) RegisterEffectCommand(_ context.Context, effect domain.ExternalE
 	return effect, nil
 }
 
+func (s *Store) RegisterFencedEffectCommand(_ context.Context, effect domain.ExternalEffect, fenceToken string, now time.Time, event domain.JobEvent) (domain.ExternalEffect, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if effect.ID == "" || effect.TenantID == "" || effect.JobRunID == "" || effect.AttemptID == "" || effect.Kind == "" || effect.IdempotencyKey == "" || effect.RequestDigest == "" || effect.Version < 1 || effect.CreatedAt.IsZero() || effect.UpdatedAt.IsZero() {
+		return effect, domain.Invalid("EFFECT_INVALID", "外部操作缺少 Attempt、幂等键或请求摘要")
+	}
+	if err := validateAttemptFenceLocked(s, effect.TenantID, effect.AttemptID, fenceToken, now); err != nil {
+		return effect, err
+	}
+	for _, existing := range s.runtimeEffects {
+		if existing.TenantID != effect.TenantID || existing.IdempotencyKey != effect.IdempotencyKey {
+			continue
+		}
+		if existing.AttemptID != effect.AttemptID || existing.RequestDigest != effect.RequestDigest {
+			return effect, domain.Conflict("EFFECT_IDEMPOTENCY_MISMATCH", "Effect 幂等键已用于不同 Attempt 或请求摘要")
+		}
+		return existing, nil
+	}
+	event.TenantID, event.JobRunID, event.NodeKey = effect.TenantID, effect.JobRunID, ""
+	if err := validateCommandEvent(s, event); err != nil {
+		return effect, err
+	}
+	s.runtimeEffects[runtimeEffectKey(effect.TenantID, effect.ID)] = effect
+	appendRuntimeEventLocked(s, event)
+	return effect, nil
+}
+
 func (s *Store) ApplyEffectTransition(_ context.Context, next domain.ExternalEffect, expectedVersion int, event domain.JobEvent) (domain.ExternalEffect, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -340,18 +390,25 @@ func (s *Store) ApplyEffectTransition(_ context.Context, next domain.ExternalEff
 	return next, nil
 }
 
-func (s *Store) RuntimeOutboxMessages(_ context.Context, tenantID string, now time.Time, limit int) ([]domain.RuntimeOutboxMessage, error) {
+func (s *Store) RuntimeOutboxMessages(_ context.Context, tenantID, subscriber string, now time.Time, limit int) ([]domain.RuntimeOutboxMessage, error) {
+	subscriber = strings.TrimSpace(subscriber)
+	if subscriber == "" {
+		return nil, domain.Invalid("OUTBOX_SUBSCRIBER_REQUIRED", "outbox 查询需要订阅者")
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if limit <= 0 {
 		limit = 100
 	}
 	result := []domain.RuntimeOutboxMessage{}
-	for _, message := range s.runtimeOutbox {
-		if message.TenantID != tenantID || message.DeliveredAt != nil || message.NextAttemptAt.After(now) || (message.LockedUntil != nil && message.LockedUntil.After(now)) {
+	for _, receipt := range s.runtimeOutboxReceipts {
+		if receipt.TenantID != tenantID || receipt.Subscriber != subscriber || receipt.DeliveredAt != nil || receipt.NextAttemptAt.After(now) || (receipt.LockedUntil != nil && receipt.LockedUntil.After(now)) {
 			continue
 		}
-		result = append(result, message)
+		message, ok := s.runtimeOutbox[runtimePlanKey(tenantID, receipt.MessageID)]
+		if ok {
+			result = append(result, joinRuntimeOutboxReceipt(message, receipt))
+		}
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].NextAttemptAt.Equal(result[j].NextAttemptAt) {
@@ -365,10 +422,10 @@ func (s *Store) RuntimeOutboxMessages(_ context.Context, tenantID string, now ti
 	return result, nil
 }
 
-func (s *Store) ClaimRuntimeOutbox(_ context.Context, tenantID, consumer string, now time.Time, leaseFor time.Duration, limit int) ([]domain.RuntimeOutboxMessage, error) {
-	consumer = strings.TrimSpace(consumer)
-	if consumer == "" || leaseFor <= 0 {
-		return nil, domain.Invalid("OUTBOX_CLAIM_INVALID", "outbox 认领需要消费者和正数租约")
+func (s *Store) ClaimRuntimeOutbox(_ context.Context, tenantID, subscriber, worker string, now time.Time, leaseFor time.Duration, limit int) ([]domain.RuntimeOutboxMessage, error) {
+	subscriber, worker = strings.TrimSpace(subscriber), strings.TrimSpace(worker)
+	if subscriber == "" || worker == "" || leaseFor <= 0 {
+		return nil, domain.Invalid("OUTBOX_CLAIM_INVALID", "outbox 认领需要订阅者、工作器和正数租约")
 	}
 	if limit <= 0 {
 		limit = 100
@@ -377,15 +434,14 @@ func (s *Store) ClaimRuntimeOutbox(_ context.Context, tenantID, consumer string,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	result := []domain.RuntimeOutboxMessage{}
-	for key, message := range s.runtimeOutbox {
-		if message.TenantID != tenantID || message.DeliveredAt != nil || message.NextAttemptAt.After(now) || (message.LockedUntil != nil && message.LockedUntil.After(now)) {
+	for _, receipt := range s.runtimeOutboxReceipts {
+		if receipt.TenantID != tenantID || receipt.Subscriber != subscriber || receipt.DeliveredAt != nil || receipt.NextAttemptAt.After(now) || (receipt.LockedUntil != nil && receipt.LockedUntil.After(now)) {
 			continue
 		}
-		message.LockedBy = consumer
-		message.LockedUntil = &lockedUntil
-		message.Attempts++
-		s.runtimeOutbox[key] = message
-		result = append(result, message)
+		message, ok := s.runtimeOutbox[runtimePlanKey(tenantID, receipt.MessageID)]
+		if ok {
+			result = append(result, joinRuntimeOutboxReceipt(message, receipt))
+		}
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].NextAttemptAt.Equal(result[j].NextAttemptAt) {
@@ -394,51 +450,63 @@ func (s *Store) ClaimRuntimeOutbox(_ context.Context, tenantID, consumer string,
 		return result[i].NextAttemptAt.Before(result[j].NextAttemptAt)
 	})
 	if len(result) > limit {
-		// Roll back claims beyond the requested batch before returning.
-		for _, message := range result[limit:] {
-			message.LockedBy = ""
-			message.LockedUntil = nil
-			message.Attempts--
-			s.runtimeOutbox[runtimePlanKey(message.TenantID, message.ID)] = message
-		}
 		result = result[:limit]
+	}
+	for index := range result {
+		key := runtimeOutboxReceiptKey(tenantID, result[index].ID, subscriber)
+		receipt := s.runtimeOutboxReceipts[key]
+		receipt.LockedBy, receipt.LockedUntil, receipt.Attempts = worker, &lockedUntil, receipt.Attempts+1
+		s.runtimeOutboxReceipts[key] = receipt
+		result[index] = joinRuntimeOutboxReceipt(s.runtimeOutbox[runtimePlanKey(tenantID, receipt.MessageID)], receipt)
 	}
 	return result, nil
 }
 
-func (s *Store) AckRuntimeOutbox(_ context.Context, tenantID, messageID, consumer string, deliveredAt time.Time) error {
-	consumer = strings.TrimSpace(consumer)
-	if consumer == "" || deliveredAt.IsZero() {
-		return domain.Invalid("OUTBOX_ACK_INVALID", "outbox 确认需要消费者和确认时间")
+func (s *Store) AckRuntimeOutbox(_ context.Context, tenantID, messageID, subscriber, worker string, deliveredAt time.Time) error {
+	subscriber, worker = strings.TrimSpace(subscriber), strings.TrimSpace(worker)
+	if subscriber == "" || worker == "" || deliveredAt.IsZero() {
+		return domain.Invalid("OUTBOX_ACK_INVALID", "outbox 确认需要订阅者、工作器和确认时间")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	message, ok := s.runtimeOutbox[runtimePlanKey(tenantID, messageID)]
-	if !ok || message.DeliveredAt != nil || message.LockedBy != consumer || message.LockedUntil == nil || !message.LockedUntil.After(deliveredAt) {
+	key := runtimeOutboxReceiptKey(tenantID, messageID, subscriber)
+	receipt, ok := s.runtimeOutboxReceipts[key]
+	if !ok || receipt.DeliveredAt != nil || receipt.LockedBy != worker || receipt.LockedUntil == nil || !receipt.LockedUntil.After(deliveredAt) {
 		return domain.Conflict("OUTBOX_LEASE_STALE", "outbox 消息不属于当前消费者或租约已过期")
 	}
-	message.DeliveredAt = &deliveredAt
-	message.LockedBy, message.LockedUntil, message.LastError = "", nil, ""
-	s.runtimeOutbox[runtimePlanKey(tenantID, messageID)] = message
+	receipt.DeliveredAt = &deliveredAt
+	receipt.LockedBy, receipt.LockedUntil, receipt.LastError = "", nil, ""
+	s.runtimeOutboxReceipts[key] = receipt
 	return nil
 }
 
-func (s *Store) RetryRuntimeOutbox(_ context.Context, tenantID, messageID, consumer string, now, nextAttemptAt time.Time, lastError string) error {
-	consumer = strings.TrimSpace(consumer)
-	if consumer == "" || now.IsZero() || nextAttemptAt.IsZero() || strings.TrimSpace(lastError) == "" {
-		return domain.Invalid("OUTBOX_RETRY_INVALID", "outbox 重试需要消费者、时间和错误原因")
+func (s *Store) RetryRuntimeOutbox(_ context.Context, tenantID, messageID, subscriber, worker string, now, nextAttemptAt time.Time, lastError string) error {
+	subscriber, worker = strings.TrimSpace(subscriber), strings.TrimSpace(worker)
+	if subscriber == "" || worker == "" || now.IsZero() || nextAttemptAt.IsZero() || strings.TrimSpace(lastError) == "" {
+		return domain.Invalid("OUTBOX_RETRY_INVALID", "outbox 重试需要订阅者、工作器、时间和错误原因")
 	}
 	if nextAttemptAt.Before(now) {
 		return domain.Invalid("OUTBOX_RETRY_INVALID", "outbox 下次尝试时间不能早于当前时间")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := runtimePlanKey(tenantID, messageID)
-	message, ok := s.runtimeOutbox[key]
-	if !ok || message.DeliveredAt != nil || message.LockedBy != consumer || message.LockedUntil == nil || !message.LockedUntil.After(now) {
+	key := runtimeOutboxReceiptKey(tenantID, messageID, subscriber)
+	receipt, ok := s.runtimeOutboxReceipts[key]
+	if !ok || receipt.DeliveredAt != nil || receipt.LockedBy != worker || receipt.LockedUntil == nil || !receipt.LockedUntil.After(now) {
 		return domain.Conflict("OUTBOX_LEASE_STALE", "outbox 消息不属于当前消费者或租约已过期")
 	}
-	message.NextAttemptAt, message.LockedBy, message.LockedUntil, message.LastError = nextAttemptAt, "", nil, strings.TrimSpace(lastError)
-	s.runtimeOutbox[key] = message
+	receipt.NextAttemptAt, receipt.LockedBy, receipt.LockedUntil, receipt.LastError = nextAttemptAt, "", nil, strings.TrimSpace(lastError)
+	s.runtimeOutboxReceipts[key] = receipt
 	return nil
+}
+
+func joinRuntimeOutboxReceipt(message domain.RuntimeOutboxMessage, receipt runtimeOutboxReceipt) domain.RuntimeOutboxMessage {
+	message.Subscriber = receipt.Subscriber
+	message.Attempts = receipt.Attempts
+	message.NextAttemptAt = receipt.NextAttemptAt
+	message.LockedBy = receipt.LockedBy
+	message.LockedUntil = receipt.LockedUntil
+	message.DeliveredAt = receipt.DeliveredAt
+	message.LastError = receipt.LastError
+	return message
 }

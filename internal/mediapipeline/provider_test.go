@@ -1,6 +1,7 @@
 package mediapipeline
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -22,6 +23,20 @@ func TestFakeProviderVideoMatchesFixtureDuration(t *testing.T) {
 	}
 	if math.Abs(duration-26) > 0.001 {
 		t.Fatalf("fixture video duration=%v, want 26 seconds", duration)
+	}
+}
+
+func TestValidateDownloadReaderBoundsAndHashesStream(t *testing.T) {
+	body := fakeMP4("stream")
+	validated, err := ValidateDownloadReader(bytes.NewReader(body), "video/mp4", int64(len(body)))
+	if err != nil {
+		t.Fatalf("streaming MP4 validation failed: %v", err)
+	}
+	if validated.ByteSize != int64(len(body)) || validated.SHA256 != SHA256(body) || validated.Technical["validated"] != true {
+		t.Fatalf("unexpected streaming validation: %#v", validated)
+	}
+	if _, err := ValidateDownloadReader(bytes.NewReader(append(body, 0)), "video/mp4", int64(len(body))); err == nil {
+		t.Fatal("streaming validator accepted a response over the configured limit")
 	}
 }
 

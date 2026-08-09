@@ -28,15 +28,12 @@ type ProjectionRunResult struct {
 
 // RunOnce claims a durable outbox batch, rebuilds the Runtime Explorer view
 // from authoritative snapshots, and acknowledges only after persistence.
-func (p *Projector) RunOnce(ctx context.Context, tenantID, consumer, worker string, leaseFor time.Duration, limit int) (ProjectionRunResult, error) {
+func (p *Projector) RunOnce(ctx context.Context, tenantID, worker string, leaseFor time.Duration, limit int) (ProjectionRunResult, error) {
 	result := ProjectionRunResult{}
 	if p == nil || p.repo == nil {
 		return result, domain.Policy("RUNTIME_PROJECTOR_UNAVAILABLE", "Runtime 投影器未配置存储", "配置 Runtime Repository 后重试")
 	}
-	commands, ok := p.repo.(RuntimeCommandStore)
-	if !ok {
-		return result, domain.Policy("RUNTIME_COMMAND_STORE_REQUIRED", "Runtime 必须配置事务命令存储", "升级 Runtime 存储实现后重试")
-	}
+	commands := p.repo
 	if leaseFor <= 0 {
 		leaseFor = time.Minute
 	}
@@ -46,9 +43,9 @@ func (p *Projector) RunOnce(ctx context.Context, tenantID, consumer, worker stri
 	now := p.now().UTC()
 	leaseOwner := strings.TrimSpace(worker)
 	if leaseOwner == "" {
-		leaseOwner = strings.TrimSpace(consumer)
+		return result, domain.Invalid("RUNTIME_PROJECTOR_WORKER_REQUIRED", "Runtime 投影器需要稳定的工作器身份")
 	}
-	messages, err := commands.ClaimRuntimeOutbox(ctx, tenantID, leaseOwner, now, leaseFor, limit)
+	messages, err := commands.ClaimRuntimeOutbox(ctx, tenantID, domain.RuntimeOutboxSubscriberProjection, leaseOwner, now, leaseFor, limit)
 	if err != nil {
 		return result, err
 	}
@@ -88,7 +85,7 @@ func (p *Projector) RunOnce(ctx context.Context, tenantID, consumer, worker stri
 			// durable snapshot is already ahead, so the older outbox message is
 			// idempotently complete and must not poison the retry queue.
 			if hasDomainCode(projectErr, "RUNTIME_PROJECTION_STALE") {
-				if err := commands.AckRuntimeOutbox(ctx, tenantID, message.ID, leaseOwner, now); err != nil {
+				if err := commands.AckRuntimeOutbox(ctx, tenantID, message.ID, domain.RuntimeOutboxSubscriberProjection, leaseOwner, now); err != nil {
 					return result, err
 				}
 				result.Projected++
@@ -96,12 +93,12 @@ func (p *Projector) RunOnce(ctx context.Context, tenantID, consumer, worker stri
 			}
 			result.Retried++
 			retryAt := now.Add(time.Second)
-			if retryErr := commands.RetryRuntimeOutbox(ctx, tenantID, message.ID, leaseOwner, now, retryAt, projectErr.Error()); retryErr != nil {
+			if retryErr := commands.RetryRuntimeOutbox(ctx, tenantID, message.ID, domain.RuntimeOutboxSubscriberProjection, leaseOwner, now, retryAt, projectErr.Error()); retryErr != nil {
 				return result, retryErr
 			}
 			continue
 		}
-		if err := commands.AckRuntimeOutbox(ctx, tenantID, message.ID, leaseOwner, now); err != nil {
+		if err := commands.AckRuntimeOutbox(ctx, tenantID, message.ID, domain.RuntimeOutboxSubscriberProjection, leaseOwner, now); err != nil {
 			return result, err
 		}
 		result.Projected++
@@ -115,4 +112,16 @@ func (s *Service) RuntimeExplorer(ctx context.Context, tenantID, jobID string) (
 
 func (s *Service) RuntimeProjectionStats(ctx context.Context, tenantID string) (domain.RuntimeProjectionStats, error) {
 	return s.repo.RuntimeProjectionStats(ctx, tenantID)
+}
+
+func (s *Service) RuntimeOutboxStats(ctx context.Context, tenantID, subscriber string) (domain.RuntimeOutboxStats, error) {
+	return s.repo.RuntimeOutboxStats(ctx, tenantID, subscriber)
+}
+
+func (s *Service) SaveRuntimeMaintenanceHeartbeat(ctx context.Context, heartbeat domain.RuntimeMaintenanceHeartbeat) error {
+	return s.repo.SaveRuntimeMaintenanceHeartbeat(ctx, heartbeat)
+}
+
+func (s *Service) RuntimeMaintenanceHeartbeat(ctx context.Context, tenantID, kind string) (domain.RuntimeMaintenanceHeartbeat, error) {
+	return s.repo.RuntimeMaintenanceHeartbeat(ctx, tenantID, kind)
 }

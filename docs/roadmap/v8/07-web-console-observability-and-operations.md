@@ -4,7 +4,7 @@
 
 > 阅读路线：产品和设计重点阅读第 1-6、10 节；前端重点阅读第 2-7、10 节；运维重点阅读第 8-9 节。
 
-当前实现：运营入口统一为 `/admin/jobs`，提供 JobRun 列表、准入冻结身份、节点概览、脱敏 AgentInstance/ContextView 摘要、事件时间线、外部副作用、检查点和服务端授权动作；支持事件完整性校验与投影重建、从安全检查点创建新分支、`unknown` Effect 发起对账，以及带 `Last-Event-ID` 的 SSE 增量游标。重放与分支不调用 Harness 或 Provider，Agent 诊断不返回原始会话引用或上下文正文。完整执行图、Attempt/租约、共享状态、费用读模型和支持案例仍按 V8 工作包逐步交付。
+当前实现：运营入口统一为 `/admin/jobs`，提供 JobRun 列表、准入冻结身份、节点概览、脱敏 AgentInstance/ContextView 摘要、事件时间线、外部副作用、检查点和服务端授权动作；列表和 nodes/effects/checkpoints 子资源提供服务端 `after/limit` 分页，events 提供单次上限和带 `Last-Event-ID` 的 SSE 增量游标；支持事件完整性校验与投影重建、从安全检查点创建新分支、`unknown` Effect 发起对账。重放与分支不调用 Harness 或 Provider，Agent 诊断不返回原始会话引用或上下文正文。完整执行图操作、Attempt/租约操作和支持案例仍按 V8 工作包逐步交付。
 
 ## 1. Runtime Explorer
 

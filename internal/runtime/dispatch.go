@@ -43,7 +43,7 @@ type DispatchHandle struct {
 	ContextView   domain.ContextView               `json:"context_view"`
 	Agent         domain.AgentInstance             `json:"agent"`
 	Capabilities  agentadapter.HarnessCapabilities `json:"capabilities"`
-	ResumeSession *agentadapter.AgentSessionRef    `json:"-"`
+	ResumeSession *agentadapter.AgentSessionRef    `json:"resume_session,omitempty"`
 	LeaseFor      time.Duration                    `json:"-"`
 }
 
@@ -100,13 +100,9 @@ func (s *Service) LoadDispatchHandle(ctx context.Context, tenantID, attemptID st
 	if err != nil {
 		return DispatchHandle{}, err
 	}
-	capabilities := agentadapter.HarnessCapabilities{Kind: attempt.HarnessKind, Events: true, StructuredOutput: true}
-	if s.harnesses != nil {
-		_, detected, resolveErr := s.harnesses.Resolve(ctx, attempt.HarnessKind)
-		if resolveErr != nil {
-			return DispatchHandle{}, resolveErr
-		}
-		capabilities = detected
+	capabilities, err := harnessCapabilitiesFromMap(attempt.HarnessKind, attempt.Capabilities)
+	if err != nil {
+		return DispatchHandle{}, err
 	}
 	var resumeSession *agentadapter.AgentSessionRef
 	if attempt.SessionRef != "" && capabilities.Resume {
@@ -131,6 +127,20 @@ func (s *Service) PrepareDispatch(ctx context.Context, input DispatchInput) (Dis
 	_, capabilities, err := s.harnesses.Resolve(ctx, input.HarnessKind)
 	if err != nil {
 		return DispatchHandle{}, err
+	}
+	return s.prepareDispatchWithRetry(ctx, input, capabilities)
+}
+
+// PrepareRemoteDispatch accepts a capability snapshot detected by an
+// authenticated worker. The server persists the snapshot with the Attempt and
+// never assumes that a worker-side CLI is installed in the control plane.
+func (s *Service) PrepareRemoteDispatch(ctx context.Context, input DispatchInput, capabilities agentadapter.HarnessCapabilities) (DispatchHandle, error) {
+	capabilities.Kind = strings.ToLower(strings.TrimSpace(capabilities.Kind))
+	if capabilities.Kind == "" || capabilities.Kind != strings.ToLower(strings.TrimSpace(input.HarnessKind)) {
+		return DispatchHandle{}, domain.Invalid("AGENT_HARNESS_KIND_MISMATCH", "远程 worker 的 Harness 能力声明与请求类型不一致")
+	}
+	if capabilities.MaxParallelSessions < 1 || capabilities.MaxParallelSessions > 1024 {
+		return DispatchHandle{}, domain.Invalid("AGENT_HARNESS_CAPACITY_INVALID", "远程 worker 的并发会话能力无效")
 	}
 	return s.prepareDispatchWithRetry(ctx, input, capabilities)
 }
@@ -457,7 +467,7 @@ func (s *Service) FinalizeDispatch(ctx context.Context, handle DispatchHandle, o
 	}
 	agent.Version++
 	agent.UpdatedAt = now
-	event := domain.JobEvent{ID: domain.NewID(), TenantID: node.TenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey, Type: "attempt." + outcome.State, ActorType: "worker", ActorID: handle.Attempt.LeaseOwner, IdempotencyKey: attempt.ID + ":terminal:" + outcome.ResultDigest, Payload: map[string]any{"attempt_id": attempt.ID, "result_digest": outcome.ResultDigest, "fence_digest": FenceTokenDigest(fenceToken), "output_count": len(outcome.OutputRefs), "error_code": attempt.ErrorCode}, OccurredAt: now}
+	event := domain.JobEvent{ID: domain.NewID(), TenantID: node.TenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey, Type: "attempt." + outcome.State, ActorType: "worker", ActorID: handle.Attempt.LeaseOwner, IdempotencyKey: attempt.ID + ":terminal:" + outcome.ResultDigest, Payload: map[string]any{"attempt_id": attempt.ID, "result_digest": outcome.ResultDigest, "fence_digest": FenceTokenDigest(fenceToken), "output_count": len(outcome.OutputRefs), "output_refs": append([]string(nil), outcome.OutputRefs...), "output_digest": outcome.OutputDigest, "error_code": attempt.ErrorCode}, OccurredAt: now}
 	node, attempt, agent, err := s.repo.FinalizeDispatch(ctx, node, expectedNodeVersion, attempt, expectedAttemptVersion, agent, expectedAgentVersion, fenceToken, event)
 	if err != nil {
 		return DispatchResult{Handle: handle}, err
@@ -571,7 +581,7 @@ func (s *Service) DispatchNext(ctx context.Context, input DispatchInput) (Dispat
 				}
 				return DispatchResult{Handle: yielded.Handle, Job: yielded.Job}, nil
 			default:
-				if err := s.recordHarnessEvent(ctx, handle, event); err != nil {
+				if err := s.RecordHarnessEvent(ctx, handle, event); err != nil {
 					return DispatchResult{Handle: handle}, err
 				}
 			}
@@ -595,7 +605,14 @@ func outcomeFromHarnessResult(data json.RawMessage) (DispatchOutcome, error) {
 	return DispatchOutcome{State: domain.RuntimeAttemptSucceeded, OutputRefs: result.OutputRefs, OutputDigest: result.OutputDigest, ResultDigest: "sha256:" + digest, SafeSummary: sanitizeSafeSummary(result.SafeSummary), UsedCostMinor: result.UsedCostMinor}, nil
 }
 
-func (s *Service) recordHarnessEvent(ctx context.Context, handle DispatchHandle, event agentadapter.AgentEvent) error {
+func (s *Service) RecordHarnessEvent(ctx context.Context, handle DispatchHandle, event agentadapter.AgentEvent) error {
+	var boundSession agentadapter.AgentSessionRef
+	if handle.Attempt.State != domain.RuntimeAttemptRunning || json.Unmarshal([]byte(handle.Attempt.SessionRef), &boundSession) != nil || boundSession != event.Session {
+		return domain.Conflict("HARNESS_SESSION_MISMATCH", "Harness 事件会话与当前 RuntimeAttempt 不一致")
+	}
+	if len(event.Data) > 64<<10 {
+		return domain.Policy("HARNESS_EVENT_TOO_LARGE", "Harness 结构化事件超过持久化上限", "只上报事件类型、状态和受控摘要")
+	}
 	dataDigest := ""
 	if len(event.Data) > 0 {
 		var value any
@@ -605,11 +622,19 @@ func (s *Service) recordHarnessEvent(ctx context.Context, handle DispatchHandle,
 			}
 		}
 	}
-	commands, ok := s.repo.(RuntimeCommandStore)
-	if !ok {
-		return domain.Policy("RUNTIME_COMMAND_STORE_REQUIRED", "Runtime 必须配置事务命令存储", "升级 Runtime 存储实现后重试")
+	commands := s.repo
+	dedupDigest, err := domain.CanonicalHash(struct {
+		AttemptID string
+		Type      string
+		Data      string
+		ErrorCode string
+		Occurred  time.Time
+	}{handle.Attempt.ID, safeEventType(event.Type), dataDigest, safeErrorCode(event.ErrorCode, ""), event.OccurredAt})
+	if err != nil {
+		return err
 	}
-	_, err := commands.AppendRuntimeEvent(ctx, domain.JobEvent{ID: domain.NewID(), TenantID: handle.Node.TenantID, JobRunID: handle.Node.JobRunID, NodeKey: handle.Node.NodeKey, Type: "attempt.event", ActorType: "harness", ActorID: handle.Attempt.HarnessKind, Payload: map[string]any{"attempt_id": handle.Attempt.ID, "event_type": safeEventType(event.Type), "data_digest": dataDigest, "error_code": safeErrorCode(event.ErrorCode, "")}, OccurredAt: s.now().UTC()})
+	now := s.now().UTC()
+	_, err = commands.AppendFencedRuntimeEvent(ctx, handle.Node.TenantID, handle.Attempt.ID, handle.Attempt.LeaseOwner, handle.Attempt.FenceToken, now, domain.JobEvent{ID: domain.NewID(), TenantID: handle.Node.TenantID, JobRunID: handle.Node.JobRunID, NodeKey: handle.Node.NodeKey, Type: "attempt.event", ActorType: "harness", ActorID: handle.Attempt.HarnessKind, IdempotencyKey: handle.Attempt.ID + ":event:" + dedupDigest, Payload: map[string]any{"attempt_id": handle.Attempt.ID, "event_type": safeEventType(event.Type), "data_digest": dataDigest, "error_code": safeErrorCode(event.ErrorCode, "")}, OccurredAt: now})
 	return err
 }
 
@@ -641,6 +666,25 @@ func harnessCapabilitiesMap(capabilities agentadapter.HarnessCapabilities) map[s
 		"structured_output": capabilities.StructuredOutput, "sandbox_profile": capabilities.SandboxProfile,
 		"max_parallel_sessions": capabilities.MaxParallelSessions, "transcript_export": capabilities.TranscriptExport,
 	}
+}
+
+func harnessCapabilitiesFromMap(kind string, values map[string]any) (agentadapter.HarnessCapabilities, error) {
+	body, err := json.Marshal(values)
+	if err != nil {
+		return agentadapter.HarnessCapabilities{}, err
+	}
+	var capabilities agentadapter.HarnessCapabilities
+	if err := json.Unmarshal(body, &capabilities); err != nil {
+		return capabilities, domain.Invalid("AGENT_HARNESS_CAPABILITIES_INVALID", "RuntimeAttempt 的 Harness 能力快照无效")
+	}
+	capabilities.Kind = strings.ToLower(strings.TrimSpace(capabilities.Kind))
+	if capabilities.Kind == "" {
+		capabilities.Kind = strings.ToLower(strings.TrimSpace(kind))
+	}
+	if capabilities.Kind != strings.ToLower(strings.TrimSpace(kind)) || !capabilities.Events || !capabilities.StructuredOutput {
+		return capabilities, domain.Conflict("AGENT_HARNESS_CAPABILITIES_INVALID", "RuntimeAttempt 的 Harness 能力快照不满足执行协议")
+	}
+	return capabilities, nil
 }
 
 func errorCode(err error, fallback string) string {

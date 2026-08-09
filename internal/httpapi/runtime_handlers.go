@@ -30,18 +30,17 @@ func (s *Server) runtimeJob(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) runtimeJobNodes(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
-	value, err := s.service.RuntimeJobDetail(r.Context(), actor, chi.URLParam(r, "jobID"))
-	if err == nil {
-		s.dispatchResult(w, r, "runtime.job.nodes", value.Nodes, nil)
-		return
-	}
-	s.dispatchResult(w, r, "runtime.job.nodes", nil, err)
+	after, _ := strconv.Atoi(r.URL.Query().Get("after"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	value, err := s.service.RuntimeJobNodesPage(r.Context(), actor, chi.URLParam(r, "jobID"), after, limit)
+	s.dispatchResult(w, r, "runtime.job.nodes", value, err)
 }
 
 func (s *Server) runtimeJobEvents(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
-	value, err := s.service.RuntimeJobEvents(r.Context(), actor, chi.URLParam(r, "jobID"), after)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	value, err := s.service.RuntimeJobEvents(r.Context(), actor, chi.URLParam(r, "jobID"), after, limit)
 	s.dispatchResult(w, r, "runtime.job.events", value, err)
 }
 
@@ -97,22 +96,18 @@ func (s *Server) runtimeJobEventsStream(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) runtimeJobEffects(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
-	value, err := s.service.RuntimeJobDetail(r.Context(), actor, chi.URLParam(r, "jobID"))
-	if err == nil {
-		s.dispatchResult(w, r, "runtime.job.effects", value.Effects, nil)
-		return
-	}
-	s.dispatchResult(w, r, "runtime.job.effects", nil, err)
+	after, _ := strconv.Atoi(r.URL.Query().Get("after"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	value, err := s.service.RuntimeJobEffectsPage(r.Context(), actor, chi.URLParam(r, "jobID"), after, limit)
+	s.dispatchResult(w, r, "runtime.job.effects", value, err)
 }
 
 func (s *Server) runtimeJobCheckpoints(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
-	value, err := s.service.RuntimeJobDetail(r.Context(), actor, chi.URLParam(r, "jobID"))
-	if err == nil {
-		s.dispatchResult(w, r, "runtime.job.checkpoints", value.Checkpoints, nil)
-		return
-	}
-	s.dispatchResult(w, r, "runtime.job.checkpoints", nil, err)
+	after, _ := strconv.Atoi(r.URL.Query().Get("after"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	value, err := s.service.RuntimeJobCheckpointsPage(r.Context(), actor, chi.URLParam(r, "jobID"), after, limit)
+	s.dispatchResult(w, r, "runtime.job.checkpoints", value, err)
 }
 
 func (s *Server) refreshRuntimeJob(w http.ResponseWriter, r *http.Request) {

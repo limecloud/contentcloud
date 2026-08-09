@@ -196,8 +196,9 @@ Scheduler finds ready NodeRun
   -> executor accepts lease
   -> heartbeat / progress / candidate outputs
   -> validate output schema + digest + tenant scope
-  -> persist business candidate through owning domain
-  -> NodeRun stores refs and completes
+  -> persist content-addressed result blob
+  -> NodeRun stores refs and completes + publishes subscriber receipts
+  -> durable business subscriber materializes candidate through owning domain
   -> downstream readiness recalculated
 ```
 

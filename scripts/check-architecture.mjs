@@ -62,10 +62,43 @@ for(const path of filesUnder('internal',new Set(['.go']))){
   }
 }
 
+// Local daemon bindings are current in daemon_bindings. Legacy single-workspace
+// keys may only be decoded and rewritten at the localconfig load boundary.
+const localConfigPath=join(root,'internal/localconfig/config.go');
+const localConfigSource=source(localConfigPath);
+for(const required of ['type configFile struct','hasLegacyBinding','containsLegacyKeys','savePath(path, c)','func (c Config) Bindings()','func (c Config) PrimaryBinding()']){
+  if(!localConfigSource.includes(required))fail(localConfigPath,`local config migration boundary is missing ${required}`);
+}
+if(localConfigSource.includes('RuntimeBindings()'))fail(localConfigPath,'local config must not retain a runtime single-workspace fallback');
+for(const path of filesUnder('internal/cli',new Set(['.go']))){
+  if(projectPath(path).endsWith('_test.go'))continue;
+  const value=source(path);
+  for(const reference of ['RuntimeBindings()','cfg.DeviceID','cfg.WorkspaceID','cfg.ProjectID','cfg.WorkspaceRoot']){
+    if(value.includes(reference))fail(path,`CLI must use current DaemonBindings instead of legacy config reference ${reference}`);
+  }
+}
+
+// Public Runtime reads use RuntimeRun/RuntimeRunEvent and runtime_run. The V7
+// DTO and lineage names are deleted, not aliases that callers may restore.
+const retiredRuntimeReadNames=['TaskRun','RunProgressEvent','task_run'];
+for(const path of filesUnder('internal',new Set(['.go']))){
+  if(projectPath(path).endsWith('_test.go'))continue;
+  const value=source(path);
+  for(const name of retiredRuntimeReadNames){
+    if(value.includes(name))fail(path,`production Go must not restore retired Runtime read name ${name}`);
+  }
+}
+for(const path of filesUnder('web/src',new Set(['.ts','.tsx']))){
+  const value=source(path);
+  for(const name of [...retiredRuntimeReadNames,'taskRun']){
+    if(value.includes(name))fail(path,`web code must not restore retired Runtime read name ${name}`);
+  }
+}
+
 // Customer Studio is the first current owner cut over to Runtime. Its
-// execution path may only start a JobRun and read the compatibility projection;
-// a legacy TaskRun write here would recreate a second execution authority.
-const currentRuntimeConsumerFiles = ['internal/app/customer_studio.go','internal/app/runtime_task_projection.go'];
+// execution path may only start a JobRun and read the current RuntimeRun
+// projection; a V7 execution write would recreate a second authority.
+const currentRuntimeConsumerFiles = ['internal/app/customer_studio.go','internal/app/runtime_run_projection.go'];
 const legacyWriteCalls = ['CreateRun(', 'CreateRunWithBundle(', 'SaveRun(', 'CreateRunAttempt(', 'SaveRunAttempt(', 'LeaseNextRun('];
 for(const relativePath of currentRuntimeConsumerFiles){
   const path=join(root,relativePath);
@@ -78,11 +111,85 @@ for(const relativePath of currentRuntimeConsumerFiles){
 // Runtime-backed read models must not silently fall back to the V7 Runs table.
 for(const relativePath of ['internal/app/projection.go','internal/app/lineage.go']){
   const path=join(root,relativePath);
-  if(source(path).includes('s.store.Runs('))fail(path,'Runtime-backed projection must use taskRunsForProject, not the V7 Runs table');
+  if(source(path).includes('s.store.Runs('))fail(path,'Runtime-backed projection must use runtimeRunsForProject, not the V7 Runs table');
 }
 
 for(const path of filesUnder('internal/app',new Set(['.go']))){
   if(source(path).includes('s.store.Runs('))fail(path,'application code must not read the deleted V7 Runs table');
+}
+
+// Worker finalization may validate and publish a Runtime result reference, but
+// business facts must only be materialized by the durable outbox subscriber.
+const runtimeWorkerPath=join(root,'internal/app/runtime_worker.go');
+for(const forbidden of ['applyRuntimeBusinessResult(','importKnowledgePackage(','CreateKnowledgeObject(']){
+  if(source(runtimeWorkerPath).includes(forbidden))fail(runtimeWorkerPath,`Runtime finalize must not synchronously materialize business facts via ${forbidden}`);
+}
+
+// Runtime execution owns real host session/thread ids and a resume protocol.
+// Retired one-shot adapters must not return as a second execution authority.
+const codexHarnessPath=join(root,'internal/agentadapter/codex_harness.go');
+if(source(codexHarnessPath).includes('--ephemeral'))fail(codexHarnessPath,'Codex Runtime Harness must persist threads for cross-process resume');
+for(const path of filesUnder('internal/agentadapter',new Set(['.go']))){
+  if(projectPath(path).endsWith('_test.go'))continue;
+  const value=source(path);
+  for(const reference of ['type Codex struct','codexRunArguments','--ephemeral']){
+    if(value.includes(reference))fail(path,`production Agent adapter must not restore retired one-shot Codex path ${reference}`);
+  }
+}
+const cliRuntimeWorkerPath=join(root,'internal/cli/runtime_worker.go');
+for(const forbidden of ['agentadapter.Select(', '.Run(ctx, workspace)', 'runtime-worker:']){
+  if(source(cliRuntimeWorkerPath).includes(forbidden))fail(cliRuntimeWorkerPath,`remote Runtime worker must not bypass AgentHarnessAdapter via ${forbidden}`);
+}
+if(source(join(root,'internal/runtime/dispatch.go')).includes('commands.AppendRuntimeEvent(ctx'))fail(join(root,'internal/runtime/dispatch.go'),'Harness events must use the fenced event command');
+
+// RuntimeAttempt.session_ref is the only durable host-session binding. The
+// retired mirror recreated session/event authority without a production user.
+const retiredHarnessMirrorReferences=['DurableHarness','SessionStore','runtime_agent_sessions','runtime_agent_session_events'];
+for(const path of filesUnder('internal',new Set(['.go']))){
+  if(projectPath(path).endsWith('_test.go'))continue;
+  const value=source(path);
+  for(const reference of retiredHarnessMirrorReferences){
+    if(value.includes(reference))fail(path,`production Go must not restore retired Harness mirror ${reference}`);
+  }
+}
+
+// Agent handoff is the only current recovery DTO and route. The Codex-only
+// facade had no production consumer and must not return as a parallel API.
+const retiredCodexHandoffReferences=['contentcloud.codex-handoff','/codex-handoff','projectCodexHandoff','reviewFeedbackCodexHandoff'];
+for(const path of [...filesUnder('internal',new Set(['.go'])),...filesUnder('web/src',new Set(['.ts','.tsx']))]){
+  if(projectPath(path).endsWith('_test.go')||projectPath(path).endsWith('.test.ts')||projectPath(path).endsWith('.test.tsx'))continue;
+  for(const reference of retiredCodexHandoffReferences){
+    if(source(path).includes(reference))fail(path,`current code must not restore retired Codex-only handoff surface ${reference}`);
+  }
+}
+
+// Runtime Schema lifecycle and Explorer pagination are current Repository
+// capabilities. Optional repositories and slice-after-full-detail adapters
+// would reintroduce compatibility paths and unbounded reads.
+const runtimeRepositoryPath=join(root,'internal/runtime/repository.go');
+const runtimeRepositorySource=source(runtimeRepositoryPath);
+if(!runtimeRepositorySource.includes('RuntimeCommandStore'))fail(runtimeRepositoryPath,'Runtime Repository must require the transactional command store');
+for(const required of ['CreateRuntimeSchema(', 'RuntimeSchema(', 'JobRunsPage(', 'NodeRunsPage(', 'JobEventsPage(', 'EffectsPage(', 'CheckpointsPage(']){
+  if(!runtimeRepositorySource.includes(required))fail(runtimeRepositoryPath,`Runtime Repository must own current capability ${required}`);
+}
+const runtimeSchemaPath=join(root,'internal/runtime/schema.go');
+if(source(runtimeSchemaPath).includes('SchemaRepository'))fail(runtimeSchemaPath,'Runtime Schema Registry must not be an optional compatibility repository');
+const runtimeExplorerPath=join(root,'internal/app/runtime_explorer.go');
+if(source(runtimeExplorerPath).includes('detail, err := s.RuntimeJobDetail(ctx, actor, jobID)'))fail(runtimeExplorerPath,'Runtime subresource pages must query paged Repository methods instead of slicing a full JobDetail');
+const runtimeMCPGatewayPath=join(root,'internal/runtime/mcp_gateway.go');
+if(source(runtimeMCPGatewayPath).includes('repo.ToolCalls(ctx'))fail(runtimeMCPGatewayPath,'MCP idempotency lookup must use the unique Repository key instead of scanning an Attempt');
+if(!source(runtimeMCPGatewayPath).includes('SafeResult'))fail(runtimeMCPGatewayPath,'MCP successful replays must return the persisted safe result, not only a result digest');
+const runtimeToolCallResultsMigrationPath=join(root,'migrations/00043_runtime_tool_call_results.sql');
+if(!source(runtimeToolCallResultsMigrationPath).includes('ADD COLUMN safe_result jsonb'))fail(runtimeToolCallResultsMigrationPath,'ToolCall safe result persistence must be guarded by the current migration');
+for(const path of filesUnder('internal/runtime',new Set(['.go']))){
+  if(projectPath(path).endsWith('_test.go'))continue;
+  if(source(path).includes('.(RuntimeCommandStore)'))fail(path,'current Runtime code must not keep an optional non-transactional Repository fallback');
+}
+
+// runtime_outbox is immutable after publication. Lease, retry and ack state
+// belongs to one receipt per subscriber.
+for(const path of filesUnder('internal/store/postgres',new Set(['.go']))){
+  if(source(path).includes('UPDATE runtime_outbox SET'))fail(path,'outbox delivery state must be updated through runtime_outbox_receipts');
 }
 
 const legacyImports=['/internal/app','/internal/store','/internal/httpapi'];
