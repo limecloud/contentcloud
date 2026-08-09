@@ -29,6 +29,20 @@ const workspaceMaterialsMigration = "00017_workspace_materials.sql"
 const runtimeCommandKernelMigration = "00018_runtime_command_kernel.sql"
 const runtimeOutboxDeliveryMigration = "00019_runtime_outbox_delivery.sql"
 const runtimeAppendOnlyPermissionsMigration = "00020_runtime_append_only_permissions.sql"
+const runtimeFencingAndResourcesMigration = "00021_runtime_fencing_and_resources.sql"
+const runtimeStateToolCallsMigration = "00022_runtime_state_tool_calls.sql"
+const runtimeProjectionMigration = "00023_runtime_projection.sql"
+const runtimeJobContractMigration = "00024_runtime_job_contract.sql"
+const runtimePlanRelationalMigration = "00025_runtime_plan_relational.sql"
+const runtimeFanoutJoinMigration = "00026_runtime_fanout_join.sql"
+const runtimeProviderInboxMigration = "00027_runtime_provider_inbox.sql"
+const runtimeYieldResumeMigration = "00028_runtime_yield_resume.sql"
+const runtimeProjectionRebuildMigration = "00029_runtime_projection_rebuild.sql"
+const runtimeSessionStoreMigration = "00030_runtime_session_store.sql"
+const runtimeBusinessBindingMigration = "00031_runtime_business_binding.sql"
+const runtimeInputSnapshotMigration = "00032_runtime_input_snapshot.sql"
+const runtimeBusinessOutputMigration = "00033_runtime_business_output.sql"
+const removeV7ExecutionMigration = "00034_remove_v7_execution.sql"
 
 func (s *Store) Migrate(ctx context.Context) error {
 	conn, err := s.pool.Acquire(ctx)
@@ -103,7 +117,7 @@ func validateV3MigrationSet(available, applied []string) error {
 	// Keep the pure validator compatible with callers that validate the
 	// pre-governance six-file set; Migrate itself passes the current embedded
 	// set and therefore requires every current infrastructure migration.
-	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration}
+	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration, runtimeFencingAndResourcesMigration, runtimeStateToolCallsMigration, runtimeProjectionMigration, runtimeJobContractMigration, runtimePlanRelationalMigration, runtimeFanoutJoinMigration, runtimeProviderInboxMigration, runtimeYieldResumeMigration, runtimeProjectionRebuildMigration, runtimeSessionStoreMigration, runtimeBusinessBindingMigration, runtimeInputSnapshotMigration, runtimeBusinessOutputMigration, removeV7ExecutionMigration}
 	for length := len(suffix); length >= 1; length-- {
 		if len(available) == len(expected)+length {
 			candidate := append([]string{}, suffix[:length]...)

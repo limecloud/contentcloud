@@ -47,6 +47,10 @@ export function adminExecutorPath(executorID:string):string {
   return `${adminPaths.executors}/${encodeURIComponent(executorID)}`;
 }
 
+export function adminJobPath(jobID:string):string {
+  return `${adminPaths.jobs}/${encodeURIComponent(jobID)}`;
+}
+
 export function adminSkillPath(skillID:string,version:string):string {
   return `${adminPaths.skills}/${encodeURIComponent(skillID)}/versions/${encodeURIComponent(version)}`;
 }

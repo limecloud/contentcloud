@@ -167,12 +167,12 @@ Codex 线程和 Claude 会话可以用于恢复智能体对话，但对话记录
 
 ## 8. 与现有模型的兼容关系
 
-V8 采用增量方式扩展现有模型，不在首版物理重命名已有表：
+V8 保留业务对象，但执行模型只保留 Runtime 权威表：
 
 - 业务任务（`WorkTask`）继续作为用户侧业务对象；兼容期内现有状态和当前阶段字段继续可读，但 V8 不再只靠这两个字段调度执行图。
 - 执行实例（`JobRun`）是 V8 新增的运行时聚合根。
-- 执行步骤（`NodeRun`）使用独立 `runtime_node_runs`；旧 `TaskRun` 只保留给 V7 兼容路径，业务投影可以关联两者，但不能双写同一状态机。
-- 执行尝试（`RuntimeAttempt`）使用独立 `runtime_attempts`，记录执行许可、心跳、执行器和单次运行结果；旧 `RunAttempt` 不参与 V8 调度。
+- 执行步骤（`NodeRun`）使用独立 `runtime_node_runs`；公开 API 中的 `TaskRun` 仅是 Runtime 只读业务投影，不对应物理执行表。
+- 执行尝试（`RuntimeAttempt`）使用独立 `runtime_attempts`，记录执行许可、心跳、执行器和单次运行结果；旧 `RunAttempt` 已删除。
 - `StageRun` 继续服务现有页面，由执行步骤、人工审批节点和输出结果生成业务阶段投影，不直接负责调度。
 
 具体迁移和双写限制见 [08：迁移、测试与验收](./08-migration-testing-and-acceptance.md)。

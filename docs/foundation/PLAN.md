@@ -1,8 +1,8 @@
 # ContentCloud 平台基线重构总计划
 
-状态：`平台基线已建立；Studio、知识库、资产首切片与 Runtime 内核已落地，运营配置持续推进`。
+状态：`平台基线已建立；Studio、知识库、资产首切片与 Runtime current 主链已落地，生产验证和运营配置持续推进`。
 
-更新时间：2026-08-07。
+更新时间：2026-08-09。
 
 ## 1. 目标
 
@@ -10,14 +10,14 @@
 
 ContentCloud 将从“功能持续叠加的内容工作台”收敛为一套可以长期演进的内容创作平台基线。完成后，未来新增人物原型、剧本、分镜、营销视频、公众号文章或其他创作流水线，应主要增加业务包、契约和客户体验模板；Runtime 核心仍允许通过兼容版本演进，但不得因每个新场景复制任务状态或重做整套页面。
 
-本轮已完成平台分层、业务边界、Runtime 接入和资产入口的工程基线，并落地了首个客户资产纵向切片；运营流水线配置、完整 Runtime 接管和更多连接器仍属于迁移工作。任何现状判断以代码、迁移和测试为准，本文中的目标模块、目录、API 或页面不得被理解为全部已经实现。
+本轮已完成平台分层、业务边界、Runtime 接入和资产入口的工程基线，并落地了首个客户资产纵向切片；Runtime 执行事实已接管，运营流水线配置、真实 Provider/SDK、生产故障与容量验证仍属于后续工作。任何现状判断以代码、迁移和测试为准，本文中的目标模块、目录、API 或页面不得被理解为全部已经实现。
 
 ## 2. 当前落地对账
 
 - 客户 Web Studio 已作为默认客户入口，任务、连接、交付和资产页面使用独立客户读模型。
 - 客户资产首切片已提供“我的资产 / 创作结果 / 最近使用”三个视图；工作区资料与生成结果保持两个专用投影，不创建万能 `Asset` 写模型。
 - Memory Store、PostgreSQL Store、客户 BFF 和迁移 `00017_workspace_materials.sql` 已覆盖文件夹、工作区资料、受控预览、资料引用和结果复用门禁。
-- V8 Runtime 的 JobRun、NodeRun、RuntimeAttempt、ContextView、AgentInstance、状态 CAS 和 FakeHarness 已有内核实现；动态执行图、完整外部操作台账和生产级 Codex/Claude 恢复仍按 V8 路线推进。
+- Runtime 的 JobRun、NodeRun、RuntimeAttempt、ContextView、AgentInstance、状态 CAS、Effect、受限动态图、DurableHarness 和 Runtime Explorer 已有内核实现；V7 执行表和命令链已删除，真实 Provider/SDK 恢复与生产级故障、隔离、容量验证仍按 V8 路线推进。
 - 运营控制台的流水线发布、执行能力绑定、租户覆盖和运行诊断仍是目标架构与迁移工作，不向客户面板暴露内部配置对象。
 
 ## 3. 已确认前提
@@ -27,7 +27,7 @@ ContentCloud 将从“功能持续叠加的内容工作台”收敛为一套可�
 3. Codex、Claude Code、ContentCloud Worker、外部服务商和人工都是可治理的执行者，不是平台本身。
 4. 创作流水线声明业务阶段、输入输出、能力和门禁；具体执行者由版本化策略绑定。
 5. 客户只理解目标、资料、进度、结果、确认和交付，不理解 Runtime 内部术语。
-6. 现有领域对象、SOP、Gate、V7 RunAttempt、V8 RuntimeAttempt、来源、证据、提交、批准快照、产物和交付能力按当前所有权优先复用。
+6. 现有业务领域对象、SOP、Gate、RuntimeAttempt、来源、证据、提交、批准快照、产物和交付能力按当前所有权优先复用；已删除的 V7 RunAttempt 不得恢复。
 7. 本轮采用渐进迁移，不进行停机式大重写，也不提前拆成分布式微服务。
 8. 客户创作台是默认客户入口；Codex、Claude Code 等本地客户端是高级执行面和可选执行者，不再承担客户必须理解的主产品导航。
 9. 客户“资产”是统一入口而不是统一写模型：我的资产投影客户明确上传/导入的工作区资料，创作结果投影人物原型、剧本、分镜、图片和视频；任务参考与交付保持独立。正式引用固定底层对象版本和摘要，不创建超级 `Asset` 聚合。
@@ -129,7 +129,7 @@ V8 继续负责 Agentic Job Runtime 的专项路线图和技术证据。本基�
 - 流水线、体验模板、能力、执行绑定和租户开关怎样版本化？
 - 候选、批准事实、正式输入和交付结果怎样推进且保持来源追溯？
 - Runtime 执行事实与 Source、Knowledge、Approval、Artifact、Delivery 业务事实如何通过引用关联而不互相夺权？
-- WorkTask、StageRun、V7 TaskRun/RunAttempt 与 V8 JobRun/NodeRun/RuntimeAttempt 哪些保留、兼容、替换或退场？
+- WorkTask、StageRun 和 TaskRun 业务投影如何退出兼容命名，并保持 JobRun/NodeRun/RuntimeAttempt 为唯一执行事实源？
 - 现有 `Asset` 与统一创作资产目录的语义边界是什么，失效如何传播到新任务和未完成交付？
 
 ### 7.3 工程与代码
@@ -216,7 +216,7 @@ V8 继续负责 Agentic Job Runtime 的专项路线图和技术证据。本基�
 
 尚未冻结且必须进入 ADR 的关键问题：
 
-1. WorkTask、StageRun、V7 TaskRun/RunAttempt 与 V8 JobRun/NodeRun/RuntimeAttempt 的最终关系。
+1. WorkTask、StageRun 与 TaskRun 只读 DTO 的公开 API 退出条件；V7 RunAttempt 已删除，不再是待决策项。
 2. ExperienceTemplate 与现有 ProjectTemplate 的命名、兼容和退场策略。
 3. Studio、Operations 和 Runtime API 的版本与错误契约。
 4. 首个 CreativePack 的物理目录、统一开发入口和发布制品格式。

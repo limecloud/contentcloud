@@ -127,7 +127,7 @@ Agent、模型、搜索、网页和服务商输出默认是候选。客户选择
 
 - 首个客户切片没有改善完成率或首个结果时间：停止扩展 Runtime，先修正体验和任务设计。
 - 新业务流需要内容类型专用调度表：停止业务扩展，重新评审领域与 Runtime 契约。
-- 新旧状态无法确定性对账：停止切流，保留旧权威路径并修复兼容层。
+- Runtime 状态或投影无法确定性对账：停止新准入和扩大范围，保留权威历史并前向修复 Runtime/投影。
 - 运营覆盖项和人工维护随租户线性增长：收敛体验原语，不继续接受自由定制。
 - 资产目录随原始搜索结果无限增长或查找时间没有改善：停止扩展分类和智能检索，先收紧收录策略。
 - 外部副作用结果不明仍能自动重试：阻断发布，不以业务速度为由放宽。
@@ -144,6 +144,6 @@ Agent、模型、搜索、网页和服务商输出默认是候选。客户选择
 
 ## 9. 已有能力基础
 
-当前仓库已经具备可复用的 WorkTask、StageRun、V7 TaskRun/RunAttempt、V8 JobRun/NodeRun/RuntimeAttempt、SOPVersion、StageDefinition、GateDefinition、Capability、Source、EvidenceSpan、Knowledge、SubmissionRevision、ApprovedSnapshot、Artifact、DeliveryPackage、项目投影、管理员 Shell 和客户工作台。
+当前仓库已经具备可复用的 WorkTask、StageRun、Runtime 只读 TaskRun 投影、JobRun/NodeRun/RuntimeAttempt、SOPVersion、StageDefinition、GateDefinition、Capability、Source、EvidenceSpan、Knowledge、SubmissionRevision、ApprovedSnapshot、Artifact、DeliveryPackage、项目投影、管理员 Shell 和客户工作台。V7 RunAttempt 执行模型已删除，不再属于可复用能力。
 
 这些对象已经构成客户资产入口的事实基础。本轮目标是澄清工作区资料、创作结果与治理对象的所有权，收紧依赖并补齐产品层与 Runtime 关系，不重建这些业务对象，也不把现有 `Asset` 扩张成超级聚合。

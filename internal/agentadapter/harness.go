@@ -27,6 +27,7 @@ type HarnessCapabilities struct {
 }
 
 type StartAgentRequest struct {
+	TenantID       string
 	JobRunID       string
 	NodeRunID      string
 	AttemptID      string
@@ -38,6 +39,7 @@ type StartAgentRequest struct {
 }
 
 type ResumeAgentRequest struct {
+	TenantID      string
 	Session       AgentSessionRef
 	Workspace     string
 	Prompt        string
@@ -46,6 +48,7 @@ type ResumeAgentRequest struct {
 }
 
 type AgentSessionRef struct {
+	TenantID    string `json:"tenant_id,omitempty"`
 	HarnessKind string `json:"harness_kind"`
 	SessionID   string `json:"session_id"`
 }
@@ -164,9 +167,9 @@ func (h *FakeHarness) Start(_ context.Context, request StartAgentRequest) (Agent
 		return AgentSessionRef{}, nil, script.StartError
 	}
 	if scripted && script.MissingStream {
-		return AgentSessionRef{HarnessKind: "fake", SessionID: domain.NewID()}, nil, nil
+		return AgentSessionRef{TenantID: request.TenantID, HarnessKind: "fake", SessionID: domain.NewID()}, nil, nil
 	}
-	ref, stream, err := h.newSession("started")
+	ref, stream, err := h.newSession(request.TenantID, "started")
 	if err != nil || !scripted {
 		return ref, stream, err
 	}
@@ -231,8 +234,8 @@ func (h *FakeHarness) Complete(ref AgentSessionRef, result any) error {
 	return session.stream.Close()
 }
 
-func (h *FakeHarness) newSession(eventType string) (AgentSessionRef, EventStream, error) {
-	ref := AgentSessionRef{HarnessKind: "fake", SessionID: domain.NewID()}
+func (h *FakeHarness) newSession(tenantID, eventType string) (AgentSessionRef, EventStream, error) {
+	ref := AgentSessionRef{TenantID: tenantID, HarnessKind: "fake", SessionID: domain.NewID()}
 	stream := newHarnessEventStream()
 	h.mu.Lock()
 	h.sessions[ref.SessionID] = &fakeSession{status: AgentSessionStatus{Session: ref, State: "active", LastEventAt: time.Now().UTC()}, stream: stream}
@@ -316,7 +319,7 @@ func (h *cliHarness) Start(ctx context.Context, request StartAgentRequest) (Agen
 		return AgentSessionRef{}, nil, domain.Invalid("AGENT_START_INVALID", "CLI 智能体需要隔离工作区")
 	}
 	runCtx, cancel := context.WithCancel(ctx)
-	ref := AgentSessionRef{HarnessKind: h.kind, SessionID: domain.NewID()}
+	ref := AgentSessionRef{TenantID: request.TenantID, HarnessKind: h.kind, SessionID: domain.NewID()}
 	stream := newHarnessEventStream()
 	session := &cliSession{status: AgentSessionStatus{Session: ref, State: "active", LastEventAt: time.Now().UTC()}, stream: stream, cancel: cancel}
 	h.mu.Lock()
@@ -367,25 +370,4 @@ func (h *cliHarness) Inspect(_ context.Context, ref AgentSessionRef) (AgentSessi
 		return AgentSessionStatus{}, domain.NotFound("智能体会话")
 	}
 	return session.status, nil
-}
-
-// SelectHarness is a compatibility factory for callers outside Runtime. New
-// Runtime scheduling must use HarnessRegistry so session state survives across
-// Resolve and Resume calls.
-//
-// SelectHarness is separate from Select: legacy one-shot adapters can execute
-// a node, while this selector exposes their actual resume/event capabilities to
-// Runtime. Fake is explicit and never selected by auto mode.
-func SelectHarness(kind string) (AgentHarnessAdapter, error) {
-	normalized := normalizeHarnessKind(kind)
-	switch normalized {
-	case "fake":
-		return NewFakeHarness(), nil
-	case "codex":
-		return newCLIHarness(Codex{}), nil
-	case "claude":
-		return newCLIHarness(Claude{}), nil
-	default:
-		return nil, domain.Invalid("AGENT_HARNESS_INVALID", "未知的智能体执行适配器")
-	}
 }

@@ -1,6 +1,6 @@
 # ADR-0016：Runtime 统一事务命令内核
 
-状态：`Proposed`。
+状态：`Proposed`（代码已按本决策实现，正式 Accepted 仍需架构评审）。
 
 日期：2026-08-08。
 
@@ -13,7 +13,7 @@
 
 ## 背景
 
-V8 Runtime 已经有 JobRun、NodeRun、RuntimeAttempt、State、Effect 和 JobEvent，但业务服务仍然可以先调用 `Save*` 修改快照，再单独调用事件写入。进程在两个调用之间退出时，读模型和 SSE 没有办法知道状态已经改变；事件写入失败还可能被忽略。
+V8 Runtime 已经有 JobRun、NodeRun、RuntimeAttempt、State、Effect 和 JobEvent。若业务服务先调用宽写方法修改快照，再单独写事件，进程在两个调用之间退出时，读模型和 SSE 没有办法知道状态已经改变；事件写入失败还可能被忽略。
 
 这不是 PostgreSQL 或 Memory Store 的实现细节，而是 Runtime 的权威边界错误。所有会改变 Runtime 事实的操作都需要一个明确的命令入口。
 
@@ -23,7 +23,7 @@ V8 Runtime 已经有 JobRun、NodeRun、RuntimeAttempt、State、Effect 和 JobE
 2. 一个命令必须在同一提交边界内完成快照版本更新、追加 JobEvent 和写入 `runtime_outbox`。
 3. `JobEvent` 是追加事实，`runtime_outbox` 只负责可靠投递；投影、SSE、对账器都不能直接读取未提交的内存状态。
 4. PostgreSQL 是生产权威实现，Memory Store 必须保持相同的命令和幂等语义，用于契约测试。
-5. 旧的宽写方法在没有调用者后删除；不保留“新命令失败时回退到旧 Save + Event”的双写分支。
+5. 旧的宽写方法在没有调用者后删除；不保留“新命令失败时回退到旧 Save + Event”的双写分支。V7 执行表、`RunAttempt` 和 daemon 命令链属于 dead；`TaskRun` 仅作为 Runtime 只读业务 DTO 暂时兼容。
 
 命令边界如下：
 
@@ -64,8 +64,13 @@ Service command
 - 新迁移 `00018_runtime_command_kernel.sql` 只新增 outbox，不删除旧数据。
 - 迁移 `00019_runtime_outbox_delivery.sql` 为 outbox 增加持久化消费者租约；消费者只能通过 `claim/ack/retry` 窄接口推进投递。
 - 迁移 `00020_runtime_append_only_permissions.sql` 撤掉 Runtime 角色对 JobEvent、计划、检查点和其他不可变快照的直接更新/删除权限。
-- Runtime Service 已切换到命令端口；旧 `Save*`、`ClaimReadyNode` 和 `AppendJobEvent` Runtime API 已删除，避免新代码重新走跨调用双写路径。
-- V7 `TaskRun/RunAttempt` 仍是业务兼容路径，本 ADR 不删除它们；删除条件由独立迁移 ADR 定义。
+- 迁移 `00021_runtime_fencing_and_resources.sql` 增加 Node/Attempt fence、租户资源配额和带围栏的 Reservation 账本。
+- 迁移 `00022_runtime_state_tool_calls.sql` 增加 Checkpoint 游标/水位、StateCollection/StateRecord、ToolCall，并让历史 Effect 的 Attempt/Reservation 绑定保持可空。
+- 迁移 `00023_runtime_projection.sql` 增加带 RLS 的 Runtime Explorer 快照。
+- 迁移 `00024`～`00033` 固定 Job 契约、关系化计划/Fanout、Provider、Yield/Resume、投影重建、SessionStore、业务绑定和受控输入输出。
+- 迁移 `00034_remove_v7_execution.sql` 解开 JobRun 对单一 WorkTask 的物理外键，并删除 V7 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`。
+- Runtime Service 的 Job/Node/State/Effect/StateRecord/ToolCall/Dispatch 写路径已切换到命令端口；Harness 事件仍通过 `AppendRuntimeEvent` 进入同一 outbox 边界，不能直接写表。
+- `TaskRun` 只保留为 Runtime 的 JSON 业务投影 DTO；V7 Store、写 API、RunAttempt 领域对象和 daemon 执行协议已删除，禁止恢复。
 
 ## 安全与运行影响
 
@@ -80,7 +85,7 @@ Service command
 1. Memory/PostgreSQL 命令契约覆盖成功、版本冲突、重复幂等键和事件重复。
 2. 注入事件或 outbox 写入失败时，快照更新整体回滚。
 3. 同一事件只能有一条 outbox 记录；重复消费不会产生第二条状态变化。
-4. `go test ./...`、迁移集合校验和架构检查通过。
+4. `GOMAXPROCS=2 go test -p 1 ./...`、迁移集合校验和 `node scripts/check-architecture.mjs` 通过；真实 PostgreSQL RLS/迁移集成与提交后崩溃注入仍未完成。
 
 ## 回退
 

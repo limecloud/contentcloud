@@ -194,82 +194,35 @@ type TaskContract struct {
 }
 
 type TaskRun struct {
-	ID                string     `json:"id"`
-	TenantID          string     `json:"tenant_id"`
-	ProjectID         string     `json:"project_id"`
-	WorkTaskID        string     `json:"work_task_id,omitempty"`
-	SOPID             string     `json:"sop_id,omitempty"`
-	SOPVersion        int        `json:"sop_version,omitempty"`
-	SOPDigest         string     `json:"sop_digest,omitempty"`
-	StageID           string     `json:"stage_id,omitempty"`
-	ExecutionMode     string     `json:"execution_mode,omitempty"`
-	ExecutorKind      string     `json:"executor_kind,omitempty"`
-	OutputRefs        []string   `json:"output_refs,omitempty"`
-	TaskRevisionID    string     `json:"task_revision_id,omitempty"`
-	GateEvaluationID  string     `json:"gate_evaluation_id,omitempty"`
-	InputSnapshotID   string     `json:"input_snapshot_id"`
-	IdempotencyKey    string     `json:"idempotency_key"`
-	TaskType          string     `json:"task_type"`
-	CapabilityID      string     `json:"capability_id"`
-	CapabilityVersion string     `json:"capability_version"`
-	InputSchema       string     `json:"input_schema"`
-	OutputSchema      string     `json:"output_schema"`
-	OutputCount       int        `json:"output_count"`
-	DeliveryProfiles  []string   `json:"delivery_profiles"`
-	State             string     `json:"state"`
-	Priority          int        `json:"priority"`
-	AttemptCount      int        `json:"attempt_count"`
-	ActiveAttemptID   string     `json:"active_attempt_id,omitempty"`
-	LeaseDeviceID     string     `json:"lease_device_id,omitempty"`
-	LeaseExpiresAt    *time.Time `json:"lease_expires_at,omitempty"`
-	RunTokenHash      string     `json:"-"`
-	ProgressLabel     string     `json:"progress_label,omitempty"`
-	ErrorCode         string     `json:"error_code,omitempty"`
-	CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
-	ReportHash        string     `json:"report_hash,omitempty"`
-	HeartbeatSequence int        `json:"heartbeat_sequence"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
-}
-
-type RunAttempt struct {
-	ID                string         `json:"id"`
-	TenantID          string         `json:"tenant_id"`
-	ProjectID         string         `json:"project_id"`
-	RunID             string         `json:"run_id"`
-	DeviceID          string         `json:"device_id"`
-	State             string         `json:"state"`
-	CapabilityID      string         `json:"capability_id"`
-	CapabilityVersion string         `json:"capability_version"`
-	CapabilityDigest  string         `json:"capability_digest"`
-	InputSchema       string         `json:"input_schema"`
-	OutputSchema      string         `json:"output_schema"`
-	TokenHash         string         `json:"-"`
-	LeaseExpiresAt    time.Time      `json:"lease_expires_at"`
-	HeartbeatAt       *time.Time     `json:"heartbeat_at,omitempty"`
-	StartedAt         *time.Time     `json:"started_at,omitempty"`
-	FinishedAt        *time.Time     `json:"finished_at,omitempty"`
-	ExitCode          *int           `json:"exit_code,omitempty"`
-	FailureClass      string         `json:"failure_class,omitempty"`
-	Usage             map[string]any `json:"usage"`
-	TranscriptSummary string         `json:"transcript_summary,omitempty"`
-	CreatedAt         time.Time      `json:"created_at"`
-}
-
-func (r TaskRun) AcceptsCapability(capability Capability) bool {
-	return capability.ID == r.CapabilityID &&
-		capability.Version == r.CapabilityVersion &&
-		capability.Kind == "business_capability" &&
-		capability.InputSchema == r.InputSchema &&
-		capability.OutputSchema == r.OutputSchema &&
-		capability.LocalOnly
-}
-
-type RunHeartbeat struct {
-	Sequence int    `json:"sequence"`
-	Phase    string `json:"phase"`
-	Step     int    `json:"step"`
-	Label    string `json:"label"`
+	ID                string    `json:"id"`
+	TenantID          string    `json:"tenant_id"`
+	ProjectID         string    `json:"project_id"`
+	WorkTaskID        string    `json:"work_task_id,omitempty"`
+	SOPID             string    `json:"sop_id,omitempty"`
+	SOPVersion        int       `json:"sop_version,omitempty"`
+	SOPDigest         string    `json:"sop_digest,omitempty"`
+	StageID           string    `json:"stage_id,omitempty"`
+	ExecutionMode     string    `json:"execution_mode,omitempty"`
+	ExecutorKind      string    `json:"executor_kind,omitempty"`
+	OutputRefs        []string  `json:"output_refs,omitempty"`
+	TaskRevisionID    string    `json:"task_revision_id,omitempty"`
+	GateEvaluationID  string    `json:"gate_evaluation_id,omitempty"`
+	InputSnapshotID   string    `json:"input_snapshot_id"`
+	IdempotencyKey    string    `json:"idempotency_key"`
+	TaskType          string    `json:"task_type"`
+	CapabilityID      string    `json:"capability_id"`
+	CapabilityVersion string    `json:"capability_version"`
+	InputSchema       string    `json:"input_schema"`
+	OutputSchema      string    `json:"output_schema"`
+	OutputCount       int       `json:"output_count"`
+	DeliveryProfiles  []string  `json:"delivery_profiles"`
+	State             string    `json:"state"`
+	Priority          int       `json:"priority"`
+	AttemptCount      int       `json:"attempt_count"`
+	ProgressLabel     string    `json:"progress_label,omitempty"`
+	ErrorCode         string    `json:"error_code,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type RunProgressEvent struct {

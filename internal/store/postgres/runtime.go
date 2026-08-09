@@ -11,24 +11,19 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
-const runtimePlanSelect = `SELECT tenant_id,id,sop_id,sop_version,sop_digest,schema_version,digest,nodes,edges,customer_steps,limits,compiled_at,compiled_by FROM runtime_job_plans`
-const runtimeJobSelect = `SELECT tenant_id,id,project_id,work_task_id,plan_revision_id,plan_digest,source_job_run_id,checkpoint_id,idempotency_key,state,priority,version,error_code,created_by,created_at,updated_at FROM runtime_job_runs`
-const runtimeNodeSelect = `SELECT tenant_id,id,job_run_id,node_key,state,attempt_count,output_refs,output_digest,error_code,lease_owner,lease_expires_at,version,created_at,updated_at FROM runtime_node_runs`
+const runtimePlanSelect = `SELECT tenant_id,id,COALESCE(base_revision_id,''),graph_version,patch_key,patch_reason,sop_id,sop_version,sop_digest,schema_version,digest,customer_steps,limits,compiled_at,compiled_by FROM runtime_plan_revisions`
+const runtimeJobSelect = `SELECT tenant_id,id,project_id,work_task_id,business_type,input_snapshot_id,business_output_count,plan_revision_id,plan_digest,binding_digest,input_digest,runtime_policy_id,contract_major,contract_minor,root_job_run_id,source_job_run_id,checkpoint_id,idempotency_key,state,priority,version,error_code,created_by,created_at,updated_at FROM runtime_job_runs`
+const runtimeNodeSelect = `SELECT tenant_id,id,job_run_id,node_key,state,attempt_count,output_refs,output_digest,error_code,lease_owner,fence_token,lease_expires_at,version,created_at,updated_at FROM runtime_node_runs`
 const runtimeContextViewSelect = `SELECT tenant_id,id,job_run_id,node_run_id,attempt_id,schema_version,input_refs,state_refs,event_refs,allowed_tools,max_tokens,budget_minor,digest,created_at,expires_at FROM runtime_context_views`
 const runtimeAgentSelect = `SELECT tenant_id,id,job_run_id,node_run_id,COALESCE(parent_agent_instance_id,''),role,harness_kind,session_ref,execution_profile_id,context_view_id,state,depth,remaining_descendants,budget_minor,used_cost_minor,version,created_at,updated_at FROM runtime_agent_instances`
 const runtimeStateSelect = `SELECT tenant_id,id,job_run_id,collection,schema_version,revision,values,updated_at FROM runtime_states`
-const runtimeEffectSelect = `SELECT tenant_id,id,job_run_id,node_run_id,kind,idempotency_key,state,external_id,request_digest,response_digest,cost_minor,currency,safe_summary,error_code,version,created_at,updated_at FROM runtime_effects`
+const runtimeCheckpointSelect = `SELECT tenant_id,id,job_run_id,node_key,plan_digest,state_refs,state_watermarks,output_refs,completed_nodes,event_cursor,side_effect_watermark,parent_checkpoint_id,digest,created_at FROM runtime_checkpoints`
+const runtimeEffectSelect = `SELECT tenant_id,id,job_run_id,node_run_id,COALESCE(attempt_id,''),COALESCE(resource_reservation_id,''),kind,idempotency_key,state,external_id,request_digest,response_digest,cost_minor,currency,safe_summary,error_code,version,created_at,updated_at FROM runtime_effects`
 
 func scanRuntimePlan(row pgx.Row) (domain.JobPlanRevision, error) {
 	var value domain.JobPlanRevision
-	var nodes, edges, steps, limits []byte
-	err := row.Scan(&value.TenantID, &value.ID, &value.SOPID, &value.SOPVersion, &value.SOPDigest, &value.SchemaVersion, &value.Digest, &nodes, &edges, &steps, &limits, &value.CompiledAt, &value.CompiledBy)
-	if err == nil {
-		value.Nodes, err = decodeJSON[[]domain.JobPlanNode](nodes)
-	}
-	if err == nil {
-		value.Edges, err = decodeJSON[[]domain.JobPlanEdge](edges)
-	}
+	var steps, limits []byte
+	err := row.Scan(&value.TenantID, &value.ID, &value.BaseRevisionID, &value.GraphVersion, &value.PatchKey, &value.PatchReason, &value.SOPID, &value.SOPVersion, &value.SOPDigest, &value.SchemaVersion, &value.Digest, &steps, &limits, &value.CompiledAt, &value.CompiledBy)
 	if err == nil {
 		value.CustomerSteps, err = decodeJSON[[]domain.JobPlanCustomerStep](steps)
 	}
@@ -36,7 +31,79 @@ func scanRuntimePlan(row pgx.Row) (domain.JobPlanRevision, error) {
 		value.Limits, err = decodeJSON[domain.RuntimeLimits](limits)
 	}
 	value.NormalizeCollections()
+	return value, err
+}
+
+func scanRuntimePlanNode(row pgx.Row) (domain.JobPlanNode, error) {
+	var value domain.JobPlanNode
+	var inputRefs, capabilities, modes []byte
+	err := row.Scan(&value.Key, &value.Kind, &value.StageID, &value.GateID, &value.Name, &inputRefs, &value.OutputSchema, &capabilities, &modes, &value.CustomerStepID, &value.SideEffectClass, &value.RetryMaxAttempts)
+	if err == nil {
+		value.InputRefs, err = decodeJSON[[]string](inputRefs)
+	}
+	if err == nil {
+		value.RequiredCapabilities, err = decodeJSON[[]string](capabilities)
+	}
+	if err == nil {
+		value.ExecutionModes, err = decodeJSON[[]string](modes)
+	}
+	if value.DependsOn == nil {
+		value.DependsOn = []string{}
+	}
+	if value.InputRefs == nil {
+		value.InputRefs = []string{}
+	}
+	if value.RequiredCapabilities == nil {
+		value.RequiredCapabilities = []string{}
+	}
+	if value.ExecutionModes == nil {
+		value.ExecutionModes = []string{}
+	}
 	return value, dbError(err)
+}
+
+func loadRuntimePlanGraph(ctx context.Context, tx pgx.Tx, value *domain.JobPlanRevision) error {
+	rows, err := tx.Query(ctx, `SELECT node_key,kind,stage_id,gate_id,name,input_refs,output_schema,required_capabilities,execution_modes,customer_step_id,side_effect_class,retry_max_attempts FROM runtime_plan_nodes WHERE tenant_id=$1 AND revision_id=$2 ORDER BY node_key`, value.TenantID, value.ID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		node, scanErr := scanRuntimePlanNode(rows)
+		if scanErr != nil {
+			rows.Close()
+			return scanErr
+		}
+		value.Nodes = append(value.Nodes, node)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	edges, err := tx.Query(ctx, `SELECT from_key,to_key FROM runtime_plan_edges WHERE tenant_id=$1 AND revision_id=$2 ORDER BY from_key,to_key`, value.TenantID, value.ID)
+	if err != nil {
+		return err
+	}
+	for edges.Next() {
+		var edge domain.JobPlanEdge
+		if err := edges.Scan(&edge.From, &edge.To); err != nil {
+			edges.Close()
+			return err
+		}
+		value.Edges = append(value.Edges, edge)
+		for index := range value.Nodes {
+			if value.Nodes[index].Key == edge.To {
+				value.Nodes[index].DependsOn = append(value.Nodes[index].DependsOn, edge.From)
+			}
+		}
+	}
+	if err := edges.Err(); err != nil {
+		edges.Close()
+		return err
+	}
+	edges.Close()
+	value.NormalizeCollections()
+	return nil
 }
 
 func (s *Store) CreatePlan(ctx context.Context, value domain.JobPlanRevision) error {
@@ -44,9 +111,31 @@ func (s *Store) CreatePlan(ctx context.Context, value domain.JobPlanRevision) er
 		return err
 	}
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO runtime_job_plans(tenant_id,id,sop_id,sop_version,sop_digest,schema_version,digest,nodes,edges,customer_steps,limits,compiled_at,compiled_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, value.TenantID, value.ID, value.SOPID, value.SOPVersion, value.SOPDigest, value.SchemaVersion, value.Digest, jsonArrayValue(value.Nodes), jsonArrayValue(value.Edges), jsonArrayValue(value.CustomerSteps), jsonValue(value.Limits), value.CompiledAt, value.CompiledBy)
-		return dbError(err)
+		return insertRuntimePlanTx(ctx, tx, value)
 	})
+}
+
+func insertRuntimePlanTx(ctx context.Context, tx pgx.Tx, value domain.JobPlanRevision) error {
+	baseRevisionID := any(nil)
+	if value.BaseRevisionID != "" {
+		baseRevisionID = value.BaseRevisionID
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO runtime_plan_revisions(tenant_id,id,base_revision_id,graph_version,patch_key,patch_reason,sop_id,sop_version,sop_digest,schema_version,digest,customer_steps,limits,compiled_at,compiled_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, value.TenantID, value.ID, baseRevisionID, value.GraphVersion, value.PatchKey, value.PatchReason, value.SOPID, value.SOPVersion, value.SOPDigest, value.SchemaVersion, value.Digest, jsonArrayValue(value.CustomerSteps), jsonValue(value.Limits), value.CompiledAt, value.CompiledBy)
+	if err != nil {
+		return dbError(err)
+	}
+	for _, node := range value.Nodes {
+		_, err := tx.Exec(ctx, `INSERT INTO runtime_plan_nodes(tenant_id,revision_id,node_key,kind,stage_id,gate_id,name,input_refs,output_schema,required_capabilities,execution_modes,customer_step_id,side_effect_class,retry_max_attempts) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, value.TenantID, value.ID, node.Key, node.Kind, node.StageID, node.GateID, node.Name, jsonArrayValue(node.InputRefs), node.OutputSchema, jsonArrayValue(node.RequiredCapabilities), jsonArrayValue(node.ExecutionModes), node.CustomerStepID, node.SideEffectClass, node.RetryMaxAttempts)
+		if err != nil {
+			return dbError(err)
+		}
+	}
+	for _, edge := range value.Edges {
+		if _, err := tx.Exec(ctx, `INSERT INTO runtime_plan_edges(tenant_id,revision_id,from_key,to_key) VALUES($1,$2,$3,$4)`, value.TenantID, value.ID, edge.From, edge.To); err != nil {
+			return dbError(err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) Plan(ctx context.Context, tenantID, id string) (domain.JobPlanRevision, error) {
@@ -57,7 +146,13 @@ func (s *Store) Plan(ctx context.Context, tenantID, id string) (domain.JobPlanRe
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("执行计划")
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		if err := loadRuntimePlanGraph(ctx, tx, &result); err != nil {
+			return err
+		}
+		return nil
 	})
 	return result, err
 }
@@ -73,11 +168,22 @@ func (s *Store) Plans(ctx context.Context, tenantID string) ([]domain.JobPlanRev
 		for rows.Next() {
 			value, err := scanRuntimePlan(rows)
 			if err != nil {
+				rows.Close()
 				return err
 			}
 			result = append(result, value)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for index := range result {
+			if err := loadRuntimePlanGraph(ctx, tx, &result[index]); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	return result, err
 }
@@ -87,7 +193,7 @@ func (s *Store) CreateJobBundle(ctx context.Context, job domain.JobRun, nodes []
 		return err
 	}
 	return s.withTenant(ctx, job.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO runtime_job_runs(tenant_id,id,project_id,work_task_id,plan_revision_id,plan_digest,source_job_run_id,checkpoint_id,idempotency_key,state,priority,version,error_code,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, job.TenantID, job.ID, job.ProjectID, job.WorkTaskID, job.PlanRevisionID, job.PlanDigest, job.SourceJobRunID, job.CheckpointID, job.IdempotencyKey, job.State, job.Priority, job.Version, job.ErrorCode, job.CreatedBy, job.CreatedAt, job.UpdatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO runtime_job_runs(tenant_id,id,project_id,work_task_id,business_type,input_snapshot_id,business_output_count,plan_revision_id,plan_digest,binding_digest,input_digest,runtime_policy_id,contract_major,contract_minor,root_job_run_id,source_job_run_id,checkpoint_id,idempotency_key,state,priority,version,error_code,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`, job.TenantID, job.ID, job.ProjectID, job.WorkTaskID, job.BusinessType, job.InputSnapshotID, job.BusinessOutputCount, job.PlanRevisionID, job.PlanDigest, job.BindingDigest, job.InputDigest, job.RuntimePolicyID, job.ContractMajor, job.ContractMinor, job.RootJobRunID, job.SourceJobRunID, job.CheckpointID, job.IdempotencyKey, job.State, job.Priority, job.Version, job.ErrorCode, job.CreatedBy, job.CreatedAt, job.UpdatedAt)
 		if err != nil {
 			return dbError(err)
 		}
@@ -95,7 +201,7 @@ func (s *Store) CreateJobBundle(ctx context.Context, job domain.JobRun, nodes []
 			if err := node.Validate(); err != nil {
 				return err
 			}
-			_, err := tx.Exec(ctx, `INSERT INTO runtime_node_runs(tenant_id,id,job_run_id,node_key,state,attempt_count,output_refs,output_digest,error_code,lease_owner,lease_expires_at,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, node.TenantID, node.ID, node.JobRunID, node.NodeKey, node.State, node.AttemptCount, jsonArrayValue(node.OutputRefs), node.OutputDigest, node.ErrorCode, node.LeaseOwner, node.LeaseExpiresAt, node.Version, node.CreatedAt, node.UpdatedAt)
+			_, err := tx.Exec(ctx, `INSERT INTO runtime_node_runs(tenant_id,id,job_run_id,node_key,state,attempt_count,output_refs,output_digest,error_code,lease_owner,fence_token,lease_expires_at,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, node.TenantID, node.ID, node.JobRunID, node.NodeKey, node.State, node.AttemptCount, jsonArrayValue(node.OutputRefs), node.OutputDigest, node.ErrorCode, node.LeaseOwner, node.FenceToken, node.LeaseExpiresAt, node.Version, node.CreatedAt, node.UpdatedAt)
 			if err != nil {
 				return dbError(err)
 			}
@@ -112,7 +218,7 @@ func (s *Store) CreateJobBundle(ctx context.Context, job domain.JobRun, nodes []
 
 func scanRuntimeJob(row pgx.Row) (domain.JobRun, error) {
 	var value domain.JobRun
-	err := row.Scan(&value.TenantID, &value.ID, &value.ProjectID, &value.WorkTaskID, &value.PlanRevisionID, &value.PlanDigest, &value.SourceJobRunID, &value.CheckpointID, &value.IdempotencyKey, &value.State, &value.Priority, &value.Version, &value.ErrorCode, &value.CreatedBy, &value.CreatedAt, &value.UpdatedAt)
+	err := row.Scan(&value.TenantID, &value.ID, &value.ProjectID, &value.WorkTaskID, &value.BusinessType, &value.InputSnapshotID, &value.BusinessOutputCount, &value.PlanRevisionID, &value.PlanDigest, &value.BindingDigest, &value.InputDigest, &value.RuntimePolicyID, &value.ContractMajor, &value.ContractMinor, &value.RootJobRunID, &value.SourceJobRunID, &value.CheckpointID, &value.IdempotencyKey, &value.State, &value.Priority, &value.Version, &value.ErrorCode, &value.CreatedBy, &value.CreatedAt, &value.UpdatedAt)
 	return value, dbError(err)
 }
 
@@ -172,7 +278,7 @@ func (s *Store) JobRuns(ctx context.Context, tenantID, taskID string) ([]domain.
 func scanRuntimeNode(row pgx.Row) (domain.NodeRun, error) {
 	var value domain.NodeRun
 	var outputs []byte
-	err := row.Scan(&value.TenantID, &value.ID, &value.JobRunID, &value.NodeKey, &value.State, &value.AttemptCount, &outputs, &value.OutputDigest, &value.ErrorCode, &value.LeaseOwner, &value.LeaseExpiresAt, &value.Version, &value.CreatedAt, &value.UpdatedAt)
+	err := row.Scan(&value.TenantID, &value.ID, &value.JobRunID, &value.NodeKey, &value.State, &value.AttemptCount, &outputs, &value.OutputDigest, &value.ErrorCode, &value.LeaseOwner, &value.FenceToken, &value.LeaseExpiresAt, &value.Version, &value.CreatedAt, &value.UpdatedAt)
 	if err == nil {
 		value.OutputRefs, err = decodeJSON[[]string](outputs)
 	}
@@ -396,7 +502,7 @@ func scanRuntimeEvent(row pgx.Row) (domain.JobEvent, error) {
 	if value.Payload == nil {
 		value.Payload = map[string]any{}
 	}
-	return value, dbError(err)
+	return value, err
 }
 
 func (s *Store) AppendRuntimeEvent(ctx context.Context, event domain.JobEvent) (domain.JobEvent, error) {
@@ -455,27 +561,60 @@ func (s *Store) RuntimeState(ctx context.Context, tenantID, jobID, collection st
 }
 func (s *Store) CreateCheckpoint(ctx context.Context, value domain.Checkpoint) error {
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO runtime_checkpoints(tenant_id,id,job_run_id,node_key,plan_digest,state_refs,output_refs,completed_nodes,digest,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, value.TenantID, value.ID, value.JobRunID, value.NodeKey, value.PlanDigest, jsonArrayValue(value.StateRefs), jsonArrayValue(value.OutputRefs), jsonArrayValue(value.CompletedNodes), value.Digest, value.CreatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO runtime_checkpoints(tenant_id,id,job_run_id,node_key,plan_digest,state_refs,state_watermarks,output_refs,completed_nodes,event_cursor,side_effect_watermark,parent_checkpoint_id,digest,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, value.TenantID, value.ID, value.JobRunID, value.NodeKey, value.PlanDigest, jsonArrayValue(value.StateRefs), jsonValue(value.StateWatermarks), jsonArrayValue(value.OutputRefs), jsonArrayValue(value.CompletedNodes), value.EventCursor, value.SideEffectWatermark, value.ParentCheckpointID, value.Digest, value.CreatedAt)
 		return dbError(err)
 	})
+}
+func scanRuntimeCheckpoint(row pgx.Row) (domain.Checkpoint, error) {
+	var value domain.Checkpoint
+	var states, watermarks, outputs, completed []byte
+	err := row.Scan(&value.TenantID, &value.ID, &value.JobRunID, &value.NodeKey, &value.PlanDigest, &states, &watermarks, &outputs, &completed, &value.EventCursor, &value.SideEffectWatermark, &value.ParentCheckpointID, &value.Digest, &value.CreatedAt)
+	if err == nil {
+		value.StateRefs, err = decodeJSON[[]string](states)
+	}
+	if err == nil {
+		value.StateWatermarks, err = decodeJSON[map[string]int](watermarks)
+	}
+	if err == nil {
+		value.OutputRefs, err = decodeJSON[[]string](outputs)
+	}
+	if err == nil {
+		value.CompletedNodes, err = decodeJSON[[]string](completed)
+	}
+	return value, dbError(err)
+}
+func (s *Store) Checkpoint(ctx context.Context, tenantID, id string) (domain.Checkpoint, error) {
+	var result domain.Checkpoint
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		value, err := scanRuntimeCheckpoint(tx.QueryRow(ctx, runtimeCheckpointSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
+		result = value
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.NotFound("检查点")
+		}
+		return err
+	})
+	return result, err
 }
 func (s *Store) Checkpoints(ctx context.Context, tenantID, jobID string) ([]domain.Checkpoint, error) {
 	result := []domain.Checkpoint{}
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT tenant_id,id,job_run_id,node_key,plan_digest,state_refs,output_refs,completed_nodes,digest,created_at FROM runtime_checkpoints WHERE tenant_id=$1 AND job_run_id=$2 ORDER BY created_at DESC`, tenantID, jobID)
+		query := runtimeCheckpointSelect + ` WHERE tenant_id=$1`
+		args := []any{tenantID}
+		if jobID != "" {
+			query += ` AND job_run_id=$2`
+			args = append(args, jobID)
+		}
+		query += ` ORDER BY created_at DESC`
+		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var value domain.Checkpoint
-			var states, outputs, completed []byte
-			if err := rows.Scan(&value.TenantID, &value.ID, &value.JobRunID, &value.NodeKey, &value.PlanDigest, &states, &outputs, &completed, &value.Digest, &value.CreatedAt); err != nil {
+			value, err := scanRuntimeCheckpoint(rows)
+			if err != nil {
 				return err
 			}
-			value.StateRefs, _ = decodeJSON[[]string](states)
-			value.OutputRefs, _ = decodeJSON[[]string](outputs)
-			value.CompletedNodes, _ = decodeJSON[[]string](completed)
 			result = append(result, value)
 		}
 		return rows.Err()
@@ -486,7 +625,7 @@ func (s *Store) Checkpoints(ctx context.Context, tenantID, jobID string) ([]doma
 func scanRuntimeEffect(row pgx.Row) (domain.ExternalEffect, error) {
 	var value domain.ExternalEffect
 	var summary []byte
-	err := row.Scan(&value.TenantID, &value.ID, &value.JobRunID, &value.NodeRunID, &value.Kind, &value.IdempotencyKey, &value.State, &value.ExternalID, &value.RequestDigest, &value.ResponseDigest, &value.CostMinor, &value.Currency, &summary, &value.ErrorCode, &value.Version, &value.CreatedAt, &value.UpdatedAt)
+	err := row.Scan(&value.TenantID, &value.ID, &value.JobRunID, &value.NodeRunID, &value.AttemptID, &value.ResourceReservationID, &value.Kind, &value.IdempotencyKey, &value.State, &value.ExternalID, &value.RequestDigest, &value.ResponseDigest, &value.CostMinor, &value.Currency, &summary, &value.ErrorCode, &value.Version, &value.CreatedAt, &value.UpdatedAt)
 	if err == nil {
 		value.SafeSummary, err = decodeJSON[map[string]any](summary)
 	}
@@ -495,10 +634,41 @@ func scanRuntimeEffect(row pgx.Row) (domain.ExternalEffect, error) {
 	}
 	return value, dbError(err)
 }
+func (s *Store) Effect(ctx context.Context, tenantID, id string) (domain.ExternalEffect, error) {
+	var result domain.ExternalEffect
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		value, err := scanRuntimeEffect(tx.QueryRow(ctx, runtimeEffectSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
+		result = value
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.NotFound("外部操作")
+		}
+		return err
+	})
+	return result, err
+}
 func (s *Store) EffectByIdempotencyKey(ctx context.Context, tenantID, key string) (domain.ExternalEffect, error) {
 	var result domain.ExternalEffect
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		value, err := scanRuntimeEffect(tx.QueryRow(ctx, runtimeEffectSelect+` WHERE tenant_id=$1 AND idempotency_key=$2`, tenantID, key))
+		result = value
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.NotFound("外部操作")
+		}
+		return err
+	})
+	return result, err
+}
+
+func (s *Store) EffectByExternalID(ctx context.Context, tenantID, providerID, externalID string) (domain.ExternalEffect, error) {
+	var result domain.ExternalEffect
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		query := runtimeEffectSelect + ` WHERE tenant_id=$1 AND external_id=$2`
+		args := []any{tenantID, externalID}
+		if providerID != "" {
+			query += ` AND safe_summary->>'provider_id'=$3`
+			args = append(args, providerID)
+		}
+		value, err := scanRuntimeEffect(tx.QueryRow(ctx, query, args...))
 		result = value
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("外部操作")
@@ -582,7 +752,10 @@ func (s *Store) ExpireNodeLeases(ctx context.Context, tenantID string, now time.
 			attempt.FinishedAt = &now
 			attempt.Version++
 			attempt.UpdatedAt = now
-			if _, err := tx.Exec(ctx, `UPDATE runtime_attempts SET state=$3,error_code=$4,lease_owner='',lease_expires_at=NULL,version=$5,finished_at=$6,updated_at=$6 WHERE tenant_id=$1 AND id=$2`, tenantID, attempt.ID, attempt.State, attempt.ErrorCode, attempt.Version, now); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE runtime_attempts SET state=$3,error_code=$4,lease_owner='',fence_token='',lease_expires_at=NULL,version=$5,finished_at=$6,updated_at=$6 WHERE tenant_id=$1 AND id=$2`, tenantID, attempt.ID, attempt.State, attempt.ErrorCode, attempt.Version, now); err != nil {
+				return dbError(err)
+			}
+			if _, err := tx.Exec(ctx, `UPDATE runtime_resource_reservations SET state='expired',fence_token='',expires_at=NULL,released_at=$3,updated_at=$3 WHERE tenant_id=$1 AND attempt_id=$2 AND state='held'`, tenantID, attempt.ID, now); err != nil {
 				return dbError(err)
 			}
 			if node.LeaseOwner == expiredOwner && node.LeaseExpiresAt != nil && !node.LeaseExpiresAt.After(now) && (node.State == domain.NodeLeased || node.State == domain.NodeRunning) {
@@ -592,7 +765,7 @@ func (s *Store) ExpireNodeLeases(ctx context.Context, tenantID string, now time.
 				node.LeaseExpiresAt = nil
 				node.Version++
 				node.UpdatedAt = now
-				if _, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,error_code=$4,lease_owner='',lease_expires_at=NULL,version=$5,updated_at=$6 WHERE tenant_id=$1 AND id=$2`, tenantID, node.ID, node.State, node.ErrorCode, node.Version, now); err != nil {
+				if _, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,error_code=$4,lease_owner='',fence_token='',lease_expires_at=NULL,version=$5,updated_at=$6 WHERE tenant_id=$1 AND id=$2`, tenantID, node.ID, node.State, node.ErrorCode, node.Version, now); err != nil {
 					return dbError(err)
 				}
 			}
@@ -612,7 +785,7 @@ func (s *Store) ExpireNodeLeases(ctx context.Context, tenantID string, now time.
 		}
 		// Node-only claims made before PrepareDispatch have no RuntimeAttempt;
 		// expire them with the same lease rule until dispatch is fully unified.
-		_, err = tx.Exec(ctx, `UPDATE runtime_node_runs AS node SET state='lease_expired',error_code='DISPATCH_LEASE_EXPIRED',lease_owner='',lease_expires_at=NULL,version=node.version+1,updated_at=$2 WHERE node.tenant_id=$1 AND node.state IN ('leased','running') AND node.lease_expires_at<=$2 AND NOT EXISTS (SELECT 1 FROM runtime_attempts AS attempt WHERE attempt.tenant_id=node.tenant_id AND attempt.node_run_id=node.id AND attempt.state IN ('prepared','running'))`, tenantID, now)
+		_, err = tx.Exec(ctx, `UPDATE runtime_node_runs AS node SET state='lease_expired',error_code='DISPATCH_LEASE_EXPIRED',lease_owner='',fence_token='',lease_expires_at=NULL,version=node.version+1,updated_at=$2 WHERE node.tenant_id=$1 AND node.state IN ('leased','running') AND node.lease_expires_at<=$2 AND NOT EXISTS (SELECT 1 FROM runtime_attempts AS attempt WHERE attempt.tenant_id=node.tenant_id AND attempt.node_run_id=node.id AND attempt.state IN ('prepared','running'))`, tenantID, now)
 		if err != nil {
 			return dbError(err)
 		}

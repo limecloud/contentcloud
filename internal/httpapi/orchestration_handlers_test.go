@@ -114,7 +114,7 @@ func TestOperationsExecutorBFFUsesRegisteredDevices(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	device := domain.Device{ID: domain.NewID(), TenantID: actor.TenantID, OwnerUserID: actor.UserID, DisplayName: "内容工作站", Hostname: "content.local", Platform: "darwin", Arch: "arm64", Version: "0.20.0", Capabilities: []domain.Capability{{ID: "script_generation", Version: "1.0.0", Kind: "business_capability"}}, ProjectIDs: []string{}, LastSeenAt: now}
+	device := domain.Device{ID: domain.NewID(), TenantID: actor.TenantID, OwnerUserID: actor.UserID, DisplayName: "内容工作站", Hostname: "content.local", Platform: "darwin", Arch: "arm64", Version: "0.21.0", Capabilities: []domain.Capability{{ID: "script_generation", Version: "1.0.0", Kind: "business_capability"}}, ProjectIDs: []string{}, LastSeenAt: now}
 	if err := store.SaveDevice(t.Context(), device); err != nil {
 		t.Fatal(err)
 	}
@@ -312,6 +312,13 @@ func TestSOPGovernanceBFFActions(t *testing.T) {
 	published := callBFF[domain.SOPVersion](t, client, http.MethodPost, server.URL+"/api/bff/admin/sops/"+sopID+"/versions/"+strconv.Itoa(draft.Version)+"/publish", map[string]any{})
 	if published.Status != "published" || published.Digest == "" {
 		t.Fatalf("SOP draft was not published: %#v", published)
+	}
+	preview := callBFF[app.SOPVersionPreview](t, client, http.MethodGet, server.URL+"/api/bff/admin/sops/"+sopID+"/versions/"+strconv.Itoa(published.Version)+"/preview?environment_id="+admin.Environments[0].ID, nil)
+	if preview.SOP.Version != published.Version || !preview.Lint.Valid || len(preview.Environments) != 1 {
+		t.Fatalf("SOP preview response is incomplete: %#v", preview)
+	}
+	if preview.SelectedEnvironmentID != admin.Environments[0].ID || !preview.Publishable || len(preview.RequiredCapabilities) != 0 || !preview.Environments[0].Ready {
+		t.Fatalf("preview should preserve the honest no-capability binding fact: %#v", preview)
 	}
 	diff := callBFF[app.SOPVersionDiff](t, client, http.MethodGet, server.URL+"/api/bff/admin/sops/"+sopID+"/versions/1/diff/"+strconv.Itoa(published.Version), nil)
 	if diff.Same || len(diff.Changes) == 0 {

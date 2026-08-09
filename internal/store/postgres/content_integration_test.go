@@ -10,7 +10,6 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	storepg "github.com/limecloud/contentcloud/internal/store/postgres"
-	"github.com/limecloud/contentcloud/internal/testsupport"
 )
 
 func TestSourceLifecycleWithPostgres(t *testing.T) {
@@ -79,36 +78,6 @@ func TestSourceLifecycleWithPostgres(t *testing.T) {
 	}
 	if persistedRun.CapabilityID != domain.KnowledgeExtractCapability || persistedRun.OutputSchema != domain.KnowledgeCandidatesSchema || persistedRun.OutputCount != 7 {
 		t.Fatalf("knowledge extraction run contract fields were not persisted: %#v", persistedRun)
-	}
-	connect, err := service.CreateConnectSession(ctx, actor, project.ID, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	connected, err := testsupport.ConnectBootstrap(ctx, service, actor, connect, app.ConnectDeviceInput{Hostname: "postgres-local", Platform: "darwin", Arch: "arm64", Version: "test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	deviceActor, device, err := service.DeviceActor(ctx, connected.DeviceToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	capability := domain.Capability{ID: domain.KnowledgeExtractCapability, Version: "1.0.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, Digest: "sha256:postgres-test", LocalOnly: true}
-	lease, err := service.Poll(ctx, deviceActor, device, []domain.Capability{capability})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lease.Run.ID != extractionRun.ID || lease.Attempt.CapabilityDigest != capability.Digest {
-		t.Fatalf("unexpected persisted attempt lease: %#v", lease)
-	}
-	if _, err := service.HeartbeatRun(ctx, deviceActor, device, lease.Run.ID, lease.Attempt.ID, lease.RunToken, domain.RunHeartbeat{Sequence: 1, Phase: "executing", Label: "postgres"}, ""); err != nil {
-		t.Fatal(err)
-	}
-	attempts, err := service.RunAttempts(ctx, actor, extractionRun.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(attempts) != 1 || attempts[0].State != "running" || attempts[0].TokenHash != "" || attempts[0].HeartbeatAt == nil {
-		t.Fatalf("unexpected persisted attempt history: %#v", attempts)
 	}
 	object, err := service.CreateKnowledgeObject(ctx, actor, app.CreateKnowledgeObjectInput{ProjectID: project.ID, ID: "fact:postgres", ObjectType: "FactAssertion", Layer: "product", Title: "PostgreSQL fact", Statement: quote, EvidenceRefs: []string{spans[0].ID}}, "")
 	if err != nil {

@@ -131,7 +131,7 @@ func (s *Store) NodeRuns(_ context.Context, tenantID, jobID string) ([]domain.No
 	defer s.mu.RUnlock()
 	result := []domain.NodeRun{}
 	for _, value := range s.runtimeNodes {
-		if value.TenantID == tenantID && value.JobRunID == jobID {
+		if value.TenantID == tenantID && (jobID == "" || value.JobRunID == jobID) {
 			result = append(result, value)
 		}
 	}
@@ -356,12 +356,21 @@ func (s *Store) CreateCheckpoint(_ context.Context, value domain.Checkpoint) err
 	s.runtimeCheckpoints[key] = value
 	return nil
 }
+func (s *Store) Checkpoint(_ context.Context, tenantID, id string) (domain.Checkpoint, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.runtimeCheckpoints[runtimePlanKey(tenantID, id)]
+	if !ok {
+		return domain.Checkpoint{}, domain.NotFound("检查点")
+	}
+	return value, nil
+}
 func (s *Store) Checkpoints(_ context.Context, tenantID, jobID string) ([]domain.Checkpoint, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := []domain.Checkpoint{}
 	for _, value := range s.runtimeCheckpoints {
-		if value.TenantID == tenantID && value.JobRunID == jobID {
+		if value.TenantID == tenantID && (jobID == "" || value.JobRunID == jobID) {
 			result = append(result, value)
 		}
 	}
@@ -369,11 +378,32 @@ func (s *Store) Checkpoints(_ context.Context, tenantID, jobID string) ([]domain
 	return result, nil
 }
 
+func (s *Store) Effect(_ context.Context, tenantID, id string) (domain.ExternalEffect, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.runtimeEffects[runtimeEffectKey(tenantID, id)]
+	if !ok {
+		return domain.ExternalEffect{}, domain.NotFound("外部操作")
+	}
+	return value, nil
+}
+
 func (s *Store) EffectByIdempotencyKey(_ context.Context, tenantID, key string) (domain.ExternalEffect, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, value := range s.runtimeEffects {
 		if value.TenantID == tenantID && value.IdempotencyKey == key {
+			return value, nil
+		}
+	}
+	return domain.ExternalEffect{}, domain.NotFound("外部操作")
+}
+
+func (s *Store) EffectByExternalID(_ context.Context, tenantID, providerID, externalID string) (domain.ExternalEffect, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, value := range s.runtimeEffects {
+		if value.TenantID == tenantID && value.ExternalID == externalID && (providerID == "" || value.Kind == providerID || value.SafeSummary["provider_id"] == providerID) {
 			return value, nil
 		}
 	}
@@ -401,11 +431,22 @@ func (s *Store) ExpireNodeLeases(_ context.Context, tenantID string, now time.Ti
 		attempt.State = domain.RuntimeAttemptExpired
 		attempt.ErrorCode = "DISPATCH_LEASE_EXPIRED"
 		attempt.LeaseOwner = ""
+		attempt.FenceToken = ""
 		attempt.LeaseExpiresAt = nil
 		attempt.FinishedAt = &now
 		attempt.Version++
 		attempt.UpdatedAt = now
 		s.runtimeAttempts[attemptKey] = attempt
+		for reservationKey, reservation := range s.runtimeReservations {
+			if reservation.TenantID == tenantID && reservation.AttemptID == attempt.ID && reservation.State == domain.ReservationHeld {
+				reservation.State = domain.ReservationExpired
+				reservation.FenceToken = ""
+				reservation.ExpiresAt = nil
+				reservation.ReleasedAt = &now
+				reservation.UpdatedAt = now
+				s.runtimeReservations[reservationKey] = reservation
+			}
+		}
 		if agent, ok := s.runtimeAgents[runtimePlanKey(tenantID, attempt.AgentInstanceID)]; ok && agent.State == domain.AgentActive {
 			agent.State = domain.AgentRunnable
 			agent.Version++
@@ -419,6 +460,7 @@ func (s *Store) ExpireNodeLeases(_ context.Context, tenantID string, now time.Ti
 			node.State = domain.NodeLeaseExpired
 			node.ErrorCode = "DISPATCH_LEASE_EXPIRED"
 			node.LeaseOwner = ""
+			node.FenceToken = ""
 			node.LeaseExpiresAt = nil
 			node.Version++
 			node.UpdatedAt = now

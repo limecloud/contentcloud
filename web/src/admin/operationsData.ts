@@ -1,4 +1,4 @@
-import type { AdminWorkOSView, Environment, OperationsExecutorDirectory, OperationsSkillDirectory, ProjectSOPView, SOPDefinition, SOPSummary, SOPVersion, StageDefinition, GateDefinition, WorkTask, WorkTaskView } from '../types';
+import type { AdminWorkOSView, Environment, OperationsExecutorDirectory, OperationsSkillDirectory, ProjectSOPView, SOPDefinition, SOPSummary, SOPVersion, SOPVersionPreview, StageDefinition, GateDefinition, WorkTask, WorkTaskView } from '../types';
 
 function list<T>(value: T[] | null | undefined): T[] {
   return Array.isArray(value) ? value : [];
@@ -79,7 +79,21 @@ export function normalizeOperationsSkillDirectory(value: OperationsSkillDirector
 }
 
 export function normalizeProjectSOPView(value: ProjectSOPView): ProjectSOPView {
-  return {...value, sop: normalizeSOPVersion(value.sop)};
+	return {...value, sop: normalizeSOPVersion(value.sop)};
+}
+
+export function normalizeSOPVersionPreview(value: SOPVersionPreview): SOPVersionPreview {
+  return {
+    ...value,
+    sop: normalizeSOPVersion(value.sop),
+    lint: {valid: Boolean(value.lint?.valid), errors: list(value.lint?.errors), warnings: list(value.lint?.warnings)},
+    impact: {...value.impact, environments: list(value.impact?.environments), projects: list(value.impact?.projects), tasks: list(value.impact?.tasks), counts: value.impact?.counts || {}},
+    required_capabilities: list(value.required_capabilities),
+    capabilities: list(value.capabilities).map(capability => ({...capability, required_by_stages: list(capability.required_by_stages), registered_versions: list(capability.registered_versions)})),
+    environments: list(value.environments).map(environment => ({...environment, configured_capabilities: list(environment.configured_capabilities), required_capabilities: list(environment.required_capabilities), available_capabilities: list(environment.available_capabilities), missing_capabilities: list(environment.missing_capabilities), reasons: list(environment.reasons)})),
+    blockers: list(value.blockers),
+    warnings: list(value.warnings)
+  };
 }
 
 function normalizeTask(value: WorkTask): WorkTask {

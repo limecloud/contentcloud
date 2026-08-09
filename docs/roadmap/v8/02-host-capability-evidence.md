@@ -145,7 +145,7 @@ Codex 支持标准输入输出和 Streamable HTTP MCP，Claude Code 也支持标
 | 适配器只返回一个最终 JSON | 不支持流式事件、让出执行资源和子任务等待 | 新接口支持事件流、取消、恢复和结构化结果 |
 | 智能体只读冻结 `TaskContract` | 无运行时状态工具 | 注入限定到执行尝试（`Attempt`）范围的 MCP 网关 |
 
-旧适配器在迁移期继续服务 V7 单节点任务；不能静默改变它的权限和输出行为。
+单次 CLI 适配器只作为 Runtime worker 的受限执行后端；租约、fence、心跳和终态始终由 Runtime 协议管理。不能静默改变它的权限和输出行为。
 
 ## 7. `AgentHarnessAdapter` 契约
 

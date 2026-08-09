@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"sort"
 	"strings"
 
@@ -22,6 +23,57 @@ type GraphPatchResult struct {
 	Plan                  domain.JobPlanRevision `json:"plan"`
 	GraphVersion          int                    `json:"graph_version"`
 	CancelPendingNodeKeys []string               `json:"cancel_pending_node_keys"`
+}
+
+// PatchGraph persists one immutable graph revision and advances the JobRun
+// pointer, new NodeRuns and event/outbox in one command transaction.
+func (s *Service) PatchGraph(ctx context.Context, tenantID, jobRunID, actorID string, patch GraphPatch) (GraphPatchResult, error) {
+	if s == nil || s.repo == nil {
+		return GraphPatchResult{}, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+	}
+	job, err := s.repo.JobRun(ctx, tenantID, jobRunID)
+	if err != nil {
+		return GraphPatchResult{}, err
+	}
+	plan, err := s.repo.Plan(ctx, tenantID, job.PlanRevisionID)
+	if err != nil {
+		return GraphPatchResult{}, err
+	}
+	result, err := ApplyGraphPatch(plan, plan.GraphVersion, patch)
+	if err != nil {
+		return GraphPatchResult{}, err
+	}
+	existing := make(map[string]struct{}, len(plan.Nodes))
+	for _, node := range plan.Nodes {
+		existing[node.Key] = struct{}{}
+	}
+	now := s.now().UTC()
+	result.Plan.CompiledAt = now
+	addedNodes := make([]domain.NodeRun, 0, len(patch.AddNodes))
+	for _, spec := range result.Plan.Nodes {
+		if _, ok := existing[spec.Key]; ok {
+			continue
+		}
+		addedNodes = append(addedNodes, domain.NodeRun{ID: domain.NewID(), TenantID: tenantID, JobRunID: job.ID, NodeKey: spec.Key, State: domain.NodePending, OutputRefs: []string{}, Version: 1, CreatedAt: now, UpdatedAt: now})
+	}
+	expectedVersion := job.Version
+	job.PlanRevisionID = result.Plan.ID
+	job.PlanDigest = result.Plan.Digest
+	job.Version++
+	job.UpdatedAt = now
+	commands, err := s.commands()
+	if err != nil {
+		return GraphPatchResult{}, err
+	}
+	event := domain.JobEvent{
+		ID: domain.NewID(), TenantID: tenantID, JobRunID: job.ID, Type: "graph.patched", ActorType: "runtime", ActorID: strings.TrimSpace(actorID),
+		IdempotencyKey: "graph-patch:" + strings.TrimSpace(patch.IdempotencyKey),
+		Payload:        map[string]any{"base_revision_id": plan.ID, "plan_revision_id": result.Plan.ID, "graph_version": result.GraphVersion, "added_nodes": len(addedNodes), "cancelled_nodes": len(result.CancelPendingNodeKeys)}, OccurredAt: now,
+	}
+	if _, err := commands.ApplyGraphPatchCommand(ctx, job, expectedVersion, result.Plan, addedNodes, result.CancelPendingNodeKeys, event); err != nil {
+		return GraphPatchResult{}, err
+	}
+	return result, nil
 }
 
 // ApplyGraphPatch validates and materializes one immutable plan revision. The
@@ -113,6 +165,10 @@ func ApplyGraphPatch(plan domain.JobPlanRevision, currentGraphVersion int, patch
 	})
 	candidate := plan
 	candidate.ID = domain.NewID()
+	candidate.BaseRevisionID = plan.ID
+	candidate.GraphVersion = currentGraphVersion + 1
+	candidate.PatchKey = strings.TrimSpace(patch.IdempotencyKey)
+	candidate.PatchReason = strings.TrimSpace(patch.Reason)
 	candidate.Nodes = nodes
 	candidate.Edges = edges
 	candidate.CompiledBy = "runtime.graph_patch"

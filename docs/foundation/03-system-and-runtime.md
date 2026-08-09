@@ -79,7 +79,7 @@ Runtime 负责：
 - 为 WorkTask 创建一次 JobRun 并固定 JobPlanRevision。
 - 判断节点依赖、资源、权限、预算和 Gate 是否满足。
 - 为执行者发放最小权限租约和 ContextView。
-- 保存 NodeRun、RuntimeAttempt、StateMutation、Effect 和有序事件；V7 RunAttempt 只保留在兼容路径。
+- 保存 NodeRun、RuntimeAttempt、StateMutation、Effect 和有序事件；V7 RunAttempt 已删除且禁止恢复。
 - 处理取消、重试、租约过期、中断恢复、检查点和执行分支。
 - 对外部副作用执行登记、幂等、结果核对和补偿流程。
 - 生成客户与运营运行投影。
@@ -305,8 +305,8 @@ Generated result changed
 
 ## 11. Runtime 验收
 
-1. 关闭新 Runtime 时，现有线性流程继续工作。
-2. 旁路编译对现有 SOP 生成确定性计划并与旧阶段判断等价。
+1. 关闭动态图、真实 Provider 等增量能力时，Runtime 线性流程继续工作。
+2. 编译器对现有 SOP 生成确定性计划，并与冻结的阶段顺序基线等价。
 3. 同一输入和固定计划可重放读模型，不产生外部调用。
 4. 节点失败不丢弃其他成功节点的正式结果。
 5. 外部结果不明不会盲目重试。

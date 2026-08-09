@@ -8,6 +8,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
+	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
 	"github.com/limecloud/contentcloud/internal/store/memory"
 )
 
@@ -25,9 +26,17 @@ func TestProjectLineageAndImpactTraceSourceToRating(t *testing.T) {
 		domain.Source{ID: sourceID, TenantID: tenantID, ProjectID: projectID, Name: "品牌事实手册", Status: "ready", RevisionCount: 1, LatestRevision: revisionID, CreatedAt: now},
 		domain.SourceRevision{ID: revisionID, TenantID: tenantID, ProjectID: projectID, SourceID: sourceID, FileName: "facts.docx", SHA256: "source-hash", ProcessingStatus: "ready", CreatedAt: now.Add(time.Minute)},
 	))
-	snapshotID, runID := domain.NewID(), domain.NewID()
+	snapshotID := domain.NewID()
 	mustStore(t, store.CreateSnapshot(ctx, domain.ContextSnapshot{ID: snapshotID, TenantID: tenantID, ProjectID: projectID, Sources: []domain.ContractSource{{SourceID: sourceID, RevisionID: revisionID}}, CreatedAt: now.Add(2 * time.Minute)}))
-	mustStore(t, store.CreateRun(ctx, domain.TaskRun{ID: runID, TenantID: tenantID, ProjectID: projectID, InputSnapshotID: snapshotID, IdempotencyKey: "lineage-run", TaskType: "knowledge_extract", State: "succeeded", CreatedAt: now.Add(2 * time.Minute)}))
+	started, err := service.Runtime().Start(ctx, contentruntime.StartInput{
+		TenantID: tenantID, ProjectID: projectID, WorkTaskID: "lineage:" + snapshotID, BusinessType: "knowledge_extract", InputSnapshotID: snapshotID,
+		SOP:           domain.SOPVersion{ID: "lineage-sop-v1", TenantID: tenantID, SOPID: "lineage-sop", Version: 1, SchemaVersion: domain.SOPSchemaVersion, Name: "知识提取", Status: "published", DefaultExecutionMode: "agent", Stages: []domain.StageDefinition{{ID: "extract", Name: "提取", Order: 10, OutputSchema: domain.KnowledgeCandidatesSchema, ExecutionModes: []string{"agent"}}}},
+		BindingDigest: "sha256:" + strings.Repeat("c", 64), InputDigest: "sha256:" + strings.Repeat("d", 64), RuntimePolicyID: "runtime-policy/lineage", ContractMajor: 1, CreatedBy: actor.UserID, IdempotencyKey: "lineage-run",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := started.Job.ID
 	knowledgeID := domain.NewID()
 	evidenceID := domain.NewID()
 	mustStore(t, store.CreateEvidence(ctx, domain.EvidenceSpan{ID: evidenceID, TenantID: tenantID, ProjectID: projectID, RevisionID: revisionID, LocatorKind: "paragraph", Locator: map[string]any{"paragraph": 1}, QuoteText: "原料事实", QuoteHash: "sha256:" + strings.Repeat("b", 64), ReviewStatus: "accepted", CreatedAt: now.Add(2 * time.Minute)}))

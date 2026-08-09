@@ -554,20 +554,6 @@ func (s *Store) SaveStageRun(_ context.Context, value domain.StageRun) error {
 	return nil
 }
 
-func (s *Store) WorkTaskRuns(_ context.Context, tenantID, taskID string) ([]domain.TaskRun, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	result := []domain.TaskRun{}
-	for _, value := range s.runs {
-		if value.TenantID == tenantID && value.WorkTaskID == taskID {
-			value.OutputRefs = append([]string{}, value.OutputRefs...)
-			result = append(result, value)
-		}
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
-	return result, nil
-}
-
 func (s *Store) CreateGateEvaluation(_ context.Context, value domain.GateEvaluation) error {
 	value.NormalizeCollections()
 	if err := value.Validate(); err != nil {

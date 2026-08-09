@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,15 @@ func testSOP() domain.SOPVersion {
 			{ID: "delivery", Name: "交付", Order: 30, InputRefs: []string{"script"}, OutputSchema: "contentcloud.delivery/1.0", ExecutionModes: []string{"local"}},
 		},
 		Gates: []domain.GateDefinition{{ID: "script_review", Name: "剧本确认", Mode: domain.GateModeClientDecision, Blocking: true}},
+	}
+}
+
+func testStartInput(workTaskID, idempotencyKey string) StartInput {
+	return StartInput{
+		TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: workTaskID, SOP: testSOP(),
+		BindingDigest: "sha256:" + strings.Repeat("a", 64), InputDigest: "sha256:" + strings.Repeat("b", 64),
+		RuntimePolicyID: "runtime-policy/test-v1", ContractMajor: 1, ContractMinor: 0,
+		CreatedBy: "user-1", IdempotencyKey: idempotencyKey,
 	}
 }
 
@@ -47,7 +57,7 @@ func TestCompilerProducesDeterministicAcyclicPlan(t *testing.T) {
 func TestRuntimeStartIdempotencyAndStateCAS(t *testing.T) {
 	repo := memory.New()
 	runtimeService := New(repo, func() time.Time { return time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC) })
-	input := StartInput{TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: "task-1", SOP: testSOP(), CreatedBy: "user-1", IdempotencyKey: "job-1"}
+	input := testStartInput("task-1", "job-1")
 	first, err := runtimeService.Start(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -61,6 +71,14 @@ func TestRuntimeStartIdempotencyAndStateCAS(t *testing.T) {
 	}
 	if first.Job.State != domain.JobRunAdmitted {
 		t.Fatalf("expected admission state, got %s", first.Job.State)
+	}
+	if first.Job.RootJobRunID != first.Job.ID || first.Job.BindingDigest != input.BindingDigest || first.Job.InputDigest != input.InputDigest || first.Job.RuntimePolicyID != input.RuntimePolicyID {
+		t.Fatalf("runtime admission snapshot was not frozen: %#v", first.Job)
+	}
+	mismatched := input
+	mismatched.InputDigest = "sha256:" + strings.Repeat("c", 64)
+	if _, err := runtimeService.Start(t.Context(), mismatched); err == nil {
+		t.Fatal("same idempotency key with a different admission snapshot must conflict")
 	}
 	nodes, err := runtimeService.Nodes(t.Context(), "tenant-1", first.Job.ID)
 	if err != nil {
@@ -107,7 +125,7 @@ func TestRuntimeStartIdempotencyAndStateCAS(t *testing.T) {
 func TestEffectUnknownCannotBeRetriedBlindly(t *testing.T) {
 	repo := memory.New()
 	runtimeService := New(repo, time.Now)
-	started, err := runtimeService.Start(t.Context(), StartInput{TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: "task-1", SOP: testSOP(), CreatedBy: "user-1"})
+	started, err := runtimeService.Start(t.Context(), testStartInput("task-1", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,10 +145,101 @@ func TestEffectUnknownCannotBeRetriedBlindly(t *testing.T) {
 	}
 }
 
+func TestForkReusesCheckpointedNodeOutputsAndReplayRebuildsProjection(t *testing.T) {
+	repo := memory.New()
+	runtimeService := New(repo, time.Now)
+	started, err := runtimeService.Start(t.Context(), testStartInput("task-fork", "source-job"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sourceNode domain.NodeRun
+	for _, node := range started.Nodes {
+		if node.NodeKey == "stage:sources" {
+			sourceNode = node
+		}
+	}
+	if _, err := runtimeService.TransitionNode(t.Context(), "tenant-1", sourceNode.ID, domain.NodeLeased, "runtime", "scheduler", sourceNode.Version); err != nil {
+		t.Fatal(err)
+	}
+	sourceNode, err = repo.NodeRun(t.Context(), "tenant-1", sourceNode.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeService.TransitionNode(t.Context(), "tenant-1", sourceNode.ID, domain.NodeRunning, "worker", "worker-1", sourceNode.Version); err != nil {
+		t.Fatal(err)
+	}
+	sourceNode, err = repo.NodeRun(t.Context(), "tenant-1", sourceNode.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeService.CompleteNode(t.Context(), "tenant-1", sourceNode.ID, []string{"source:immutable"}, "sha256:source", "worker", "worker-1", sourceNode.Version); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := runtimeService.Checkpoint(t.Context(), "tenant-1", started.Job.ID, sourceNode.NodeKey, nil, []string{"source:immutable"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeService.Fork(t.Context(), "tenant-1", checkpoint.ID, "operator-1", "fork-active"); err == nil {
+		t.Fatal("an active source job must not be forked")
+	}
+	if _, err := runtimeService.Cancel(t.Context(), "tenant-1", started.Job.ID, "user", "operator-1"); err != nil {
+		t.Fatal(err)
+	}
+	forked, err := runtimeService.Fork(t.Context(), "tenant-1", checkpoint.ID, "operator-1", "fork-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeated, err := runtimeService.Fork(t.Context(), "tenant-1", checkpoint.ID, "operator-1", "fork-1")
+	if err != nil || repeated.Job.ID != forked.Job.ID {
+		t.Fatalf("fork idempotency returned a different job: %#v err=%v", repeated.Job, err)
+	}
+	if forked.Job.RootJobRunID != started.Job.ID || forked.Job.BindingDigest != started.Job.BindingDigest || forked.Job.InputDigest != started.Job.InputDigest || forked.Job.RuntimePolicyID != started.Job.RuntimePolicyID || forked.Job.ContractMajor != started.Job.ContractMajor || forked.Job.ContractMinor != started.Job.ContractMinor {
+		t.Fatalf("fork did not inherit the immutable admission snapshot: %#v", forked.Job)
+	}
+	var reused, downstream domain.NodeRun
+	for _, node := range forked.Nodes {
+		switch node.NodeKey {
+		case "stage:sources":
+			reused = node
+		case "stage:script":
+			downstream = node
+		}
+	}
+	if reused.State != domain.NodeSucceeded || reused.OutputDigest != "sha256:source" || len(reused.OutputRefs) != 1 || reused.OutputRefs[0] != "source:immutable" {
+		t.Fatalf("fork did not reuse checkpointed output facts: %#v", reused)
+	}
+	if downstream.State != domain.NodeReady {
+		t.Fatalf("fork did not continue after the checkpoint boundary: %#v", downstream)
+	}
+	sourceAfter, err := runtimeService.Job(t.Context(), "tenant-1", started.Job.ID)
+	if err != nil || sourceAfter.State != domain.JobRunCancelled {
+		t.Fatalf("fork changed the source job: %#v err=%v", sourceAfter, err)
+	}
+	replay, err := runtimeService.Replay(t.Context(), "tenant-1", forked.Job.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.ExternalCalls != 0 || !replay.ProjectionRebuilt || replay.IntegrityStatus != "verified" || replay.EventCount == 0 {
+		t.Fatalf("unexpected replay result: %#v", replay)
+	}
+	projection, err := runtimeService.RuntimeExplorer(t.Context(), "tenant-1", forked.Job.ID)
+	if err != nil || projection.JobRunID != forked.Job.ID || projection.LastEventSeq != replay.LastSequence {
+		t.Fatalf("replay did not rebuild the runtime projection: %#v err=%v", projection, err)
+	}
+	dryRun, err := runtimeService.ReplayWithOptions(t.Context(), "tenant-1", forked.Job.ID, 0, true)
+	if err != nil || !dryRun.DryRun || dryRun.ProjectionRebuilt || dryRun.RebuildRunID == "" || dryRun.ExternalCalls != 0 {
+		t.Fatalf("dry-run projection replay violated read-only boundary: %#v err=%v", dryRun, err)
+	}
+	rebuildRuns, err := repo.RuntimeProjectionRebuilds(t.Context(), "tenant-1", forked.Job.ID)
+	if err != nil || len(rebuildRuns) != 2 || rebuildRuns[0].Status != "completed" || rebuildRuns[0].Mode != "dry_run" || rebuildRuns[1].Mode != "rebuild" {
+		t.Fatalf("projection rebuild facts were not persisted: %#v err=%v", rebuildRuns, err)
+	}
+}
+
 func TestRuntimeResumeOnlyResumesPausedJob(t *testing.T) {
 	repo := memory.New()
 	runtimeService := New(repo, func() time.Time { return time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC) })
-	started, err := runtimeService.Start(t.Context(), StartInput{TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: "task-1", SOP: testSOP(), CreatedBy: "user-1", IdempotencyKey: "resume-1"})
+	started, err := runtimeService.Start(t.Context(), testStartInput("task-1", "resume-1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +275,7 @@ func TestRuntimeNodeLeaseClaimHeartbeatAndExpiry(t *testing.T) {
 	repo := memory.New()
 	now := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
 	runtimeService := New(repo, func() time.Time { return now })
-	started, err := runtimeService.Start(t.Context(), StartInput{TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: "task-lease", SOP: testSOP(), CreatedBy: "user-1", IdempotencyKey: "lease-job"})
+	started, err := runtimeService.Start(t.Context(), testStartInput("task-lease", "lease-job"))
 	if err != nil {
 		t.Fatal(err)
 	}

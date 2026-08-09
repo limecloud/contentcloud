@@ -11,6 +11,7 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
+	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
 )
 
 type TaskActionInput struct {
@@ -58,7 +59,7 @@ func (s *Service) WorkTaskRuns(ctx context.Context, actor Actor, taskID string) 
 	if _, err := s.store.WorkTask(ctx, actor.TenantID, taskID); err != nil {
 		return nil, err
 	}
-	return s.store.WorkTaskRuns(ctx, actor.TenantID, taskID)
+	return s.runtimeTaskRunProjection(ctx, actor.TenantID, taskID)
 }
 
 func (s *Service) WorkTaskGates(ctx context.Context, actor Actor, taskID string) ([]domain.GateEvaluation, error) {
@@ -238,25 +239,26 @@ func (s *Service) startCurrentStage(ctx context.Context, actor Actor, task *doma
 	if err := s.store.SaveWorkTask(ctx, *task); err != nil {
 		return err
 	}
-	if err := s.ensureTaskRun(ctx, actor, *task, stageRun, now); err != nil {
+	if err := s.ensureTaskRun(ctx, actor, *task, stageRun); err != nil {
 		return err
 	}
 	s.audit(ctx, actor, task.ProjectID, "task.started", "task", task.ID, requestID, map[string]any{"stage_id": stageRun.StageID, "execution_mode": stageRun.ExecutionMode})
 	return nil
 }
 
-func (s *Service) ensureTaskRun(ctx context.Context, actor Actor, task domain.WorkTask, stageRun domain.StageRun, now time.Time) error {
-	runs, err := s.store.WorkTaskRuns(ctx, actor.TenantID, task.ID)
+func (s *Service) ensureTaskRun(ctx context.Context, actor Actor, task domain.WorkTask, stageRun domain.StageRun) error {
+	if s.runtimeService == nil {
+		return domain.Policy("RUNTIME_UNAVAILABLE", "流程阶段需要已配置的 Runtime", "联系平台运营人员启用 Runtime")
+	}
+	jobs, err := s.runtimeService.Jobs(ctx, actor.TenantID, task.ID)
 	if err != nil {
 		return err
 	}
-	for _, run := range runs {
-		if run.StageID == stageRun.StageID && (run.State == "running" || run.State == "leased") {
-			return nil
-		}
+	if len(jobs) > 0 {
+		return nil
 	}
-	inputSnapshot := domain.ContextSnapshot{ID: domain.NewID(), TenantID: task.TenantID, ProjectID: task.ProjectID, BuilderVersion: "task-input/1.0", SchemaVersion: "contentcloud.task-input/1.0", InputVersions: map[string]string{}, ManifestHash: "sha256:" + strings.Repeat("0", 64), CreatedAt: now}
-	if err := s.store.CreateSnapshot(ctx, inputSnapshot); err != nil {
+	_, sop, err := s.loadTaskSOP(ctx, actor.TenantID, task)
+	if err != nil {
 		return err
 	}
 	priority := 0
@@ -267,17 +269,31 @@ func (s *Service) ensureTaskRun(ctx context.Context, actor Actor, task domain.Wo
 	} else if task.Priority == "urgent" {
 		priority = 20
 	}
-	capabilityID := "contentcloud.task.stage"
-	capabilityVersion := "1.0.0"
-	if stageRun.ExecutionMode == "agent" {
-		capabilityID = "contentcloud.agent.stage"
+	bindingDigest, err := domain.CanonicalHash(struct {
+		EnvironmentID string `json:"environment_id"`
+		SOPID         string `json:"sop_id"`
+		SOPVersion    int    `json:"sop_version"`
+		SOPDigest     string `json:"sop_digest"`
+	}{task.EnvironmentID, sop.SOPID, sop.Version, sop.Digest})
+	if err != nil {
+		return err
 	}
-	run := domain.TaskRun{ID: domain.NewID(), TenantID: task.TenantID, ProjectID: task.ProjectID, WorkTaskID: task.ID, SOPID: task.SOPID, SOPVersion: task.SOPVersion, SOPDigest: task.SOPDigest, StageID: stageRun.StageID, ExecutionMode: defaultString(stageRun.ExecutionMode, "local"), ExecutorKind: defaultString(stageRun.ExecutionMode, "local"), InputSnapshotID: inputSnapshot.ID, IdempotencyKey: "work-task:" + task.ID + ":" + stageRun.StageID + ":" + domain.NewID(), TaskType: task.ContentType, CapabilityID: capabilityID, CapabilityVersion: capabilityVersion, InputSchema: "contentcloud.task-input/1.0", OutputSchema: stageOutputSchema(task, stageRun.StageID), OutputCount: 1, DeliveryProfiles: []string{"workspace"}, State: "running", Priority: priority, ProgressLabel: "流程阶段已开始", CreatedAt: now, UpdatedAt: now}
-	return s.store.CreateRun(ctx, run)
-}
-
-func stageOutputSchema(task domain.WorkTask, stageID string) string {
-	return "contentcloud.stage/1.0#" + task.ContentType + "/" + stageID
+	inputDigest, err := domain.CanonicalHash(struct {
+		TaskID    string   `json:"task_id"`
+		InputRefs []string `json:"input_refs"`
+	}{task.ID, task.InputRefs})
+	if err != nil {
+		return err
+	}
+	_, err = s.runtimeService.Start(ctx, contentruntime.StartInput{
+		TenantID: task.TenantID, ProjectID: task.ProjectID, WorkTaskID: task.ID,
+		BusinessType: "work_task." + task.ContentType, SOP: sop,
+		BindingDigest: "sha256:" + bindingDigest, InputDigest: "sha256:" + inputDigest,
+		RuntimePolicyID: "runtime-policy/work-task-v1", ContractMajor: 1, ContractMinor: 0,
+		Priority: priority, CreatedBy: actor.UserID, IdempotencyKey: "work-task:" + task.ID + ":" + stageRun.StageID,
+		CorrelationID: "task-start:" + task.ID,
+	})
+	return err
 }
 
 func currentStageRun(task domain.WorkTask, runs []domain.StageRun) (domain.StageRun, error) {
@@ -344,7 +360,6 @@ func (s *Service) ReportStage(ctx context.Context, actor Actor, taskID string, i
 		if err := s.store.SaveWorkTask(ctx, task); err != nil {
 			return WorkTaskView{}, err
 		}
-		s.updateActiveRun(ctx, actor.TenantID, task.ID, stageRun.StageID, "failed", outputRefs, "STAGE_REPORT_FAILED", now)
 		s.audit(ctx, actor, task.ProjectID, "stage.reported_failed", "stage_run", stageRun.ID, requestID, map[string]any{"error_code": input.ErrorCode, "summary": input.Summary})
 		return s.WorkTask(ctx, actor, task.ID)
 	}
@@ -368,30 +383,10 @@ func (s *Service) ReportStage(ctx context.Context, actor Actor, taskID string, i
 	if err := s.store.CompleteStageRun(ctx, stageRun, outputs); err != nil {
 		return WorkTaskView{}, err
 	}
-	s.updateActiveRun(ctx, actor.TenantID, task.ID, stageRun.StageID, "succeeded", outputRefs, "", now)
 	if err := s.finishStageOrOpenGate(ctx, actor, &task, &stageRun, input, now, requestID); err != nil {
 		return WorkTaskView{}, err
 	}
 	return s.WorkTask(ctx, actor, task.ID)
-}
-
-func (s *Service) updateActiveRun(ctx context.Context, tenantID, taskID, stageID, state string, outputRefs []string, errorCode string, now time.Time) {
-	runs, err := s.store.WorkTaskRuns(ctx, tenantID, taskID)
-	if err != nil {
-		return
-	}
-	for index := len(runs) - 1; index >= 0; index-- {
-		if runs[index].StageID == stageID && (runs[index].State == "running" || runs[index].State == "leased") {
-			run := runs[index]
-			run.State = state
-			run.OutputRefs = append([]string{}, outputRefs...)
-			run.ErrorCode = errorCode
-			run.ProgressLabel = "流程阶段已上报"
-			run.UpdatedAt = now
-			_ = s.store.SaveRun(ctx, run)
-			return
-		}
-	}
 }
 
 func (s *Service) finishStageOrOpenGate(ctx context.Context, actor Actor, task *domain.WorkTask, stageRun *domain.StageRun, input StageReportInput, now time.Time, requestID string) error {

@@ -9,27 +9,6 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
-func (s *Store) WorkTaskRuns(ctx context.Context, tenantID, taskID string) ([]domain.TaskRun, error) {
-	result := []domain.TaskRun{}
-	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, runSelect+` WHERE tenant_id=$1 AND work_task_id=$2 ORDER BY created_at`, tenantID, taskID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			value, scanErr := scanRun(rows)
-			if scanErr != nil {
-				return scanErr
-			}
-			value.RunTokenHash = ""
-			result = append(result, value)
-		}
-		return rows.Err()
-	})
-	return result, err
-}
-
 const gateEvaluationSelect = `SELECT tenant_id,id,project_id,task_id,stage_run_id,gate_id,gate_mode,status,revision_id,input_refs,checks,decision,reason,decided_by,decided_at,expires_at,created_at,updated_at FROM task_gate_evaluations`
 
 func scanGateEvaluation(row pgx.Row) (domain.GateEvaluation, error) {

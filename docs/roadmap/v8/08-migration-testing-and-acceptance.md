@@ -4,22 +4,22 @@
 
 ## 1. 当前基线对账
 
-截至 2026-08-07：
+截至 2026-08-09：
 
-- 当前版本为 `v0.18.0`。Runtime 第一批实现与客户资产首切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
+- 当前版本为 `v0.21.0`。Runtime Infra V2 的 I1～I4 核心切片和 I5 第二业务流容量边界切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
 - V7 的类型化 Stage 输出、媒体领域、MediaReview、最终 Artifact、DeliveryPackage 和 Web 投影已在 `v0.16.0/v0.17.0` 落地；工作区资料文件夹、上传和资料引用已在 `v0.18.0` 首次落地。
-- V8 已落地 JobRun/NodeRun/JobEvent、独立 RuntimeAttempt、状态 CAS、ContextView/AgentInstance 持久化、FakeHarness 调度闭环、联合租约和首版 Runtime Explorer；各文档必须继续区分已实现内核与生产能力。
+- V8 已落地 JobRun/NodeRun/JobEvent、独立 RuntimeAttempt、RuntimeCommandStore、事件/outbox 同事务、fence/资源预留账本、StateCollection/StateRecord CAS、ToolCall、Checkpoint watermark、Fork/Replay、ContextView/AgentInstance、FakeHarness 调度闭环、DurableHarness + SessionStore 本地跨进程 Resume、Provider inbox/账单对账、Yield/Resume、Projector 和 Runtime Explorer 投影重建/dry-run；各文档必须继续区分已实现内核与生产能力。
 - 根 `README.md`、平台基线、产品需求和 V8 路线图已互相指向；历史 V1-V7 路线图不再作为当前能力事实源。
 - 真实媒体服务商、可持久化的轮询和回调、完整的媒体租约恢复、受限的流式下载和确定性后期处理仍未完成。
-- Codex/Claude 适配器当前仍使用 legacy CLI 进程，不保存可跨 ContentCloud 进程恢复的宿主会话；HarnessRegistry 只解决单进程实例复用，不等于真实 SDK 恢复已经完成。
+- Codex/Claude 适配器当前仍使用 legacy CLI 进程，不提供真实 SDK 的跨 ContentCloud 进程会话恢复；`DurableHarness` + `SessionStore` 只证明 Runtime 边界和本地/镜像观察层的跨进程 Resume，HarnessRegistry 也只解决单进程实例复用。
 
-基线事实主要来自 `CHANGELOG.md`、`internal/domain`、`internal/runtime`、`internal/agentadapter`、Memory/PostgreSQL Store 以及迁移 `00012_v7_media_pipeline.sql`、`00014_agentic_job_runtime.sql`、`00015_runtime_agent_instances.sql`、`00016_runtime_attempts.sql`、`00018_runtime_command_kernel.sql`、`00019_runtime_outbox_delivery.sql`、`00020_runtime_append_only_permissions.sql`。历史路线图只能作为背景，不能代替当前代码和测试结果。
+基线事实主要来自 `CHANGELOG.md`、`internal/domain`、`internal/runtime`、`internal/agentadapter`、Memory/PostgreSQL Store 以及迁移 `00012_v7_media_pipeline.sql`、`00014_agentic_job_runtime.sql`～`00030_runtime_session_store.sql`。历史路线图只能作为背景，不能代替当前代码和测试结果。
 
 V8 的第一个工作包必须先更新权威文档和能力登记表；不能在错误的基线上继续规划。
 
 ## 2. 迁移原则
 
-1. **先增量再切换**：新增表、字段、索引和 API；不删除或物理重命名 V7 对象。
+1. **先增量再切换**：新增表、字段、索引和 API；只有迁移边界已切换且生产引用归零时，才删除旧表、旧 API 或旧目录；已经确认无消费者的 Runtime 旧结构应在迁移中直接删除，不保留双读壳。
 2. **先旁路再成为权威**：先编译、比较和观测，不让新执行图直接决定生产调度。
 3. **每类权威数据只保留一个写入者**：切换后明确 Job、Node、Stage 投影分别由谁写入，禁止长期并行维护两套状态机。
 4. **不编造历史**：不为历史 Task 伪造 `JobEvent`、`Checkpoint`、`Artifact` 或服务商记录。
@@ -44,7 +44,7 @@ V8 的第一个工作包必须先更新权威文档和能力登记表；不能�
 
 所有表都需要由 Memory Store 和 PostgreSQL Store 共同遵守同一份存储契约；迁移集成测试必须使用真实的行级安全策略（RLS）操作人上下文。
 
-当前物理落地：`00014_agentic_job_runtime.sql` 覆盖 JobPlan、JobRun、NodeRun、JobEvent、State、Checkpoint 和 ExternalEffect；`00015_runtime_agent_instances.sql` 覆盖 ContextView 与 AgentInstance；`00016_runtime_attempts.sql` 覆盖独立 RuntimeAttempt、复合外键、活动租约索引和强制 RLS；`00018_runtime_command_kernel.sql` 新增与 JobEvent 同事务的 `runtime_outbox`；`00019_runtime_outbox_delivery.sql` 增加持久化消费者租约；`00020_runtime_append_only_permissions.sql` 撤掉 Runtime 角色对追加事实和不可变快照的直接修改权限。TaskRun/RunAttempt 继续作为 V7 兼容路径，MIG8-F 以及完整的 MIG8-H/MIG8-I 仍未落地。
+当前物理落地：`00014_agentic_job_runtime.sql`～`00020_runtime_append_only_permissions.sql` 建立 Runtime 基础表、ContextView/AgentInstance、RuntimeAttempt、outbox 和追加事实权限；`00021`～`00030` 增加 fence、资源账本、类型化状态、Provider 对账、Yield/Resume、投影重建和 SessionStore；`00031`～`00033` 冻结 JobRun 业务类型、输入快照和输出上限；`00034_remove_v7_execution.sql` 解开 JobRun 对单一 WorkTask 的物理外键，并删除 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`。迁移不使用 `CASCADE`，出现未识别依赖时整笔回滚。
 
 ## 4. 兼容投影
 
@@ -53,20 +53,24 @@ V8 的第一个工作包必须先更新权威文档和能力登记表；不能�
 - `intent`、输入、SOP、人工审批节点和正式内容关系仍来自 `WorkTask` 及现有领域对象。
 - `latest_job_run_id` 和 `active_job_run_id` 通过读模型返回，首版不要求写回 `WorkTask` 表。
 - `current_stage_id` 只作为当前关注阶段的投影，不再驱动 V8 调度器。
-- V7 Task 没有 JobRun 时显示 `legacy_linear`，不自动补造一段执行历史。
+- 没有 JobRun 的 WorkTask 返回空运行投影，不补造执行历史。
 
 ### 4.2 StageRun
 
-- V7 写入路径继续直接维护 StageRun。
-- V8 写入路径由投影器根据 `NodeRun`、人工审批节点和输出生成 `StageRun`。
-- 同一个 WorkTask 不能同时启用 V7 直接写入者和 V8 投影器写入者。
+- 业务操作继续维护 StageRun；执行状态只来自 Runtime，不写第二套租约或终态。
+- WorkTask `Runs` 只读取 Runtime JobRun/NodeRun 的单向业务投影。
+- 尚未建立 JobRun 的任务返回空列表；读取投影不会反向补造历史。
 - 投影器可以清空后重建；正式业务对象和运行时状态不能依赖投影器反向恢复。
 
 ### 4.3 TaskRun
 
-- 旧 TaskRun/RunAttempt 的领取、上报和日志 API 保持不变，只服务 V7 兼容路径。
-- V8 NodeRun/RuntimeAttempt 使用独立表和状态机，不双写 V7 执行状态，也不把 `runtime_job_runs` 错接到 `task_runs` 外键。
+- `TaskRun` 仅保留为 Runtime 的只读业务投影 DTO；`RunAttempt` 和旧执行表/API 已删除。
+- NodeRun/RuntimeAttempt 使用唯一状态机；`runtime_job_runs` 的业务键不再强制外键到 WorkTask，因此知识提取等业务流不需要伪造 WorkTask。
 - HTTP/BFF 新资源使用 NodeRun/RuntimeAttempt 术语；业务阶段兼容只通过单向投影完成。
+- `RunProgress` 只投影 JobEvent；项目运行列表、Dashboard、ProjectProjection 和 lineage 只读取 Runtime。
+- CLI daemon 与 `runtime-worker run` 共用 Runtime prepare/activate/heartbeat/finalize 协议，不再有独立 poll/report/outbox 状态机。
+- Runtime worker 使用 `runtime.worker.prepare_next`、`runtime.worker.activate`、`runtime.worker.heartbeat` 和 `runtime.worker.finalize` 四阶段协议；服务端从设备凭据派生 lease owner，远程请求只能携带 Attempt ID 与 fence token。成功结果先作为受控业务输出引用落 blob，再由业务 owner 校验并提交结构化结果。
+- 知识提取以 `BusinessType=knowledge_extract` 创建 Runtime JobRun，冻结 `InputSnapshotID`、输出上限和证据契约；重复候选包按包摘要和确定性知识对象 ID 幂等。
 
 ### 4.4 外部服务商
 
@@ -101,7 +105,7 @@ runtime_v8_explorer
    |
 阶段 1  旁路编译：SOP -> 执行图，不影响现有执行
    |
-阶段 2  JobRun + 线性执行图调度器，复现 V7 顺序行为
+阶段 2  JobRun + 线性执行图调度器，保持已发布 SOP 的顺序语义
    |
 阶段 3  共享状态网关 + ContextView + 主控智能体让出资源/恢复
    |
@@ -123,9 +127,9 @@ runtime_v8_explorer
 对每个已发布的 SOP 执行以下步骤：
 
 1. 生成初始 `JobPlanRevision`，但不创建 JobRun 或节点租约。
-2. 计算旧 Stage 的 `Order/InputRefs` 与新执行边的对应关系。
+2. 计算冻结基线中的 Stage `Order/InputRefs` 与执行边的对应关系。
 3. 检查数据结构是否可达、人工审批节点是否完整，以及执行能力（`Capability`）是否匹配。
-4. 将预期的下一 Stage 与 Ready evaluator 的结果进行比较。
+4. 将冻结基线的预期下一 Stage 与 Ready evaluator 的结果进行比较。
 5. 只记录摘要、差异类别和错误码，不记录客户正文。
 
 营销视频、文章和复盘的内置 SOP 连续通过后，才允许在小范围租户中启用线性执行图调度器。
@@ -140,6 +144,7 @@ runtime_v8_explorer
 - 验证 FanoutSet 的成员集合封存和汇聚策略，覆盖零成员、部分失败、延迟上报和取消。
 - 验证比较并交换（CAS）、单写入者、只追加和指定汇总写入者约束。
 - 验证 ContextView 的选择、优先级、Token 预算和摘要稳定性。
+- 已覆盖 StateCollection/StateRecord CAS、ToolCall 终态保护、Effect unknown/reconciling 禁止盲重试、Checkpoint watermark、Fork/Replay 零外部调用、DurableHarness + SessionStore 新进程 Resume、Provider inbox 去重/摘要冲突/unknown Effect/账单匹配与差异、Yield/Resume 等待条件和幂等，以及 Memory/PostgreSQL Fanout/Join 原子写入、幂等快照、quorum 取消和 50 节点第二业务流边界；真实 Provider Reconciler、真实 SDK 恢复和 PostgreSQL 故障矩阵仍待补。
 
 ### 8.2 存储与事务测试
 
@@ -148,9 +153,10 @@ runtime_v8_explorer
 - 验证 Node、RuntimeAttempt 和 AgentInstance 的联合租约过期收敛；旧 owner 和旧版本不能续租或提交结果。
 - 验证相同终态结果摘要幂等成功，不同摘要返回冲突；事件序号在 Job 锁下连续分配。
 - 验证 StateMutation、Event 和投影的原子性。
+- 验证 StateRecord/ToolCall 命令与 Event/outbox 同事务，Projector 只能在 outbox claim 成功后 ack，旧 projection 序号不能倒退。
 - 验证 GraphPatch 版本竞争时只能接受一个写入者。
 - 验证 RLS 覆盖所有新表，并拦截跨租户或跨项目的外键攻击。
-- 从最新生产前版本执行迁移，验证历史空值和 `legacy` 分类正确。
+- 迁移集合已覆盖 `00021`～`00030`，并静态核对 fence、资源账本、State/ToolCall、Projection、Provider、Yield、Projection rebuild、SessionStore 的 RLS；真实 PostgreSQL 迁移、事务失败回滚、历史 Effect 空绑定、Provider/Resume 原子性和投影表 RLS 仍需 `CONTENTCLOUD_TEST_DATABASE_URL` 集成验收。
 
 ### 8.3 执行适配器一致性测试
 
@@ -158,7 +164,7 @@ Fake、Codex 和 Claude 适配器使用同一套黑盒场景：
 
 - 启动、事件流、结构化输出、取消和超时。
 - MCP 读取、CAS、追加写入、过期令牌和越权工具调用。
-- 进程被终止后恢复；宿主不支持恢复时，使用新会话和 ContextView 重新开始。
+- 进程被终止后恢复；`DurableHarness` 已覆盖同一 spool 的新进程 Resume，真实 Codex/Claude 宿主不支持恢复时，使用新会话和 ContextView 重新开始。
 - 会话分支只影响智能体历史，不自动修改 JobRun。
 - 上下文压缩后仍然遵守 TaskContract 和输出数据结构。
 - 适配器版本或能力不匹配时默认拒绝执行。
@@ -191,7 +197,7 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
 ### 8.5 安全测试
 
 - 提示词注入测试用例尝试调用未授权工具、修改预算、跨同级步骤读取状态和自行通过人工审批节点。
-- 扫描日志和事件中是否出现密钥、RunToken、签名 URL 或提示词正文。
+- 扫描日志和事件中是否出现密钥、fence token、签名 URL 或提示词正文。
 - 测试服务端请求伪造（SSRF）、重定向、DNS 重新绑定、压缩炸弹和大媒体文件造成的内存压力。
 - 测试执行尝试令牌的重放、过期，以及跨执行步骤、执行实例和租户使用。
 - 测试 GraphPatch 是否能绕过节点数、深度、边数、数据结构和服务商 URL 限制，或给已有节点追加前置依赖。
@@ -266,13 +272,13 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
   -> 逐步扩大范围
 ```
 
-每一步都必须验证旧 V7 的任务领取、结果上报、任务详情和交付发布条件仍然正常。
+每一步都必须验证 Runtime 任务领取、结果交接、任务详情和交付发布条件仍然正常。
 
 ### 11.2 回退流程
 
 ```text
 发生事故
-  -> 停止新的 V8 执行实例准入和动态 GraphPatch
+  -> 停止新的 JobRun 准入和动态 GraphPatch
   -> 保留读取路径和数据库迁移
   -> 让可以安全结束的运行中节点自然排空
   -> 暂停存在未知外部操作或执行器不兼容的 JobRun
@@ -281,13 +287,13 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
   -> 从持久化状态恢复
 ```
 
-不能把已经运行的动态 JobRun“转换回”V7 线性 Stage，因为这样会丢失依赖关系和外部操作语义。只能选择排空、暂停、取消，或使用兼容的 V8 版本恢复。生产回退不能删除新表和历史事件。
+不能把已经运行的动态 JobRun 转换成业务 StageRun 来“回滚”，因为这样会丢失依赖关系和外部操作语义。只能选择排空、暂停、取消，或部署向后兼容的 Runtime 版本恢复。生产回退不能删除 Runtime 表和历史事件。
 
 ## 12. 总体验收条件
 
-- V8 功能开关全部关闭时，V7 核心流程不能出现行为回归。
+- 动态图等增量能力关闭时，Runtime 线性核心流程不能出现行为回归。
 - 旁路编译对所有内置 SOP 生成稳定摘要，并得出与原流程等价的下一阶段结果。
-- V8 线性调度器可以完成 V7 `marketing_video` 测试场景。
+- Runtime 线性调度器可以完成 `marketing_video` 测试场景。
 - 100 个节点、20 路并发的稳定性压测中，不得出现重复租约、重复节点、重复输出或重复费用。
 - 故障注入矩阵全部得到预期的恢复、阻断或人工对账状态。
 - 所有权威状态写入都必须经过数据结构校验、CAS 或单写入者约束，并产生 JobEvent。

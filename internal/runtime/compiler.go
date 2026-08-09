@@ -76,7 +76,7 @@ func (c Compiler) CompileSOP(sop domain.SOPVersion, tenantID, compiledBy string,
 			steps[len(steps)-1].NodeKeys = append(steps[len(steps)-1].NodeKeys, gateKey)
 		}
 	}
-	plan := domain.JobPlanRevision{ID: domain.NewID(), TenantID: tenantID, SOPID: sop.SOPID, SOPVersion: sop.Version, SOPDigest: sop.Digest, SchemaVersion: domain.JobPlanSchema, Nodes: nodes, Edges: edges, CustomerSteps: steps, Limits: limits, CompiledAt: now.UTC(), CompiledBy: compiledBy}
+	plan := domain.JobPlanRevision{ID: domain.NewID(), TenantID: tenantID, GraphVersion: 1, SOPID: sop.SOPID, SOPVersion: sop.Version, SOPDigest: sop.Digest, SchemaVersion: domain.JobPlanSchema, Nodes: nodes, Edges: edges, CustomerSteps: steps, Limits: limits, CompiledAt: now.UTC(), CompiledBy: compiledBy}
 	bodyHash, err := domain.CanonicalHash(struct {
 		Schema, SOPID string
 		Version       int

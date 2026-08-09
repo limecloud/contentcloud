@@ -5,13 +5,7 @@ import (
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/environment"
 )
-
-type RunLeaseCandidate struct {
-	RunID      string
-	Capability domain.Capability
-}
 
 type Store interface {
 	CreateUser(context.Context, domain.User) error
@@ -175,7 +169,6 @@ type Store interface {
 	SaveMediaReview(context.Context, domain.MediaReview, int) error
 	MediaReview(context.Context, string, string) (domain.MediaReview, error)
 	MediaReviews(context.Context, string, string) ([]domain.MediaReview, error)
-	WorkTaskRuns(context.Context, string, string) ([]domain.TaskRun, error)
 	CreateGateEvaluation(context.Context, domain.GateEvaluation) error
 	GateEvaluations(context.Context, string, string) ([]domain.GateEvaluation, error)
 	GateEvaluation(context.Context, string, string) (domain.GateEvaluation, error)
@@ -190,20 +183,6 @@ type Store interface {
 
 	CreateSnapshot(context.Context, domain.ContextSnapshot) error
 	Snapshot(context.Context, string, string) (domain.ContextSnapshot, error)
-	CreateRun(context.Context, domain.TaskRun) error
-	CreateRunWithBundle(context.Context, domain.TaskRun, environment.CreativeExecutionBundle) error
-	Runs(context.Context, string, string) ([]domain.TaskRun, error)
-	Run(context.Context, string, string) (domain.TaskRun, error)
-	SaveRun(context.Context, domain.TaskRun) error
-	ExecutionBundle(context.Context, string, string) (environment.CreativeExecutionBundle, error)
-	LeaseNextRun(context.Context, string, string, []RunLeaseCandidate, string, string, time.Time) (domain.TaskRun, domain.RunAttempt, error)
-	CreateRunAttempt(context.Context, domain.RunAttempt) error
-	RunAttempt(context.Context, string, string) (domain.RunAttempt, error)
-	RunAttempts(context.Context, string, string) ([]domain.RunAttempt, error)
-	SaveRunAttempt(context.Context, domain.RunAttempt) error
-	ExpireRunAttempts(context.Context, string, time.Time) error
-	AppendRunProgress(context.Context, domain.RunProgressEvent) (domain.RunProgressEvent, error)
-	RunProgress(context.Context, string, string, int64) ([]domain.RunProgressEvent, error)
 
 	CreateApproval(context.Context, domain.ApprovalDecision) error
 	Approvals(context.Context, string, string) ([]domain.ApprovalDecision, error)

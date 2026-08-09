@@ -45,6 +45,7 @@ export const appRoutes: RouteObject[] = [
           {path: 'executors', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminExecutorsPage})},
           {path: 'executors/:executorID', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminExecutorDetailPage})},
           {path: 'jobs', lazy: async()=>({Component:(await import('./admin/views/AdminRuntimePage')).AdminRuntimePage})},
+          {path: 'jobs/:jobID', lazy: async()=>({Component:(await import('./admin/views/AdminRuntimePage')).AdminRuntimePage})},
           {path: 'alerts', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminAlertsPage})},
           {path: 'tenants', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminTenantsPage})},
           {path: 'audit', lazy: async()=>({Component:(await import('./admin/views/AdminOperationsPages')).AdminAuditPage})},

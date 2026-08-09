@@ -1,8 +1,8 @@
 # 业务域、事实所有权与核心对象
 
-状态：`目标规范，现有对象处置需在实施前通过 ADR 冻结`。
+状态：`当前规范；Runtime 执行事实已切流，生产故障、隔离和容量验收仍待完成`。
 
-更新时间：2026-08-05。
+更新时间：2026-08-09。
 
 ## 1. 为什么先定义事实所有权
 
@@ -98,21 +98,21 @@ WorkTask  用户想完成的一项工作
 
 ### 4.4 RuntimeAttempt
 
-表示某个执行者取得 NodeRun 租约后的一次尝试。V8 已使用独立 `RuntimeAttempt` 权威模型关联 NodeRun、ContextView 和 AgentInstance；执行进程重启或租约过期创建新 Attempt，不覆盖旧尝试。V7 `RunAttempt` 只服务旧 TaskRun 兼容路径，不与 RuntimeAttempt 双写。
+表示某个执行者取得 NodeRun 租约后的一次尝试。V8 使用独立 `RuntimeAttempt` 权威模型关联 NodeRun、ContextView 和 AgentInstance；执行进程重启或租约过期创建新 Attempt，不覆盖旧尝试。V7 `RunAttempt` 表、领域对象和 API 已删除，禁止恢复或与 RuntimeAttempt 双写。
 
 ## 5. 现有运行对象处置
 
-当前仓库同时存在 V7 的 `WorkTask`、`StageRun`、`TaskRun`、`RunAttempt`，以及 V8 的 `JobRun`、`NodeRun` 和 `RuntimeAttempt`。新旧关系必须按以下状态治理，不允许用名称相似性进行双写或猜测迁移：
+当前仓库的执行事实只存在于 `JobRun`、`NodeRun` 和 `RuntimeAttempt`。`WorkTask` 仍是业务工作对象，`StageRun` 和 `TaskRun` 只承担业务投影；旧执行对象按以下状态治理，不允许用名称相似性恢复双写或猜测迁移：
 
 | 当前对象 | 当前语义 | 状态 | 目标动作 | 退场或保留条件 |
 | --- | --- | --- | --- | --- |
 | `WorkTask` | 用户工作对象 | `current` | 保持业务事实，继续固定体验、SOP 和 Job 引用 | 永久保留，不吸收底层执行状态 |
-| `StageRun` | SOP 业务阶段进度 | `compat` | 收敛为客户业务投影 | NodeRun 能确定性生成同等阶段状态后停止权威写入 |
-| `TaskRun` | V7 单能力、可租赁执行 | `compat` | 只服务 V7 线性执行路径 | V8 切流完成、活跃旧任务归零且历史可读后停止写入 |
-| `RunAttempt` | V7 TaskRun 的执行租约和尝试 | `compat` | 保留旧历史，不关联 V8 NodeRun | TaskRun 停止写入并满足历史读取保留策略后退场 |
+| `StageRun` | SOP 业务阶段进度 | `compat` | 仅表达客户业务阶段，不拥有执行租约或终态 | 公开业务 API 可完全由 Runtime 阶段投影替代后退场 |
+| `TaskRun` | Runtime 运行的业务 JSON 投影 | `compat` | 只读适配 JobRun/NodeRun，不对应表、不提供执行写入 | 下一版公开 API 统一使用 Runtime 术语后删除 DTO |
+| `RunAttempt` | 已删除的 V7 执行租约和尝试 | `dead` | `00034_remove_v7_execution.sql` 已删除表，代码/API 已清理 | 禁止恢复；历史仅保留在迁移 evidence |
 | `JobRun` | 一项 WorkTask 的完整执行 | `current` | 继续作为 V8 执行聚合演进 | 永久保留执行历史和版本引用 |
 | `NodeRun` | 固定 JobPlanRevision 中的执行节点 | `current` | 继续作为 V8 节点权威状态演进 | 永久保留节点执行历史 |
-| `RuntimeAttempt` | V8 NodeRun 的独立执行尝试 | `current` | 继续完善租约、恢复和执行适配器 | 永久保留尝试审计；不与 V7 RunAttempt 双写 |
+| `RuntimeAttempt` | NodeRun 的独立执行尝试 | `current` | 继续完善租约、恢复和执行适配器 | 永久保留尝试审计；禁止引入平行尝试模型 |
 
 禁止先创建新表和接口，再在实现后解释这些对象的关系。
 

@@ -13,7 +13,7 @@ func startAgentRuntime(t *testing.T) (*Service, *memory.Store, StartResult, doma
 	now := time.Date(2026, 8, 6, 8, 0, 0, 0, time.UTC)
 	repo := memory.New()
 	service := New(repo, func() time.Time { return now })
-	started, err := service.Start(t.Context(), StartInput{TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: "task-agent", SOP: testSOP(), CreatedBy: "user-1", IdempotencyKey: "agent-job"})
+	started, err := service.Start(t.Context(), testStartInput("task-agent", "agent-job"))
 	if err != nil {
 		t.Fatal(err)
 	}

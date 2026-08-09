@@ -23,7 +23,7 @@ func TestOperationsExecutorsProjectDeviceFactsAndHealth(t *testing.T) {
 	connect, err := service.CreateConnectSession(t.Context(), actor, project.ID, "executor-connect")
 	must(t, err)
 	capability := domain.Capability{ID: "storyboard_generation", Version: "1.0.0", Kind: "business_capability", InputSchema: "contentcloud.storyboard-input/1.0", OutputSchema: "contentcloud.storyboard/1.0", LocalOnly: true, Digest: "sha256:executor"}
-	connected, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, app.ConnectDeviceInput{DisplayName: "分镜工作站", Hostname: "storyboard.local", Platform: "darwin", Arch: "arm64", Version: "0.20.0", Capabilities: []domain.Capability{capability}})
+	connected, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, app.ConnectDeviceInput{DisplayName: "分镜工作站", Hostname: "storyboard.local", Platform: "darwin", Arch: "arm64", Version: "0.21.0", Capabilities: []domain.Capability{capability}})
 	must(t, err)
 
 	directory, err := service.OperationsExecutors(t.Context(), actor)
@@ -35,7 +35,7 @@ func TestOperationsExecutorsProjectDeviceFactsAndHealth(t *testing.T) {
 	if executor.ID != connected.Device.ID || executor.ExecutorType != "contentcloud_device" || executor.Status != "online" || executor.StatusReason != "heartbeat_recent" {
 		t.Fatalf("executor identity or health was not projected from the device: %#v", executor)
 	}
-	if executor.Hostname != "storyboard.local" || executor.Version != "0.20.0" || len(executor.Capabilities) != 1 || executor.Capabilities[0].Digest != capability.Digest {
+	if executor.Hostname != "storyboard.local" || executor.Version != "0.21.0" || len(executor.Capabilities) != 1 || executor.Capabilities[0].Digest != capability.Digest {
 		t.Fatalf("executor runtime facts are incomplete: %#v", executor)
 	}
 	if len(executor.Projects) != 1 || executor.Projects[0].ID != project.ID || executor.Projects[0].BrandName != "果木食品" || executor.Projects[0].ProductName != "品牌短片" {

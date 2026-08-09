@@ -45,20 +45,6 @@ func TestFakeHarnessIsDeterministicAndResumable(t *testing.T) {
 	}
 }
 
-func TestSelectHarnessFailsClosedAndLegacyResumeIsExplicit(t *testing.T) {
-	if _, err := SelectHarness("unknown"); err == nil {
-		t.Fatal("unknown harness unexpectedly selected")
-	}
-	harness, err := SelectHarness("codex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = harness.Resume(t.Context(), ResumeAgentRequest{Session: AgentSessionRef{HarnessKind: "codex", SessionID: domain.NewID()}})
-	if err == nil || !containsDomainCode(err, "AGENT_HARNESS_RESUME_UNSUPPORTED") {
-		t.Fatalf("legacy resume did not fail explicitly: %v", err)
-	}
-}
-
 func TestHarnessRegistryReusesAdapterAndSessionState(t *testing.T) {
 	registry := NewHarnessRegistry()
 	fake := NewFakeHarness()

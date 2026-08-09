@@ -1,8 +1,8 @@
 # 渐进迁移与交付计划
 
-状态：`目标实施计划；Studio、知识治理、资产首切片、Runtime 内核和运营 Explorer 首版已落地，接管、动态执行图和生产排期仍需 ADR/POC`。
+状态：`执行切流已完成；Studio、知识治理、资产首切片、Runtime 内核和运营 Explorer 首版已落地，生产验证与兼容 DTO 退场仍待完成`。
 
-更新时间：2026-08-07。
+更新时间：2026-08-09。
 
 ## 1. 迁移策略
 
@@ -20,7 +20,7 @@
 ```text
 价值轨
 Studio Shell -> Experience -> 灵感采集 -> 客户选择 -> 下游固定输入
-     |              使用当前线性 SOP / WorkTask / StageRun / TaskRun
+     |              使用当前线性 SOP / WorkTask / Runtime 业务投影
      |              尽早验证客户完成率和运营成本
      |
      +---------------------------------------------------+
@@ -38,7 +38,7 @@ Studio Shell -> Experience -> 灵感采集 -> 客户选择 -> 下游固定输入
 交付：
 
 - 核心对象生命周期和事实所有权矩阵。
-- WorkTask、StageRun、V7 TaskRun/RunAttempt 与 V8 JobRun/NodeRun/RuntimeAttempt 处置 ADR。
+- WorkTask、StageRun、TaskRun 只读投影与 JobRun/NodeRun/RuntimeAttempt 的处置记录。
 - Studio-first 定位和旧客户入口迁移 ADR。
 - 当前 API、表、契约、路由、投影和执行路径事实地图。
 - 基线指标、Feature Flag 和回退责任人。
@@ -96,31 +96,31 @@ Studio Shell -> Experience -> 灵感采集 -> 客户选择 -> 下游固定输入
 
 退出条件：首个切片的新行为只依赖窄模块端口；现有宽接口通过 Adapter 兼容，新增调用量为零或持续下降。
 
-### F3：Runtime 旁路内核
+### F3：Runtime 旁路内核（已完成）
 
 对应 V8 的基础工作包：JobRun、JobEvent、JobPlanRevision 和线性调度。
 
 交付：
 
 - 现有 SOP 确定性编译为不可变 JobPlanRevision。
-- 新调度器只旁路计算 ready 状态，不接管生产写入。
-- 对现有任务比较旧阶段判断、新 Node 判断、输入摘要和客户投影。
+- 新调度器先旁路计算 ready 状态，不接管生产写入。
+- 对冻结的阶段基线比较 Node 判断、输入摘要和客户投影。
 - FakeHarness 覆盖租约、失败、重放和乱序事件。
 
 退出条件：代表性内置 SOP 的旁路摘要一致；任何差异可定位；重放不产生执行或外部副作用。
 
-### F4：Runtime 分阶段接管
+### F4：Runtime 分阶段接管（执行事实已切流）
 
 顺序：
 
 1. 新 JobRun 成为一次完整执行记录。
-2. V8 NodeRun 和独立 RuntimeAttempt 接管新路径，V7 TaskRun/RunAttempt 只服务存量兼容任务。
-3. StageRun 只通过单向投影表达客户阶段，不与 NodeRun 双写权威状态。
+2. NodeRun 和独立 RuntimeAttempt 成为唯一执行事实；V7 执行表、RunAttempt 和 daemon 命令链已删除。
+3. StageRun 和 TaskRun 只通过单向投影表达业务阶段与运行摘要，不拥有租约或终态。
 4. 状态、ContextView、预算和 Effect 台账上线。
 5. 先对试点租户、单一低风险能力切流。
 6. 观测完整窗口后扩大能力和租户。
 
-退出条件：旧权威路径可一键恢复；新旧状态持续对账；中断、重复、外部 unknown 和人工 Gate 故障测试通过。
+退出条件：所有执行读取和写入只使用 Runtime；中断、重复、外部 unknown 和人工 Gate 故障测试通过。回退只允许停止新准入并前向修复 Runtime，不恢复旧权威路径。
 
 ### F5：运营产品化
 
@@ -144,14 +144,14 @@ draft -> linted -> preview -> canary -> published -> deprecated -> retired
 
 退出条件：第二业务流不增加专用调度表和内容类型分支；容量、安全和恢复门禁通过。
 
-### F7：兼容清理与基线完成
+### F7：兼容清理与基线完成（执行链清理已完成）
 
-- 停止旧 StageRun/TaskRun 权威写入或按 ADR 保留其最终角色。
-- 删除已达到退场门槛的 Adapter、双读和兼容路由。
-- 完成目标模块物理迁移，拆除全局 Store/Service 中已迁移接口。
+- 保持 StageRun/TaskRun 为只读业务投影，下一版公开 API 统一 Runtime 术语后删除兼容 DTO。
+- V7 执行 Adapter、双读、写路由、Store 和物理表已删除；继续清理其他达到门槛的兼容面。
+- 继续按模块拆除全局 Store/Service 中已迁移接口。
 - 更新对外文档、架构图、运行手册和能力登记。
 
-退出条件：零活跃旧绑定、历史可读、回退演练通过、兼容指标为零且代码搜索无新依赖。
+退出条件：公开运行 API 不再暴露 TaskRun 兼容命名，代码搜索无 V7 执行依赖，生产故障与回退演练通过。
 
 ### 3.1 运营控制面专项阶段
 
@@ -225,7 +225,8 @@ FND-01 可以与 Runtime 基础并行，但只能使用已冻结契约，不能�
 | --- | --- | --- | --- | --- |
 | `WorkTask` | `current` | 保持业务语义，增加体验和 Job 引用 | Work | 不吸收 Runtime 节点状态 |
 | `StageRun` | `compat` | 收敛为客户阶段投影 | Work projection / Runtime adapter | Node 投影等价并停止旧权威写入 |
-| `TaskRun` / `RunAttempt` | `compat` | 只服务 V7 线性执行历史与存量任务 | Runtime | V8 切流、活跃旧任务归零且历史可读 |
+| `TaskRun` | `compat` | 仅保留 Runtime 只读业务 DTO，不对应执行表 | Experience / Runtime projection | 下一版公开 API 统一 Runtime 术语 |
+| `RunAttempt` | `dead` | 表、领域对象、Store 和 API 已删除 | Runtime | 禁止恢复；历史仅保留在迁移 evidence |
 | `JobRun` / `NodeRun` / `RuntimeAttempt` | `current` | 继续完善 V8 执行、租约和恢复 | Runtime | 生产门禁通过；不与 V7 执行状态双写 |
 | `SOPVersion` / Stage / Gate | `current` | 增量扩展并由编译器直接消费 | Catalog | 不创建平行业务流水线定义 |
 | `Capability` / catalog | `current` | 统一数据分类、副作用和执行模式 | Catalog | 发布和准入使用同一版本化契约 |
@@ -251,49 +252,49 @@ FND-01 可以与 Runtime 基础并行，但只能使用已冻结契约，不能�
 
 ## 8. Feature Flag 与权威切换
 
-具体名称由实现确定，但必须覆盖五个独立维度：
+Runtime 执行事实已经切流，不再用 Feature Flag 在新旧执行模型之间切换。剩余开关只允许控制增量能力和产品发布范围：
 
 - Studio 场景是否可见和可创建。
-- 新计划编译是否只旁路、双读或权威。
-- 新 Runtime 是否接管调度写入。
-- 新客户/运营投影是否权威展示。
+- 动态图、真实 Provider/SDK 和实验性执行器是否准入。
+- 新客户/运营投影是否可见；投影关闭不改变 Runtime 权威写入。
 - 创作资产目录是否旁路构建、客户可见和允许创建新任务引用。
 
-禁止用一个全局开关同时切换 UI、数据库写入、调度和投影。回退需要可以单独恢复旧权威路径，而不隐藏已经产生的新历史。
+禁止用开关恢复 V7 表、命令或调度写入，也禁止用一个全局开关同时切换 UI、数据库写入、调度和投影。回退只能停止新准入、关闭增量能力或切换读投影版本，不能隐藏已经产生的 Runtime 历史。
 
 ## 9. 迁移数据流
 
 ```text
-旧权威写入
-  -> compat event/ref
-  -> 新模型 shadow apply
+Runtime 权威写入
+  -> JobEvent + runtime_outbox
+  -> current projector
+  -> TaskRun / RunProgressEvent compat DTO（仍有公开调用时）
+  -> 客户与运营读模型
+
+剩余产品面迁移
+  -> 新读模型 shadow rebuild
   -> digest comparison
        ├── equal -> metric success
        └── diff  -> alert + sample + block cohort expansion
-
-切流后
-新权威写入
-  -> legacy compatibility projection when required
-  -> old reader comparison
 ```
 
-双写只在无法用事件或投影桥接时使用，并且需要原子性、失败补偿和明确窗口。
+Runtime 状态禁止双写。其他业务域若无法用事件或投影桥接，必须通过 ADR 定义原子性、失败补偿和明确窗口。
 
 ## 10. 回退顺序
 
 ```text
 发现异常
   -> 停止扩大 cohort
+  -> 停止新 JobRun 准入或关闭增量能力
   -> 暂停危险外部 Effect
-  -> 确认新旧写入和投影游标
-  -> 切回旧权威调度/投影 Flag
-  -> 保留新历史，不删除
-  -> 对账进行中任务和外部结果
+  -> 确认 Runtime 事件、outbox 和投影游标
+  -> 切换到已兼容当前 Runtime schema 的服务或投影版本
+  -> 保留 Runtime 历史，不删除
+  -> 对账运行中节点和外部结果
   -> 验证客户下一动作
   -> 复盘后重新 Canary
 ```
 
-数据库破坏性清理与切流分开发版，所以回退不依赖逆向删除迁移。
+`00034` 已删除 V7 执行表，因此回退不依赖逆向删除迁移，也不允许重建旧执行链。数据库变更必须保持前向兼容读取，事故恢复采用停止准入、排空、暂停和前向修复。
 
 ## 11. 里程碑与退出条件
 
@@ -305,10 +306,10 @@ FND-01 可以与 Runtime 基础并行，但只能使用已冻结契约，不能�
 | M1B 资料工作区 | FND-01B | 上传/导入、文件夹、资料处理和加入创作闭环通过 |
 | M2 模块边界 | FND-02/03 | 新代码不扩大旧宽接口，契约测试通过 |
 | M3 Shadow Runtime | FND-04 | SOP 旁路编译和投影摘要一致 |
-| M4 Runtime 接管 | FND-05/06 | 线性切流、Effect、恢复、回退通过 |
+| M4 Runtime 接管 | FND-05/06 | 线性切流、Effect、恢复和前向修复通过 |
 | M5 运营产品化 | FND-07 | 发布、Canary、租户启用和回退演练通过 |
 | M6 通用性 | FND-08/09 | 第二业务流和受限动态图通过 |
-| M7 基线完成 | FND-10 | 旧权威路径退场、目录收敛、历史可读 |
+| M7 基线完成 | FND-10 | V7 执行链保持 dead、兼容 DTO 退场、目录收敛、Runtime 历史可读 |
 
 ## 12. 风险登记
 

@@ -73,7 +73,7 @@ export function AdminProductDetailPage() {
       <div className="operations-product-summary-lead"><span className="operations-object-icon production"><FolderKanban size={18}/></span><span><small>当前维护版本</small><strong>{selected?`v${selected.version}`:'尚未创建版本'}</strong></span>{selected&&<Status value={selected.status}/>}</div>
       <div className="operations-product-facts"><span><small>当前发布</small><strong>{current?`v${current.version}`:'尚未发布'}</strong></span><span><small>编辑中</small><strong>{draft?`v${draft.version}`:'没有草稿'}</strong></span><span><small>开通客户</small><strong>{customerCount}</strong></span><span><small>能力覆盖</small><strong>{requiredCapabilities.size===0?'未声明':`${coveredCapabilities}/${requiredCapabilities.size}`}</strong></span></div>
     </section>
-    <AdminSOPPanel key={product.definition.id} sops={[product]} initialSOPID={product.definition.id} initialVersion={selectedVersion} scoped onChanged={()=>refresh(true)} onPublished={(id,version)=>navigate(adminReleaseResultPath(id,version))} onSelectionChange={(id,version)=>navigate(adminProductVersionPath(id,version))}/>
+    <AdminSOPPanel key={product.definition.id} sops={[product]} environments={workOS.environments} initialSOPID={product.definition.id} initialVersion={selectedVersion} scoped onChanged={()=>refresh(true)} onPublished={(id,version)=>navigate(adminReleaseResultPath(id,version))} onSelectionChange={(id,version)=>navigate(adminProductVersionPath(id,version))}/>
   </div>;
 }
 

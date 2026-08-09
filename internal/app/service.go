@@ -28,7 +28,6 @@ type Service struct {
 	environmentControl  *environment.ControlPlane
 	automationPolicy    map[string]environment.CapabilityRequirement
 	automationPackIDs   map[string][]string
-	daemonVersions      daemonVersionPolicy
 	runtimeService      *contentruntime.Service
 	runtimeHarnesses    *agentadapter.HarnessRegistry
 }
@@ -239,7 +238,7 @@ func (s *Service) Dashboard(ctx context.Context, actor Actor) (Dashboard, error)
 	if err != nil {
 		return Dashboard{}, err
 	}
-	runs, _ := s.store.Runs(ctx, actor.TenantID, "")
+	runs, _ := s.taskRunsForTenant(ctx, actor.TenantID)
 	if len(runs) > 8 {
 		runs = runs[:8]
 	}
@@ -402,135 +401,38 @@ func (s *Service) Approvals(ctx context.Context, actor Actor, subjectID string) 
 }
 
 func (s *Service) Runs(ctx context.Context, actor Actor, projectID string) ([]domain.TaskRun, error) {
-	return s.store.Runs(ctx, actor.TenantID, projectID)
+	return s.taskRunsForProject(ctx, actor.TenantID, projectID)
 }
 func (s *Service) Run(ctx context.Context, actor Actor, id string) (domain.TaskRun, error) {
-	return s.store.Run(ctx, actor.TenantID, id)
-}
-
-type Lease struct {
-	Run             domain.TaskRun                       `json:"run"`
-	Attempt         domain.RunAttempt                    `json:"attempt"`
-	Contract        domain.TaskContract                  `json:"contract"`
-	ExecutionBundle *environment.CreativeExecutionBundle `json:"execution_bundle,omitempty"`
-	LeaseExpiresAt  time.Time                            `json:"lease_expires_at"`
-	RunToken        string                               `json:"run_token"`
-}
-
-func (s *Service) Poll(ctx context.Context, actor Actor, device domain.Device, caps []domain.Capability) (Lease, error) {
-	return s.PollWithRuntime(ctx, actor, device, caps, nil, "")
-}
-
-func (s *Service) PollWithEnvironment(ctx context.Context, actor Actor, device domain.Device, caps []domain.Capability, claims []AutomationEnvironmentClaim) (Lease, error) {
-	return s.PollWithRuntime(ctx, actor, device, caps, claims, "")
-}
-
-func (s *Service) PollWithRuntime(ctx context.Context, actor Actor, device domain.Device, caps []domain.Capability, claims []AutomationEnvironmentClaim, daemonVersion string) (Lease, error) {
-	now := s.now().UTC()
-	device.LastSeenAt = now
-	device.Capabilities = caps
-	if daemonVersion = strings.TrimSpace(daemonVersion); daemonVersion != "" {
-		device.Version = daemonVersion
+	if job, ok, err := s.runtimeJob(ctx, actor.TenantID, id); err != nil {
+		return domain.TaskRun{}, err
+	} else if ok {
+		return s.projectRuntimeJob(ctx, job)
 	}
-	_ = s.store.SaveDevice(ctx, device)
-	if err := s.store.ExpireRunAttempts(ctx, actor.TenantID, now); err != nil {
-		return Lease{}, err
-	}
-	eligible, bundles, snapshots, err := s.automationLeaseCandidates(ctx, actor, caps, claims, now)
-	if err != nil {
-		return Lease{}, err
-	}
-	runToken, runTokenHash, err := domain.NewOpaqueToken("rt_", 32)
-	if err != nil {
-		return Lease{}, err
-	}
-	run, attempt, err := s.store.LeaseNextRun(ctx, actor.TenantID, device.ID, eligible, domain.NewID(), runTokenHash, now)
-	if err != nil {
-		return Lease{}, err
-	}
-	snapshot, ok := snapshots[run.ID]
-	if !ok {
-		snapshot, err = s.store.Snapshot(ctx, actor.TenantID, run.InputSnapshotID)
-		if err != nil {
-			return Lease{}, err
-		}
-	}
-	project, _ := s.store.Project(ctx, actor.TenantID, run.ProjectID)
-	capability := domain.Capability{ID: attempt.CapabilityID, Version: attempt.CapabilityVersion, Kind: "business_capability", InputSchema: attempt.InputSchema, OutputSchema: attempt.OutputSchema, Digest: attempt.CapabilityDigest, LocalOnly: true}
-	contract := domain.TaskContract{ContractVersion: "1.0", ContractID: snapshot.ID, RunID: run.ID, TaskType: run.TaskType, Project: project, Sources: snapshot.Sources, InputSnapshotID: snapshot.ID, OutputSchema: run.OutputSchema, Capability: capability, ManifestHash: snapshot.ManifestHash}
-	lease := Lease{Run: run, Attempt: attempt, Contract: contract, LeaseExpiresAt: *run.LeaseExpiresAt, RunToken: runToken}
-	if bundle, exists := bundles[run.ID]; exists {
-		bundleCopy := bundle
-		lease.ExecutionBundle = &bundleCopy
-	}
-	return lease, nil
-}
-
-func (s *Service) HeartbeatRun(ctx context.Context, actor Actor, device domain.Device, runID, attemptID, runToken string, heartbeat domain.RunHeartbeat, requestID string) (domain.TaskRun, error) {
-	run, err := s.store.Run(ctx, actor.TenantID, runID)
-	if err != nil {
-		return run, err
-	}
-	now := s.now().UTC()
-	attempt, err := s.activeRunAttempt(ctx, actor, device, run, attemptID, runToken, now)
-	if err != nil {
-		return run, err
-	}
-	if heartbeat.Sequence <= run.HeartbeatSequence {
-		return run, domain.Conflict("HEARTBEAT_SEQUENCE_INVALID", "心跳序号必须单调递增")
-	}
-	if strings.TrimSpace(heartbeat.Phase) == "" || strings.TrimSpace(heartbeat.Label) == "" || heartbeat.Step < 0 {
-		return run, domain.Invalid("HEARTBEAT_PROGRESS_INVALID", "心跳必须包含流程阶段（phase）、非负步骤序号（step）和可展示文案（label）")
-	}
-	run.HeartbeatSequence = heartbeat.Sequence
-	run.State = "running"
-	run.ProgressLabel = heartbeat.Label
-	leaseUntil := now.Add(5 * time.Minute)
-	run.LeaseExpiresAt = &leaseUntil
-	run.UpdatedAt = now
-	attempt.State = "running"
-	attempt.HeartbeatAt = &now
-	attempt.LeaseExpiresAt = leaseUntil
-	if attempt.StartedAt == nil {
-		attempt.StartedAt = &now
-	}
-	if err := s.store.SaveRunAttempt(ctx, attempt); err != nil {
-		return run, err
-	}
-	if err := s.store.SaveRun(ctx, run); err != nil {
-		return run, err
-	}
-	if _, progressErr := s.store.AppendRunProgress(ctx, domain.RunProgressEvent{TenantID: actor.TenantID, ProjectID: run.ProjectID, RunID: run.ID, AttemptID: attempt.ID, DeviceID: device.ID, Sequence: heartbeat.Sequence, Phase: strings.TrimSpace(heartbeat.Phase), Step: heartbeat.Step, Label: strings.TrimSpace(heartbeat.Label), OccurredAt: now}); progressErr != nil {
-		s.log.Warn("append run progress", "run_id", run.ID, "attempt_id", attempt.ID, "error", progressErr)
-	}
-	return run, nil
+	return domain.TaskRun{}, domain.NotFound("Runtime JobRun")
 }
 
 func (s *Service) CancelRun(ctx context.Context, actor Actor, runID, requestID string) (domain.TaskRun, error) {
 	if err := requireRole(actor, "tenant_admin", "project_manager", "editor"); err != nil {
 		return domain.TaskRun{}, err
 	}
-	run, err := s.store.Run(ctx, actor.TenantID, runID)
-	if err != nil {
-		return run, err
+	if job, ok, err := s.runtimeJob(ctx, actor.TenantID, runID); err != nil {
+		return domain.TaskRun{}, err
+	} else if ok {
+		if _, err := s.runtimeService.Cancel(ctx, actor.TenantID, job.ID, "user", actor.UserID); err != nil {
+			return domain.TaskRun{}, err
+		}
+		runs, err := s.runtimeTaskRunProjection(ctx, actor.TenantID, job.WorkTaskID)
+		if err != nil {
+			return domain.TaskRun{}, err
+		}
+		if len(runs) == 0 {
+			return domain.TaskRun{}, domain.NotFound("Runtime JobRun 投影")
+		}
+		s.audit(ctx, actor, job.ProjectID, "runtime.cancelled", "job_run", job.ID, requestID, map[string]any{})
+		return runs[0], nil
 	}
-	if run.State == "succeeded" || run.State == "failed" || run.State == "canceled" {
-		return run, domain.Conflict("RUN_TERMINAL", "终态任务不能取消")
-	}
-	now := s.now().UTC()
-	if run.State == "queued" {
-		run.State = "canceled"
-		run.ProgressLabel = "已取消"
-	} else {
-		run.CancelRequestedAt = &now
-		run.ProgressLabel = "等待客户端取消"
-	}
-	run.UpdatedAt = now
-	if err := s.store.SaveRun(ctx, run); err != nil {
-		return run, err
-	}
-	s.audit(ctx, actor, run.ProjectID, "run.cancel_requested", "task_run", run.ID, requestID, map[string]any{"state": run.State})
-	return run, nil
+	return domain.TaskRun{}, domain.NotFound("Runtime JobRun")
 }
 
 func (s *Service) Audit(ctx context.Context, actor Actor, projectID string, limit int) ([]domain.AuditEvent, error) {

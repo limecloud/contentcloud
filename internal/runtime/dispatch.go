@@ -2,9 +2,12 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,15 +34,17 @@ type DispatchInput struct {
 	RemainingDescendants int
 	LeaseFor             time.Duration
 	ContextTTL           time.Duration
+	ResourceRequests     []domain.ResourceRequest
 }
 
 type DispatchHandle struct {
-	Node         domain.NodeRun                   `json:"node"`
-	Attempt      domain.RuntimeAttempt            `json:"attempt"`
-	ContextView  domain.ContextView               `json:"context_view"`
-	Agent        domain.AgentInstance             `json:"agent"`
-	Capabilities agentadapter.HarnessCapabilities `json:"capabilities"`
-	LeaseFor     time.Duration                    `json:"-"`
+	Node          domain.NodeRun                   `json:"node"`
+	Attempt       domain.RuntimeAttempt            `json:"attempt"`
+	ContextView   domain.ContextView               `json:"context_view"`
+	Agent         domain.AgentInstance             `json:"agent"`
+	Capabilities  agentadapter.HarnessCapabilities `json:"capabilities"`
+	ResumeSession *agentadapter.AgentSessionRef    `json:"-"`
+	LeaseFor      time.Duration                    `json:"-"`
 }
 
 type DispatchOutcome struct {
@@ -70,6 +75,47 @@ func (s *Service) Attempt(ctx context.Context, tenantID, id string) (domain.Runt
 
 func (s *Service) Attempts(ctx context.Context, tenantID, jobID string) ([]domain.RuntimeAttempt, error) {
 	return s.repo.RuntimeAttempts(ctx, tenantID, jobID)
+}
+
+// LoadDispatchHandle rebuilds the worker-side handle from authoritative
+// Runtime rows. Remote workers must send only the attempt id and fence token;
+// they cannot smuggle versions or lease owners from a stale local copy.
+func (s *Service) LoadDispatchHandle(ctx context.Context, tenantID, attemptID string) (DispatchHandle, error) {
+	if s == nil || s.repo == nil {
+		return DispatchHandle{}, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+	}
+	attempt, err := s.repo.RuntimeAttempt(ctx, tenantID, attemptID)
+	if err != nil {
+		return DispatchHandle{}, err
+	}
+	node, err := s.repo.NodeRun(ctx, tenantID, attempt.NodeRunID)
+	if err != nil {
+		return DispatchHandle{}, err
+	}
+	view, err := s.repo.ContextView(ctx, tenantID, attempt.ContextViewID)
+	if err != nil {
+		return DispatchHandle{}, err
+	}
+	agent, err := s.repo.AgentInstance(ctx, tenantID, attempt.AgentInstanceID)
+	if err != nil {
+		return DispatchHandle{}, err
+	}
+	capabilities := agentadapter.HarnessCapabilities{Kind: attempt.HarnessKind, Events: true, StructuredOutput: true}
+	if s.harnesses != nil {
+		_, detected, resolveErr := s.harnesses.Resolve(ctx, attempt.HarnessKind)
+		if resolveErr != nil {
+			return DispatchHandle{}, resolveErr
+		}
+		capabilities = detected
+	}
+	var resumeSession *agentadapter.AgentSessionRef
+	if attempt.SessionRef != "" && capabilities.Resume {
+		var session agentadapter.AgentSessionRef
+		if json.Unmarshal([]byte(attempt.SessionRef), &session) == nil && session.SessionID != "" && session.HarnessKind == attempt.HarnessKind {
+			resumeSession = &session
+		}
+	}
+	return DispatchHandle{Node: node, Attempt: attempt, ContextView: view, Agent: agent, Capabilities: capabilities, ResumeSession: resumeSession, LeaseFor: DefaultNodeLeaseDuration}, nil
 }
 
 // PrepareDispatch is phase one of the dispatch protocol. No external harness
@@ -126,13 +172,40 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 	if input.ContextTTL < input.LeaseFor {
 		input.ContextTTL = input.LeaseFor
 	}
-	node, err := s.repo.NextReadyNode(ctx, input.TenantID, input.JobRunID)
+	var job domain.JobRun
+	var node domain.NodeRun
+	var err error
+	if input.JobRunID == "" {
+		node, err = s.repo.NextReadyNode(ctx, input.TenantID, "")
+		if err != nil {
+			return DispatchHandle{}, err
+		}
+		job, err = s.repo.JobRun(ctx, input.TenantID, node.JobRunID)
+	} else {
+		job, err = s.repo.JobRun(ctx, input.TenantID, input.JobRunID)
+	}
 	if err != nil {
 		return DispatchHandle{}, err
+	}
+	if job.State == domain.JobRunPaused {
+		return DispatchHandle{}, domain.Conflict("JOB_RUN_PAUSED", "执行实例已暂停，不能领取新的执行节点")
+	}
+	if job.State == domain.JobRunCompleted || job.State == domain.JobRunFailed || job.State == domain.JobRunCancelled || job.State == domain.JobRunRejected {
+		return DispatchHandle{}, domain.Conflict("JOB_RUN_TERMINAL", "执行实例已经结束，不能领取新的执行节点")
+	}
+	if node.ID == "" {
+		node, err = s.repo.NextReadyNode(ctx, input.TenantID, input.JobRunID)
+		if err != nil {
+			return DispatchHandle{}, err
+		}
 	}
 	now := s.now().UTC()
 	expires := now.Add(input.LeaseFor)
 	attemptID := domain.NewID()
+	fenceToken, _, tokenErr := domain.NewOpaqueToken("rtf_", 24)
+	if tokenErr != nil {
+		return DispatchHandle{}, tokenErr
+	}
 	view, err := BuildContextView(ContextViewInput{
 		TenantID: input.TenantID, JobRunID: node.JobRunID, NodeRunID: node.ID, AttemptID: attemptID,
 		InputRefs: input.InputRefs, StateRefs: input.StateRefs, EventRefs: input.EventRefs, AllowedTools: input.AllowedTools,
@@ -147,6 +220,7 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 		return DispatchHandle{}, agentErr
 	}
 	expectedAgentVersion := 0
+	var resumeSession *agentadapter.AgentSessionRef
 	if createAgent {
 		agent = domain.AgentInstance{
 			ID: domain.NewID(), TenantID: input.TenantID, JobRunID: node.JobRunID, NodeRunID: node.ID,
@@ -159,8 +233,17 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 			return DispatchHandle{}, domain.Conflict("AGENT_INSTANCE_NOT_REUSABLE", "节点 AgentInstance 尚未让出执行权或执行配置发生变化")
 		}
 		expectedAgentVersion = agent.Version
+		if strings.TrimSpace(agent.SessionRef) != "" && capabilities.Resume {
+			var session agentadapter.AgentSessionRef
+			if err := json.Unmarshal([]byte(agent.SessionRef), &session); err != nil || session.SessionID == "" || session.HarnessKind != input.HarnessKind {
+				return DispatchHandle{}, domain.Conflict("AGENT_SESSION_REF_INVALID", "可恢复 AgentInstance 的会话引用无效")
+			}
+			resumeSession = &session
+		}
 		agent.ContextViewID = view.ID
-		agent.SessionRef = ""
+		if resumeSession == nil {
+			agent.SessionRef = ""
+		}
 		agent.Version++
 		agent.UpdatedAt = now
 	}
@@ -169,7 +252,7 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 		ID: attemptID, TenantID: input.TenantID, JobRunID: node.JobRunID, NodeRunID: node.ID,
 		AgentInstanceID: agent.ID, ContextViewID: view.ID, AttemptNo: node.AttemptCount + 1,
 		HarnessKind: input.HarnessKind, Capabilities: capabilitySnapshot, State: domain.RuntimeAttemptPrepared,
-		LeaseOwner: input.Owner, LeaseExpiresAt: &expires, OutputRefs: []string{}, SafeSummary: map[string]any{},
+		LeaseOwner: input.Owner, FenceToken: fenceToken, LeaseExpiresAt: &expires, OutputRefs: []string{}, SafeSummary: map[string]any{},
 		Version: 1, CreatedAt: now, UpdatedAt: now,
 	}
 	expectedNodeVersion := node.Version
@@ -179,6 +262,7 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 	node.State = domain.NodeLeased
 	node.AttemptCount++
 	node.LeaseOwner = input.Owner
+	node.FenceToken = fenceToken
 	node.LeaseExpiresAt = &expires
 	node.Version++
 	node.UpdatedAt = now
@@ -186,13 +270,24 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 		ID: domain.NewID(), TenantID: input.TenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey,
 		Type: "attempt.prepared", ActorType: "scheduler", ActorID: input.Owner,
 		IdempotencyKey: attempt.ID + ":prepared",
-		Payload:        map[string]any{"attempt_id": attempt.ID, "attempt_no": attempt.AttemptNo, "harness_kind": attempt.HarnessKind, "context_digest": view.Digest}, OccurredAt: now,
+		Payload:        map[string]any{"attempt_id": attempt.ID, "attempt_no": attempt.AttemptNo, "harness_kind": attempt.HarnessKind, "context_digest": view.Digest, "reservation_count": len(input.ResourceRequests)}, OccurredAt: now,
 	}
-	node, attempt, agent, err = s.repo.PrepareDispatch(ctx, node, expectedNodeVersion, attempt, view, agent, createAgent, expectedAgentVersion, event)
+	reservations := make([]domain.ResourceReservation, 0, len(input.ResourceRequests))
+	for index, request := range input.ResourceRequests {
+		if strings.TrimSpace(request.ResourceKey) == "" || request.Quantity <= 0 || strings.TrimSpace(request.Unit) == "" {
+			return DispatchHandle{}, domain.Invalid("RESOURCE_REQUEST_INVALID", "资源请求缺少资源键、正数数量或单位")
+		}
+		reservations = append(reservations, domain.ResourceReservation{
+			ID: domain.NewID(), TenantID: input.TenantID, JobRunID: node.JobRunID, NodeRunID: node.ID, AttemptID: attempt.ID,
+			ResourceKey: request.ResourceKey, Quantity: request.Quantity, Unit: request.Unit, State: domain.ReservationHeld,
+			FenceToken: fenceToken, IdempotencyKey: attempt.ID + ":resource:" + strconv.Itoa(index), ExpiresAt: &expires, CreatedAt: now, UpdatedAt: now,
+		})
+	}
+	node, attempt, agent, err = s.repo.PrepareDispatch(ctx, node, expectedNodeVersion, attempt, view, agent, createAgent, expectedAgentVersion, reservations, event)
 	if err != nil {
 		return DispatchHandle{}, err
 	}
-	return DispatchHandle{Node: node, Attempt: attempt, ContextView: view, Agent: agent, Capabilities: capabilities, LeaseFor: input.LeaseFor}, nil
+	return DispatchHandle{Node: node, Attempt: attempt, ContextView: view, Agent: agent, Capabilities: capabilities, ResumeSession: resumeSession, LeaseFor: input.LeaseFor}, nil
 }
 
 func (s *Service) ActivateDispatch(ctx context.Context, handle DispatchHandle, session agentadapter.AgentSessionRef) (DispatchHandle, error) {
@@ -240,7 +335,7 @@ func (s *Service) ActivateDispatch(ctx context.Context, handle DispatchHandle, s
 }
 
 func (s *Service) HeartbeatDispatch(ctx context.Context, handle DispatchHandle) (DispatchHandle, error) {
-	node, attempt, err := s.repo.HeartbeatDispatch(ctx, handle.Attempt.TenantID, handle.Attempt.ID, handle.Attempt.LeaseOwner, handle.Node.Version, handle.Attempt.Version, s.now().UTC(), handle.LeaseFor)
+	node, attempt, err := s.repo.HeartbeatDispatch(ctx, handle.Attempt.TenantID, handle.Attempt.ID, handle.Attempt.LeaseOwner, handle.Attempt.FenceToken, handle.Node.Version, handle.Attempt.Version, s.now().UTC(), handle.LeaseFor)
 	if err != nil {
 		return handle, err
 	}
@@ -331,6 +426,7 @@ func (s *Service) FinalizeDispatch(ctx context.Context, handle DispatchHandle, o
 	if err := agent.Transition(agentState); err != nil {
 		return DispatchResult{Handle: handle}, err
 	}
+	fenceToken := attempt.FenceToken
 	node.State = nodeState
 	node.OutputRefs = append([]string(nil), outcome.OutputRefs...)
 	node.OutputDigest = strings.TrimSpace(outcome.OutputDigest)
@@ -339,6 +435,7 @@ func (s *Service) FinalizeDispatch(ctx context.Context, handle DispatchHandle, o
 	}
 	node.ErrorCode = strings.TrimSpace(outcome.ErrorCode)
 	node.LeaseOwner = ""
+	node.FenceToken = ""
 	node.LeaseExpiresAt = nil
 	node.Version++
 	node.UpdatedAt = now
@@ -348,22 +445,33 @@ func (s *Service) FinalizeDispatch(ctx context.Context, handle DispatchHandle, o
 	attempt.SafeSummary = outcome.SafeSummary
 	attempt.ErrorCode = strings.TrimSpace(outcome.ErrorCode)
 	attempt.LeaseOwner = ""
+	attempt.FenceToken = ""
 	attempt.LeaseExpiresAt = nil
 	attempt.FinishedAt = &now
 	attempt.Version++
 	attempt.UpdatedAt = now
 	agent.State = agentState
 	agent.UsedCostMinor = outcome.UsedCostMinor
+	if outcome.State != domain.RuntimeAttemptSucceeded {
+		agent.SessionRef = ""
+	}
 	agent.Version++
 	agent.UpdatedAt = now
-	event := domain.JobEvent{ID: domain.NewID(), TenantID: node.TenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey, Type: "attempt." + outcome.State, ActorType: "worker", ActorID: handle.Attempt.LeaseOwner, IdempotencyKey: attempt.ID + ":terminal:" + outcome.ResultDigest, Payload: map[string]any{"attempt_id": attempt.ID, "result_digest": outcome.ResultDigest, "output_count": len(outcome.OutputRefs), "error_code": attempt.ErrorCode}, OccurredAt: now}
-	node, attempt, agent, err := s.repo.FinalizeDispatch(ctx, node, expectedNodeVersion, attempt, expectedAttemptVersion, agent, expectedAgentVersion, event)
+	event := domain.JobEvent{ID: domain.NewID(), TenantID: node.TenantID, JobRunID: node.JobRunID, NodeKey: node.NodeKey, Type: "attempt." + outcome.State, ActorType: "worker", ActorID: handle.Attempt.LeaseOwner, IdempotencyKey: attempt.ID + ":terminal:" + outcome.ResultDigest, Payload: map[string]any{"attempt_id": attempt.ID, "result_digest": outcome.ResultDigest, "fence_digest": FenceTokenDigest(fenceToken), "output_count": len(outcome.OutputRefs), "error_code": attempt.ErrorCode}, OccurredAt: now}
+	node, attempt, agent, err := s.repo.FinalizeDispatch(ctx, node, expectedNodeVersion, attempt, expectedAttemptVersion, agent, expectedAgentVersion, fenceToken, event)
 	if err != nil {
 		return DispatchResult{Handle: handle}, err
 	}
 	handle.Node, handle.Attempt, handle.Agent = node, attempt, agent
 	job, err := s.Refresh(ctx, node.TenantID, node.JobRunID)
 	return DispatchResult{Handle: handle, Job: job}, err
+}
+
+// FenceTokenDigest lets transports authenticate an idempotent terminal retry
+// after the active lease fields have been cleared.
+func FenceTokenDigest(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return "sha256:" + fmt.Sprintf("%x", digest)
 }
 
 // DispatchNext executes the full protocol for one ready node. Harness calls are
@@ -381,9 +489,18 @@ func (s *Service) DispatchNext(ctx context.Context, input DispatchInput) (Dispat
 	if err != nil {
 		return DispatchResult{}, err
 	}
-	session, stream, err := harness.Start(ctx, agentadapter.StartAgentRequest{JobRunID: handle.Node.JobRunID, NodeRunID: handle.Node.ID, AttemptID: handle.Attempt.ID, Workspace: input.Workspace, Prompt: input.Prompt, OutputSchema: input.OutputSchema, ContextDigest: handle.ContextView.Digest})
+	var session agentadapter.AgentSessionRef
+	var stream agentadapter.EventStream
+	sessionFailureCode := "HARNESS_START_FAILED"
+	if handle.ResumeSession != nil {
+		sessionFailureCode = "HARNESS_RESUME_FAILED"
+		session = *handle.ResumeSession
+		stream, err = harness.Resume(ctx, agentadapter.ResumeAgentRequest{TenantID: input.TenantID, Session: session, Workspace: input.Workspace, Prompt: input.Prompt, OutputSchema: input.OutputSchema, ContextDigest: handle.ContextView.Digest})
+	} else {
+		session, stream, err = harness.Start(ctx, agentadapter.StartAgentRequest{TenantID: input.TenantID, JobRunID: handle.Node.JobRunID, NodeRunID: handle.Node.ID, AttemptID: handle.Attempt.ID, Workspace: input.Workspace, Prompt: input.Prompt, OutputSchema: input.OutputSchema, ContextDigest: handle.ContextView.Digest})
+	}
 	if err != nil {
-		return s.FinalizeDispatch(ctx, handle, DispatchOutcome{State: domain.RuntimeAttemptRetryableFailed, ErrorCode: errorCode(err, "HARNESS_START_FAILED"), UsedCostMinor: handle.Agent.UsedCostMinor})
+		return s.FinalizeDispatch(ctx, handle, DispatchOutcome{State: domain.RuntimeAttemptRetryableFailed, ErrorCode: errorCode(err, sessionFailureCode), UsedCostMinor: handle.Agent.UsedCostMinor})
 	}
 	if stream == nil {
 		return s.FinalizeDispatch(ctx, handle, DispatchOutcome{State: domain.RuntimeAttemptRetryableFailed, ErrorCode: "HARNESS_STREAM_MISSING", UsedCostMinor: handle.Agent.UsedCostMinor})
@@ -438,6 +555,21 @@ func (s *Service) DispatchNext(ctx context.Context, input DispatchInput) (Dispat
 				return s.FinalizeDispatch(ctx, handle, DispatchOutcome{State: domain.RuntimeAttemptRetryableFailed, ErrorCode: safeErrorCode(event.ErrorCode, "HARNESS_SESSION_FAILED"), UsedCostMinor: handle.Agent.UsedCostMinor})
 			case "session.interrupted":
 				return s.FinalizeDispatch(ctx, handle, DispatchOutcome{State: domain.RuntimeAttemptRetryableFailed, ErrorCode: "HARNESS_SESSION_INTERRUPTED", UsedCostMinor: handle.Agent.UsedCostMinor})
+			case "runtime.yield":
+				var request struct {
+					Reason        string         `json:"reason"`
+					WaitRefs      []string       `json:"wait_refs"`
+					SafeSummary   map[string]any `json:"safe_summary"`
+					UsedCostMinor int64          `json:"used_cost_minor"`
+				}
+				if len(event.Data) == 0 || json.Unmarshal(event.Data, &request) != nil {
+					return s.FinalizeDispatch(ctx, handle, DispatchOutcome{State: domain.RuntimeAttemptRetryableFailed, ErrorCode: "HARNESS_YIELD_INVALID", UsedCostMinor: handle.Agent.UsedCostMinor})
+				}
+				yielded, yieldErr := s.YieldDispatch(ctx, handle, YieldDispatchInput{Reason: request.Reason, WaitRefs: request.WaitRefs, SafeSummary: request.SafeSummary, UsedCostMinor: request.UsedCostMinor})
+				if yieldErr != nil {
+					return DispatchResult{Handle: handle}, yieldErr
+				}
+				return DispatchResult{Handle: yielded.Handle, Job: yielded.Job}, nil
 			default:
 				if err := s.recordHarnessEvent(ctx, handle, event); err != nil {
 					return DispatchResult{Handle: handle}, err

@@ -13,12 +13,21 @@ func (s *Store) NextReadyNode(_ context.Context, tenantID, jobID string) (domain
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var selected domain.NodeRun
+	selectedScore := int64(-1)
+	now := time.Now()
 	for _, candidate := range s.runtimeNodes {
 		if candidate.TenantID != tenantID || (jobID != "" && candidate.JobRunID != jobID) || candidate.State != domain.NodeReady {
 			continue
 		}
-		if selected.ID == "" || candidate.CreatedAt.Before(selected.CreatedAt) || (candidate.CreatedAt.Equal(selected.CreatedAt) && candidate.ID < selected.ID) {
+		job, ok := s.runtimeJobs[runtimePlanKey(candidate.TenantID, candidate.JobRunID)]
+		if !ok || job.State == domain.JobRunPaused || job.State == domain.JobRunCompleted || job.State == domain.JobRunFailed || job.State == domain.JobRunCancelled || job.State == domain.JobRunRejected {
+			continue
+		}
+		priority := int64(job.Priority)
+		score := priority + int64(now.Sub(candidate.UpdatedAt)/time.Minute)
+		if selected.ID == "" || score > selectedScore || (score == selectedScore && (candidate.UpdatedAt.Before(selected.UpdatedAt) || (candidate.UpdatedAt.Equal(selected.UpdatedAt) && candidate.ID < selected.ID))) {
 			selected = candidate
+			selectedScore = score
 		}
 	}
 	if selected.ID == "" {
@@ -73,7 +82,7 @@ func (s *Store) RuntimeAttempts(_ context.Context, tenantID, jobID string) ([]do
 	return result, nil
 }
 
-func (s *Store) PrepareDispatch(_ context.Context, node domain.NodeRun, expectedNodeVersion int, attempt domain.RuntimeAttempt, view domain.ContextView, agent domain.AgentInstance, createAgent bool, expectedAgentVersion int, event domain.JobEvent) (domain.NodeRun, domain.RuntimeAttempt, domain.AgentInstance, error) {
+func (s *Store) PrepareDispatch(_ context.Context, node domain.NodeRun, expectedNodeVersion int, attempt domain.RuntimeAttempt, view domain.ContextView, agent domain.AgentInstance, createAgent bool, expectedAgentVersion int, reservations []domain.ResourceReservation, event domain.JobEvent) (domain.NodeRun, domain.RuntimeAttempt, domain.AgentInstance, error) {
 	if err := node.Validate(); err != nil {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, err
 	}
@@ -95,6 +104,9 @@ func (s *Store) PrepareDispatch(_ context.Context, node domain.NodeRun, expected
 	}
 	if currentNode.Version != expectedNodeVersion || currentNode.State != domain.NodeReady {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, domain.Conflict("NODE_DISPATCH_CONFLICT", "执行节点已经被其他执行者领取")
+	}
+	if node.FenceToken == "" || attempt.FenceToken == "" || node.FenceToken != attempt.FenceToken {
+		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, domain.Invalid("DISPATCH_FENCE_INVALID", "节点与 RuntimeAttempt 必须共享不可猜的围栏令牌")
 	}
 	if node.Version != expectedNodeVersion+1 || node.State != domain.NodeLeased || node.AttemptCount != currentNode.AttemptCount+1 || node.AttemptCount != attempt.AttemptNo || node.LeaseOwner != attempt.LeaseOwner || !sameTimePointer(node.LeaseExpiresAt, attempt.LeaseExpiresAt) {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, domain.Invalid("DISPATCH_PREPARE_INVALID", "待准备的节点与 RuntimeAttempt 租约不一致")
@@ -138,11 +150,17 @@ func (s *Store) PrepareDispatch(_ context.Context, node domain.NodeRun, expected
 	if err := validateRuntimeEventLocked(s, event); err != nil {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, err
 	}
+	if err := validateResourceReservationsLocked(s, reservations); err != nil {
+		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, err
+	}
 
 	s.runtimeNodes[runtimeNodeKey(node.TenantID, node.ID)] = node
 	s.runtimeContextViews[runtimePlanKey(view.TenantID, view.ID)] = view
 	s.runtimeAgents[agentKey] = agent
 	s.runtimeAttempts[runtimePlanKey(attempt.TenantID, attempt.ID)] = attempt
+	for _, reservation := range reservations {
+		s.runtimeReservations[runtimePlanKey(reservation.TenantID, reservation.ID)] = reservation
+	}
 	event = appendRuntimeEventLocked(s, event)
 	return node, attempt, agent, nil
 }
@@ -166,7 +184,7 @@ func (s *Store) ActivateDispatch(_ context.Context, node domain.NodeRun, expecte
 	if currentNode.Version != expectedNodeVersion || currentAttempt.Version != expectedAttemptVersion || currentAgent.Version != expectedAgentVersion {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, domain.Conflict("DISPATCH_VERSION_CONFLICT", "调度状态已经被其他执行者更新")
 	}
-	if currentNode.State != domain.NodeLeased || currentAttempt.State != domain.RuntimeAttemptPrepared || currentAgent.State != domain.AgentRunnable || currentNode.LeaseOwner != currentAttempt.LeaseOwner || currentAttempt.LeaseOwner != event.ActorID || currentAttempt.LeaseExpiresAt == nil || !currentAttempt.LeaseExpiresAt.After(attempt.UpdatedAt) {
+	if currentNode.State != domain.NodeLeased || currentAttempt.State != domain.RuntimeAttemptPrepared || currentAgent.State != domain.AgentRunnable || currentNode.LeaseOwner != currentAttempt.LeaseOwner || currentAttempt.LeaseOwner != event.ActorID || currentNode.FenceToken == "" || currentNode.FenceToken != currentAttempt.FenceToken || currentNode.FenceToken != node.FenceToken || currentAttempt.LeaseExpiresAt == nil || !currentAttempt.LeaseExpiresAt.After(attempt.UpdatedAt) {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, domain.Conflict("DISPATCH_LEASE_STALE", "调度租约无效、已过期或不属于当前执行者")
 	}
 	if err := currentNode.Transition(node.State); err != nil {
@@ -191,8 +209,8 @@ func (s *Store) ActivateDispatch(_ context.Context, node domain.NodeRun, expecte
 	return node, attempt, agent, nil
 }
 
-func (s *Store) HeartbeatDispatch(_ context.Context, tenantID, attemptID, owner string, expectedNodeVersion, expectedAttemptVersion int, now time.Time, leaseFor time.Duration) (domain.NodeRun, domain.RuntimeAttempt, error) {
-	if strings.TrimSpace(owner) == "" || leaseFor <= 0 {
+func (s *Store) HeartbeatDispatch(_ context.Context, tenantID, attemptID, owner, fenceToken string, expectedNodeVersion, expectedAttemptVersion int, now time.Time, leaseFor time.Duration) (domain.NodeRun, domain.RuntimeAttempt, error) {
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(fenceToken) == "" || leaseFor <= 0 {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.Invalid("DISPATCH_HEARTBEAT_INVALID", "调度心跳需要执行者和正数时长")
 	}
 	s.mu.Lock()
@@ -208,7 +226,7 @@ func (s *Store) HeartbeatDispatch(_ context.Context, tenantID, attemptID, owner 
 	if node.Version != expectedNodeVersion || attempt.Version != expectedAttemptVersion {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.Conflict("DISPATCH_VERSION_CONFLICT", "调度状态已经被更新，请重新读取")
 	}
-	if node.State != domain.NodeRunning || attempt.State != domain.RuntimeAttemptRunning || node.LeaseOwner != owner || attempt.LeaseOwner != owner || node.LeaseExpiresAt == nil || attempt.LeaseExpiresAt == nil || !node.LeaseExpiresAt.After(now) || !attempt.LeaseExpiresAt.After(now) {
+	if node.State != domain.NodeRunning || attempt.State != domain.RuntimeAttemptRunning || node.LeaseOwner != owner || attempt.LeaseOwner != owner || node.FenceToken != fenceToken || attempt.FenceToken != fenceToken || node.LeaseExpiresAt == nil || attempt.LeaseExpiresAt == nil || !node.LeaseExpiresAt.After(now) || !attempt.LeaseExpiresAt.After(now) {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.Conflict("DISPATCH_LEASE_STALE", "调度租约无效、已过期或不属于当前执行者")
 	}
 	expires := now.Add(leaseFor)
@@ -220,10 +238,17 @@ func (s *Store) HeartbeatDispatch(_ context.Context, tenantID, attemptID, owner 
 	attempt.UpdatedAt = now
 	s.runtimeNodes[runtimeNodeKey(tenantID, node.ID)] = node
 	s.runtimeAttempts[runtimePlanKey(tenantID, attempt.ID)] = attempt
+	for key, reservation := range s.runtimeReservations {
+		if reservation.TenantID == tenantID && reservation.AttemptID == attempt.ID && reservation.State == domain.ReservationHeld && reservation.FenceToken == fenceToken {
+			reservation.ExpiresAt = &expires
+			reservation.UpdatedAt = now
+			s.runtimeReservations[key] = reservation
+		}
+	}
 	return node, attempt, nil
 }
 
-func (s *Store) FinalizeDispatch(_ context.Context, node domain.NodeRun, expectedNodeVersion int, attempt domain.RuntimeAttempt, expectedAttemptVersion int, agent domain.AgentInstance, expectedAgentVersion int, event domain.JobEvent) (domain.NodeRun, domain.RuntimeAttempt, domain.AgentInstance, error) {
+func (s *Store) FinalizeDispatch(_ context.Context, node domain.NodeRun, expectedNodeVersion int, attempt domain.RuntimeAttempt, expectedAttemptVersion int, agent domain.AgentInstance, expectedAgentVersion int, fenceToken string, event domain.JobEvent) (domain.NodeRun, domain.RuntimeAttempt, domain.AgentInstance, error) {
 	if err := node.Validate(); err != nil {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, err
 	}
@@ -248,7 +273,7 @@ func (s *Store) FinalizeDispatch(_ context.Context, node domain.NodeRun, expecte
 	if currentNode.Version != expectedNodeVersion || currentAttempt.Version != expectedAttemptVersion || currentAgent.Version != expectedAgentVersion {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, domain.Conflict("DISPATCH_VERSION_CONFLICT", "调度状态已经被其他执行者更新")
 	}
-	if currentNode.LeaseOwner == "" || currentNode.LeaseOwner != currentAttempt.LeaseOwner || currentAttempt.LeaseOwner != event.ActorID || currentNode.LeaseExpiresAt == nil || currentAttempt.LeaseExpiresAt == nil || !currentNode.LeaseExpiresAt.After(event.OccurredAt) || !currentAttempt.LeaseExpiresAt.After(event.OccurredAt) {
+	if currentNode.LeaseOwner == "" || currentNode.LeaseOwner != currentAttempt.LeaseOwner || currentAttempt.LeaseOwner != event.ActorID || strings.TrimSpace(fenceToken) == "" || currentNode.FenceToken != fenceToken || currentAttempt.FenceToken != fenceToken || currentNode.LeaseExpiresAt == nil || currentAttempt.LeaseExpiresAt == nil || !currentNode.LeaseExpiresAt.After(event.OccurredAt) || !currentAttempt.LeaseExpiresAt.After(event.OccurredAt) {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, domain.Conflict("DISPATCH_LEASE_STALE", "终态结果不属于当前调度租约")
 	}
 	if err := currentNode.Transition(node.State); err != nil {
@@ -269,6 +294,17 @@ func (s *Store) FinalizeDispatch(_ context.Context, node domain.NodeRun, expecte
 	s.runtimeNodes[runtimeNodeKey(node.TenantID, node.ID)] = node
 	s.runtimeAttempts[runtimePlanKey(attempt.TenantID, attempt.ID)] = attempt
 	s.runtimeAgents[runtimePlanKey(agent.TenantID, agent.ID)] = agent
+	for key, reservation := range s.runtimeReservations {
+		if reservation.TenantID == attempt.TenantID && reservation.AttemptID == attempt.ID && reservation.State == domain.ReservationHeld {
+			reservation.State = domain.ReservationConsumed
+			reservation.FenceToken = ""
+			reservation.ExpiresAt = nil
+			finished := event.OccurredAt
+			reservation.ReleasedAt = &finished
+			reservation.UpdatedAt = event.OccurredAt
+			s.runtimeReservations[key] = reservation
+		}
+	}
 	appendRuntimeEventLocked(s, event)
 	return node, attempt, agent, nil
 }

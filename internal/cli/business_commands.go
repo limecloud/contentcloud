@@ -835,7 +835,7 @@ func (r *Root) knowledgeCommand() *cobra.Command {
 
 func (r *Root) runCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "run", Short: "查看和取消自动化任务"}
-	cmd.AddCommand(r.projectListCommand("list", "run.list", "列出项目任务", "project_id"), r.idReadCommand("show <run-id>", "run.show", "显示一个任务", "id"), r.idReadCommand("attempts <run-id>", "run.attempts", "显示不可变的执行尝试记录", "id"))
+	cmd.AddCommand(r.projectListCommand("list", "run.list", "列出项目任务", "project_id"), r.idReadCommand("show <run-id>", "run.show", "显示一个任务", "id"))
 	var yes, dryRun bool
 	cancel := &cobra.Command{Use: "cancel <run-id>", Args: cobra.ExactArgs(1), Short: "请求取消排队中或运行中的任务", RunE: func(cmd *cobra.Command, args []string) error {
 		if dryRun {

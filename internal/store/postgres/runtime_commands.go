@@ -38,7 +38,7 @@ func (s *Store) ClaimReadyNodeCommand(ctx context.Context, tenantID, jobID, owne
 			query += ` AND job_run_id=$2`
 			args = append(args, jobID)
 		}
-		query += ` ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`
+		query += ` ORDER BY ((SELECT priority FROM runtime_job_runs j WHERE j.tenant_id=runtime_node_runs.tenant_id AND j.id=runtime_node_runs.job_run_id) + floor(EXTRACT(EPOCH FROM (now()-updated_at))/60)) DESC, updated_at,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`
 		node, err := scanRuntimeNode(tx.QueryRow(ctx, query, args...))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.NotFound("可领取的执行节点")
@@ -50,9 +50,14 @@ func (s *Store) ClaimReadyNodeCommand(ctx context.Context, tenantID, jobID, owne
 			return err
 		}
 		expires := now.Add(leaseFor)
+		fenceToken, _, err := domain.NewOpaqueToken("rtf_", 24)
+		if err != nil {
+			return err
+		}
 		node.State, node.AttemptCount, node.LeaseOwner = domain.NodeLeased, node.AttemptCount+1, strings.TrimSpace(owner)
+		node.FenceToken = fenceToken
 		node.LeaseExpiresAt, node.Version, node.UpdatedAt = &expires, node.Version+1, now
-		updated, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,attempt_count=$4,lease_owner=$5,lease_expires_at=$6,version=$7,updated_at=$8 WHERE tenant_id=$1 AND id=$2 AND version=$9`, tenantID, node.ID, node.State, node.AttemptCount, node.LeaseOwner, node.LeaseExpiresAt, node.Version, node.UpdatedAt, node.Version-1)
+		updated, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,attempt_count=$4,lease_owner=$5,fence_token=$6,lease_expires_at=$7,version=$8,updated_at=$9 WHERE tenant_id=$1 AND id=$2 AND version=$10`, tenantID, node.ID, node.State, node.AttemptCount, node.LeaseOwner, node.FenceToken, node.LeaseExpiresAt, node.Version, node.UpdatedAt, node.Version-1)
 		if err != nil {
 			return dbError(err)
 		}
@@ -97,7 +102,7 @@ func (s *Store) HeartbeatNodeCommand(ctx context.Context, tenantID, nodeID, owne
 		}
 		expires := now.Add(leaseFor)
 		node.LeaseExpiresAt, node.Version, node.UpdatedAt = &expires, node.Version+1, now
-		updated, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,lease_expires_at=$4,version=$5,updated_at=$6 WHERE tenant_id=$1 AND id=$2 AND version=$7 AND lease_owner=$8`, tenantID, node.ID, node.State, node.LeaseExpiresAt, node.Version, node.UpdatedAt, expectedVersion, owner)
+		updated, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,lease_expires_at=$4,version=$5,updated_at=$6 WHERE tenant_id=$1 AND id=$2 AND version=$7 AND lease_owner=$8 AND fence_token <> ''`, tenantID, node.ID, node.State, node.LeaseExpiresAt, node.Version, node.UpdatedAt, expectedVersion, owner)
 		if err != nil {
 			return dbError(err)
 		}
@@ -150,6 +155,74 @@ func (s *Store) ApplyJobTransition(ctx context.Context, next domain.JobRun, expe
 	return next, err
 }
 
+func (s *Store) ApplyGraphPatchCommand(ctx context.Context, next domain.JobRun, expectedVersion int, plan domain.JobPlanRevision, addedNodes []domain.NodeRun, cancelNodeKeys []string, event domain.JobEvent) (domain.JobRun, error) {
+	if err := next.Validate(); err != nil {
+		return next, err
+	}
+	if err := plan.Validate(); err != nil {
+		return next, err
+	}
+	for _, node := range addedNodes {
+		if err := node.Validate(); err != nil {
+			return next, err
+		}
+		if node.TenantID != next.TenantID || node.JobRunID != next.ID {
+			return next, domain.Invalid("NODE_RUN_SCOPE_INVALID", "GraphPatch 新节点不属于当前执行实例")
+		}
+	}
+	err := s.withTenant(ctx, next.TenantID, func(tx pgx.Tx) error {
+		current, err := scanRuntimeJob(tx.QueryRow(ctx, runtimeJobSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, next.TenantID, next.ID))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.NotFound("执行实例")
+		}
+		if err != nil {
+			return err
+		}
+		if current.Version != expectedVersion || next.Version != expectedVersion+1 || current.PlanRevisionID != plan.BaseRevisionID || next.PlanRevisionID != plan.ID || next.PlanDigest != plan.Digest {
+			return domain.Conflict("GRAPH_VERSION_CONFLICT", "执行图版本已经变化，请重新读取后再提交")
+		}
+		switch current.State {
+		case domain.JobRunCompleted, domain.JobRunFailed, domain.JobRunCancelled, domain.JobRunRejected:
+			return domain.Conflict("GRAPH_PATCH_JOB_TERMINAL", "终态执行实例不能修改执行图")
+		}
+		if err := insertRuntimePlanTx(ctx, tx, plan); err != nil {
+			return err
+		}
+		for _, node := range addedNodes {
+			if _, err := tx.Exec(ctx, `INSERT INTO runtime_node_runs(tenant_id,id,job_run_id,node_key,state,attempt_count,output_refs,output_digest,error_code,lease_owner,fence_token,lease_expires_at,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, node.TenantID, node.ID, node.JobRunID, node.NodeKey, node.State, node.AttemptCount, jsonArrayValue(node.OutputRefs), node.OutputDigest, node.ErrorCode, node.LeaseOwner, node.FenceToken, node.LeaseExpiresAt, node.Version, node.CreatedAt, node.UpdatedAt); err != nil {
+				return dbError(err)
+			}
+		}
+		for _, nodeKey := range cancelNodeKeys {
+			var node domain.NodeRun
+			node, err = scanRuntimeNode(tx.QueryRow(ctx, runtimeNodeSelect+` WHERE tenant_id=$1 AND job_run_id=$2 AND node_key=$3 FOR UPDATE`, next.TenantID, next.ID, nodeKey))
+			if errors.Is(err, pgx.ErrNoRows) {
+				return domain.NotFound("GraphPatch 待取消节点")
+			}
+			if err != nil {
+				return err
+			}
+			if node.State != domain.NodePending && node.State != domain.NodeReady && node.State != domain.NodeWaitingResource {
+				return domain.Conflict("GRAPH_PATCH_CANCEL_CONFLICT", "GraphPatch 只能取消尚未执行的节点")
+			}
+			if _, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$4,version=version+1,updated_at=$5 WHERE tenant_id=$1 AND job_run_id=$2 AND node_key=$3`, next.TenantID, next.ID, nodeKey, domain.NodeCancelled, event.OccurredAt); err != nil {
+				return dbError(err)
+			}
+		}
+		updated, err := tx.Exec(ctx, `UPDATE runtime_job_runs SET plan_revision_id=$3,plan_digest=$4,state=$5,priority=$6,version=$7,error_code=$8,updated_at=$9 WHERE tenant_id=$1 AND id=$2 AND version=$10`, next.TenantID, next.ID, next.PlanRevisionID, next.PlanDigest, next.State, next.Priority, next.Version, next.ErrorCode, next.UpdatedAt, expectedVersion)
+		if err != nil {
+			return dbError(err)
+		}
+		if updated.RowsAffected() != 1 {
+			return domain.Conflict("GRAPH_VERSION_CONFLICT", "执行图版本已经变化，请重新读取后再提交")
+		}
+		event.TenantID, event.JobRunID = next.TenantID, next.ID
+		_, err = appendRuntimeEventTx(ctx, tx, event)
+		return err
+	})
+	return next, err
+}
+
 func (s *Store) ApplyNodeTransition(ctx context.Context, next domain.NodeRun, expectedVersion int, event domain.JobEvent) (domain.NodeRun, error) {
 	if err := next.Validate(); err != nil {
 		return next, err
@@ -171,7 +244,7 @@ func (s *Store) ApplyNodeTransition(ctx context.Context, next domain.NodeRun, ex
 		if err := current.Transition(next.State); err != nil {
 			return err
 		}
-		result, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,attempt_count=$4,output_refs=$5,output_digest=$6,error_code=$7,lease_owner=$8,lease_expires_at=$9,version=$10,updated_at=$11 WHERE tenant_id=$1 AND id=$2 AND version=$12`, next.TenantID, next.ID, next.State, next.AttemptCount, jsonArrayValue(next.OutputRefs), next.OutputDigest, next.ErrorCode, next.LeaseOwner, next.LeaseExpiresAt, next.Version, next.UpdatedAt, expectedVersion)
+		result, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,attempt_count=$4,output_refs=$5,output_digest=$6,error_code=$7,lease_owner=$8,fence_token=$9,lease_expires_at=$10,version=$11,updated_at=$12 WHERE tenant_id=$1 AND id=$2 AND version=$13`, next.TenantID, next.ID, next.State, next.AttemptCount, jsonArrayValue(next.OutputRefs), next.OutputDigest, next.ErrorCode, next.LeaseOwner, next.FenceToken, next.LeaseExpiresAt, next.Version, next.UpdatedAt, expectedVersion)
 		if err != nil {
 			return dbError(err)
 		}
@@ -255,7 +328,7 @@ func (s *Store) RegisterEffectCommand(ctx context.Context, effect domain.Externa
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO runtime_effects(tenant_id,id,job_run_id,node_run_id,kind,idempotency_key,state,external_id,request_digest,response_digest,cost_minor,currency,safe_summary,error_code,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`, effect.TenantID, effect.ID, effect.JobRunID, effect.NodeRunID, effect.Kind, effect.IdempotencyKey, effect.State, effect.ExternalID, effect.RequestDigest, effect.ResponseDigest, effect.CostMinor, effect.Currency, jsonValue(effect.SafeSummary), effect.ErrorCode, effect.Version, effect.CreatedAt, effect.UpdatedAt); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO runtime_effects(tenant_id,id,job_run_id,node_run_id,attempt_id,resource_reservation_id,kind,idempotency_key,state,external_id,request_digest,response_digest,cost_minor,currency,safe_summary,error_code,version,created_at,updated_at) VALUES($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,''),$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, effect.TenantID, effect.ID, effect.JobRunID, effect.NodeRunID, effect.AttemptID, effect.ResourceReservationID, effect.Kind, effect.IdempotencyKey, effect.State, effect.ExternalID, effect.RequestDigest, effect.ResponseDigest, effect.CostMinor, effect.Currency, jsonValue(effect.SafeSummary), effect.ErrorCode, effect.Version, effect.CreatedAt, effect.UpdatedAt); err != nil {
 			return dbError(err)
 		}
 		event.TenantID, event.JobRunID = effect.TenantID, effect.JobRunID

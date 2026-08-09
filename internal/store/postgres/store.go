@@ -227,7 +227,8 @@ func (s *Store) PlatformTenants(ctx context.Context) ([]domain.PlatformTenant, e
 			(SELECT count(*) FROM memberships m WHERE m.tenant_id=t.id AND m.status='active' AND m.revoked_at IS NULL),
 			(SELECT count(*) FROM brand_projects p WHERE p.tenant_id=t.id),
 			(SELECT count(*) FROM devices d WHERE d.tenant_id=t.id AND d.revoked_at IS NULL AND d.last_seen_at>now()-interval '2 minutes'),
-			(SELECT count(*) FROM task_runs r WHERE r.tenant_id=t.id AND r.state IN ('queued','leased','running')),
+			(SELECT count(*) FROM runtime_job_runs r
+			 WHERE r.tenant_id=t.id AND r.state IN ('created','admitted','running','waiting_human')),
 			(SELECT max(p.updated_at) FROM brand_projects p WHERE p.tenant_id=t.id),
 			COALESCE((SELECT array_agg(c.content_type ORDER BY c.content_type) FROM tenant_content_capabilities c WHERE c.tenant_id=t.id AND c.enabled), '{}'::text[])
 		FROM tenants t ORDER BY t.created_at DESC`)

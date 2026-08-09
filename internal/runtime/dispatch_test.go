@@ -21,7 +21,7 @@ func newDispatchRuntime(t *testing.T, fake *agentadapter.FakeHarness, now func()
 		t.Fatal(err)
 	}
 	service := NewWithHarnessRegistry(repo, now, registry)
-	started, err := service.Start(t.Context(), StartInput{TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: "task-dispatch", SOP: testSOP(), CreatedBy: "user-1", IdempotencyKey: domain.NewID()})
+	started, err := service.Start(t.Context(), testStartInput("task-dispatch", domain.NewID()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,6 +74,25 @@ func TestDispatchNextCompletesNodeAttemptAgentAndRefreshesJob(t *testing.T) {
 		if !seen {
 			t.Fatalf("missing dispatch event %s in %#v", eventType, events)
 		}
+	}
+}
+
+func TestPrepareDispatchRejectsPausedJobBeforeLeasing(t *testing.T) {
+	fake := agentadapter.NewFakeHarness()
+	service, repo, started := newDispatchRuntime(t, fake, time.Now)
+	if _, err := service.Pause(t.Context(), "tenant-1", started.Job.ID, "user", "operator-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.PrepareDispatch(t.Context(), dispatchInput(started.Job.ID)); !hasDomainCode(err, "JOB_RUN_PAUSED") {
+		t.Fatalf("paused job must reject new dispatch leases, got %v", err)
+	}
+	attempts, err := repo.RuntimeAttempts(t.Context(), "tenant-1", started.Job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 0 {
+		t.Fatalf("paused dispatch created runtime attempts: %#v", attempts)
 	}
 }
 
@@ -279,7 +298,9 @@ func TestPrepareDispatchConcurrentWorkersCreateUniqueAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := NewWithHarnessRegistry(repo, time.Now, registry)
-	started, err := service.Start(t.Context(), StartInput{TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: "task-parallel", SOP: sop, CreatedBy: "user-1", IdempotencyKey: "parallel-job"})
+	startInput := testStartInput("task-parallel", "parallel-job")
+	startInput.SOP = sop
+	started, err := service.Start(t.Context(), startInput)
 	if err != nil {
 		t.Fatal(err)
 	}

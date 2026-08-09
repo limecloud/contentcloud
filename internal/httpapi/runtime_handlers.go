@@ -127,8 +127,54 @@ func (s *Server) cancelRuntimeJob(w http.ResponseWriter, r *http.Request) {
 	s.dispatchResult(w, r, "runtime.job.cancel", value, err)
 }
 
+func (s *Server) pauseRuntimeJob(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.PauseRuntimeJob(r.Context(), actor, chi.URLParam(r, "jobID"), middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "runtime.job.pause", value, err)
+}
+
 func (s *Server) resumeRuntimeJob(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	value, err := s.service.ResumeRuntimeJob(r.Context(), actor, chi.URLParam(r, "jobID"), middleware.GetReqID(r.Context()))
 	s.dispatchResult(w, r, "runtime.job.resume", value, err)
+}
+
+func (s *Server) forkRuntimeCheckpoint(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input struct {
+		IdempotencyKey string `json:"idempotency_key"`
+	}
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.ForkRuntimeCheckpoint(r.Context(), actor, chi.URLParam(r, "checkpointID"), input.IdempotencyKey, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "runtime.checkpoint.fork", value, err)
+}
+
+func (s *Server) replayRuntimeJob(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+	dryRun := false
+	if raw := r.URL.Query().Get("dry_run"); raw != "" {
+		parsed, parseErr := strconv.ParseBool(raw)
+		if parseErr != nil {
+			s.fail(w, r, "runtime.job.replay", domain.Invalid("RUNTIME_REPLAY_DRY_RUN_INVALID", "dry_run 必须是布尔值"))
+			return
+		}
+		dryRun = parsed
+	}
+	value, err := s.service.ReplayRuntimeJobWithOptions(r.Context(), actor, chi.URLParam(r, "jobID"), after, dryRun)
+	s.dispatchResult(w, r, "runtime.job.replay", value, err)
+}
+
+func (s *Server) reconcileRuntimeEffect(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input struct {
+		ExpectedVersion int `json:"expected_version"`
+	}
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.BeginRuntimeEffectReconciliation(r.Context(), actor, chi.URLParam(r, "effectID"), input.ExpectedVersion, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "runtime.effect.reconcile", value, err)
 }

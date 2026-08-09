@@ -111,6 +111,46 @@ type SOPVersionImpact struct {
 	Counts       map[string]int         `json:"counts"`
 }
 
+// SOPCapabilityCoverage is a read-only projection for release review. It
+// deliberately reports registered executor facts separately from the
+// environment entitlement; an enabled environment capability is not evidence
+// that a matching executor is actually registered.
+type SOPCapabilityCoverage struct {
+	ID                      string   `json:"id"`
+	RequiredByStages        []string `json:"required_by_stages"`
+	RegisteredVersions      []string `json:"registered_versions"`
+	RegisteredExecutorCount int      `json:"registered_executor_count"`
+}
+
+type SOPEnvironmentBindingPreview struct {
+	EnvironmentID          string                         `json:"environment_id"`
+	Name                   string                         `json:"name"`
+	Status                 string                         `json:"status"`
+	ConfiguredCapabilities []domain.EnvironmentCapability `json:"configured_capabilities"`
+	RequiredCapabilities   []string                       `json:"required_capabilities"`
+	AvailableCapabilities  []string                       `json:"available_capabilities"`
+	MissingCapabilities    []string                       `json:"missing_capabilities"`
+	CandidateExecutorCount int                            `json:"candidate_executor_count"`
+	Ready                  bool                           `json:"ready"`
+	Reasons                []string                       `json:"reasons"`
+}
+
+// SOPVersionPreview aggregates only durable facts needed before publish or
+// environment binding. It has no provider choice, execution side effect or
+// synthetic canary result.
+type SOPVersionPreview struct {
+	SOP                   domain.SOPVersion              `json:"sop"`
+	Lint                  SOPLintReport                  `json:"lint"`
+	Impact                SOPVersionImpact               `json:"impact"`
+	RequiredCapabilities  []string                       `json:"required_capabilities"`
+	Capabilities          []SOPCapabilityCoverage        `json:"capabilities"`
+	Environments          []SOPEnvironmentBindingPreview `json:"environments"`
+	SelectedEnvironmentID string                         `json:"selected_environment_id,omitempty"`
+	Publishable           bool                           `json:"publishable"`
+	Blockers              []string                       `json:"blockers"`
+	Warnings              []string                       `json:"warnings"`
+}
+
 type SOPRollbackResult struct {
 	Version             domain.SOPVersion `json:"version"`
 	TargetVersion       int               `json:"target_version"`
@@ -635,6 +675,181 @@ func (s *Service) SOPVersionImpact(ctx context.Context, actor Actor, sopID strin
 		}
 	}
 	return result, nil
+}
+
+// SOPVersionPreview performs the complete read-only release and binding
+// preflight. It does not mutate defaults, create snapshots or choose an
+// executor. When environmentID is empty, all tenant environments are shown;
+// when it is set, publishability also reflects that exact binding target.
+func (s *Service) SOPVersionPreview(ctx context.Context, actor Actor, sopID string, version int, environmentID string) (SOPVersionPreview, error) {
+	if err := requireRole(actor, "tenant_admin", "project_manager"); err != nil && !actor.PlatformAdmin {
+		return SOPVersionPreview{}, err
+	}
+	sop, err := s.sopVersion(ctx, actor.TenantID, sopID, version)
+	if err != nil {
+		return SOPVersionPreview{}, err
+	}
+	lint, err := s.LintSOPVersion(ctx, actor, sopID, version)
+	if err != nil {
+		return SOPVersionPreview{}, err
+	}
+	impact, err := s.SOPVersionImpact(ctx, actor, sopID, version)
+	if err != nil {
+		return SOPVersionPreview{}, err
+	}
+	environments, err := s.store.Environments(ctx, actor.TenantID)
+	if err != nil {
+		return SOPVersionPreview{}, err
+	}
+	if strings.TrimSpace(environmentID) != "" {
+		found := false
+		for _, environment := range environments {
+			if environment.ID == environmentID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return SOPVersionPreview{}, domain.NotFound("执行环境")
+		}
+	}
+
+	devices, err := s.store.Devices(ctx, actor.TenantID, "")
+	if err != nil {
+		return SOPVersionPreview{}, err
+	}
+	type capabilityFact struct {
+		versions  map[string]bool
+		executors map[string]bool
+	}
+	facts := map[string]*capabilityFact{}
+	for _, device := range devices {
+		if device.RevokedAt != nil {
+			continue
+		}
+		for _, capability := range device.Capabilities {
+			id := strings.TrimSpace(capability.ID)
+			if id == "" {
+				continue
+			}
+			fact := facts[id]
+			if fact == nil {
+				fact = &capabilityFact{versions: map[string]bool{}, executors: map[string]bool{}}
+				facts[id] = fact
+			}
+			if version := strings.TrimSpace(capability.Version); version != "" {
+				fact.versions[version] = true
+			}
+			fact.executors[device.ID] = true
+		}
+	}
+
+	requiredByStage := map[string][]string{}
+	for _, stage := range sop.Stages {
+		for _, capabilityID := range uniqueNonEmpty(stage.RequiredCapabilities) {
+			if !containsString(requiredByStage[capabilityID], stage.ID) {
+				requiredByStage[capabilityID] = append(requiredByStage[capabilityID], stage.ID)
+			}
+		}
+	}
+	required := make([]string, 0, len(requiredByStage))
+	for capabilityID := range requiredByStage {
+		required = append(required, capabilityID)
+	}
+	sort.Strings(required)
+
+	coverage := make([]SOPCapabilityCoverage, 0, len(required))
+	for _, capabilityID := range required {
+		fact := facts[capabilityID]
+		versions := []string{}
+		executorCount := 0
+		if fact != nil {
+			for registeredVersion := range fact.versions {
+				versions = append(versions, registeredVersion)
+			}
+			sort.Strings(versions)
+			executorCount = len(fact.executors)
+		}
+		stages := append([]string{}, requiredByStage[capabilityID]...)
+		sort.Strings(stages)
+		coverage = append(coverage, SOPCapabilityCoverage{ID: capabilityID, RequiredByStages: stages, RegisteredVersions: versions, RegisteredExecutorCount: executorCount})
+	}
+
+	previewEnvironments := make([]SOPEnvironmentBindingPreview, 0, len(environments))
+	blockers := []string{}
+	warnings := []string{}
+	if !lint.Valid {
+		for _, issue := range lint.Errors {
+			blockers = append(blockers, issue.Path+"："+issue.Message)
+		}
+	}
+	for _, environment := range environments {
+		if selected := strings.TrimSpace(environmentID); selected != "" && environment.ID != selected {
+			continue
+		}
+		environment.NormalizeCollections()
+		configured := map[string]domain.EnvironmentCapability{}
+		for _, capability := range environment.Capabilities {
+			configured[capability.ID] = capability
+		}
+		available := []string{}
+		missing := []string{}
+		reasons := []string{}
+		for _, capabilityID := range required {
+			configuredCapability, configuredOK := configured[capabilityID]
+			if !configuredOK || !configuredCapability.Enabled {
+				missing = append(missing, capabilityID)
+				reasons = append(reasons, capabilityID+"：执行环境未启用")
+				continue
+			}
+			fact := facts[capabilityID]
+			if fact == nil || !fact.versions[configuredCapability.Version] {
+				missing = append(missing, capabilityID)
+				reasons = append(reasons, capabilityID+"：没有登记匹配版本的执行端能力")
+				continue
+			}
+			available = append(available, capabilityID)
+		}
+		candidateExecutorCount := 0
+		for _, device := range devices {
+			if device.RevokedAt != nil {
+				continue
+			}
+			if len(required) == 0 {
+				candidateExecutorCount++
+				continue
+			}
+			for _, capabilityID := range required {
+				configuredCapability, configuredOK := configured[capabilityID]
+				if configuredOK && configuredCapability.Enabled && deviceHasCapability(device, capabilityID, configuredCapability.Version) {
+					candidateExecutorCount++
+					break
+				}
+			}
+		}
+		ready := len(missing) == 0
+		preview := SOPEnvironmentBindingPreview{EnvironmentID: environment.ID, Name: environment.Name, Status: environment.Status, ConfiguredCapabilities: append([]domain.EnvironmentCapability{}, environment.Capabilities...), RequiredCapabilities: append([]string{}, required...), AvailableCapabilities: available, MissingCapabilities: missing, CandidateExecutorCount: candidateExecutorCount, Ready: ready, Reasons: reasons}
+		previewEnvironments = append(previewEnvironments, preview)
+		if len(missing) > 0 {
+			message := environment.Name + "：" + strings.Join(reasons, "；")
+			if strings.TrimSpace(environmentID) != "" {
+				blockers = append(blockers, message)
+			} else {
+				warnings = append(warnings, message)
+			}
+		}
+	}
+	publishable := len(blockers) == 0
+	return SOPVersionPreview{SOP: sop, Lint: lint, Impact: impact, RequiredCapabilities: required, Capabilities: coverage, Environments: previewEnvironments, SelectedEnvironmentID: strings.TrimSpace(environmentID), Publishable: publishable, Blockers: blockers, Warnings: warnings}, nil
+}
+
+func deviceHasCapability(device domain.Device, capabilityID, version string) bool {
+	for _, capability := range device.Capabilities {
+		if capability.ID == capabilityID && capability.Version == version {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) RollbackSOPVersion(ctx context.Context, actor Actor, sopID string, targetVersion int, requestID string) (SOPRollbackResult, error) {
@@ -1243,7 +1458,7 @@ func (s *Service) WorkTask(ctx context.Context, actor Actor, id string) (WorkTas
 	if err != nil {
 		return WorkTaskView{}, err
 	}
-	runs, err := s.store.WorkTaskRuns(ctx, actor.TenantID, id)
+	runs, err := s.runtimeTaskRunProjection(ctx, actor.TenantID, id)
 	if err != nil {
 		return WorkTaskView{}, err
 	}

@@ -89,7 +89,7 @@ Content Work OS 创作任务
 
 Runtime 是内部执行内核，不是客户入口。它负责：
 
-- 保存 WorkTask、JobRun、NodeRun、RunAttempt 和事件。
+- 关联 WorkTask，并保存 JobRun、NodeRun、RuntimeAttempt 和事件。
 - 编译并固定执行计划版本。
 - 判断节点依赖、资源、权限、预算和人工门禁。
 - 发放最小权限租约并回收执行权。

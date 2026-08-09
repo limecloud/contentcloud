@@ -8,88 +8,94 @@ import (
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/environment"
-	storecontract "github.com/limecloud/contentcloud/internal/store"
 )
 
 type Store struct {
-	mu                    sync.RWMutex
-	users                 map[string]domain.User
-	userByEmail           map[string]string
-	sessions              map[string]domain.Session
-	tenants               map[string]domain.Tenant
-	tenantContentCaps     map[string]domain.TenantContentCapability
-	memberships           map[string]domain.Membership
-	membershipInvites     map[string]domain.MembershipInvite
-	projects              map[string]domain.Project
-	projectTemplates      map[string]domain.ProjectTemplate
-	connects              map[string]domain.ConnectSession
-	bootstrapAttempts     map[string]domain.BootstrapAttempt
-	bootstrapEvents       map[string]map[int64]domain.BootstrapProgressEvent
-	bootstrapDiagnostics  map[string]domain.BootstrapDiagnostic
-	devices               map[string]domain.Device
-	workspaceBindings     map[string]domain.WorkspaceBinding
-	userDeviceFlows       map[string]domain.UserDeviceFlow
-	cliTokens             map[string]domain.CLIToken
-	sources               map[string]domain.Source
-	revisions             map[string]domain.SourceRevision
-	evidence              map[string]domain.EvidenceSpan
-	assets                map[string]domain.Asset
-	workspaceFolders      map[string]domain.WorkspaceFolder
-	workspaceMaterials    map[string]domain.WorkspaceMaterial
-	rightsRecords         map[string]domain.RightsRecord
-	knowledgeObjects      map[string]domain.KnowledgeObject
-	knowledgeDecisions    map[string]domain.KnowledgeDecision
-	knowledgePacks        map[string]domain.KnowledgePack
-	knowledgeSnapshots    map[string]domain.KnowledgeSnapshot
-	environments          map[string]domain.Environment
-	sopDefinitions        map[string]domain.SOPDefinition
-	sopVersions           map[string]domain.SOPVersion
-	projectSOPBindings    map[string]domain.ProjectSOPBinding
-	workTasks             map[string]domain.WorkTask
-	inputItems            map[string]domain.InputItem
-	conversationImports   map[string]domain.ConversationImport
-	stageRuns             map[string]domain.StageRun
-	stageOutputs          map[string]domain.TaskStageOutput
-	providerProfiles      map[string]domain.ProviderProfile
-	providerBindings      map[string]domain.ProviderBinding
-	mediaJobs             map[string]domain.MediaGenerationJob
-	providerAttempts      map[string]domain.ProviderAttempt
-	mediaReviews          map[string]domain.MediaReview
-	gateEvaluations       map[string]domain.GateEvaluation
-	taskRevisions         map[string]domain.TaskRevision
-	taskDeliveries        map[string]domain.TaskDelivery
-	snapshots             map[string]domain.ContextSnapshot
-	runs                  map[string]domain.TaskRun
-	executionBundles      map[string]environment.CreativeExecutionBundle
-	runAttempts           map[string]domain.RunAttempt
-	runProgress           map[string][]domain.RunProgressEvent
-	runProgressCursor     int64
-	runtimePlans          map[string]domain.JobPlanRevision
-	runtimeJobs           map[string]domain.JobRun
-	runtimeNodes          map[string]domain.NodeRun
-	runtimeEvents         map[string][]domain.JobEvent
-	runtimeOutbox         map[string]domain.RuntimeOutboxMessage
-	runtimeContextViews   map[string]domain.ContextView
-	runtimeAgents         map[string]domain.AgentInstance
-	runtimeAttempts       map[string]domain.RuntimeAttempt
-	runtimeStates         map[string]domain.RuntimeState
-	runtimeStateMutations map[string]string
-	runtimeCheckpoints    map[string]domain.Checkpoint
-	runtimeEffects        map[string]domain.ExternalEffect
-	approvals             map[string]domain.ApprovalDecision
-	reviewCycles          map[string]domain.ReviewCycle
-	reviewComments        map[string]domain.ReviewComment
-	reviewGrants          map[string]domain.ReviewGrant
-	submissions           map[string]domain.Submission
-	submissionRevisions   map[string]domain.SubmissionRevision
-	approvedSnapshots     map[string]domain.ApprovedSnapshot
-	artifacts             map[string]domain.Artifact
-	deliveryPackages      map[string]domain.DeliveryPackage
-	performanceBatches    map[string]domain.PerformanceImportBatch
-	observations          map[string]domain.PerformanceObservation
-	ratingDecisions       map[string]domain.RatingDecision
-	audits                []domain.AuditEvent
+	mu                        sync.RWMutex
+	users                     map[string]domain.User
+	userByEmail               map[string]string
+	sessions                  map[string]domain.Session
+	tenants                   map[string]domain.Tenant
+	tenantContentCaps         map[string]domain.TenantContentCapability
+	memberships               map[string]domain.Membership
+	membershipInvites         map[string]domain.MembershipInvite
+	projects                  map[string]domain.Project
+	projectTemplates          map[string]domain.ProjectTemplate
+	connects                  map[string]domain.ConnectSession
+	bootstrapAttempts         map[string]domain.BootstrapAttempt
+	bootstrapEvents           map[string]map[int64]domain.BootstrapProgressEvent
+	bootstrapDiagnostics      map[string]domain.BootstrapDiagnostic
+	devices                   map[string]domain.Device
+	workspaceBindings         map[string]domain.WorkspaceBinding
+	userDeviceFlows           map[string]domain.UserDeviceFlow
+	cliTokens                 map[string]domain.CLIToken
+	sources                   map[string]domain.Source
+	revisions                 map[string]domain.SourceRevision
+	evidence                  map[string]domain.EvidenceSpan
+	assets                    map[string]domain.Asset
+	workspaceFolders          map[string]domain.WorkspaceFolder
+	workspaceMaterials        map[string]domain.WorkspaceMaterial
+	rightsRecords             map[string]domain.RightsRecord
+	knowledgeObjects          map[string]domain.KnowledgeObject
+	knowledgeDecisions        map[string]domain.KnowledgeDecision
+	knowledgePacks            map[string]domain.KnowledgePack
+	knowledgeSnapshots        map[string]domain.KnowledgeSnapshot
+	environments              map[string]domain.Environment
+	sopDefinitions            map[string]domain.SOPDefinition
+	sopVersions               map[string]domain.SOPVersion
+	projectSOPBindings        map[string]domain.ProjectSOPBinding
+	workTasks                 map[string]domain.WorkTask
+	inputItems                map[string]domain.InputItem
+	conversationImports       map[string]domain.ConversationImport
+	stageRuns                 map[string]domain.StageRun
+	stageOutputs              map[string]domain.TaskStageOutput
+	providerProfiles          map[string]domain.ProviderProfile
+	providerBindings          map[string]domain.ProviderBinding
+	mediaJobs                 map[string]domain.MediaGenerationJob
+	providerAttempts          map[string]domain.ProviderAttempt
+	mediaReviews              map[string]domain.MediaReview
+	gateEvaluations           map[string]domain.GateEvaluation
+	taskRevisions             map[string]domain.TaskRevision
+	taskDeliveries            map[string]domain.TaskDelivery
+	snapshots                 map[string]domain.ContextSnapshot
+	runtimePlans              map[string]domain.JobPlanRevision
+	runtimeJobs               map[string]domain.JobRun
+	runtimeNodes              map[string]domain.NodeRun
+	runtimeFanoutSets         map[string]domain.FanoutSet
+	runtimeFanoutMembers      map[string]domain.FanoutMember
+	runtimeEvents             map[string][]domain.JobEvent
+	runtimeOutbox             map[string]domain.RuntimeOutboxMessage
+	runtimeContextViews       map[string]domain.ContextView
+	runtimeAgents             map[string]domain.AgentInstance
+	runtimeAttempts           map[string]domain.RuntimeAttempt
+	runtimeStates             map[string]domain.RuntimeState
+	runtimeStateMutations     map[string]string
+	runtimeCheckpoints        map[string]domain.Checkpoint
+	runtimeEffects            map[string]domain.ExternalEffect
+	runtimeProviderInbox      map[string]domain.ProviderInboxMessage
+	runtimeProviderRecons     map[string]domain.ProviderReconciliation
+	runtimeProviderBills      map[string]domain.ProviderBillRecord
+	runtimeYields             map[string]domain.RuntimeYield
+	runtimeStateCollections   map[string]domain.StateCollection
+	runtimeStateRecords       map[string]domain.StateRecord
+	runtimeToolCalls          map[string]domain.ToolCall
+	runtimeProjections        map[string]domain.RuntimeExplorerView
+	runtimeProjectionRebuilds map[string]domain.RuntimeProjectionRebuildRun
+	runtimeResourceQuotas     map[string]domain.ResourceQuota
+	runtimeReservations       map[string]domain.ResourceReservation
+	approvals                 map[string]domain.ApprovalDecision
+	reviewCycles              map[string]domain.ReviewCycle
+	reviewComments            map[string]domain.ReviewComment
+	reviewGrants              map[string]domain.ReviewGrant
+	submissions               map[string]domain.Submission
+	submissionRevisions       map[string]domain.SubmissionRevision
+	approvedSnapshots         map[string]domain.ApprovedSnapshot
+	artifacts                 map[string]domain.Artifact
+	deliveryPackages          map[string]domain.DeliveryPackage
+	performanceBatches        map[string]domain.PerformanceImportBatch
+	observations              map[string]domain.PerformanceObservation
+	ratingDecisions           map[string]domain.RatingDecision
+	audits                    []domain.AuditEvent
 }
 
 func New() *Store {
@@ -98,8 +104,8 @@ func New() *Store {
 		tenants: map[string]domain.Tenant{}, tenantContentCaps: map[string]domain.TenantContentCapability{}, memberships: map[string]domain.Membership{}, membershipInvites: map[string]domain.MembershipInvite{}, projects: map[string]domain.Project{}, projectTemplates: map[string]domain.ProjectTemplate{},
 		connects: map[string]domain.ConnectSession{}, bootstrapAttempts: map[string]domain.BootstrapAttempt{}, bootstrapEvents: map[string]map[int64]domain.BootstrapProgressEvent{}, bootstrapDiagnostics: map[string]domain.BootstrapDiagnostic{}, devices: map[string]domain.Device{}, workspaceBindings: map[string]domain.WorkspaceBinding{}, userDeviceFlows: map[string]domain.UserDeviceFlow{}, cliTokens: map[string]domain.CLIToken{},
 		sources: map[string]domain.Source{}, revisions: map[string]domain.SourceRevision{}, evidence: map[string]domain.EvidenceSpan{}, assets: map[string]domain.Asset{}, workspaceFolders: map[string]domain.WorkspaceFolder{}, workspaceMaterials: map[string]domain.WorkspaceMaterial{}, rightsRecords: map[string]domain.RightsRecord{}, knowledgeObjects: map[string]domain.KnowledgeObject{}, knowledgeDecisions: map[string]domain.KnowledgeDecision{}, knowledgePacks: map[string]domain.KnowledgePack{}, knowledgeSnapshots: map[string]domain.KnowledgeSnapshot{}, environments: map[string]domain.Environment{}, sopDefinitions: map[string]domain.SOPDefinition{}, sopVersions: map[string]domain.SOPVersion{}, projectSOPBindings: map[string]domain.ProjectSOPBinding{}, workTasks: map[string]domain.WorkTask{}, inputItems: map[string]domain.InputItem{}, conversationImports: map[string]domain.ConversationImport{}, stageRuns: map[string]domain.StageRun{}, stageOutputs: map[string]domain.TaskStageOutput{}, providerProfiles: map[string]domain.ProviderProfile{}, providerBindings: map[string]domain.ProviderBinding{}, mediaJobs: map[string]domain.MediaGenerationJob{}, providerAttempts: map[string]domain.ProviderAttempt{}, mediaReviews: map[string]domain.MediaReview{}, gateEvaluations: map[string]domain.GateEvaluation{}, taskRevisions: map[string]domain.TaskRevision{}, taskDeliveries: map[string]domain.TaskDelivery{},
-		snapshots: map[string]domain.ContextSnapshot{}, runs: map[string]domain.TaskRun{}, executionBundles: map[string]environment.CreativeExecutionBundle{}, runAttempts: map[string]domain.RunAttempt{}, runProgress: map[string][]domain.RunProgressEvent{},
-		runtimePlans: map[string]domain.JobPlanRevision{}, runtimeJobs: map[string]domain.JobRun{}, runtimeNodes: map[string]domain.NodeRun{}, runtimeEvents: map[string][]domain.JobEvent{}, runtimeOutbox: map[string]domain.RuntimeOutboxMessage{}, runtimeContextViews: map[string]domain.ContextView{}, runtimeAgents: map[string]domain.AgentInstance{}, runtimeAttempts: map[string]domain.RuntimeAttempt{}, runtimeStates: map[string]domain.RuntimeState{}, runtimeStateMutations: map[string]string{}, runtimeCheckpoints: map[string]domain.Checkpoint{}, runtimeEffects: map[string]domain.ExternalEffect{},
+		snapshots:    map[string]domain.ContextSnapshot{},
+		runtimePlans: map[string]domain.JobPlanRevision{}, runtimeJobs: map[string]domain.JobRun{}, runtimeNodes: map[string]domain.NodeRun{}, runtimeFanoutSets: map[string]domain.FanoutSet{}, runtimeFanoutMembers: map[string]domain.FanoutMember{}, runtimeEvents: map[string][]domain.JobEvent{}, runtimeOutbox: map[string]domain.RuntimeOutboxMessage{}, runtimeContextViews: map[string]domain.ContextView{}, runtimeAgents: map[string]domain.AgentInstance{}, runtimeAttempts: map[string]domain.RuntimeAttempt{}, runtimeStates: map[string]domain.RuntimeState{}, runtimeStateMutations: map[string]string{}, runtimeCheckpoints: map[string]domain.Checkpoint{}, runtimeEffects: map[string]domain.ExternalEffect{}, runtimeProviderInbox: map[string]domain.ProviderInboxMessage{}, runtimeProviderRecons: map[string]domain.ProviderReconciliation{}, runtimeProviderBills: map[string]domain.ProviderBillRecord{}, runtimeYields: map[string]domain.RuntimeYield{}, runtimeResourceQuotas: map[string]domain.ResourceQuota{}, runtimeReservations: map[string]domain.ResourceReservation{}, runtimeStateCollections: map[string]domain.StateCollection{}, runtimeStateRecords: map[string]domain.StateRecord{}, runtimeToolCalls: map[string]domain.ToolCall{}, runtimeProjections: map[string]domain.RuntimeExplorerView{}, runtimeProjectionRebuilds: map[string]domain.RuntimeProjectionRebuildRun{},
 		approvals: map[string]domain.ApprovalDecision{}, reviewCycles: map[string]domain.ReviewCycle{}, reviewComments: map[string]domain.ReviewComment{}, reviewGrants: map[string]domain.ReviewGrant{}, submissions: map[string]domain.Submission{}, submissionRevisions: map[string]domain.SubmissionRevision{}, approvedSnapshots: map[string]domain.ApprovedSnapshot{}, artifacts: map[string]domain.Artifact{}, deliveryPackages: map[string]domain.DeliveryPackage{}, performanceBatches: map[string]domain.PerformanceImportBatch{}, observations: map[string]domain.PerformanceObservation{}, ratingDecisions: map[string]domain.RatingDecision{}, audits: []domain.AuditEvent{},
 	}
 }
@@ -264,8 +270,11 @@ func (s *Store) PlatformTenants(_ context.Context) ([]domain.PlatformTenant, err
 				value.DeviceCount++
 			}
 		}
-		for _, run := range s.runs {
-			if run.TenantID == tenant.ID && (run.State == "queued" || run.State == "leased" || run.State == "running") {
+		for _, job := range s.runtimeJobs {
+			if job.TenantID != tenant.ID {
+				continue
+			}
+			if job.State == domain.JobRunCreated || job.State == domain.JobRunAdmitted || job.State == domain.JobRunRunning || job.State == domain.JobRunWaitingHuman {
 				value.ActiveRunCount++
 			}
 		}
@@ -797,130 +806,11 @@ func (s *Store) Snapshot(_ context.Context, tenantID, id string) (domain.Context
 	}
 	return v, nil
 }
-func (s *Store) CreateRun(_ context.Context, v domain.TaskRun) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.createRun(v)
-}
-
-func (s *Store) CreateRunWithBundle(_ context.Context, v domain.TaskRun, bundle environment.CreativeExecutionBundle) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if bundle.ProjectID != v.ProjectID || bundle.Subject.ID != v.InputSnapshotID {
-		return domain.Conflict("EXECUTION_BUNDLE_RUN_MISMATCH", "创作执行包与任务不匹配")
-	}
-	if err := s.createRun(v); err != nil {
-		return err
-	}
-	s.executionBundles[v.ID] = bundle
-	return nil
-}
-
-func (s *Store) createRun(v domain.TaskRun) error {
-	for _, r := range s.runs {
-		if r.TenantID == v.TenantID && r.IdempotencyKey == v.IdempotencyKey {
-			return domain.Conflict("IDEMPOTENCY_CONFLICT", "幂等键已存在")
-		}
-	}
-	s.runs[v.ID] = v
-	return nil
-}
-
-func (s *Store) ExecutionBundle(_ context.Context, tenantID, runID string) (environment.CreativeExecutionBundle, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	run, exists := s.runs[runID]
-	bundle, bundled := s.executionBundles[runID]
-	if !exists || run.TenantID != tenantID || !bundled {
-		return environment.CreativeExecutionBundle{}, domain.NotFound("创作执行包")
-	}
-	return bundle, nil
-}
-func (s *Store) Runs(_ context.Context, tenantID, projectID string) ([]domain.TaskRun, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []domain.TaskRun{}
-	for _, v := range s.runs {
-		if v.TenantID == tenantID && (projectID == "" || v.ProjectID == projectID) {
-			out = append(out, v)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
-	return out, nil
-}
-func (s *Store) Run(_ context.Context, tenantID, id string) (domain.TaskRun, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	v, ok := s.runs[id]
-	if !ok || v.TenantID != tenantID {
-		return v, domain.NotFound("任务")
-	}
-	return v, nil
-}
-func (s *Store) SaveRun(_ context.Context, v domain.TaskRun) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if old, ok := s.runs[v.ID]; !ok || old.TenantID != v.TenantID {
-		return domain.NotFound("任务")
-	}
-	s.runs[v.ID] = v
-	return nil
-}
-func (s *Store) LeaseNextRun(_ context.Context, tenantID, deviceID string, eligible []storecontract.RunLeaseCandidate, attemptID, tokenHash string, now time.Time) (domain.TaskRun, domain.RunAttempt, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	device, ok := s.devices[deviceID]
-	if !ok || device.TenantID != tenantID || device.RevokedAt != nil {
-		return domain.TaskRun{}, domain.RunAttempt{}, domain.NotFound("设备")
-	}
-	capabilities := make(map[string]domain.Capability, len(eligible))
-	for _, candidate := range eligible {
-		if candidate.RunID == "" || candidate.Capability.ID == "" {
-			continue
-		}
-		capabilities[candidate.RunID] = candidate.Capability
-	}
-	var candidates []domain.TaskRun
-	for _, r := range s.runs {
-		if r.State != "queued" || !contains(device.ProjectIDs, r.ProjectID) {
-			continue
-		}
-		capability, allowed := capabilities[r.ID]
-		if allowed && r.AcceptsCapability(capability) {
-			candidates = append(candidates, r)
-		}
-	}
-	if len(candidates) == 0 {
-		return domain.TaskRun{}, domain.RunAttempt{}, domain.NotFound("可领取任务")
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].Priority == candidates[j].Priority {
-			return candidates[i].CreatedAt.Before(candidates[j].CreatedAt)
-		}
-		return candidates[i].Priority > candidates[j].Priority
-	})
-	v := candidates[0]
-	until := now.Add(5 * time.Minute)
-	v.State = "leased"
-	v.LeaseDeviceID = deviceID
-	v.LeaseExpiresAt = &until
-	v.AttemptCount++
-	v.UpdatedAt = now
-	capability := capabilities[v.ID]
-	attempt := domain.RunAttempt{ID: attemptID, TenantID: tenantID, ProjectID: v.ProjectID, RunID: v.ID, DeviceID: deviceID, State: "leased", CapabilityID: capability.ID, CapabilityVersion: capability.Version, CapabilityDigest: capability.Digest, InputSchema: capability.InputSchema, OutputSchema: capability.OutputSchema, TokenHash: tokenHash, LeaseExpiresAt: until, Usage: map[string]any{}, CreatedAt: now}
-	v.ActiveAttemptID = attempt.ID
-	v.RunTokenHash = tokenHash
-	v.ProgressLabel = "任务已领取"
-	s.runs[v.ID] = v
-	s.runAttempts[attempt.ID] = attempt
-	return v, attempt, nil
-}
-
 func (s *Store) CreateApproval(_ context.Context, v domain.ApprovalDecision) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if v.DecisionStage == "" {
-		v.DecisionStage = "legacy"
+		v.DecisionStage = "internal"
 	}
 	s.approvals[v.ID] = v
 	return nil

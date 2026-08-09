@@ -1,8 +1,8 @@
 # ContentCloud V8：让复杂内容任务可以持续推进
 
-状态：V8 目标方案；Runtime 第一批内核、独立 RuntimeAttempt、FakeHarness 调度闭环、脱敏 REST BFF 和运营 Explorer 首版已进入代码，尚未达到生产上线条件。2026-08-08 起按 [Runtime Infra V2 升级说明](./09-runtime-infra-v2.md) 收敛底层实现顺序。
+状态：V8 目标方案；Runtime Infra V2 I1～I5 的核心切片、第二业务流容量边界测试和运营 Explorer 首版已进入代码，尚未达到生产上线条件。2026-08-09 起按 [Runtime Infra V2 升级说明](./09-runtime-infra-v2.md) 收敛底层实现顺序。
 
-更新时间：2026-08-07
+更新时间：2026-08-09
 
 > 这份 README 先用一项实际任务说明 V8。只想了解产品方向，读到“为什么叫 Agentic Job Runtime”即可；工程设计和官方证据放在后续文档中。
 
@@ -10,9 +10,9 @@
 
 V8 是 [ContentCloud 平台基线](../../foundation/README.md) 下的 Runtime 专项路线图，负责执行实例、执行图、调度、状态、恢复、外部操作和运行诊断，不定义客户创作台、平台运营产品层或内容业务事实。客户产品需求位于 [`docs/product`](../../product/README.md)。
 
-客户创作台的首个线性纵向切片可以复用当前 WorkTask、StageRun、TaskRun、SOP 和 Gate 能力提前交付，不等待 V8 动态执行图、共享状态和完整恢复能力全部完成。切片不得建立平行任务状态；后续通过平台基线定义的兼容投影、旁路比较和分阶段切流接入 V8。
+客户创作台的线性纵向切片复用 WorkTask、StageRun、SOP 和 Gate 业务能力，执行统一进入 Runtime，不等待动态执行图、共享状态和完整恢复能力全部完成，也不建立平行任务状态。
 
-当前实现边界：客户 Studio 创建任务时会固定已发布 SOP，并幂等启动 JobRun；新任务准入还要求目标项目已经连接受支持的本地执行客户端，当前客户连接协议只发布 Codex。运营侧可以在 `/admin/runtime` 查看 JobRun、节点、脱敏 Agent/ContextView 摘要、事件、外部副作用和检查点，并执行刷新、取消或恢复。Runtime 已具备独立 `runtime_attempts` 权威模型、Node/RuntimeAttempt/ContextView/AgentInstance/JobEvent 原子准备与终态收敛、`RuntimeCommandStore`、`runtime_outbox`、进程级 HarnessRegistry、FakeHarness 结构化事件执行、联合心跳和租约过期恢复；引用型 ContextView 与 AgentInstance 已通过 RLS 和复合外键持久化，父子工具/预算/深度/派生额度也已收敛。Codex/Claude 目前仍是 legacy CLI 适配器，真实 SDK 会话恢复、等待条件下的主动让出/恢复、资源预留、真实媒体服务商闭环、检查点分支、GraphPatch 持久化/Fanout/Join、PostgreSQL 故障注入与并发压测和 Canary 仍属于后续工作包，不能据此宣称 V8 已完成。
+当前实现边界：客户 Studio 创建任务时会固定已发布 SOP，并以绑定摘要、输入摘要、运行策略、契约版本和根执行引用幂等启动 JobRun；运营侧统一在 `/admin/jobs` 查看 JobRun、准入身份、节点、脱敏 Agent/ContextView 摘要、事件、外部副作用和检查点。Runtime 已具备独立 `runtime_attempts` 权威模型、原子准备与终态收敛、`RuntimeCommandStore`、`runtime_outbox`、资源预留、围栏、typed state/ToolCall、Provider inbox/账单对账、Yield/Resume、DurableHarness + SessionStore、Runtime Explorer 投影重建（含 dry-run）、关系化 GraphPatch 和 Fanout/Join。V7 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`、旧 daemon 领取/上报链和对应 Store/API 已删除；现有 `TaskRun` JSON 只是一层 Runtime 只读业务投影，不再对应执行表。第二业务流已用文章复盘的 50 节点容量边界测试证明不依赖业务专用调度表。真实 Provider/SDK 端到端、PostgreSQL 故障注入、RLS/容量公平性压测、生产告警和 Canary 仍属于后续验收，不能据此宣称 V8 已完成。
 
 ## 先用一句话说明
 
@@ -89,7 +89,7 @@ V8 调度的每个步骤都会读取输入并产生输出，但 Runtime 不因�
 
 ## 先区分：当前已经有什么，V8 还要增加什么
 
-下面的“当前”指 2026-08-07 的仓库实现；V8 一栏是尚未完成的目标能力。
+下面的“当前”指 2026-08-09 的仓库实现；V8 一栏是仍需生产验收或尚未开放的目标能力。
 
 | 能力 | 当前仓库 | V8 计划 |
 | --- | --- | --- |
@@ -192,7 +192,7 @@ Codex / Claude Code：完成适合由智能体处理的具体步骤
 | 2026-08-04 | 用户任务与一次执行分开保存 | 重新执行或换路线时保留旧历史，不覆盖用户原始请求 |
 | 2026-08-04 | Codex 和 Claude Code 作为步骤执行者 | 智能体会话和任务清单不能替代 ContentCloud 的业务记录、费用和外部操作治理 |
 | 2026-08-04 | 首版只做有上限的动态执行图和有固定格式的共享状态 | 先把规模、权限和故障行为做成可验证的工程约束 |
-| 2026-08-06 | V8 使用独立 `RuntimeAttempt`，旧 `RunAttempt` 只服务 V7 兼容路径 | 两者关联的执行实例和状态机不同，复用会形成错误外键和双重事实源 |
+| 2026-08-06 | V8 使用独立 `RuntimeAttempt`；旧 `RunAttempt` 已随 `00034` 删除 | 两者关联的执行实例和状态机不同，复用或兼容适配会形成错误外键和双重事实源 |
 | 2026-08-06 | Harness 由进程级 Registry 显式注入 | Fake/CLI 会话保存在适配器实例中，每次选择时重建会导致会话引用不可恢复 |
 | 2026-08-06 | 外部 Harness 调用采用 Prepare/Start/Activate/Finalize 协议 | 数据库事务不能包住外部进程；分阶段原子提交和租约恢复可以覆盖每个崩溃窗口 |
 | 2026-08-07 | Runtime 只引用工作区资料、任务输入、生成结果与交付事实 | 防止执行状态、文件处理、客户结果状态和交付状态形成平行事实源 |

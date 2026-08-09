@@ -13,29 +13,25 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/limecloud/contentcloud/contracts"
 	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/apiclient"
 	"github.com/limecloud/contentcloud/internal/app"
-	"github.com/limecloud/contentcloud/internal/automationworkspace"
 	"github.com/limecloud/contentcloud/internal/bootstrapcheck"
 	"github.com/limecloud/contentcloud/internal/capabilitycatalog"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 	"github.com/limecloud/contentcloud/internal/localconfig"
-	"github.com/limecloud/contentcloud/internal/localworkspace"
 	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
-const Version = "0.20.0"
+const Version = "0.21.0"
 
 type Root struct {
 	json                   bool
@@ -86,7 +82,7 @@ func (r *Root) command() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&r.json, "json", false, "在标准输出中返回稳定的 JSON 响应结构")
 	cmd.PersistentFlags().StringVar(&r.serverURL, "server-url", "", "Content Work OS 服务地址")
 	cmd.PersistentFlags().StringVar(&r.projectID, "project", "", "明确指定项目 ID")
-	cmd.AddCommand(r.authCommand(), r.doctor(), r.bootstrapCommand(), r.workspaceCommand(), r.localCommand(), r.mcpCommand(), r.publishCommand(), r.pullCommand(), r.submissionCommand(), r.down(), r.updateCommand(), r.status(), r.contextCommand(), r.skillsCommand(), r.daemonCommand(), r.schemaCommand(), r.tenantCommand(), r.teamCommand(), r.fullProjectCommand(), r.deviceCommand(), r.sourceCommand(), r.assetCommand(), r.knowledgeCommand(), r.runCommand(), r.artifactCommand(), r.deliveryCommand(), r.reviewCommand(), r.resultCommand(), r.lineageCommand(), r.auditCommand(), r.requestCommand())
+	cmd.AddCommand(r.authCommand(), r.doctor(), r.bootstrapCommand(), r.workspaceCommand(), r.localCommand(), r.mcpCommand(), r.publishCommand(), r.pullCommand(), r.submissionCommand(), r.down(), r.updateCommand(), r.status(), r.contextCommand(), r.skillsCommand(), r.daemonCommand(), r.runtimeWorkerCommand(), r.schemaCommand(), r.tenantCommand(), r.teamCommand(), r.fullProjectCommand(), r.deviceCommand(), r.sourceCommand(), r.assetCommand(), r.knowledgeCommand(), r.runCommand(), r.artifactCommand(), r.deliveryCommand(), r.reviewCommand(), r.resultCommand(), r.lineageCommand(), r.auditCommand(), r.requestCommand())
 	cmd.Version = Version
 	return cmd
 }
@@ -180,8 +176,7 @@ func (r *Root) status() *cobra.Command {
 				daemon = state
 			}
 		}
-		pending, dead, _ := daemonJournalCounts()
-		return r.writeOK("status", map[string]any{"server_url": cfg.ServerURL, "device_id": cfg.DeviceID, "project_id": cfg.ProjectID, "device_credential": credential, "version": Version, "daemon": daemon, "daemon_bindings": cfg.RuntimeBindings(), "pending_attempt_reports": pending, "dead_letters": dead})
+		return r.writeOK("status", map[string]any{"server_url": cfg.ServerURL, "device_id": cfg.DeviceID, "project_id": cfg.ProjectID, "device_credential": credential, "version": Version, "daemon": daemon, "daemon_bindings": cfg.RuntimeBindings()})
 	}}
 }
 
@@ -276,8 +271,8 @@ func (r *Root) skillsCommand() *cobra.Command {
 }
 
 func (r *Root) daemonCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "daemon", Short: "运行仅主动连接服务端的本地创作后台服务"}
-	start := &cobra.Command{Use: "start", Short: "安装并启动当前用户的自动化后台服务", RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "daemon", Short: "由 Runtime worker 协议驱动的本地创作后台服务"}
+	start := &cobra.Command{Use: "start", Short: "安装并启动当前用户的 Runtime worker 服务", RunE: func(cmd *cobra.Command, args []string) error {
 		if err := daemonStartPrerequisites(); err != nil {
 			return err
 		}
@@ -291,7 +286,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 		}
 		return r.writeOK("daemon.start", state)
 	}}
-	stop := &cobra.Command{Use: "stop", Short: "停止当前用户的自动化后台服务，但不卸载", RunE: func(cmd *cobra.Command, args []string) error {
+	stop := &cobra.Command{Use: "stop", Short: "停止当前用户的 Runtime worker 服务，但不卸载", RunE: func(cmd *cobra.Command, args []string) error {
 		service, err := r.localDaemonService()
 		if err != nil {
 			return err
@@ -302,7 +297,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 		}
 		return r.writeOK("daemon.stop", state)
 	}}
-	status := &cobra.Command{Use: "status", Short: "显示后台服务的安装、进程、日志和版本状态", RunE: func(cmd *cobra.Command, args []string) error {
+	status := &cobra.Command{Use: "status", Short: "显示 Runtime worker 服务的安装、进程和版本状态", RunE: func(cmd *cobra.Command, args []string) error {
 		service, err := r.localDaemonService()
 		if err != nil {
 			return err
@@ -314,7 +309,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 		return r.writeOK("daemon.status", state)
 	}}
 	var ifInstalled bool
-	restart := &cobra.Command{Use: "restart", Short: "使用当前 Content Work OS 程序重新加载后台服务", RunE: func(cmd *cobra.Command, args []string) error {
+	restart := &cobra.Command{Use: "restart", Short: "使用当前程序重新加载 Runtime worker 服务", RunE: func(cmd *cobra.Command, args []string) error {
 		service, err := r.localDaemonService()
 		if err != nil {
 			return err
@@ -337,302 +332,13 @@ func (r *Root) daemonCommand() *cobra.Command {
 	}}
 	restart.Flags().BoolVar(&ifInstalled, "if-installed", false, "后台服务未安装时直接跳过并返回成功")
 	var once, fixture bool
-	var adapterKind string
-	var logFile string
-	run := &cobra.Command{Use: "run", Short: "轮询已分配任务并执行本地能力", RunE: func(cmd *cobra.Command, args []string) error {
-		if strings.TrimSpace(logFile) != "" {
-			managedLog, logErr := newRotatingLogWriter(logFile)
-			if logErr != nil {
-				return logErr
-			}
-			defer managedLog.Close()
-			r.stdout, r.stderr = managedLog, managedLog
-		}
-		cfg, err := localconfig.Load()
-		if err != nil {
-			return err
-		}
-		bindings := cfg.RuntimeBindings()
-		if len(bindings) == 0 && cfg.DeviceID != "" {
-			bindings = []localconfig.DaemonBinding{{ServerURL: r.resolveServer(cfg), DeviceID: cfg.DeviceID, Workspaces: []localconfig.DaemonWorkspace{{WorkspaceID: cfg.WorkspaceID, ProjectID: cfg.ProjectID, Root: cfg.WorkspaceRoot}}}}
-		}
-		if len(bindings) == 0 {
-			return domain.Conflict("DEVICE_BINDING_MISSING", "启动自动化后台服务前必须先完成设备注册")
-		}
-		journal, err := newDaemonJournal()
-		if err != nil {
-			return err
-		}
-		type bindingRuntime struct {
-			config           localconfig.Config
-			binding          localconfig.DaemonBinding
-			client           *apiclient.Client
-			interactiveRoots []string
-		}
-		runtimes := make([]bindingRuntime, 0, len(bindings))
-		for _, binding := range bindings {
-			bindingConfig := cfg
-			bindingConfig.ServerURL, bindingConfig.DeviceID = binding.ServerURL, binding.DeviceID
-			bindingConfig.DaemonBindings = []localconfig.DaemonBinding{binding}
-			bindingConfig.WorkspaceID, bindingConfig.ProjectID, bindingConfig.WorkspaceRoot = "", "", ""
-			for _, workspace := range binding.Workspaces {
-				if bindingConfig.WorkspaceID == "" {
-					bindingConfig.WorkspaceID, bindingConfig.ProjectID = workspace.WorkspaceID, workspace.ProjectID
-				}
-				if bindingConfig.WorkspaceRoot == "" && strings.TrimSpace(workspace.Root) != "" {
-					bindingConfig.WorkspaceRoot = workspace.Root
-				}
-			}
-			token, tokenErr := localconfig.DeviceToken(binding.DeviceID)
-			if tokenErr != nil {
-				return &domain.Error{Type: "credential", Subtype: "device", Code: "DEVICE_CREDENTIAL_MISSING", Message: tokenErr.Error(), ExitCode: 3}
-			}
-			runtimes = append(runtimes, bindingRuntime{
-				config: bindingConfig, binding: binding, client: apiclient.New(r.resolveServer(bindingConfig), token),
-				interactiveRoots: configuredWorkspaceRoots(bindingConfig),
-			})
-		}
-		for _, runtime := range runtimes {
-			if flushErr := journal.flushMatching(cmd.Context(), runtime.client, r.resolveServer(runtime.config), runtime.binding.DeviceID); flushErr != nil {
-				if once {
-					return flushErr
-				}
-				fmt.Fprintln(r.stderr, flushErr)
-			}
-		}
-		var adapter agentadapter.Adapter
-		if !fixture {
-			adapter, err = agentadapter.Select(adapterKind)
-			if err != nil {
-				return err
-			}
-			if err := adapter.Detect(); err != nil {
-				return domain.Policy("AGENT_ADAPTER_UNAVAILABLE", "指定的本地智能体不可用", "检查安装与登录状态")
-			}
-		}
-		provider := "fixture"
-		if adapter != nil {
-			provider = adapter.Kind()
-		}
-		maxConcurrent := daemonMaxConcurrentTasks()
-		tracker, err := newDaemonRuntimeTracker(bindings, provider, maxConcurrent, r.currentTime())
-		if err != nil {
-			return err
-		}
-		execute := func(runtime bindingRuntime) (returnErr error) {
-			cfg, client := runtime.config, runtime.client
-			capabilities := builtinCapabilities()
-			claims, err := daemonEnvironmentClaims(cfg)
-			if err != nil {
-				return err
-			}
-			var poll struct {
-				Leased      bool                    `json:"leased"`
-				Lease       *app.Lease              `json:"lease,omitempty"`
-				Runtime     app.DaemonRuntimePolicy `json:"runtime"`
-				PollAfterMS int                     `json:"poll_after_ms"`
-				// Legacy direct Lease fields remain accepted during rolling upgrades.
-				Run             domain.TaskRun                       `json:"run"`
-				Attempt         domain.RunAttempt                    `json:"attempt"`
-				Contract        domain.TaskContract                  `json:"contract"`
-				ExecutionBundle *environment.CreativeExecutionBundle `json:"execution_bundle,omitempty"`
-				LeaseExpiresAt  time.Time                            `json:"lease_expires_at"`
-				RunToken        string                               `json:"run_token"`
-			}
-			waitMS := 0
-			if !once {
-				waitMS = 20000
-			}
-			err = client.Dispatch(cmd.Context(), "daemon.poll", map[string]any{"capabilities": capabilities, "environments": claims, "daemon_version": Version, "wait_ms": waitMS}, &poll)
-			if err != nil {
-				tracker.recordPoll(app.DaemonRuntimePolicy{CurrentVersion: Version}, false, err)
-				var de *domain.Error
-				if errors.As(err, &de) && de.Code == "NO_TASK" {
-					if once {
-						return r.writeOK("daemon.poll", map[string]any{"leased": false})
-					}
-					return nil
-				}
-				return err
-			}
-			tracker.recordPoll(poll.Runtime, poll.Leased || poll.Lease != nil || poll.Run.ID != "", nil)
-			if !poll.Leased && poll.Lease == nil && poll.Run.ID == "" {
-				if once {
-					return r.writeOK("daemon.poll", map[string]any{"leased": false, "runtime": poll.Runtime, "poll_after_ms": poll.PollAfterMS})
-				}
-				return nil
-			}
-			var lease app.Lease
-			if poll.Lease != nil {
-				lease = *poll.Lease
-			} else {
-				lease = app.Lease{Run: poll.Run, Attempt: poll.Attempt, Contract: poll.Contract, ExecutionBundle: poll.ExecutionBundle, LeaseExpiresAt: poll.LeaseExpiresAt, RunToken: poll.RunToken}
-			}
-			if err := journal.begin(lease, r.resolveServer(cfg), cfg.DeviceID); err != nil {
-				return err
-			}
-			tracker.taskStarted()
-			defer func() { tracker.taskFinished(returnErr) }()
-			schema, skillName, resourceErr := taskRuntimeResources(lease.Run)
-			if resourceErr != nil {
-				return finishAttemptError(journal, client, lease, "runtime_resources", "本地任务资源选择失败", resourceErr)
-			}
-			skillBody, resourceErr := builtinskills.Read(skillName, "SKILL.md")
-			if resourceErr != nil {
-				return finishAttemptError(journal, client, lease, "skill_load", "本地 Skill 加载失败", resourceErr)
-			}
-			executionWorkspace, workspaceErr := automationworkspace.Begin(automationworkspace.Options{
-				BaseDir: strings.TrimSpace(os.Getenv("CONTENTCLOUD_AUTOMATION_ROOT")), ForbiddenRoots: runtime.interactiveRoots,
-				AttemptID: lease.Attempt.ID, RunID: lease.Run.ID, ProjectID: lease.Run.ProjectID,
-				Contract: lease.Contract, Bundle: lease.ExecutionBundle, OutputSchema: schema, Skill: skillBody,
-				Now: r.currentTime(), ExpiresAt: lease.LeaseExpiresAt,
-			})
-			if workspaceErr != nil {
-				return finishAttemptError(journal, client, lease, "workspace_isolation", "Automation 隔离工作区创建失败", workspaceErr)
-			}
-			defer func() {
-				if cleanupErr := executionWorkspace.Cleanup(); cleanupErr != nil {
-					returnErr = errors.Join(returnErr, cleanupErr)
-				}
-			}()
-			var output json.RawMessage
-			if fixture {
-				switch lease.Run.TaskType {
-				case "knowledge_extract":
-					output, _ = json.Marshal(GenerateFixtureKnowledge(lease.Contract, lease.Run.OutputCount))
-				default:
-					runErr := domain.Invalid("TASK_TYPE_UNSUPPORTED", "测试适配器不支持该任务类型")
-					return finishAttemptError(journal, client, lease, "runtime_resources", "本地开发 Fixture 不支持该任务类型", runErr)
-				}
-			} else {
-				var heartbeatResult struct {
-					CancelRequested bool           `json:"cancel_requested"`
-					Run             domain.TaskRun `json:"run"`
-				}
-				if err := client.Dispatch(cmd.Context(), "run.heartbeat", map[string]any{"run_id": lease.Run.ID, "attempt_id": lease.Attempt.ID, "run_token": lease.RunToken, "heartbeat": domain.RunHeartbeat{Sequence: 1, Phase: "contract_ready", Step: 1, Label: "上下文校验完成"}}, &heartbeatResult); err != nil {
-					return finishAttemptError(journal, client, lease, "heartbeat_failed", "首次心跳未完成", err)
-				}
-				if heartbeatResult.Run.LeaseExpiresAt == nil {
-					leaseErr := domain.Conflict("AUTOMATION_WORKSPACE_LEASE_EXPIRY_MISSING", "服务端心跳未返回续租时间")
-					return finishAttemptError(journal, client, lease, "workspace_isolation", "本地 Automation lease 无法续租", leaseErr)
-				}
-				if err := executionWorkspace.Renew(*heartbeatResult.Run.LeaseExpiresAt); err != nil {
-					return finishAttemptError(journal, client, lease, "workspace_isolation", "本地 Automation lease 续租失败", err)
-				}
-				if heartbeatResult.CancelRequested {
-					cancelErr := domain.Conflict("RUN_CANCEL_REQUESTED", "任务已被用户取消")
-					if err := finishAttempt(journal, client, lease, "canceled", "user_canceled", "服务端取消请求已由本地客户端确认", nil); err != nil {
-						return errors.Join(cancelErr, err)
-					}
-					return cancelErr
-				}
-				agentCtx, cancel := context.WithTimeout(cmd.Context(), 30*time.Minute)
-				heartbeatDone := make(chan struct{})
-				heartbeatErrors := make(chan error, 1)
-				go func() {
-					defer close(heartbeatDone)
-					ticker := time.NewTicker(25 * time.Second)
-					defer ticker.Stop()
-					sequence := 2
-					for {
-						select {
-						case <-agentCtx.Done():
-							return
-						case <-ticker.C:
-							var response struct {
-								CancelRequested bool           `json:"cancel_requested"`
-								Run             domain.TaskRun `json:"run"`
-							}
-							err := client.Dispatch(agentCtx, "run.heartbeat", map[string]any{"run_id": lease.Run.ID, "attempt_id": lease.Attempt.ID, "run_token": lease.RunToken, "heartbeat": domain.RunHeartbeat{Sequence: sequence, Phase: "client_executing", Step: sequence, Label: "本地 Agent 生成中"}}, &response)
-							if err != nil {
-								heartbeatErrors <- err
-								cancel()
-								return
-							}
-							if response.CancelRequested {
-								heartbeatErrors <- domain.Conflict("RUN_CANCEL_REQUESTED", "任务已被用户取消")
-								cancel()
-								return
-							}
-							if response.Run.LeaseExpiresAt == nil {
-								heartbeatErrors <- domain.Conflict("AUTOMATION_WORKSPACE_LEASE_EXPIRY_MISSING", "服务端心跳未返回续租时间")
-								cancel()
-								return
-							}
-							if err := executionWorkspace.Renew(*response.Run.LeaseExpiresAt); err != nil {
-								heartbeatErrors <- err
-								cancel()
-								return
-							}
-							sequence++
-						}
-					}
-				}()
-				output, err = adapter.Run(agentCtx, executionWorkspace.Root)
-				cancel()
-				<-heartbeatDone
-				select {
-				case heartbeatErr := <-heartbeatErrors:
-					var de *domain.Error
-					if errors.As(heartbeatErr, &de) && de.Code == "RUN_CANCEL_REQUESTED" {
-						if finishErr := finishAttempt(journal, client, lease, "canceled", "user_canceled", "服务端取消请求已由本地客户端确认", nil); finishErr != nil {
-							return errors.Join(heartbeatErr, finishErr)
-						}
-						return heartbeatErr
-					}
-					failureClass := "heartbeat_failed"
-					summary := "后台心跳中断"
-					if errors.As(heartbeatErr, &de) && strings.HasPrefix(de.Code, "AUTOMATION_WORKSPACE_") {
-						failureClass = "workspace_isolation"
-						summary = "本地 Automation lease 续租失败"
-					}
-					return finishAttemptError(journal, client, lease, failureClass, summary, heartbeatErr)
-				default:
-				}
-				if err != nil {
-					failureClass, summary, exitCode := classifyAttemptFailure(err)
-					return finishAttemptErrorWithExitCode(journal, client, lease, failureClass, summary, exitCode, err)
-				}
-			}
-			if err := journal.queueReport(lease, output); err != nil {
-				return err
-			}
-			if err := journal.deliverAttempt(cmd.Context(), client, lease.Attempt.ID); err != nil {
-				return err
-			}
-			report := map[string]any{"delivered": true}
-			return r.writeOK("daemon.run", map[string]any{"leased": true, "run_id": lease.Run.ID, "attempt_id": lease.Attempt.ID, "task_type": lease.Run.TaskType, "isolated_workspace": true, "result": report})
-		}
-		if once {
-			return execute(runtimes[0])
-		}
-		results := make(chan error, maxConcurrent)
-		active, nextRuntime := 0, 0
-		for {
-			for active < maxConcurrent {
-				runtime := runtimes[nextRuntime]
-				nextRuntime = (nextRuntime + 1) % len(runtimes)
-				active++
-				go func() { results <- execute(runtime) }()
-			}
-			select {
-			case <-cmd.Context().Done():
-				for active > 0 {
-					<-results
-					active--
-				}
-				return nil
-			case runErr := <-results:
-				active--
-				if runErr != nil {
-					fmt.Fprintln(r.stderr, runErr)
-				}
-			}
-		}
+	var adapterKind, logFile string
+	run := &cobra.Command{Use: "run", Short: "通过 Runtime worker 协议领取并执行本地节点", RunE: func(cmd *cobra.Command, args []string) error {
+		return r.runtimeDaemonRun(cmd, once, fixture, adapterKind, logFile)
 	}}
-	run.Flags().BoolVar(&once, "once", false, "最多轮询一次")
-	run.Flags().BoolVar(&fixture, "fixture", false, "开发时使用结果固定的本地测试适配器")
-	run.Flags().StringVar(&adapterKind, "adapter", "auto", "本地智能体适配器：auto、codex 或 claude-code；其他已登记客户端仍在规划中")
+	run.Flags().BoolVar(&once, "once", false, "最多领取一次")
+	run.Flags().BoolVar(&fixture, "fixture", false, "使用确定性 JSON 结果，不启动本地 Agent")
+	run.Flags().StringVar(&adapterKind, "adapter", "auto", "本地智能体适配器：auto、codex 或 claude-code")
 	run.Flags().StringVar(&logFile, "log-file", "", "受管后台服务日志路径")
 	cmd.AddCommand(start, stop, status, restart, run)
 	return cmd
@@ -659,123 +365,6 @@ func daemonStartPrerequisites() error {
 		return domain.Policy("AGENT_ADAPTER_UNAVAILABLE", "未检测到可用于自动化任务的 Codex 或 Claude Code", "安装并登录本机智能体客户端后重试")
 	}
 	return nil
-}
-
-func daemonEnvironmentClaims(config localconfig.Config) ([]app.AutomationEnvironmentClaim, error) {
-	roots := []string{}
-	if root := strings.TrimSpace(os.Getenv("CONTENTCLOUD_WORKSPACE_ROOT")); root != "" {
-		roots = append(roots, root)
-	} else {
-		for _, binding := range config.RuntimeBindings() {
-			for _, workspace := range binding.Workspaces {
-				if root := strings.TrimSpace(workspace.Root); root != "" {
-					roots = append(roots, root)
-				}
-			}
-		}
-		if len(roots) == 0 && strings.TrimSpace(config.WorkspaceRoot) != "" {
-			roots = append(roots, strings.TrimSpace(config.WorkspaceRoot))
-		}
-	}
-	if len(roots) == 0 {
-		return []app.AutomationEnvironmentClaim{}, nil
-	}
-	claims := make([]app.AutomationEnvironmentClaim, 0, len(roots))
-	projects := map[string]bool{}
-	for _, root := range roots {
-		state, err := localworkspace.ReadEnvironmentClaim(root)
-		if err != nil {
-			wrapped := domain.Conflict("AUTOMATION_ENVIRONMENT_CLAIM_UNAVAILABLE", "无法读取完整的本地环境清单和锁文件")
-			wrapped.Hint = "完成创作环境检查后重试后台服务轮询"
-			wrapped.Details = map[string]any{"workspace_root": root, "cause": err.Error()}
-			return nil, wrapped
-		}
-		if projects[state.Manifest.ProjectID] {
-			continue
-		}
-		projects[state.Manifest.ProjectID] = true
-		claims = append(claims, app.AutomationEnvironmentClaim{Manifest: state.Manifest, Lock: state.Lock})
-	}
-	return claims, nil
-}
-
-func configuredWorkspaceRoots(config localconfig.Config) []string {
-	if root := strings.TrimSpace(os.Getenv("CONTENTCLOUD_WORKSPACE_ROOT")); root != "" {
-		return []string{root}
-	}
-	roots := []string{}
-	seen := map[string]bool{}
-	for _, binding := range config.RuntimeBindings() {
-		for _, workspace := range binding.Workspaces {
-			root := strings.TrimSpace(workspace.Root)
-			if root != "" && !seen[root] {
-				seen[root] = true
-				roots = append(roots, root)
-			}
-		}
-	}
-	if root := strings.TrimSpace(config.WorkspaceRoot); root != "" && !seen[root] {
-		roots = append(roots, root)
-	}
-	return roots
-}
-
-func daemonMaxConcurrentTasks() int {
-	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv("CONTENTCLOUD_DAEMON_MAX_CONCURRENT_TASKS")))
-	if err != nil || value < 1 {
-		return 2
-	}
-	if value > 8 {
-		return 8
-	}
-	return value
-}
-
-func finishAttempt(journal *daemonJournal, client *apiclient.Client, lease app.Lease, outcome, failureClass, summary string, exitCode *int) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := journal.queueFinish(lease, outcome, failureClass, summary, exitCode); err != nil {
-		return err
-	}
-	return journal.deliverAttempt(ctx, client, lease.Attempt.ID)
-}
-
-func finishAttemptError(journal *daemonJournal, client *apiclient.Client, lease app.Lease, failureClass, summary string, runErr error) error {
-	return finishAttemptErrorWithExitCode(journal, client, lease, failureClass, summary, nil, runErr)
-}
-
-func finishAttemptErrorWithExitCode(journal *daemonJournal, client *apiclient.Client, lease app.Lease, failureClass, summary string, exitCode *int, runErr error) error {
-	if finishErr := finishAttempt(journal, client, lease, "failed", failureClass, summary, exitCode); finishErr != nil {
-		return errors.Join(runErr, finishErr)
-	}
-	return runErr
-}
-
-func classifyAttemptFailure(err error) (string, string, *int) {
-	var de *domain.Error
-	if !errors.As(err, &de) {
-		return "agent_runtime", "本地 Agent 执行失败", nil
-	}
-	var exitCode *int
-	if details, ok := de.Details.(map[string]any); ok {
-		switch value := details["process_exit_code"].(type) {
-		case int:
-			exitCode = &value
-		case float64:
-			code := int(value)
-			exitCode = &code
-		}
-	}
-	switch de.Code {
-	case "AGENT_PROCESS_FAILED":
-		return "agent_process", "本地 Agent 进程执行失败", exitCode
-	case "AGENT_CANCELED":
-		return "agent_timeout", "本地 Agent 执行被中断或超时", exitCode
-	case "AGENT_OUTPUT_INVALID", "AGENT_OUTPUT_MISSING":
-		return "agent_output", "本地 Agent 未生成有效结构化输出", exitCode
-	default:
-		return "agent_runtime", "本地 Agent 执行失败", exitCode
-	}
 }
 
 func (r *Root) schemaCommand() *cobra.Command {
@@ -858,17 +447,6 @@ func detectCapabilities() map[string]any {
 	return map[string]any{"knowledge.extract": map[string]any{"ok": true, "version": "1.0.0"}, "codex": binaryStatus("codex"), "claude": binaryStatus("claude")}
 }
 
-func taskRuntimeResources(run domain.TaskRun) ([]byte, string, error) {
-	switch run.TaskType {
-	case "knowledge_extract":
-		if run.OutputSchema != domain.KnowledgeCandidatesSchema {
-			return nil, "", domain.Conflict("OUTPUT_SCHEMA_MISMATCH", "知识提取任务的输出结构定义与本机能力不匹配")
-		}
-		return contracts.KnowledgeCandidatesSchema, builtinskills.KnowledgeExtraction, nil
-	default:
-		return nil, "", domain.Invalid("TASK_TYPE_UNSUPPORTED", "本机运行环境不支持该任务类型")
-	}
-}
 func binaryStatus(name string) map[string]any {
 	path, err := exec.LookPath(name)
 	return map[string]any{"available": err == nil, "path": path}
@@ -965,12 +543,18 @@ func commandSchemas() map[string]any {
 		"source.revisions": userRead([]string{"source-id"}, "不可变的来源修订版本列表"), "source.revise": write("user", []string{"source-id", "file", "--mime", "--dry-run"}, "新的不可变来源修订版本"), "source.impact": userRead([]string{"source-id"}, "受影响对象列表"), "evidence.review": write("user", []string{"evidence-id", "decision", "--dry-run"}, "已审核的证据片段"),
 		"asset.list": userRead([]string{"--project"}, "受治理素材列表"), "asset.create": write("user", []string{"--project", "--name", "--type", "--source-revision", "--usage", "--dry-run"}, "受治理素材"), "rights.list": userRead([]string{"asset-id"}, "素材权利记录"), "rights.create": write("user", []string{"asset-id", "--holder", "--type", "--territory", "--channel", "--proof-source-revision", "--valid-from", "--valid-until", "--restriction", "--dry-run"}, "权利记录"), "rights.review": write("user", []string{"rights-id", "decision", "--dry-run"}, "已审核的权利记录"),
 		"knowledge.list": userRead([]string{"--project"}, "知识对象列表"), "knowledge.show": userRead([]string{"knowledge-id"}, "知识对象"), "knowledge.extract": write("user", []string{"--project", "--source-revision", "--count", "--idempotency-key", "--dry-run"}, "已排队的本地知识提取运行"), "knowledge.review": write("user", []string{"id", "decision", "--reason", "--dry-run"}, "已审核的知识对象"),
-		"run.list": userRead([]string{"--project"}, "运行列表"), "run.show": userRead([]string{"run-id"}, "任务运行"), "run.attempts": userRead([]string{"run-id"}, "不可变的执行尝试列表"), "run.events": userRead([]string{"run-id", "--after"}, "不可变的增量进度事件"), "run.log": userRead([]string{"run-id"}, "已脱敏的持久化进度"), "run.cancel": high([]string{"run-id"}, "已取消的任务运行"),
-		"artifact.export": write("user", []string{"approved-snapshot-id", "--content-item", "--format"}, "由快照派生的成果文件"), "delivery.create": write("user", []string{"approved-snapshot-id", "--content-item"}, "包含三种格式的交付包"), "delivery.list": userRead([]string{"--project"}, "交付包列表"), "delivery.show": userRead([]string{"delivery-package-id"}, "交付包"), "artifact.download": userRead([]string{"artifact-id", "--out"}, "托管成果文件路径"),
+		"run.list": userRead([]string{"--project"}, "运行列表"), "run.show": userRead([]string{"run-id"}, "任务运行"), "run.events": userRead([]string{"run-id", "--after"}, "Runtime 不可变的增量进度事件"), "run.log": userRead([]string{"run-id"}, "已脱敏的持久化进度"), "run.cancel": high([]string{"run-id"}, "已取消的任务运行"),
+		"runtime.worker.prepare":      write("device", []string{"job-run-id", "--harness", "--role", "--execution-profile", "--workspace", "--prompt"}, "已绑定 ContextView、AgentInstance、RuntimeAttempt 和 fence token 的准备句柄"),
+		"runtime.worker.prepare_next": write("device", []string{"--harness", "--role", "--execution-profile", "--workspace", "--prompt"}, "按 Runtime 公平调度领取的准备句柄"),
+		"runtime.worker.activate":     write("device", []string{"attempt-id", "fence-token", "session-id", "--harness"}, "已绑定外部会话的 RuntimeAttempt"),
+		"runtime.worker.heartbeat":    write("device", []string{"attempt-id", "fence-token"}, "续期后的 RuntimeAttempt 租约"),
+		"runtime.worker.finalize":     write("device", []string{"attempt-id", "fence-token", "--state", "--output-ref", "--business-payload", "--result-digest"}, "已校验业务结果并收敛 RuntimeAttempt 终态"),
+		"artifact.export":             write("user", []string{"approved-snapshot-id", "--content-item", "--format"}, "由快照派生的成果文件"), "delivery.create": write("user", []string{"approved-snapshot-id", "--content-item"}, "包含三种格式的交付包"), "delivery.list": userRead([]string{"--project"}, "交付包列表"), "delivery.show": userRead([]string{"delivery-package-id"}, "交付包"), "artifact.download": userRead([]string{"artifact-id", "--out"}, "托管成果文件路径"),
 		"review.create": write("user", []string{"submission-revision-id", "--email", "--dry-run"}, "一次性客户审核链接"), "review.list": userRead([]string{"submission-revision-id"}, "客户审核授权列表"), "review.revoke": high([]string{"grant-id", "--dry-run"}, "已撤销的客户审核授权"), "review.status": userRead([]string{"submission-revision-id"}, "客户审核状态"),
 		"result.list": userRead([]string{"--project"}, "观察数据列表"), "result.import": write("user", []string{"json-or-csv-or-xlsx-file", "--project", "--dry-run"}, "原子化效果数据导入批次"), "result.batches": userRead([]string{"--project"}, "不可变的导入批次列表"), "result.batch-show": userRead([]string{"batch-id"}, "导入批次及其观察数据"), "result.rate": write("user", []string{"subject-type", "subject-id", "--project", "--observation", "--rating", "--reason", "--next-action", "--dry-run"}, "人工评分决定"), "result.ratings": userRead([]string{"--project"}, "人工评分决定列表"),
 		"lineage.show": userRead([]string{"--project", "--type", "--id", "--direction"}, "双向项目血缘图"), "lineage.impact": userRead([]string{"--project", "--type", "--id"}, "包含原因和动作的受影响对象"), "audit.list": userRead([]string{"--project", "--limit"}, "不可变的审计事件列表"),
 		"daemon.start": write("device", nil, "已安装并运行的用户级后台服务"), "daemon.stop": write("none", nil, "已停止的后台服务"), "daemon.status": read(nil, "后台服务进程、日志、版本和最近运行健康状态"), "daemon.restart": write("device", []string{"--if-installed"}, "已使用当前二进制文件重新加载的后台服务"), "daemon.run": write("device", []string{"--once", "--fixture", "--adapter", "--log-file"}, "租约任务运行结果"), "skills.list": read(nil, "内置技能列表"), "skills.read": read([]string{"name", "--path"}, "技能内容"), "skills.status": read(nil, "技能版本状态"), "skills.install": write("none", []string{"name", "--target"}, "本地安装路径"), "schema": read([]string{"command"}, "CLI 契约"), "request.get": userRead([]string{"projects|tenants|runs"}, "允许列表中的资源"),
+		"runtime-worker.run": write("device", []string{"--once", "--fixture", "--harness", "--role", "--execution-profile", "--workspace", "--prompt", "--result-file"}, "通过 Runtime Attempt/fence 协议完成的节点执行结果"),
 	}
 }
 

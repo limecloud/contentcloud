@@ -2,17 +2,17 @@
 
 > 阅读对象：参与 V8 实施和评审的研发负责人。普通读者可先看 README；本文件只记录工作包、依赖、里程碑和风险。
 
-状态：`方案完成；Runtime 第一批内核、ContextView/AgentInstance 存储、脱敏 BFF 与 Explorer 首版已实现；真实执行适配、服务商闭环、动态执行图和生产验证仍未完成。V8.1 基础设施升级按 09-runtime-infra-v2.md 执行`。
+状态：`Runtime Infra V2 的 current 主链已收敛到 JobRun/NodeRun/RuntimeAttempt；V7 TaskRun/RunAttempt 存储、daemon 执行协议和写 API 已删除。真实 SDK/Provider 端到端、生产故障/RLS/公平容量/Canary 验证仍未完成，不能宣称生产就绪。V8.1 基础设施升级按 09-runtime-infra-v2.md 执行`。
 
-更新时间：2026-08-07。
+更新时间：2026-08-09。
 
 本台账按以下顺序实施：先验证 Codex、Claude Code 等智能体宿主的实际能力，并兼容现有线性流程；再建设共享状态和故障恢复；最后开放动态执行图。不能先演示大规模创建智能体，再补权限、费用和恢复机制。
 
-现有的业务任务、流程阶段、人工审批节点、本地执行、租约、心跳、正式产物和交付对象继续复用。V8 新增的是执行实例、执行图、共享状态、检查点、外部操作台账和统一调度，不重新建设一套内容业务对象。
+现有的业务任务、流程阶段、人工审批节点、正式产物和交付对象继续复用；执行租约、心跳和终态收敛统一由 Runtime 管理。V8 不重新建设一套内容业务对象。
 
 本期不做通用工作流市场、任意代码执行、无限智能体派生、对等智能体聊天网络，也不承诺外部操作一定只发生一次。完整边界见 [README.md](./README.md) 的“明确不做”。
 
-本台账的工作包仍然有效，但执行顺序增加一条硬前置：先完成 [Runtime Infra V2](./09-runtime-infra-v2.md) 的 I0～I3（权威事务命令、事件/outbox、fence token、资源账本、类型化状态、Effect 对账和分支恢复），再开放 W8-10 动态执行图。当前 I0 已冻结、I1 命令和 outbox 消费协议已实现；I1 仍需提交后进程终止注入、投影消费和并发验证。I4～I5 与 W8-11～W8-16 合并验收；在此之前，FakeHarness 只能作为 CI 和预览能力，不能作为真实宿主恢复证据。
+本台账的工作包仍然有效，但执行顺序增加一条硬前置：先完成 [Runtime Infra V2](./09-runtime-infra-v2.md) 的 I0～I3（权威事务命令、事件/outbox、fence token、资源账本、类型化状态、Effect 对账和分支恢复），再开放 W8-10 动态执行图。当前 I0 已冻结，I1～I4 核心切片和 W8-10 的关系化 GraphPatch/Fanout/Join 核心已实现，文章复盘 50 节点容量边界测试已通过；真实 PostgreSQL 故障注入、RLS 集成、100 节点/20 并发公平性、真实 Provider/SDK Resume 和 I5 Canary 仍待验收。FakeHarness 和 DurableHarness + SessionStore 只能作为 CI/预览及 Runtime 边界证据，不能宣称真实宿主生产恢复。
 
 本台账服从 [ContentCloud 平台基线](../../foundation/README.md)：V8 只交付 Runtime 内核和 Runtime Explorer，不承担客户创作台与运营流水线产品层。客户首个“灵感采集”线性切片可以使用现有执行内核与兼容投影提前交付，不以 W8-10 动态执行图或 W8-12 完整诊断 Web 为前置条件。
 
@@ -28,17 +28,17 @@ V8 对客户工作区资料、任务输入、项目参考、生成结果和交�
 | W8-01 | 智能体执行适配层原型 | Codex/Claude/Fake 能力探测、MCP、恢复/分支/事件兼容性验证 | W8-00 | 契约与 Fake/legacy CLI 原型已实现；客户工作区 bootstrap 当前只发布 Codex，Claude 与真实 SDK 恢复验证待补 |
 | W8-02 | JobRun 与 JobEvent | 领域模型、迁移、存储、服务、RLS、API | W8-00 | 第一版已实现 |
 | W8-03 | SOP 执行图编译器 | JobPlanRevision、节点/边、静态校验、旁路差异报告 | W8-02 | 第一版已实现 |
-| W8-04 | 线性执行图调度器 | 就绪判断、独立 RuntimeAttempt、租约、公平调度 | W8-03 | FakeHarness 的 Prepare/Start/Activate/Finalize 闭环、联合心跳、过期回收和 20 worker 并发领取已实现；公平/资源调度及 PostgreSQL 压测待补 |
-| W8-05 | 类型化状态与上下文 | StateCollection/Mutation、CAS、ContextView、运行时网关 | W8-04 | CAS、引用型 ContextView 构建器与 RLS 持久化已实现；网关尚未开放 |
-| W8-06 | AgentInstance 执行 | 父子身份、宿主会话、让出资源/恢复执行、权限交集 | W8-01、W8-05 | 进程级 HarnessRegistry、FakeHarness 事件闭环、Agent 跨 Attempt 复用、RLS 及父子范围收敛已实现；真实 SDK 会话恢复与主动让出/恢复待补 |
-| W8-07 | 资源与外部操作台账 | 资源预留、工具调用、外部操作及结果不明/对账/补偿 | W8-02、W8-04 | 待实施 |
-| W8-08 | 服务商生产闭环 | 真实适配器、异步轮询/回调、租约回收、流式下载、渲染 | W8-07 | 待实施 |
-| W8-09 | 检查点、重放与执行分支 | 节点边界清单、读模型重放、新 JobRun 分支 | W8-05、W8-06、W8-07 | 待实施 |
-| W8-10 | 受限动态执行图 | GraphPatch、FanoutSet、确定性子节点、汇聚策略 | W8-06、W8-09 | GraphPatch 纯校验/新计划原型已实现；持久化版本、Fanout/Join 待补 |
-| W8-11 | 基础运行诊断 BFF | 执行实例/步骤/智能体/状态/事件/操作/费用读模型、SSE 游标 | W8-02、W8-05、W8-06、W8-07 | 首版 REST、Runtime SSE 游标及脱敏 Agent/ContextView 诊断已实现；执行图、共享状态和费用读模型待补 |
+| W8-04 | 线性执行图调度器 | 就绪判断、独立 RuntimeAttempt、租约、公平调度 | W8-03 | Prepare/Activate/Heartbeat/Finalize、fence、过期回收、资源预留/释放和 aging 排序已实现；V7 执行表与领取链已删除；PostgreSQL 多租户压测待补 |
+| W8-05 | 类型化状态与上下文 | StateCollection/StateRecord、CAS、ContextView、运行时网关 | W8-04 | StateCollection/StateRecord CAS、四种一致性策略、写策略/单写入者、SchemaRevision、最大记录数、引用型 ContextView 和 RLS 持久化已实现；Schema 发布和保留策略待补 |
+| W8-06 | AgentInstance 执行 | 父子身份、宿主会话、让出资源/恢复执行、权限交集 | W8-01、W8-05 | 进程级 HarnessRegistry、FakeHarness 事件闭环、Agent 跨 Attempt 复用、DurableHarness + SessionStore 本地跨进程 Resume、Yield/Resume 原子释放与恢复、RLS 及父子范围收敛已实现；真实 SDK Resume 与真实宿主演练待补 |
+| W8-07 | 资源与外部操作台账 | 资源预留、ToolCall、外部操作及结果不明/对账/补偿 | W8-02、W8-04 | ResourceQuota/Reservation、ToolCall 状态机、Effect unknown/reconciling、Provider inbox/回调去重、账单匹配/差异和命令事务已实现；真实服务商轮询/回调和补偿演练待补 |
+| W8-08 | 服务商生产闭环 | 真实适配器、异步轮询/回调、租约回收、流式下载、渲染 | W8-07 | Provider Runtime 边界已实现；真实适配器、媒体下载/渲染和生产闭环待实施 |
+| W8-09 | 检查点、重放与执行分支 | 节点边界清单、读模型重放、新 JobRun 分支 | W8-05、W8-06、W8-07 | Checkpoint 事件/状态水位、父检查点、Fork、零外部调用 Replay、Projection rebuild/dry-run 运行事实已实现；完整关系化分支图和 PostgreSQL 重建验收待补 |
+| W8-10 | 受限动态执行图 | GraphPatch、FanoutSet、确定性子节点、汇聚策略 | W8-06、W8-09 | GraphPatch 关系化持久化、FanoutSet/Member、固定 Join 策略、Memory/PostgreSQL 原子命令已实现；100 节点/20 并发压测与生产演练待验收 |
+| W8-11 | 基础运行诊断 BFF | 执行实例/步骤/智能体/状态/事件/操作/费用读模型、SSE 游标 | W8-02、W8-05、W8-06、W8-07 | 首版 REST、Runtime SSE 游标、脱敏 Agent/ContextView 诊断和持久化 Runtime Explorer/投影指标已实现；执行图、共享状态和费用完整读模型待补 |
 | W8-12 | 完整运行诊断 Web | URL 子路由、执行图/大纲、检查点、分支、详情面板和允许的操作 | W8-09、W8-10、W8-11 | 首版列表/详情已实现；动态图与恢复操作待补 |
 | W8-13 | 营销活动标杆任务 | 营销内容包、10 个以上并行步骤、审批、媒体与批量交付 | W8-08、W8-10、W8-12 | 待实施 |
-| W8-14 | 第二种任务流程验证 | 文章复盘的并行分析与汇聚，证明运行时没有业务硬编码 | W8-10、W8-12 | 待实施 |
+| W8-14 | 第二种任务流程验证 | 文章复盘的并行分析与汇聚，证明运行时没有业务硬编码 | W8-10、W8-12 | 50 节点并行分析、第二批超出计划节点上限并返回 `JOB_PLAN_NODE_LIMIT` 的边界测试已实现；完整业务包、100 节点/20 并发和运营演练待补 |
 | W8-15 | 故障、安全与容量 | 故障矩阵、RLS、注入测试、100 节点/20 并发稳定性测试 | W8-13、W8-14 | 待实施 |
 | W8-16 | 试点与发布准备 | 指标、告警、运维手册、Canary、回退演练、联合签字 | W8-15 | 待实施 |
 
@@ -80,7 +80,7 @@ W8-13 + W8-14 -> W8-15 -> W8-16
 | 里程碑 | 范围 | 退出条件 |
 | --- | --- | --- |
 | M8-0 证据与契约 | W8-00、W8-01 | 两个宿主能力报告；一个可执行原型；完成商业、认证和隔离方案决策 |
-| M8-1 可恢复线性内核 | W8-02～W8-04 | V7 SOP 旁路验证等价；线性调度器完成营销视频测试样例 |
+| M8-1 可恢复线性内核 | W8-02～W8-04 | SOP 编译验证等价；线性调度器完成营销视频测试样例 |
 | M8-2 状态与执行器 | W8-05～W8-07 | CAS、ContextView、资源让出/恢复、资源和外部操作状态机通过 |
 | M8-3 恢复与服务商 | W8-08～W8-09 | 真实服务商测试环境、故障注入；重放测试不得产生真实外部调用 |
 | M8-4 动态图 | W8-10 | 受限 GraphPatch、50 个并行工作节点、汇聚、取消和预算通过 |
@@ -119,9 +119,9 @@ W8-13 + W8-14 -> W8-15 -> W8-16
 
 ### T5：线性调度器（P0）
 
-- 使用独立 `runtime_node_runs/runtime_attempts` 作为 V8 权威模型；V7 `TaskRun/RunAttempt` 只保留兼容路径，通过业务投影关联，不双写状态机。
+- 使用独立 `runtime_node_runs/runtime_attempts` 作为唯一权威模型；`00034_remove_v7_execution.sql` 删除旧执行表，读 API 只从 Runtime 投影。
 - 实现依赖就绪判断、租户/执行实例的运行中配额、等待时间越长优先级越高的规则，以及资源预留事务。
-- 验证：V7 基准流程、并发领取、租约过期、取消，以及小任务不会长期得不到执行的稳定性测试。
+- 验证：Runtime 基准流程、并发领取、租约过期、取消，以及小任务不会长期得不到执行的稳定性测试。
 
 ### T6：状态、上下文与网关（P0）
 
@@ -189,7 +189,7 @@ W8-13 + W8-14 -> W8-15 -> W8-16
 | 阶段 | 出现以下情况时，禁止进入下一阶段 |
 | --- | --- |
 | 执行适配层 | 官方接口证据、真实原型、认证条款、隔离能力和故障行为未确认 |
-| 运行时内核 | 终态仍可原地回到非终态、缺少 RLS、事件与状态不能原子提交，或 V7 出现回归 |
+| 运行时内核 | 终态仍可原地回到非终态、缺少 RLS、事件与状态不能原子提交，或重新引入 V7 执行链 |
 | 状态 | 存在后写覆盖、原始 SQL/DDL、跨范围读写或把大正文写入 JSONB |
 | 外部操作 | 结果不明仍可盲目重试、没有稳定幂等键或费用预留 |
 | 检查点 | 包含进程/密钥/租约，或重放会触发外部调用 |
@@ -234,7 +234,7 @@ W8-13 + W8-14 -> W8-15 -> W8-16
 V8 只有同时满足以下条件才完成：
 
 - 定位、代码、API、UI 和运维文档都使用同一 JobRun/NodeRun/AgentInstance 语义。
-- V7 线性流程在关闭功能开关和启用 V8 线性模式时都通过回归。
+- Runtime 线性流程在关闭增量功能和启用动态图能力时都通过回归。
 - 动态执行图、共享状态、检查点、外部操作和执行适配层都有故障注入证据。
 - 营销活动任务和第二种任务流程复用运行时内核，并产出规范的业务结果引用和可交付对象。
 - 工作区资料、任务输入/项目参考、五类创作结果和交付视图在代码、OpenAPI 和回归测试中保持分离；Runtime 不写文件处理或结果复用状态。

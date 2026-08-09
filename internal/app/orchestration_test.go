@@ -535,6 +535,59 @@ func TestOrchestrationAdminCanCreateEnvironmentAndLintSOP(t *testing.T) {
 	}
 }
 
+func TestSOPVersionPreviewSeparatesEnvironmentEntitlementFromRegisteredExecutor(t *testing.T) {
+	ctx := t.Context()
+	st := memory.New()
+	service := app.New(st, nil)
+	session, err := service.Register(ctx, "orchestration-preview@example.com", "long-enough-password", "预览管理员", "预览租户")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, _, err := service.SessionActor(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := service.CreateSOP(ctx, actor, app.CreateSOPInput{
+		Name:                 "预览流程",
+		ContentTypes:         []string{domain.ContentTypeVideoScript},
+		DefaultExecutionMode: "local",
+		Stages:               []domain.StageDefinition{{ID: "compose", Name: "脚本创作", Order: 10, OutputSchema: "contentcloud.script/1.0", RequiredCapabilities: []string{"content.script.compose"}, ExecutionModes: []string{"local"}}},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err := service.PublishSOP(ctx, actor, created.Definition.ID, 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, err := service.CreateEnvironment(ctx, actor, app.SaveEnvironmentInput{Name: "预览客户", Slug: "preview-customer", Status: "active", DefaultSOPID: published.SOPID, DefaultSOPVersion: published.Version, Capabilities: []domain.EnvironmentCapability{{ID: "content.script.compose", Version: "1.0.0", Enabled: true}}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	blocked, err := service.SOPVersionPreview(ctx, actor, published.SOPID, published.Version, environment.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocked.Publishable || len(blocked.Blockers) == 0 || blocked.Environments[0].Ready || len(blocked.Environments[0].MissingCapabilities) != 1 {
+		t.Fatalf("preview should block an entitled environment without an executor: %#v", blocked)
+	}
+	if len(blocked.Capabilities) != 1 || len(blocked.Capabilities[0].RegisteredVersions) != 0 {
+		t.Fatalf("preview invented executor capability facts: %#v", blocked.Capabilities)
+	}
+
+	if err := st.SaveDevice(ctx, domain.Device{ID: "executor-preview", TenantID: actor.TenantID, OwnerUserID: actor.UserID, DisplayName: "预览执行端", Hostname: "preview.local", Version: "0.21.0", Capabilities: []domain.Capability{{ID: "content.script.compose", Version: "1.0.0", Kind: "business_capability", Digest: "sha256:preview"}}, LastSeenAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	ready, err := service.SOPVersionPreview(ctx, actor, published.SOPID, published.Version, environment.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ready.Publishable || len(ready.Blockers) != 0 || !ready.Environments[0].Ready || ready.Environments[0].CandidateExecutorCount != 1 {
+		t.Fatalf("preview did not become ready from registered executor facts: %#v", ready)
+	}
+}
+
 func TestProjectSOPBindingIsExplicitAndDoesNotRewriteHistoricalTasks(t *testing.T) {
 	ctx := t.Context()
 	service := app.New(memory.New(), nil)

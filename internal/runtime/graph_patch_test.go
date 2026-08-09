@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/store/memory"
 )
 
 func TestApplyGraphPatchOnlyAppendsNewDownstreamNodes(t *testing.T) {
@@ -18,6 +19,55 @@ func TestApplyGraphPatchOnlyAppendsNewDownstreamNodes(t *testing.T) {
 	}
 	if result.GraphVersion != 2 || result.Plan.Digest == plan.Digest || len(result.Plan.Nodes) != len(plan.Nodes)+1 || len(result.CancelPendingNodeKeys) != 1 {
 		t.Fatalf("unexpected graph patch result: %#v", result)
+	}
+}
+
+func TestPatchGraphPersistsRevisionNodesAndEventAtomically(t *testing.T) {
+	repo := memory.New()
+	service := New(repo, fixedRuntimeTime)
+	started, err := service.Start(t.Context(), testStartInput("task-graph", "graph-job"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch := GraphPatch{
+		ExpectedGraphVersion: 1,
+		IdempotencyKey:       "expand-audiences",
+		Reason:               "为已确认受众生成候选",
+		AddNodes: []domain.JobPlanNode{{
+			Key: "audience:1", Kind: "stage", Name: "受众一脚本", OutputSchema: "contentcloud.script/1.0",
+			DependsOn: []string{"stage:sources"}, RetryMaxAttempts: 1,
+		}},
+	}
+	result, err := service.PatchGraph(t.Context(), "tenant-1", started.Job.ID, "supervisor-1", patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Plan.BaseRevisionID != started.Plan.ID || result.Plan.GraphVersion != 2 || result.Plan.PatchKey != patch.IdempotencyKey {
+		t.Fatalf("graph revision metadata was not frozen: %#v", result.Plan)
+	}
+	job, err := service.Job(t.Context(), "tenant-1", started.Job.ID)
+	if err != nil || job.PlanRevisionID != result.Plan.ID || job.PlanDigest != result.Plan.Digest {
+		t.Fatalf("job did not advance to the graph revision: %#v err=%v", job, err)
+	}
+	nodes, err := service.Nodes(t.Context(), "tenant-1", started.Job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, node := range nodes {
+		if node.NodeKey == "audience:1" {
+			found = node.State == domain.NodePending
+		}
+	}
+	if !found {
+		t.Fatalf("graph patch did not persist its NodeRun: %#v", nodes)
+	}
+	events, err := service.Events(t.Context(), "tenant-1", started.Job.ID, 0)
+	if err != nil || events[len(events)-1].Type != "graph.patched" {
+		t.Fatalf("graph patch event was not committed: %#v err=%v", events, err)
+	}
+	if _, err := service.PatchGraph(t.Context(), "tenant-1", started.Job.ID, "supervisor-1", patch); err == nil {
+		t.Fatal("stale graph patch unexpectedly succeeded")
 	}
 }
 

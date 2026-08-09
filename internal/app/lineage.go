@@ -189,7 +189,7 @@ func (s *Service) buildProjectLineage(ctx context.Context, tenantID, projectID s
 		}
 	}
 
-	runs, err := s.store.Runs(ctx, tenantID, projectID)
+	runs, err := s.taskRunsForProject(ctx, tenantID, projectID)
 	if err != nil {
 		return nil, err
 	}

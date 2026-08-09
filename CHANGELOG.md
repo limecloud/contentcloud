@@ -2,6 +2,23 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.21.0] - 2026-08-09
+
+### Added
+
+- 增加 Runtime fence token、资源配额/预留、类型化状态集合、ToolCall、Provider inbox、费用对账、yield/resume、会话持久化和投影重建能力，对应迁移 `00021` 至 `00033`。
+- 增加 Runtime worker 的 prepare/activate/heartbeat/finalize 协议、DurableHarness 跨进程恢复，以及 Runtime Explorer 的暂停、重放、分支和外部副作用对账操作。
+- 增加关系化执行计划、GraphPatch、Fanout/Join、业务绑定、输入快照和业务结果交接，使第二种内容流程复用同一 Runtime 内核。
+
+### Changed
+
+- 将 `JobRun`、`NodeRun`、`RuntimeAttempt` 收敛为唯一执行事实源，运行列表、进度、后台诊断和工作器协议统一读取 Runtime 投影。
+- 更新 Operations 控制平面、OpenAPI、CLI、架构与 V8 路线文档，明确真实 Provider、故障注入、容量和 Canary 尚未完成的边界。
+
+### Removed
+
+- 迁移 `00034_remove_v7_execution.sql` 删除旧 `task_runs`、`run_attempts`、`run_progress_events` 和 `creative_execution_bundles` 执行表；该变更不可通过应用二进制回滚恢复旧执行数据。
+
 ## [0.20.0] - 2026-08-08
 
 ### Added

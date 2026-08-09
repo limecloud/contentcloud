@@ -11,18 +11,22 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
-const runtimeAttemptSelect = `SELECT tenant_id,id,job_run_id,node_run_id,agent_instance_id,context_view_id,attempt_no,harness_kind,capabilities,session_ref,state,lease_owner,lease_expires_at,output_refs,result_digest,safe_summary,error_code,version,created_at,started_at,finished_at,updated_at FROM runtime_attempts`
+const runtimeAttemptSelect = `SELECT tenant_id,id,job_run_id,node_run_id,agent_instance_id,context_view_id,attempt_no,harness_kind,capabilities,session_ref,state,lease_owner,fence_token,lease_expires_at,output_refs,result_digest,safe_summary,error_code,version,created_at,started_at,finished_at,updated_at FROM runtime_attempts`
 
 func (s *Store) NextReadyNode(ctx context.Context, tenantID, jobID string) (domain.NodeRun, error) {
 	var result domain.NodeRun
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		query := runtimeNodeSelect + ` WHERE tenant_id=$1 AND state='ready'`
+		query := runtimeNodeSelect + ` WHERE tenant_id=$1 AND state='ready'
+			AND EXISTS (SELECT 1 FROM runtime_job_runs eligible_job
+				WHERE eligible_job.tenant_id=runtime_node_runs.tenant_id
+				  AND eligible_job.id=runtime_node_runs.job_run_id
+				  AND eligible_job.state NOT IN ('paused','completed','failed','cancelled','rejected'))`
 		args := []any{tenantID}
 		if strings.TrimSpace(jobID) != "" {
 			query += ` AND job_run_id=$2`
 			args = append(args, jobID)
 		}
-		query += ` ORDER BY created_at,id LIMIT 1`
+		query += ` ORDER BY ((SELECT priority FROM runtime_job_runs j WHERE j.tenant_id=runtime_node_runs.tenant_id AND j.id=runtime_node_runs.job_run_id) + floor(EXTRACT(EPOCH FROM (now()-updated_at))/60)) DESC, updated_at,created_at,id LIMIT 1`
 		value, err := scanRuntimeNode(tx.QueryRow(ctx, query, args...))
 		result = value
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -49,7 +53,7 @@ func (s *Store) AgentInstanceForNode(ctx context.Context, tenantID, nodeID strin
 func scanRuntimeAttempt(row pgx.Row) (domain.RuntimeAttempt, error) {
 	var value domain.RuntimeAttempt
 	var capabilities, outputs, summary []byte
-	err := row.Scan(&value.TenantID, &value.ID, &value.JobRunID, &value.NodeRunID, &value.AgentInstanceID, &value.ContextViewID, &value.AttemptNo, &value.HarnessKind, &capabilities, &value.SessionRef, &value.State, &value.LeaseOwner, &value.LeaseExpiresAt, &outputs, &value.ResultDigest, &summary, &value.ErrorCode, &value.Version, &value.CreatedAt, &value.StartedAt, &value.FinishedAt, &value.UpdatedAt)
+	err := row.Scan(&value.TenantID, &value.ID, &value.JobRunID, &value.NodeRunID, &value.AgentInstanceID, &value.ContextViewID, &value.AttemptNo, &value.HarnessKind, &capabilities, &value.SessionRef, &value.State, &value.LeaseOwner, &value.FenceToken, &value.LeaseExpiresAt, &outputs, &value.ResultDigest, &summary, &value.ErrorCode, &value.Version, &value.CreatedAt, &value.StartedAt, &value.FinishedAt, &value.UpdatedAt)
 	if err == nil {
 		value.Capabilities, err = decodeJSON[map[string]any](capabilities)
 	}
@@ -111,7 +115,7 @@ func (s *Store) RuntimeAttempts(ctx context.Context, tenantID, jobID string) ([]
 	return result, err
 }
 
-func (s *Store) PrepareDispatch(ctx context.Context, node domain.NodeRun, expectedNodeVersion int, attempt domain.RuntimeAttempt, view domain.ContextView, agent domain.AgentInstance, createAgent bool, expectedAgentVersion int, event domain.JobEvent) (domain.NodeRun, domain.RuntimeAttempt, domain.AgentInstance, error) {
+func (s *Store) PrepareDispatch(ctx context.Context, node domain.NodeRun, expectedNodeVersion int, attempt domain.RuntimeAttempt, view domain.ContextView, agent domain.AgentInstance, createAgent bool, expectedAgentVersion int, reservations []domain.ResourceReservation, event domain.JobEvent) (domain.NodeRun, domain.RuntimeAttempt, domain.AgentInstance, error) {
 	if err := node.Validate(); err != nil {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, err
 	}
@@ -137,6 +141,9 @@ func (s *Store) PrepareDispatch(ctx context.Context, node domain.NodeRun, expect
 		}
 		if node.Version != expectedNodeVersion+1 || node.State != domain.NodeLeased || node.AttemptCount != currentNode.AttemptCount+1 || node.AttemptCount != attempt.AttemptNo || node.TenantID != attempt.TenantID || node.TenantID != view.TenantID || node.TenantID != agent.TenantID || node.JobRunID != attempt.JobRunID || node.JobRunID != view.JobRunID || node.JobRunID != agent.JobRunID || node.ID != attempt.NodeRunID || node.ID != view.NodeRunID || node.ID != agent.NodeRunID || view.AttemptID != attempt.ID || attempt.ContextViewID != view.ID || attempt.AgentInstanceID != agent.ID || agent.ContextViewID != view.ID {
 			return domain.Invalid("DISPATCH_PREPARE_INVALID", "待准备的调度对象版本、范围或租约不一致")
+		}
+		if node.FenceToken == "" || attempt.FenceToken == "" || node.FenceToken != attempt.FenceToken {
+			return domain.Invalid("DISPATCH_FENCE_INVALID", "节点与 RuntimeAttempt 必须共享不可猜的围栏令牌")
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO runtime_context_views(tenant_id,id,job_run_id,node_run_id,attempt_id,schema_version,input_refs,state_refs,event_refs,allowed_tools,max_tokens,budget_minor,digest,created_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, view.TenantID, view.ID, view.JobRunID, view.NodeRunID, view.AttemptID, view.SchemaVersion, jsonArrayValue(view.InputRefs), jsonArrayValue(view.StateRefs), jsonArrayValue(view.EventRefs), jsonArrayValue(view.AllowedTools), view.MaxTokens, view.BudgetMinor, view.Digest, view.CreatedAt, view.ExpiresAt); err != nil {
 			return dbError(err)
@@ -170,10 +177,13 @@ func (s *Store) PrepareDispatch(ctx context.Context, node domain.NodeRun, expect
 				return domain.Conflict("AGENT_INSTANCE_DISPATCH_CONFLICT", "节点 AgentInstance 已被更新")
 			}
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO runtime_attempts(tenant_id,id,job_run_id,node_run_id,agent_instance_id,context_view_id,attempt_no,harness_kind,capabilities,session_ref,state,lease_owner,lease_expires_at,output_refs,result_digest,safe_summary,error_code,version,created_at,started_at,finished_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`, attempt.TenantID, attempt.ID, attempt.JobRunID, attempt.NodeRunID, attempt.AgentInstanceID, attempt.ContextViewID, attempt.AttemptNo, attempt.HarnessKind, jsonValue(attempt.Capabilities), attempt.SessionRef, attempt.State, attempt.LeaseOwner, attempt.LeaseExpiresAt, jsonArrayValue(attempt.OutputRefs), attempt.ResultDigest, jsonValue(attempt.SafeSummary), attempt.ErrorCode, attempt.Version, attempt.CreatedAt, attempt.StartedAt, attempt.FinishedAt, attempt.UpdatedAt); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO runtime_attempts(tenant_id,id,job_run_id,node_run_id,agent_instance_id,context_view_id,attempt_no,harness_kind,capabilities,session_ref,state,lease_owner,fence_token,lease_expires_at,output_refs,result_digest,safe_summary,error_code,version,created_at,started_at,finished_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`, attempt.TenantID, attempt.ID, attempt.JobRunID, attempt.NodeRunID, attempt.AgentInstanceID, attempt.ContextViewID, attempt.AttemptNo, attempt.HarnessKind, jsonValue(attempt.Capabilities), attempt.SessionRef, attempt.State, attempt.LeaseOwner, attempt.FenceToken, attempt.LeaseExpiresAt, jsonArrayValue(attempt.OutputRefs), attempt.ResultDigest, jsonValue(attempt.SafeSummary), attempt.ErrorCode, attempt.Version, attempt.CreatedAt, attempt.StartedAt, attempt.FinishedAt, attempt.UpdatedAt); err != nil {
 			return dbError(err)
 		}
-		updated, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,attempt_count=$4,lease_owner=$5,lease_expires_at=$6,version=$7,updated_at=$8 WHERE tenant_id=$1 AND id=$2 AND version=$9 AND state='ready'`, node.TenantID, node.ID, node.State, node.AttemptCount, node.LeaseOwner, node.LeaseExpiresAt, node.Version, node.UpdatedAt, expectedNodeVersion)
+		if err := reserveResourcesTx(ctx, tx, reservations); err != nil {
+			return err
+		}
+		updated, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,attempt_count=$4,lease_owner=$5,fence_token=$6,lease_expires_at=$7,version=$8,updated_at=$9 WHERE tenant_id=$1 AND id=$2 AND version=$10 AND state='ready'`, node.TenantID, node.ID, node.State, node.AttemptCount, node.LeaseOwner, node.FenceToken, node.LeaseExpiresAt, node.Version, node.UpdatedAt, expectedNodeVersion)
 		if err != nil {
 			return dbError(err)
 		}
@@ -204,7 +214,7 @@ func (s *Store) ActivateDispatch(ctx context.Context, node domain.NodeRun, expec
 		if currentNode.Version != expectedNodeVersion || currentAttempt.Version != expectedAttemptVersion || currentAgent.Version != expectedAgentVersion {
 			return domain.Conflict("DISPATCH_VERSION_CONFLICT", "调度状态已经被其他执行者更新")
 		}
-		if currentNode.State != domain.NodeLeased || currentAttempt.State != domain.RuntimeAttemptPrepared || currentAgent.State != domain.AgentRunnable || currentNode.LeaseOwner != currentAttempt.LeaseOwner || currentAttempt.LeaseOwner != event.ActorID || currentAttempt.LeaseExpiresAt == nil || !currentAttempt.LeaseExpiresAt.After(attempt.UpdatedAt) {
+		if currentNode.State != domain.NodeLeased || currentAttempt.State != domain.RuntimeAttemptPrepared || currentAgent.State != domain.AgentRunnable || currentNode.LeaseOwner != currentAttempt.LeaseOwner || currentAttempt.LeaseOwner != event.ActorID || currentNode.FenceToken == "" || currentNode.FenceToken != currentAttempt.FenceToken || currentNode.FenceToken != node.FenceToken || currentAttempt.LeaseExpiresAt == nil || !currentAttempt.LeaseExpiresAt.After(attempt.UpdatedAt) {
 			return domain.Conflict("DISPATCH_LEASE_STALE", "调度租约无效、已过期或不属于当前执行者")
 		}
 		if currentAttempt.NodeRunID != currentNode.ID || currentAttempt.AgentInstanceID != currentAgent.ID || currentAttempt.ContextViewID != currentAgent.ContextViewID {
@@ -231,8 +241,8 @@ func (s *Store) ActivateDispatch(ctx context.Context, node domain.NodeRun, expec
 	return node, attempt, agent, err
 }
 
-func (s *Store) HeartbeatDispatch(ctx context.Context, tenantID, attemptID, owner string, expectedNodeVersion, expectedAttemptVersion int, now time.Time, leaseFor time.Duration) (domain.NodeRun, domain.RuntimeAttempt, error) {
-	if strings.TrimSpace(owner) == "" || leaseFor <= 0 {
+func (s *Store) HeartbeatDispatch(ctx context.Context, tenantID, attemptID, owner, fenceToken string, expectedNodeVersion, expectedAttemptVersion int, now time.Time, leaseFor time.Duration) (domain.NodeRun, domain.RuntimeAttempt, error) {
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(fenceToken) == "" || leaseFor <= 0 {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.Invalid("DISPATCH_HEARTBEAT_INVALID", "调度心跳需要执行者和正数时长")
 	}
 	var node domain.NodeRun
@@ -256,7 +266,7 @@ func (s *Store) HeartbeatDispatch(ctx context.Context, tenantID, attemptID, owne
 		if currentNode.Version != expectedNodeVersion || currentAttempt.Version != expectedAttemptVersion {
 			return domain.Conflict("DISPATCH_VERSION_CONFLICT", "调度状态已经被更新，请重新读取")
 		}
-		if currentNode.State != domain.NodeRunning || currentAttempt.State != domain.RuntimeAttemptRunning || currentNode.LeaseOwner != owner || currentAttempt.LeaseOwner != owner || currentNode.LeaseExpiresAt == nil || currentAttempt.LeaseExpiresAt == nil || !currentNode.LeaseExpiresAt.After(now) || !currentAttempt.LeaseExpiresAt.After(now) {
+		if currentNode.State != domain.NodeRunning || currentAttempt.State != domain.RuntimeAttemptRunning || currentNode.LeaseOwner != owner || currentAttempt.LeaseOwner != owner || currentNode.FenceToken != fenceToken || currentAttempt.FenceToken != fenceToken || currentNode.LeaseExpiresAt == nil || currentAttempt.LeaseExpiresAt == nil || !currentNode.LeaseExpiresAt.After(now) || !currentAttempt.LeaseExpiresAt.After(now) {
 			return domain.Conflict("DISPATCH_LEASE_STALE", "调度租约无效、已过期或不属于当前执行者")
 		}
 		expires := now.Add(leaseFor)
@@ -266,16 +276,19 @@ func (s *Store) HeartbeatDispatch(ctx context.Context, tenantID, attemptID, owne
 		currentAttempt.LeaseExpiresAt = &expires
 		currentAttempt.Version++
 		currentAttempt.UpdatedAt = now
-		nodeResult, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET lease_expires_at=$3,version=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2 AND version=$6 AND state='running' AND lease_owner=$7`, tenantID, currentNode.ID, currentNode.LeaseExpiresAt, currentNode.Version, currentNode.UpdatedAt, expectedNodeVersion, owner)
+		nodeResult, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET lease_expires_at=$3,version=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2 AND version=$6 AND state='running' AND lease_owner=$7 AND fence_token=$8`, tenantID, currentNode.ID, currentNode.LeaseExpiresAt, currentNode.Version, currentNode.UpdatedAt, expectedNodeVersion, owner, fenceToken)
 		if err != nil {
 			return dbError(err)
 		}
-		attemptResult, err := tx.Exec(ctx, `UPDATE runtime_attempts SET lease_expires_at=$3,version=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2 AND version=$6 AND state='running' AND lease_owner=$7`, tenantID, currentAttempt.ID, currentAttempt.LeaseExpiresAt, currentAttempt.Version, currentAttempt.UpdatedAt, expectedAttemptVersion, owner)
+		attemptResult, err := tx.Exec(ctx, `UPDATE runtime_attempts SET lease_expires_at=$3,version=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2 AND version=$6 AND state='running' AND lease_owner=$7 AND fence_token=$8`, tenantID, currentAttempt.ID, currentAttempt.LeaseExpiresAt, currentAttempt.Version, currentAttempt.UpdatedAt, expectedAttemptVersion, owner, fenceToken)
 		if err != nil {
 			return dbError(err)
 		}
 		if nodeResult.RowsAffected() != 1 || attemptResult.RowsAffected() != 1 {
 			return domain.Conflict("DISPATCH_LEASE_STALE", "调度租约已经失效，请重新领取")
+		}
+		if _, err := tx.Exec(ctx, `UPDATE runtime_resource_reservations SET expires_at=$3,updated_at=$4 WHERE tenant_id=$1 AND attempt_id=$2 AND state='held' AND fence_token=$5`, tenantID, currentAttempt.ID, expires, now, fenceToken); err != nil {
+			return dbError(err)
 		}
 		node, attempt = currentNode, currentAttempt
 		return nil
@@ -283,7 +296,7 @@ func (s *Store) HeartbeatDispatch(ctx context.Context, tenantID, attemptID, owne
 	return node, attempt, err
 }
 
-func (s *Store) FinalizeDispatch(ctx context.Context, node domain.NodeRun, expectedNodeVersion int, attempt domain.RuntimeAttempt, expectedAttemptVersion int, agent domain.AgentInstance, expectedAgentVersion int, event domain.JobEvent) (domain.NodeRun, domain.RuntimeAttempt, domain.AgentInstance, error) {
+func (s *Store) FinalizeDispatch(ctx context.Context, node domain.NodeRun, expectedNodeVersion int, attempt domain.RuntimeAttempt, expectedAttemptVersion int, agent domain.AgentInstance, expectedAgentVersion int, fenceToken string, event domain.JobEvent) (domain.NodeRun, domain.RuntimeAttempt, domain.AgentInstance, error) {
 	if err := node.Validate(); err != nil {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, err
 	}
@@ -312,7 +325,7 @@ func (s *Store) FinalizeDispatch(ctx context.Context, node domain.NodeRun, expec
 		if currentAttempt.NodeRunID != currentNode.ID || currentAttempt.AgentInstanceID != currentAgent.ID || currentAttempt.ContextViewID != currentAgent.ContextViewID {
 			return domain.Conflict("DISPATCH_SCOPE_INVALID", "调度对象不属于同一 Node、Attempt 或 Agent")
 		}
-		if currentNode.LeaseOwner == "" || currentNode.LeaseOwner != currentAttempt.LeaseOwner || currentAttempt.LeaseOwner != event.ActorID || currentNode.LeaseExpiresAt == nil || currentAttempt.LeaseExpiresAt == nil || !currentNode.LeaseExpiresAt.After(event.OccurredAt) || !currentAttempt.LeaseExpiresAt.After(event.OccurredAt) {
+		if currentNode.LeaseOwner == "" || currentNode.LeaseOwner != currentAttempt.LeaseOwner || currentAttempt.LeaseOwner != event.ActorID || strings.TrimSpace(fenceToken) == "" || currentNode.FenceToken != fenceToken || currentAttempt.FenceToken != fenceToken || currentNode.LeaseExpiresAt == nil || currentAttempt.LeaseExpiresAt == nil || !currentNode.LeaseExpiresAt.After(event.OccurredAt) || !currentAttempt.LeaseExpiresAt.After(event.OccurredAt) {
 			return domain.Conflict("DISPATCH_LEASE_STALE", "终态结果不属于当前调度租约")
 		}
 		if err := currentNode.Transition(node.State); err != nil {
@@ -329,6 +342,9 @@ func (s *Store) FinalizeDispatch(ctx context.Context, node domain.NodeRun, expec
 		}
 		if err := updateDispatchStateTx(ctx, tx, node, expectedNodeVersion, attempt, expectedAttemptVersion, agent, expectedAgentVersion); err != nil {
 			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE runtime_resource_reservations SET state='consumed',fence_token='',expires_at=NULL,released_at=$3,updated_at=$3 WHERE tenant_id=$1 AND attempt_id=$2 AND state='held' AND fence_token=$4`, attempt.TenantID, attempt.ID, event.OccurredAt, fenceToken); err != nil {
+			return dbError(err)
 		}
 		_, err = appendRuntimeEventTx(ctx, tx, event)
 		return err
@@ -359,11 +375,11 @@ func lockDispatchState(ctx context.Context, tx pgx.Tx, tenantID, nodeID, attempt
 }
 
 func updateDispatchStateTx(ctx context.Context, tx pgx.Tx, node domain.NodeRun, expectedNodeVersion int, attempt domain.RuntimeAttempt, expectedAttemptVersion int, agent domain.AgentInstance, expectedAgentVersion int) error {
-	nodeResult, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,output_refs=$4,output_digest=$5,error_code=$6,lease_owner=$7,lease_expires_at=$8,version=$9,updated_at=$10 WHERE tenant_id=$1 AND id=$2 AND version=$11`, node.TenantID, node.ID, node.State, jsonArrayValue(node.OutputRefs), node.OutputDigest, node.ErrorCode, node.LeaseOwner, node.LeaseExpiresAt, node.Version, node.UpdatedAt, expectedNodeVersion)
+	nodeResult, err := tx.Exec(ctx, `UPDATE runtime_node_runs SET state=$3,output_refs=$4,output_digest=$5,error_code=$6,lease_owner=$7,fence_token=$8,lease_expires_at=$9,version=$10,updated_at=$11 WHERE tenant_id=$1 AND id=$2 AND version=$12`, node.TenantID, node.ID, node.State, jsonArrayValue(node.OutputRefs), node.OutputDigest, node.ErrorCode, node.LeaseOwner, node.FenceToken, node.LeaseExpiresAt, node.Version, node.UpdatedAt, expectedNodeVersion)
 	if err != nil {
 		return dbError(err)
 	}
-	attemptResult, err := tx.Exec(ctx, `UPDATE runtime_attempts SET session_ref=$3,state=$4,lease_owner=$5,lease_expires_at=$6,output_refs=$7,result_digest=$8,safe_summary=$9,error_code=$10,version=$11,started_at=$12,finished_at=$13,updated_at=$14 WHERE tenant_id=$1 AND id=$2 AND version=$15`, attempt.TenantID, attempt.ID, attempt.SessionRef, attempt.State, attempt.LeaseOwner, attempt.LeaseExpiresAt, jsonArrayValue(attempt.OutputRefs), attempt.ResultDigest, jsonValue(attempt.SafeSummary), attempt.ErrorCode, attempt.Version, attempt.StartedAt, attempt.FinishedAt, attempt.UpdatedAt, expectedAttemptVersion)
+	attemptResult, err := tx.Exec(ctx, `UPDATE runtime_attempts SET session_ref=$3,state=$4,lease_owner=$5,fence_token=$6,lease_expires_at=$7,output_refs=$8,result_digest=$9,safe_summary=$10,error_code=$11,version=$12,started_at=$13,finished_at=$14,updated_at=$15 WHERE tenant_id=$1 AND id=$2 AND version=$16`, attempt.TenantID, attempt.ID, attempt.SessionRef, attempt.State, attempt.LeaseOwner, attempt.FenceToken, attempt.LeaseExpiresAt, jsonArrayValue(attempt.OutputRefs), attempt.ResultDigest, jsonValue(attempt.SafeSummary), attempt.ErrorCode, attempt.Version, attempt.StartedAt, attempt.FinishedAt, attempt.UpdatedAt, expectedAttemptVersion)
 	if err != nil {
 		return dbError(err)
 	}

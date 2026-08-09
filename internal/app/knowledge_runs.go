@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/limecloud/contentcloud/internal/domain"
+	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
 )
 
 type CreateKnowledgeExtractionRunInput struct {
@@ -70,116 +72,145 @@ func (s *Service) CreateKnowledgeExtractionRun(ctx context.Context, actor Actor,
 	if err != nil {
 		return domain.TaskRun{}, err
 	}
-	if err := s.store.CreateSnapshot(ctx, snapshot); err != nil {
-		return domain.TaskRun{}, err
-	}
+	// The frozen input snapshot is content-addressed so concurrent retries do
+	// not create different Runtime admission identities for the same contract.
+	snapshot.ID = uuid.NewSHA1(uuid.NameSpaceOID, []byte("contentcloud:context-snapshot:"+snapshot.ManifestHash)).String()
 	if strings.TrimSpace(in.IdempotencyKey) == "" {
 		in.IdempotencyKey = domain.NewID()
 	}
-	now := s.now().UTC()
-	run := domain.TaskRun{ID: domain.NewID(), TenantID: actor.TenantID, ProjectID: project.ID, InputSnapshotID: snapshot.ID, IdempotencyKey: in.IdempotencyKey, TaskType: "knowledge_extract", CapabilityID: domain.KnowledgeExtractCapability, CapabilityVersion: "1.0.0", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, OutputCount: in.OutputCount, DeliveryProfiles: []string{"cloud_native"}, State: "queued", Priority: 60, CreatedAt: now, UpdatedAt: now}
-	if err := s.createTaskRun(ctx, run, snapshot); err != nil {
-		return run, err
+	if s.runtimeService == nil {
+		return domain.TaskRun{}, domain.Policy("RUNTIME_UNAVAILABLE", "知识提取需要已配置的 Runtime", "联系平台运营人员启用 Runtime")
 	}
-	s.audit(ctx, actor, run.ProjectID, "knowledge_extraction_run.created", "task_run", run.ID, requestID, map[string]any{"snapshot_id": snapshot.ID, "source_revision_count": len(sources), "manifest_hash": snapshot.ManifestHash})
-	return run, nil
+	runtimeKey := "knowledge-extraction:" + project.ID + ":" + in.IdempotencyKey
+	if existing, lookupErr := s.runtimeService.JobByIdempotencyKey(ctx, actor.TenantID, runtimeKey); lookupErr == nil {
+		if existing.ProjectID != project.ID || existing.BusinessType != "knowledge_extract" || existing.InputDigest != "sha256:"+snapshot.ManifestHash || existing.BusinessOutputCount != in.OutputCount {
+			return domain.TaskRun{}, domain.Conflict("JOB_RUN_IDEMPOTENCY_MISMATCH", "知识提取幂等键已用于不同的输入契约")
+		}
+		return s.projectRuntimeJob(ctx, existing)
+	} else if !domain.IsNotFound(lookupErr) {
+		return domain.TaskRun{}, lookupErr
+	}
+	if err := s.store.CreateSnapshot(ctx, snapshot); err != nil {
+		existing, lookupErr := s.store.Snapshot(ctx, actor.TenantID, snapshot.ID)
+		if lookupErr != nil || !sameContextSnapshotIdentity(existing, snapshot) {
+			return domain.TaskRun{}, err
+		}
+	}
+	start, err := s.runtimeService.Start(ctx, contentruntime.StartInput{
+		TenantID: actor.TenantID, ProjectID: project.ID,
+		WorkTaskID:   runtimeKey,
+		BusinessType: "knowledge_extract", InputSnapshotID: snapshot.ID, BusinessOutputCount: in.OutputCount,
+		SOP: knowledgeExtractionSOP(), BindingDigest: "sha256:" + snapshot.ManifestHash,
+		InputDigest: "sha256:" + snapshot.ManifestHash, RuntimePolicyID: "runtime-policy/knowledge-extract-v1",
+		ContractMajor: 1, ContractMinor: 0, Priority: 60, CreatedBy: actor.UserID,
+		IdempotencyKey: runtimeKey, CorrelationID: requestID,
+	})
+	if err != nil {
+		return domain.TaskRun{}, err
+	}
+	projected, err := s.projectRuntimeJob(ctx, start.Job)
+	if err != nil {
+		return domain.TaskRun{}, err
+	}
+	projected.InputSnapshotID = snapshot.ID
+	projected.OutputCount = in.OutputCount
+	s.audit(ctx, actor, start.Job.ProjectID, "knowledge_extraction_run.created", "job_run", start.Job.ID, requestID, map[string]any{"snapshot_id": snapshot.ID, "source_revision_count": len(sources), "manifest_hash": snapshot.ManifestHash})
+	return projected, nil
 }
 
-func (s *Service) ReportTask(ctx context.Context, actor Actor, device domain.Device, runID, attemptID, runToken string, body json.RawMessage, requestID string) (any, error) {
-	run, err := s.store.Run(ctx, actor.TenantID, runID)
-	if err != nil {
-		return nil, err
-	}
-	switch run.TaskType {
-	case "knowledge_extract":
-		var pkg domain.KnowledgeExtractionPackage
-		if err := decodeStrict(body, &pkg); err != nil {
-			s.failMalformedOutput(ctx, actor, device, run, attemptID, runToken, "knowledge_json")
-			return nil, domain.Invalid("CAPABILITY_OUTPUT_INVALID", "本地智能体返回的知识候选 JSON 无效："+err.Error())
-		}
-		return s.reportKnowledgeExtraction(ctx, actor, device, run, attemptID, runToken, pkg, requestID)
-	default:
-		return nil, domain.Invalid("TASK_TYPE_UNSUPPORTED", "当前客户端报告不支持该任务类型")
+func sameContextSnapshotIdentity(existing, requested domain.ContextSnapshot) bool {
+	return existing.ID == requested.ID &&
+		existing.TenantID == requested.TenantID &&
+		existing.ProjectID == requested.ProjectID &&
+		existing.BuilderVersion == requested.BuilderVersion &&
+		existing.SchemaVersion == requested.SchemaVersion &&
+		existing.ManifestHash == requested.ManifestHash
+}
+
+func knowledgeExtractionSOP() domain.SOPVersion {
+	digest, _ := domain.CanonicalHash(struct {
+		ID      string `json:"id"`
+		Version int    `json:"version"`
+		Schema  string `json:"schema"`
+	}{"contentcloud.knowledge.extract", 1, domain.KnowledgeCandidatesSchema})
+	return domain.SOPVersion{
+		ID: "contentcloud.knowledge.extract/v1", SOPID: "contentcloud.knowledge.extract", Version: 1,
+		SchemaVersion: domain.SOPSchemaVersion, Name: "知识候选提取", Status: "published",
+		ContentTypes: []string{"knowledge_extract"}, DefaultExecutionMode: "agent", Digest: "sha256:" + digest,
+		Stages: []domain.StageDefinition{{ID: "knowledge_extract", Name: "提取知识候选", Order: 10, OutputSchema: domain.KnowledgeCandidatesSchema, RequiredCapabilities: []string{domain.KnowledgeExtractCapability}, ExecutionModes: []string{"agent"}, RetryMaxAttempts: 3}},
 	}
 }
 
-func (s *Service) reportKnowledgeExtraction(ctx context.Context, actor Actor, device domain.Device, run domain.TaskRun, attemptID, runToken string, pkg domain.KnowledgeExtractionPackage, requestID string) (domain.KnowledgeExtractionResult, error) {
-	hash, _ := domain.CanonicalHash(pkg)
-	if run.State == "succeeded" {
-		if run.ReportHash != hash {
-			return domain.KnowledgeExtractionResult{}, domain.Conflict("REPORT_CONFLICT", "同一任务已报告不同内容")
-		}
-		return s.knowledgeExtractionResult(ctx, actor.TenantID, run, pkg.Warnings)
-	}
-	if run.TaskType != "knowledge_extract" {
-		return domain.KnowledgeExtractionResult{}, domain.Conflict("RUN_LEASE_INVALID", "任务租约不属于当前设备或任务类型不匹配")
-	}
-	attempt, err := s.activeRunAttempt(ctx, actor, device, run, attemptID, runToken, s.now().UTC())
+// importKnowledgePackage is the Runtime worker business handoff boundary. It
+// validates the frozen evidence contract before creating candidates and uses a
+// package digest marker to make retries idempotent.
+func (s *Service) importKnowledgePackage(ctx context.Context, actor Actor, run domain.TaskRun, pkg domain.KnowledgeExtractionPackage, requestID string) (domain.KnowledgeExtractionResult, string, error) {
+	hash, inputs, err := s.validateKnowledgePackage(ctx, actor, run, pkg)
 	if err != nil {
-		return domain.KnowledgeExtractionResult{}, err
+		return domain.KnowledgeExtractionResult{}, "", err
 	}
-	if run.CancelRequestedAt != nil {
-		_, _ = s.FinishRunAttempt(ctx, actor, device, run.ID, attempt.ID, runToken, FinishRunAttemptInput{Outcome: "canceled", FailureClass: "user_canceled"}, requestID)
-		return domain.KnowledgeExtractionResult{}, domain.Conflict("RUN_CANCELED", "任务已取消，结果不会入库")
+	objects := make([]domain.KnowledgeObject, 0, len(inputs))
+	for _, input := range inputs {
+		existing, lookupErr := s.store.KnowledgeObject(ctx, actor.TenantID, input.ID, 0)
+		if lookupErr == nil {
+			marker, _ := existing.Payload["runtime_result_digest"].(string)
+			if marker != "sha256:"+hash || existing.ProjectID != run.ProjectID {
+				return domain.KnowledgeExtractionResult{}, "", domain.Conflict("RUNTIME_BUSINESS_RESULT_CONFLICT", "同一 Runtime 结果引用了不同的知识候选内容")
+			}
+			objects = append(objects, existing)
+			continue
+		}
+		if !domain.IsNotFound(lookupErr) {
+			return domain.KnowledgeExtractionResult{}, "", lookupErr
+		}
+		object, createErr := s.CreateKnowledgeObject(ctx, actor, input, requestID)
+		if createErr != nil {
+			return domain.KnowledgeExtractionResult{}, "", createErr
+		}
+		objects = append(objects, object)
 	}
-	if pkg.SchemaVersion != "1.0" || len(pkg.Candidates) == 0 || len(pkg.Candidates) > run.OutputCount {
-		return s.rejectKnowledgeOutput(ctx, run, attempt, "output_validation", "知识候选格式版本或数量不符合任务契约", domain.Invalid("KNOWLEDGE_PACKAGE_INVALID", "知识候选格式版本或候选数量不符合任务契约"))
+	return domain.KnowledgeExtractionResult{RunID: run.ID, Objects: objects, Warnings: pkg.Warnings}, "sha256:" + hash, nil
+}
+
+func (s *Service) validateKnowledgePackage(ctx context.Context, actor Actor, run domain.TaskRun, pkg domain.KnowledgeExtractionPackage) (string, []CreateKnowledgeObjectInput, error) {
+	hash, err := domain.CanonicalHash(pkg)
+	if err != nil {
+		return "", nil, err
+	}
+	if pkg.SchemaVersion != "1.0" || len(pkg.Candidates) == 0 || (run.OutputCount > 0 && len(pkg.Candidates) > run.OutputCount) || len(pkg.Candidates) > 20 {
+		return "", nil, domain.Invalid("KNOWLEDGE_PACKAGE_INVALID", "知识候选格式版本或候选数量不符合任务契约")
 	}
 	project, err := s.projectForWrite(ctx, actor, run.ProjectID)
-	if err != nil || project.Status == "archived" {
-		return domain.KnowledgeExtractionResult{}, domain.Policy("PROJECT_ARCHIVED", "已归档项目不能接收新的智能体结果", "恢复项目或取消任务")
+	if err != nil {
+		return "", nil, err
+	}
+	if project.Status == "archived" {
+		return "", nil, domain.Policy("PROJECT_ARCHIVED", "已归档项目不能接收新的智能体结果", "恢复项目或取消任务")
+	}
+	if strings.TrimSpace(run.InputSnapshotID) == "" {
+		return "", nil, domain.Invalid("KNOWLEDGE_INPUT_SNAPSHOT_REQUIRED", "知识提取缺少冻结输入快照")
 	}
 	snapshot, err := s.store.Snapshot(ctx, actor.TenantID, run.InputSnapshotID)
 	if err != nil {
-		return domain.KnowledgeExtractionResult{}, err
+		return "", nil, err
 	}
 	inputs := make([]CreateKnowledgeObjectInput, 0, len(pkg.Candidates))
 	for index, candidate := range pkg.Candidates {
 		if !knowledgeCandidateEnumsValid(candidate) || !evidenceWithinKnowledgeContract(candidate.Evidence, snapshot.Sources) {
-			return s.rejectKnowledgeOutput(ctx, run, attempt, "output_grounding", "知识候选类型、风险或证据超出冻结契约", domain.E("content", "policy", "KNOWLEDGE_CANDIDATE_INVALID", "知识候选类型、风险或证据超出任务契约", 7))
+			return "", nil, domain.E("content", "policy", "KNOWLEDGE_CANDIDATE_GROUNDING_INVALID", "知识候选类型、风险或证据超出任务契约", 7)
 		}
 		evidenceIDs, err := s.knowledgeEvidenceIDs(ctx, actor.TenantID, run.ProjectID, candidate.Evidence)
 		if err != nil {
-			return s.rejectKnowledgeOutput(ctx, run, attempt, "output_grounding", "知识候选引用的证据无效", err)
+			return "", nil, err
 		}
 		input := knowledgeCandidateObjectInput(run, candidate, evidenceIDs, index)
+		if input.Payload == nil {
+			input.Payload = map[string]any{}
+		}
+		input.Payload["runtime_result_digest"] = "sha256:" + hash
 		inputs = append(inputs, input)
 	}
-	for _, input := range inputs {
-		if _, err := s.CreateKnowledgeObject(ctx, actor, input, requestID); err != nil {
-			return domain.KnowledgeExtractionResult{}, err
-		}
-	}
-	run.State = "succeeded"
-	run.ReportHash = hash
-	run.ProgressLabel = "知识候选已进入人工审核"
-	run.UpdatedAt = s.now().UTC()
-	if err := s.succeedRunAttempt(ctx, &run, attempt); err != nil {
-		return domain.KnowledgeExtractionResult{}, err
-	}
-	if err := s.store.SaveRun(ctx, run); err != nil {
-		return domain.KnowledgeExtractionResult{}, err
-	}
-	_, _ = s.store.AppendRunProgress(ctx, domain.RunProgressEvent{TenantID: run.TenantID, ProjectID: run.ProjectID, RunID: run.ID, AttemptID: attempt.ID, DeviceID: attempt.DeviceID, Sequence: run.HeartbeatSequence + 1, Phase: "succeeded", Step: run.HeartbeatSequence + 1, Label: run.ProgressLabel, OccurredAt: run.UpdatedAt})
-	result, err := s.knowledgeExtractionResult(ctx, actor.TenantID, run, pkg.Warnings)
-	if err == nil {
-		s.audit(ctx, actor, run.ProjectID, "knowledge_extraction_run.reported", "task_run", run.ID, requestID, map[string]any{"object_count": len(result.Objects)})
-	}
-	return result, err
-}
-
-func (s *Service) rejectKnowledgeOutput(ctx context.Context, run domain.TaskRun, attempt domain.RunAttempt, failureClass, summary string, reportErr error) (domain.KnowledgeExtractionResult, error) {
-	if _, finishErr := s.failRunAttempt(ctx, run, attempt, failureClass, nil, nil, summary); finishErr != nil {
-		return domain.KnowledgeExtractionResult{}, errors.Join(reportErr, finishErr)
-	}
-	return domain.KnowledgeExtractionResult{}, reportErr
-}
-
-func (s *Service) failMalformedOutput(ctx context.Context, actor Actor, device domain.Device, run domain.TaskRun, attemptID, runToken, failureClass string) {
-	attempt, err := s.activeRunAttempt(ctx, actor, device, run, attemptID, runToken, s.now().UTC())
-	if err == nil {
-		_, _ = s.failRunAttempt(ctx, run, attempt, failureClass, nil, nil, "本地智能体返回了无法解析的结构化输出")
-	}
+	return hash, inputs, nil
 }
 
 func knowledgeCandidateObjectInput(run domain.TaskRun, candidate domain.KnowledgeCandidate, evidenceIDs []string, index int) CreateKnowledgeObjectInput {
@@ -283,20 +314,6 @@ func evidenceLocatorMatches(encoded string, locator map[string]any) bool {
 	}
 	actual, err := domain.CanonicalHash(locator)
 	return err == nil && wanted == actual
-}
-
-func (s *Service) knowledgeExtractionResult(ctx context.Context, tenantID string, run domain.TaskRun, warnings []string) (domain.KnowledgeExtractionResult, error) {
-	all, err := s.store.KnowledgeObjects(ctx, tenantID, run.ProjectID)
-	if err != nil {
-		return domain.KnowledgeExtractionResult{}, err
-	}
-	objects := []domain.KnowledgeObject{}
-	for _, object := range all {
-		if origin, _ := object.Payload["origin_run_id"].(string); origin == run.ID {
-			objects = append(objects, object)
-		}
-	}
-	return domain.KnowledgeExtractionResult{RunID: run.ID, Objects: objects, Warnings: warnings}, nil
 }
 
 func decodeStrict(body []byte, target any) error {

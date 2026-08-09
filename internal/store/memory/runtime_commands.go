@@ -26,12 +26,20 @@ func (s *Store) ClaimReadyNodeCommand(_ context.Context, tenantID, jobID, owner 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var selected domain.NodeRun
+	selectedScore := int64(-1)
+	clock := now
 	for _, candidate := range s.runtimeNodes {
 		if candidate.TenantID != tenantID || candidate.State != domain.NodeReady || (jobID != "" && candidate.JobRunID != jobID) {
 			continue
 		}
-		if selected.ID == "" || candidate.CreatedAt.Before(selected.CreatedAt) || (candidate.CreatedAt.Equal(selected.CreatedAt) && candidate.ID < selected.ID) {
+		priority := int64(0)
+		if job, ok := s.runtimeJobs[runtimePlanKey(candidate.TenantID, candidate.JobRunID)]; ok {
+			priority = int64(job.Priority)
+		}
+		score := priority + int64(clock.Sub(candidate.UpdatedAt)/time.Minute)
+		if selected.ID == "" || score > selectedScore || (score == selectedScore && (candidate.UpdatedAt.Before(selected.UpdatedAt) || (candidate.UpdatedAt.Equal(selected.UpdatedAt) && candidate.ID < selected.ID))) {
 			selected = candidate
+			selectedScore = score
 		}
 	}
 	if selected.ID == "" {
@@ -41,9 +49,14 @@ func (s *Store) ClaimReadyNodeCommand(_ context.Context, tenantID, jobID, owner 
 		return selected, err
 	}
 	expires := now.Add(leaseFor)
+	fenceToken, _, err := domain.NewOpaqueToken("rtf_", 24)
+	if err != nil {
+		return domain.NodeRun{}, err
+	}
 	selected.State = domain.NodeLeased
 	selected.AttemptCount++
 	selected.LeaseOwner = strings.TrimSpace(owner)
+	selected.FenceToken = fenceToken
 	selected.LeaseExpiresAt = &expires
 	selected.Version++
 	selected.UpdatedAt = now
@@ -116,6 +129,84 @@ func (s *Store) ApplyJobTransition(_ context.Context, next domain.JobRun, expect
 		return next, err
 	}
 	s.runtimeJobs[key] = next
+	appendRuntimeEventLocked(s, event)
+	return next, nil
+}
+
+func (s *Store) ApplyGraphPatchCommand(_ context.Context, next domain.JobRun, expectedVersion int, plan domain.JobPlanRevision, addedNodes []domain.NodeRun, cancelNodeKeys []string, event domain.JobEvent) (domain.JobRun, error) {
+	if err := next.Validate(); err != nil {
+		return next, err
+	}
+	if err := plan.Validate(); err != nil {
+		return next, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	jobKey := runtimePlanKey(next.TenantID, next.ID)
+	current, ok := s.runtimeJobs[jobKey]
+	if !ok {
+		return next, domain.NotFound("执行实例")
+	}
+	if current.Version != expectedVersion || next.Version != expectedVersion+1 || current.PlanRevisionID != plan.BaseRevisionID || next.PlanRevisionID != plan.ID || next.PlanDigest != plan.Digest {
+		return next, domain.Conflict("GRAPH_VERSION_CONFLICT", "执行图版本已经变化，请重新读取后再提交")
+	}
+	planKey := runtimePlanKey(plan.TenantID, plan.ID)
+	if _, exists := s.runtimePlans[planKey]; exists {
+		return next, domain.Conflict("JOB_PLAN_EXISTS", "执行计划版本已存在")
+	}
+	for _, existing := range s.runtimePlans {
+		if existing.TenantID == plan.TenantID && (existing.Digest == plan.Digest || (plan.PatchKey != "" && existing.PatchKey == plan.PatchKey)) {
+			return next, domain.Conflict("GRAPH_PATCH_EXISTS", "执行图变更已存在")
+		}
+	}
+	for _, node := range addedNodes {
+		if err := node.Validate(); err != nil {
+			return next, err
+		}
+		if node.TenantID != next.TenantID || node.JobRunID != next.ID {
+			return next, domain.Invalid("NODE_RUN_SCOPE_INVALID", "GraphPatch 新节点不属于当前执行实例")
+		}
+		if _, exists := s.runtimeNodes[runtimeNodeKey(node.TenantID, node.ID)]; exists {
+			return next, domain.Conflict("NODE_RUN_EXISTS", "GraphPatch 新节点已经存在")
+		}
+	}
+	for _, key := range cancelNodeKeys {
+		found := false
+		for _, node := range s.runtimeNodes {
+			if node.TenantID != next.TenantID || node.JobRunID != next.ID || node.NodeKey != key {
+				continue
+			}
+			found = true
+			if node.State != domain.NodePending && node.State != domain.NodeReady && node.State != domain.NodeWaitingResource {
+				return next, domain.Conflict("GRAPH_PATCH_CANCEL_CONFLICT", "GraphPatch 只能取消尚未执行的节点")
+			}
+		}
+		if !found {
+			return next, domain.NotFound("GraphPatch 待取消节点")
+		}
+	}
+	event.TenantID, event.JobRunID = next.TenantID, next.ID
+	if err := validateCommandEvent(s, event); err != nil {
+		return next, err
+	}
+	s.runtimePlans[planKey] = plan
+	for _, node := range addedNodes {
+		s.runtimeNodes[runtimeNodeKey(node.TenantID, node.ID)] = node
+	}
+	for nodeKey, node := range s.runtimeNodes {
+		if node.TenantID != next.TenantID || node.JobRunID != next.ID {
+			continue
+		}
+		for _, cancelKey := range cancelNodeKeys {
+			if node.NodeKey == cancelKey {
+				node.State = domain.NodeCancelled
+				node.Version++
+				node.UpdatedAt = event.OccurredAt
+				s.runtimeNodes[nodeKey] = node
+			}
+		}
+	}
+	s.runtimeJobs[jobKey] = next
 	appendRuntimeEventLocked(s, event)
 	return next, nil
 }

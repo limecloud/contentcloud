@@ -4,7 +4,7 @@
 
 > 阅读路线：产品和设计重点阅读第 1-6、10 节；前端重点阅读第 2-7、10 节；运维重点阅读第 8-9 节。
 
-当前实现：运营入口为 `/admin/runtime`，首版提供 JobRun 列表、节点概览、脱敏 AgentInstance/ContextView 摘要、事件时间线、外部副作用、检查点和刷新/取消/恢复命令；Runtime 事件支持带 `Last-Event-ID` 的 SSE 增量游标。Agent 诊断不返回原始会话引用或上下文正文。完整执行图、共享状态、费用读模型和分支恢复仍按 V8 工作包逐步交付。
+当前实现：运营入口统一为 `/admin/jobs`，提供 JobRun 列表、准入冻结身份、节点概览、脱敏 AgentInstance/ContextView 摘要、事件时间线、外部副作用、检查点和服务端授权动作；支持事件完整性校验与投影重建、从安全检查点创建新分支、`unknown` Effect 发起对账，以及带 `Last-Event-ID` 的 SSE 增量游标。重放与分支不调用 Harness 或 Provider，Agent 诊断不返回原始会话引用或上下文正文。完整执行图、Attempt/租约、共享状态、费用读模型和支持案例仍按 V8 工作包逐步交付。
 
 ## 1. Runtime Explorer
 
@@ -26,22 +26,22 @@ Runtime Explorer 是平台运营控制台中的独立诊断产品，服从 [Cont
 
 ## 2. URL 与导航
 
-目标态使用真实子路由，不再把页签只保存在 React 组件的本地状态中。当前首版先提供一个运营入口：
+目标态使用真实子路由，不再把页签只保存在 React 组件的本地状态中。当前入口：
 
 ```text
-/admin/runtime
+/admin/jobs
 ```
 
-目标态继续展开为：
+后续详情深链继续展开为：
 
 ```text
-/admin/runtime/jobs/:jobRunId/overview
-/admin/runtime/jobs/:jobRunId/graph
-/admin/runtime/jobs/:jobRunId/agents
-/admin/runtime/jobs/:jobRunId/state
-/admin/runtime/jobs/:jobRunId/events
-/admin/runtime/jobs/:jobRunId/effects
-/admin/runtime/jobs/:jobRunId/cost
+/admin/jobs/:jobRunId/overview
+/admin/jobs/:jobRunId/graph
+/admin/jobs/:jobRunId/agents
+/admin/jobs/:jobRunId/state
+/admin/jobs/:jobRunId/events
+/admin/jobs/:jobRunId/effects
+/admin/jobs/:jobRunId/cost
 ```
 
 这样页面刷新、复制链接、浏览器前进后退和事故交接都能回到同一个视图状态。遇到未知或历史对象时使用安全的降级展示；前端不认识新的事件类型，也不能导致整个详情页失败。

@@ -11,7 +11,7 @@ import (
 func TestRuntimeCommandWritesEventAndOutboxTogether(t *testing.T) {
 	repo := memory.New()
 	service := New(repo, func() time.Time { return time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC) })
-	started, err := service.Start(t.Context(), StartInput{TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: "task-1", SOP: testSOP(), CreatedBy: "user-1"})
+	started, err := service.Start(t.Context(), testStartInput("task-1", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestRuntimeCommandWritesEventAndOutboxTogether(t *testing.T) {
 func TestRuntimeStateMutationIsIdempotentAcrossEventAndOutbox(t *testing.T) {
 	repo := memory.New()
 	service := New(repo, time.Now)
-	started, err := service.Start(t.Context(), StartInput{TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: "task-1", SOP: testSOP(), CreatedBy: "user-1"})
+	started, err := service.Start(t.Context(), testStartInput("task-1", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestRuntimeStateMutationIsIdempotentAcrossEventAndOutbox(t *testing.T) {
 func TestRuntimeOutboxClaimAckAndRetryAreFenced(t *testing.T) {
 	repo := memory.New()
 	service := New(repo, func() time.Time { return time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC) })
-	if _, err := service.Start(t.Context(), StartInput{TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: "task-1", SOP: testSOP(), CreatedBy: "user-1"}); err != nil {
+	if _, err := service.Start(t.Context(), testStartInput("task-1", "")); err != nil {
 		t.Fatal(err)
 	}
 	commands, ok := any(repo).(RuntimeCommandStore)
@@ -124,7 +124,7 @@ func TestRuntimeOutboxClaimAckAndRetryAreFenced(t *testing.T) {
 func TestRuntimeEventContractRejectsMissingTypeInMemory(t *testing.T) {
 	repo := memory.New()
 	service := New(repo, time.Now)
-	started, err := service.Start(t.Context(), StartInput{TenantID: "tenant-1", ProjectID: "project-1", WorkTaskID: "task-1", SOP: testSOP(), CreatedBy: "user-1"})
+	started, err := service.Start(t.Context(), testStartInput("task-1", ""))
 	if err != nil {
 		t.Fatal(err)
 	}

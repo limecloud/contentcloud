@@ -35,16 +35,16 @@ WorkTask                              业务任务及其治理
 | `WorkTask` | 业务任务 / 业务聚合根 | 不改表名；增加 active/latest `JobRun` 投影 |
 | `SOPVersion` | 业务流程与人工审批节点约束 | 发布时可编译成初始 JobPlanRevision |
 | `StageRun` | 业务阶段投影 | 保留；从多个 `NodeRun` 聚合状态 |
-| `TaskRun` | V7 兼容执行记录 | 保留现有路径；不再作为 V8 NodeRun 的物理表 |
-| `RunAttempt` | V7 兼容执行尝试 | 只关联 `task_runs`，不参与 V8 Runtime 调度 |
+| `TaskRun` | Runtime 的只读业务投影 DTO | 不对应物理执行表；只由 JobRun/NodeRun 生成，后续 API 版本可改名 |
+| `RunAttempt` | 已删除的旧执行尝试 | `00034_remove_v7_execution.sql` 已删除旧表和 Store/API |
 | `RuntimeAttempt` | V8 唯一权威执行尝试 | 独立 `runtime_attempts`，保存租约、能力快照、Harness 会话引用和结构化结果摘要 |
 | `TaskStageOutput` | 执行输出绑定（`JobOutputBinding`） | 保留物理名称；绑定 `NodeRun` 和已验证业务 `subject_ref` 时增加兼容字段，不限定为 `Artifact` |
 | `ContextSnapshot` | 输入快照基础 | `ContextView` 引用它，不改变历史快照 |
-| `CreativeExecutionBundle` | 执行包（`ExecutionBundle`） | 保留并扩展运行策略和执行配置引用 |
+| `CreativeExecutionBundle` | 已删除的 V7 执行包 | Runtime 使用 JobRun 冻结摘要、ContextView 和资源/工具策略，不保留平行执行包 |
 | `MediaGenerationJob` | 服务商作业 | 保留；关联 `side_effect_id`，避免与 `JobRun` 混淆 |
 | `ProviderAttempt` | 外部执行尝试 | 保留；受外部操作记录状态机约束 |
 
-V8 首版不物理重命名 `TaskRun`、`TaskStageOutput` 或媒体表。API/BFF 可以展示 `NodeRun`、`JobOutputBinding` 和 `ProviderJob` 语义，数据库迁移保持增量方式。
+数据库只保留 Runtime 权威执行表；`TaskStageOutput` 和媒体表仍是业务事实。API/BFF 可以展示 `NodeRun`、`JobOutputBinding` 和 `ProviderJob` 语义。
 
 ## 3. 执行实例（`JobRun`）
 
@@ -114,7 +114,7 @@ external_effect | retry_backoff | operator_pause | input_too_large
 
 ### 4.1 初始编译
 
-现有 SOP 按阶段的 `Order` 排序后编译为等价链，确保打开功能开关时 V7 行为不变：
+现有 SOP 按阶段的 `Order` 排序后编译为等价链，确保 Runtime 保持已发布 SOP 的顺序语义：
 
 ```text
 SOP Stage[0] -> Stage[1] -> ... -> Stage[n]
@@ -289,7 +289,7 @@ prepared -> running -> succeeded
 
 `RuntimeAttempt` 至少保存 `job_run_id/node_run_id/agent_instance_id/context_view_id`、`attempt_no`、Harness 能力快照、不透明 `session_ref`、租约、输出引用、结果摘要、错误码和版本。`NodeRun` 与 `RuntimeAttempt` 使用同一 owner 和到期时间续租；任一版本或 owner 不匹配时，旧 worker 必须失败关闭。
 
-旧 V7 `RunAttempt` 的 `RunToken`、本地守护进程日志和上报 API 继续保留，但不复用为 V8 RuntimeAttempt。两套模型不能共享表、外键或权威状态。
+旧 V7 `RunAttempt`、`RunToken` 和守护进程上报 API 已删除。Runtime worker 只使用 Attempt ID、owner 和 fence token，避免重新形成第二套租约协议。
 
 ## 8. 智能体实例（`AgentInstance`）
 
@@ -342,7 +342,7 @@ causation_id / correlation_id / idempotency_key
 - `Checkpoint` 创建。
 - 外部操作记录状态变化。
 
-原始 Prompt、完整对话记录、Secret、RunToken、签名 URL 和大媒体不进入脱敏事件内容。
+原始 Prompt、完整对话记录、Secret、fence token、签名 URL 和大媒体不进入脱敏事件内容。
 
 ## 10. StageRun 投影
 

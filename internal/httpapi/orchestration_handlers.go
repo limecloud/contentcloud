@@ -150,6 +150,18 @@ func (s *Server) impactAdminSOPVersion(w http.ResponseWriter, r *http.Request) {
 	s.dispatchResult(w, r, "admin.sop_version.impact", value, err)
 }
 
+func (s *Server) previewAdminSOPVersion(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	version, err := parsePathInt(r, "version")
+	if err != nil {
+		s.fail(w, r, "admin.sop_version.preview", err)
+		return
+	}
+	environmentID := strings.TrimSpace(r.URL.Query().Get("environment_id"))
+	value, err := s.service.SOPVersionPreview(r.Context(), actor, chi.URLParam(r, "sopID"), version, environmentID)
+	s.dispatchResult(w, r, "admin.sop_version.preview", value, err)
+}
+
 func (s *Server) rollbackAdminSOPVersion(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	var input struct {

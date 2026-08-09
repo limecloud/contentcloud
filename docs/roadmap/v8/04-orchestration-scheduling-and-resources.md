@@ -101,9 +101,11 @@ FinalizeDispatch（数据库事务）
 | 收到终态后、响应前 | 终态和事件已经原子提交 | 相同结果摘要幂等成功，不同摘要明确冲突 |
 | 事件流关闭但没有终态 | Attempt 可诊断 | 记录 `HARNESS_STREAM_CLOSED` 并按重试上限收敛 |
 
+终态提交会清除 Node/Attempt 上的原始 lease owner、fence token 和到期时间；追加的终态 JobEvent 只保留 worker actor 与 fence SHA-256 摘要。远程 worker 重试 finalize 时必须同时匹配 actor、fence 摘要和结果摘要，不恢复租约，也不能在终态冲突检查前写入业务对象。
+
 ### 4.2 公平性
 
-当前 `TaskRun` 主要按 `priority DESC, created_at` 领取。V8 增加以下最小公平约束：
+当前 Runtime 只从 `ready` NodeRun 中选择候选，以 Job priority 加节点等待分钟形成 aging 分数，并用更早的节点时间和 ID 稳定破同分。生产级公平性还必须满足以下约束：
 
 - 每个租户和每个业务任务都设置运行中执行步骤数上限。
 - 同一优先级内，等待越久的执行步骤越优先，避免普通任务一直得不到执行机会。
@@ -180,7 +182,7 @@ max sessions / current load
 
 调度器只能选择满足全部硬性要求的执行器。能力不匹配时，节点进入资源等待状态（`waiting(resource)`）；不得擅自取消 MCP、会话恢复或隔离要求后继续运行。
 
-Harness 实例由进程级 `HarnessRegistry` 显式注入并长期复用。`SelectHarness` 只保留给旧的一次性调用路径；Runtime 禁止每次领取时重新构造适配器，因为 Fake/CLI/SDK 会话表属于适配器实例，重建会使已保存的 `session_ref` 无法恢复。未知 Harness 或缺少结构化事件/结果能力时默认拒绝执行。
+Harness 实例由进程级 `HarnessRegistry` 显式注入并长期复用；零生产引用的 `SelectHarness` 兼容工厂已删除。Runtime 禁止每次领取时重新构造可恢复适配器，因为 Fake/CLI/SDK 会话表属于适配器实例，重建会使已保存的 `session_ref` 无法恢复。未知 Harness 或缺少结构化事件/结果能力时默认拒绝执行。
 
 ## 7. 主控智能体让出资源与恢复执行
 

@@ -37,7 +37,7 @@ func (s *Service) ProjectProjection(ctx context.Context, actor Actor, projectID 
 	if err != nil {
 		return domain.ProjectProjection{}, err
 	}
-	runs, err := s.store.Runs(ctx, actor.TenantID, projectID)
+	runs, err := s.taskRunsForProject(ctx, actor.TenantID, projectID)
 	if err != nil {
 		return domain.ProjectProjection{}, err
 	}

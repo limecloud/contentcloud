@@ -23,21 +23,18 @@ const (
 )
 
 type userDaemonState struct {
-	SchemaVersion  string              `json:"schema_version"`
-	Supported      bool                `json:"supported"`
-	Installed      bool                `json:"installed"`
-	Running        bool                `json:"running"`
-	AlreadyRunning bool                `json:"already_running,omitempty"`
-	PID            int                 `json:"pid,omitempty"`
-	Version        string              `json:"version,omitempty"`
-	Executable     string              `json:"executable,omitempty"`
-	PlistPath      string              `json:"plist_path,omitempty"`
-	LogPath        string              `json:"log_path,omitempty"`
-	ErrorLogPath   string              `json:"error_log_path,omitempty"`
-	PendingReports int                 `json:"pending_reports"`
-	DeadLetters    int                 `json:"dead_letters"`
-	UpdatedAt      *time.Time          `json:"updated_at,omitempty"`
-	Runtime        *daemonRuntimeState `json:"runtime,omitempty"`
+	SchemaVersion  string     `json:"schema_version"`
+	Supported      bool       `json:"supported"`
+	Installed      bool       `json:"installed"`
+	Running        bool       `json:"running"`
+	AlreadyRunning bool       `json:"already_running,omitempty"`
+	PID            int        `json:"pid,omitempty"`
+	Version        string     `json:"version,omitempty"`
+	Executable     string     `json:"executable,omitempty"`
+	PlistPath      string     `json:"plist_path,omitempty"`
+	LogPath        string     `json:"log_path,omitempty"`
+	ErrorLogPath   string     `json:"error_log_path,omitempty"`
+	UpdatedAt      *time.Time `json:"updated_at,omitempty"`
 }
 
 type userDaemonService interface {
@@ -176,10 +173,6 @@ func (s *launchdDaemonService) Status() (userDaemonState, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return state, err
 	}
-	if runtimeState, runtimeErr := loadDaemonRuntimeState(); runtimeErr == nil {
-		state.Runtime = runtimeState
-	}
-	state.PendingReports, state.DeadLetters, _ = daemonJournalCounts()
 	output, err := s.run("launchctl", "print", fmt.Sprintf("gui/%d/%s", s.uid, userDaemonLabel))
 	if err != nil {
 		return state, nil

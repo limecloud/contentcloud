@@ -802,19 +802,6 @@ paths:
   /bff/runs/{id}:
     parameters: [{$ref: '#/components/parameters/ID'}]
     get: *jsonRead
-  /bff/runs/{id}/attempts:
-    parameters: [{$ref: '#/components/parameters/ID'}]
-    get:
-      tags: [Web BFF]
-      operationId: listRunAttempts
-      security: [{cookieAuth: []}]
-      responses:
-        '200':
-          description: Immutable execution attempts. Run token hashes are never projected.
-          content:
-            application/json: {schema: {$ref: '#/components/schemas/RunAttemptListEnvelope'}}
-        '401': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
   /bff/runs/{id}/cancel:
     parameters: [{$ref: '#/components/parameters/ID'}]
     post: *jsonWrite
@@ -1243,6 +1230,7 @@ components:
       properties:
         id: {type: string, format: uuid}
         work_task_id: {type: string, format: uuid}
+        business_type: {type: string}
         task_title: {type: string}
         project_id: {type: string, format: uuid}
         project_name: {type: string}
@@ -2141,6 +2129,72 @@ components:
       properties:
         command: {type: string, minLength: 1}
         params: {type: object}
+      x-runtime-worker-commands:
+        - runtime.worker.prepare_next
+        - runtime.worker.prepare
+        - runtime.worker.activate
+        - runtime.worker.heartbeat
+        - runtime.worker.finalize
+    RuntimeWorkerPrepareInput:
+      type: object
+      additionalProperties: false
+      required: [harness_kind, role, execution_profile_id, max_tokens, budget_minor, remaining_descendants]
+      properties:
+        job_run_id: {type: string, format: uuid}
+        harness_kind: {type: string, minLength: 1}
+        role: {type: string, minLength: 1}
+        execution_profile_id: {type: string, minLength: 1}
+        workspace: {type: string}
+        prompt: {type: string}
+        output_schema: {type: object, additionalProperties: true}
+        input_refs: {type: array, items: {type: string}}
+        state_refs: {type: array, items: {type: string}}
+        event_refs: {type: array, items: {type: string}}
+        allowed_tools: {type: array, items: {type: string}}
+        max_tokens: {type: integer, minimum: 1}
+        budget_minor: {type: integer, minimum: 0}
+        remaining_descendants: {type: integer, minimum: 0}
+        lease_for_seconds: {type: integer, minimum: 1}
+        context_ttl_seconds: {type: integer, minimum: 1}
+        resource_requests: {type: array, items: {type: object, additionalProperties: false}}
+    RuntimeWorkerSession:
+      type: object
+      additionalProperties: false
+      required: [harness_kind, session_id]
+      properties:
+        tenant_id: {type: string, format: uuid}
+        harness_kind: {type: string}
+        session_id: {type: string, minLength: 1}
+    RuntimeWorkerActivateInput:
+      type: object
+      additionalProperties: false
+      required: [attempt_id, fence_token, session]
+      properties:
+        attempt_id: {type: string, format: uuid}
+        fence_token: {type: string, minLength: 1}
+        session: {$ref: '#/components/schemas/RuntimeWorkerSession'}
+    RuntimeWorkerHeartbeatInput:
+      type: object
+      additionalProperties: false
+      required: [attempt_id, fence_token]
+      properties:
+        attempt_id: {type: string, format: uuid}
+        fence_token: {type: string, minLength: 1}
+    RuntimeWorkerFinalizeInput:
+      type: object
+      additionalProperties: false
+      required: [attempt_id, fence_token, state]
+      properties:
+        attempt_id: {type: string, format: uuid}
+        fence_token: {type: string, minLength: 1}
+        state: {type: string, enum: [succeeded, retryable_failed, failed, cancelled]}
+        output_refs: {type: array, items: {type: string}}
+        output_digest: {type: string}
+        result_digest: {type: string}
+        safe_summary: {type: object, additionalProperties: true}
+        error_code: {type: string}
+        used_cost_minor: {type: integer, minimum: 0}
+        business_payload: {type: object, additionalProperties: true}
     LineageNode:
       type: object
       additionalProperties: false
@@ -2215,31 +2269,6 @@ components:
         request_id: {type: string}
         data: {$ref: '#/components/schemas/ImpactAnalysis'}
         meta: {type: object}
-    RunAttempt:
-      type: object
-      additionalProperties: false
-      required: [id, tenant_id, project_id, run_id, device_id, state, capability_id, capability_version, capability_digest, input_schema, output_schema, lease_expires_at, usage, created_at]
-      properties:
-        id: {type: string, format: uuid}
-        tenant_id: {type: string, format: uuid}
-        project_id: {type: string, format: uuid}
-        run_id: {type: string, format: uuid}
-        device_id: {type: string, format: uuid}
-        state: {type: string, enum: [leased, running, succeeded, failed, canceled, expired]}
-        capability_id: {type: string}
-        capability_version: {type: string}
-        capability_digest: {type: string}
-        input_schema: {type: string}
-        output_schema: {type: string}
-        lease_expires_at: {type: string, format: date-time}
-        heartbeat_at: {type: string, format: date-time}
-        started_at: {type: string, format: date-time}
-        finished_at: {type: string, format: date-time}
-        exit_code: {type: integer}
-        failure_class: {type: string}
-        usage: {type: object, description: Optional client-reported and sanitized usage summary.}
-        transcript_summary: {type: string, description: Sanitized summary only; never prompt or source content.}
-        created_at: {type: string, format: date-time}
     Submission:
       type: object
       additionalProperties: false
@@ -2609,16 +2638,6 @@ components:
         command: {const: review_grant.create}
         request_id: {type: string}
         data: {$ref: '#/components/schemas/ReviewGrantCreated'}
-        meta: {type: object}
-    RunAttemptListEnvelope:
-      type: object
-      additionalProperties: false
-      required: [ok, command, request_id, data, meta]
-      properties:
-        ok: {const: true}
-        command: {const: run.attempts}
-        request_id: {type: string}
-        data: {type: array, items: {$ref: '#/components/schemas/RunAttempt'}}
         meta: {type: object}
     SuccessEnvelope:
       type: object

@@ -150,8 +150,12 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/runtime/jobs/{jobID}/effects", s.runtimeJobEffects)
 		r.Get("/runtime/jobs/{jobID}/checkpoints", s.runtimeJobCheckpoints)
 		r.Post("/runtime/jobs/{jobID}/refresh", s.refreshRuntimeJob)
+		r.Post("/runtime/jobs/{jobID}/pause", s.pauseRuntimeJob)
 		r.Post("/runtime/jobs/{jobID}/cancel", s.cancelRuntimeJob)
 		r.Post("/runtime/jobs/{jobID}/resume", s.resumeRuntimeJob)
+		r.Post("/runtime/jobs/{jobID}/replay", s.replayRuntimeJob)
+		r.Post("/runtime/checkpoints/{checkpointID}/fork", s.forkRuntimeCheckpoint)
+		r.Post("/runtime/effects/{effectID}/reconcile", s.reconcileRuntimeEffect)
 		r.Post("/admin/environments", s.createAdminEnvironment)
 		r.Patch("/admin/environments/{id}", s.updateAdminEnvironment)
 		r.Post("/admin/sops", s.createAdminSOP)
@@ -159,6 +163,7 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/admin/sops/{sopID}/versions", s.createAdminSOPDraft)
 		r.Get("/admin/sops/{sopID}/versions/{version}/lint", s.lintAdminSOPVersion)
 		r.Get("/admin/sops/{sopID}/versions/{version}/impact", s.impactAdminSOPVersion)
+		r.Get("/admin/sops/{sopID}/versions/{version}/preview", s.previewAdminSOPVersion)
 		r.Post("/admin/sops/{sopID}/versions/{version}/retire", s.retireAdminSOPVersion)
 		r.Post("/admin/sops/{sopID}/versions/{version}/publish", s.publishAdminSOPVersion)
 		r.Get("/admin/sops/{sopID}/versions/{fromVersion}/diff/{toVersion}", s.diffAdminSOPVersions)
@@ -238,7 +243,6 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/device-auth/approve", s.approveDeviceAuth)
 		r.Get("/projects/{projectID}/runs", s.runs)
 		r.Get("/runs/{id}", s.run)
-		r.Get("/runs/{id}/attempts", s.runAttempts)
 		r.Get("/runs/{id}/progress", s.runProgress)
 		r.Get("/runs/{id}/progress/stream", s.runProgressStream)
 		r.Post("/runs/{id}/cancel", s.cancelRun)
@@ -495,15 +499,6 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.ok(w, r, "run.show", v)
-}
-func (s *Server) runAttempts(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth(r)
-	v, err := s.service.RunAttempts(r.Context(), actor, chi.URLParam(r, "id"))
-	if err != nil {
-		s.fail(w, r, "run.attempts", err)
-		return
-	}
-	s.ok(w, r, "run.attempts", v)
 }
 func (s *Server) runProgress(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
@@ -807,115 +802,91 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		}
 		value, err := s.service.WorkspaceDecisions(r.Context(), actor, binding)
 		s.dispatchResult(w, r, req.Command, value, err)
-	case "daemon.poll":
-		actor, device, err := s.deviceFromRequest(r)
+	case "runtime.worker.prepare":
+		actor, _, err := s.deviceFromRequest(r)
 		if err != nil {
 			s.fail(w, r, req.Command, err)
 			return
 		}
-		var in struct {
-			Capabilities  []domain.Capability              `json:"capabilities"`
-			Environments  []app.AutomationEnvironmentClaim `json:"environments"`
-			DaemonVersion string                           `json:"daemon_version"`
-			WaitMS        int                              `json:"wait_ms"`
-		}
+		var in app.RuntimeWorkerPrepareInput
 		if err := strictDecodeParams(req.Params, &in); err != nil {
-			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "轮询参数错误"))
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Runtime worker 准备参数错误"))
 			return
 		}
-		deadline := time.Now().Add(time.Duration(minInt(maxInt(in.WaitMS, 0), 25000)) * time.Millisecond)
-		for {
-			poll, err := s.service.PollDaemon(r.Context(), actor, device, in.Capabilities, in.Environments, in.DaemonVersion)
-			if err != nil {
-				s.fail(w, r, req.Command, err)
-				return
-			}
-			if poll.Leased || poll.Runtime.UpdateRequired || time.Now().After(deadline) || in.WaitMS == 0 {
-				s.ok(w, r, req.Command, poll)
-				return
-			}
-			wait := 500 * time.Millisecond
-			if remaining := time.Until(deadline); remaining < wait {
-				wait = remaining
-			}
-			if wait <= 0 {
-				continue
-			}
-			timer := time.NewTimer(wait)
-			select {
-			case <-r.Context().Done():
-				timer.Stop()
-				s.fail(w, r, req.Command, r.Context().Err())
-				return
-			case <-timer.C:
-			}
-		}
-	case "run.report":
-		actor, device, err := s.deviceFromRequest(r)
+		value, err := s.service.PrepareRuntimeWorker(r.Context(), actor, in)
 		if err != nil {
 			s.fail(w, r, req.Command, err)
 			return
 		}
-		var in struct {
-			RunID     string          `json:"run_id"`
-			AttemptID string          `json:"attempt_id"`
-			RunToken  string          `json:"run_token"`
-			Package   json.RawMessage `json:"package"`
+		s.ok(w, r, req.Command, value)
+	case "runtime.worker.prepare_next":
+		actor, _, err := s.deviceFromRequest(r)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
 		}
+		var in app.RuntimeWorkerPrepareNextInput
+		if err := strictDecodeParams(req.Params, &in); err != nil {
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Runtime worker 领取参数错误"))
+			return
+		}
+		value, err := s.service.PrepareNextRuntimeWorker(r.Context(), actor, in)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		s.ok(w, r, req.Command, value)
+	case "runtime.worker.activate":
+		actor, _, err := s.deviceFromRequest(r)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		var in app.RuntimeWorkerActivateInput
+		if err := strictDecodeParams(req.Params, &in); err != nil {
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Runtime worker 激活参数错误"))
+			return
+		}
+		value, err := s.service.ActivateRuntimeWorker(r.Context(), actor, in)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		s.ok(w, r, req.Command, value)
+	case "runtime.worker.heartbeat":
+		actor, _, err := s.deviceFromRequest(r)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		var in app.RuntimeWorkerHeartbeatInput
+		if err := strictDecodeParams(req.Params, &in); err != nil {
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Runtime worker 心跳参数错误"))
+			return
+		}
+		value, err := s.service.HeartbeatRuntimeWorker(r.Context(), actor, in)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		s.ok(w, r, req.Command, value)
+	case "runtime.worker.finalize":
+		actor, _, err := s.deviceFromRequest(r)
+		if err != nil {
+			s.fail(w, r, req.Command, err)
+			return
+		}
+		var in app.RuntimeWorkerFinalizeInput
 		if err := json.Unmarshal(req.Params, &in); err != nil {
-			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "报告参数错误"))
+			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Runtime worker 终态参数错误"))
 			return
 		}
-		v, err := s.service.ReportTask(r.Context(), actor, device, in.RunID, in.AttemptID, in.RunToken, in.Package, middleware.GetReqID(r.Context()))
+		value, err := s.service.FinalizeRuntimeWorker(r.Context(), actor, in, middleware.GetReqID(r.Context()))
 		if err != nil {
 			s.fail(w, r, req.Command, err)
 			return
 		}
-		s.ok(w, r, req.Command, v)
-	case "run.heartbeat":
-		actor, device, err := s.deviceFromRequest(r)
-		if err != nil {
-			s.fail(w, r, req.Command, err)
-			return
-		}
-		var in struct {
-			RunID     string              `json:"run_id"`
-			AttemptID string              `json:"attempt_id"`
-			RunToken  string              `json:"run_token"`
-			Heartbeat domain.RunHeartbeat `json:"heartbeat"`
-		}
-		if err := json.Unmarshal(req.Params, &in); err != nil {
-			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "心跳参数错误"))
-			return
-		}
-		v, err := s.service.HeartbeatRun(r.Context(), actor, device, in.RunID, in.AttemptID, in.RunToken, in.Heartbeat, middleware.GetReqID(r.Context()))
-		if err != nil {
-			s.fail(w, r, req.Command, err)
-			return
-		}
-		s.ok(w, r, req.Command, map[string]any{"run": v, "cancel_requested": v.CancelRequestedAt != nil})
-	case "run.finish":
-		actor, device, err := s.deviceFromRequest(r)
-		if err != nil {
-			s.fail(w, r, req.Command, err)
-			return
-		}
-		var in struct {
-			RunID     string `json:"run_id"`
-			AttemptID string `json:"attempt_id"`
-			RunToken  string `json:"run_token"`
-			app.FinishRunAttemptInput
-		}
-		if err := json.Unmarshal(req.Params, &in); err != nil {
-			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "执行尝试完成参数错误"))
-			return
-		}
-		v, err := s.service.FinishRunAttempt(r.Context(), actor, device, in.RunID, in.AttemptID, in.RunToken, in.FinishRunAttemptInput, middleware.GetReqID(r.Context()))
-		if err != nil {
-			s.fail(w, r, req.Command, err)
-			return
-		}
-		s.ok(w, r, req.Command, v)
+		s.ok(w, r, req.Command, value)
 	default:
 		if s.handleUserDispatch(w, r, req) {
 			return

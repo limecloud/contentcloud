@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/environment"
+	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
 	storepg "github.com/limecloud/contentcloud/internal/store/postgres"
 	"github.com/limecloud/contentcloud/internal/testsupport"
 )
@@ -101,22 +101,16 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	if err != nil || replayedDiagnostic.ID != firstDiagnostic.ID || !replayedDiagnostic.CreatedAt.Equal(firstDiagnostic.CreatedAt) {
 		t.Fatalf("PostgreSQL diagnostic replay was not idempotent: first=%#v replayed=%#v error=%v", firstDiagnostic, replayedDiagnostic, err)
 	}
-	deviceActor, device, err := service.DeviceActor(ctx, connected.DeviceToken)
+	deviceActor, _, err := service.DeviceActor(ctx, connected.DeviceToken)
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().UTC()
-	snapshot := domain.ContextSnapshot{ID: domain.NewID(), TenantID: a.TenantID, ProjectID: project.ID, BuilderVersion: "test", SchemaVersion: "1.0", InputVersions: map[string]string{}, ManifestHash: "rls-test", CreatedAt: now}
-	if err := store.CreateSnapshot(ctx, snapshot); err != nil {
+	sop := domain.SOPVersion{ID: "rls-runtime-sop-v1", TenantID: a.TenantID, SOPID: "rls-runtime-sop", Version: 1, SchemaVersion: domain.SOPSchemaVersion, Name: "RLS Runtime", Status: "published", DefaultExecutionMode: "agent", Stages: []domain.StageDefinition{{ID: "execute", Name: "执行", Order: 10, OutputSchema: "contentcloud.rls/1.0", ExecutionModes: []string{"agent"}}}}
+	started, err := service.Runtime().Start(ctx, contentruntime.StartInput{TenantID: a.TenantID, ProjectID: project.ID, WorkTaskID: "rls-runtime-" + suffix, BusinessType: "rls.test", SOP: sop, BindingDigest: "sha256:" + strings.Repeat("a", 64), InputDigest: "sha256:" + strings.Repeat("b", 64), RuntimePolicyID: "runtime-policy/rls", ContractMajor: 1, CreatedBy: a.UserID, IdempotencyKey: "rls-runtime-" + suffix})
+	if err != nil {
 		t.Fatal(err)
 	}
-	run := domain.TaskRun{ID: domain.NewID(), TenantID: a.TenantID, ProjectID: project.ID, InputSnapshotID: snapshot.ID, IdempotencyKey: "rls-run-" + suffix, TaskType: "knowledge_extract", CapabilityID: domain.KnowledgeExtractCapability, CapabilityVersion: "1.0.0", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, OutputCount: 1, DeliveryProfiles: []string{"text"}, State: "queued", CreatedAt: now, UpdatedAt: now}
-	bundle := environment.CreativeExecutionBundle{SchemaVersion: environment.ExecutionBundleSchemaVersion, BundleID: "ceb_" + domain.NewID(), ProjectID: project.ID, Subject: environment.ExecutionSubject{Type: "context_snapshot", ID: snapshot.ID, Digest: snapshot.ManifestHash}, IssuedAt: now, ExpiresAt: now.Add(time.Hour), Digest: "sha256:rls-bundle"}
-	if err := store.CreateRunWithBundle(ctx, run, bundle); err != nil {
-		t.Fatal(err)
-	}
-	capability := domain.Capability{ID: domain.KnowledgeExtractCapability, Version: "1.0.0", Kind: "business_capability", InputSchema: domain.TaskContractSchema, OutputSchema: domain.KnowledgeCandidatesSchema, Digest: "sha256:rls-test", LocalOnly: true}
-	lease, err := service.Poll(ctx, deviceActor, device, []domain.Capability{capability})
+	handle, err := service.PrepareRuntimeWorker(ctx, deviceActor, app.RuntimeWorkerPrepareInput{JobRunID: started.Job.ID, HarnessKind: "fake", Role: "worker", ExecutionProfileID: "rls-test", MaxTokens: 512})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,18 +119,12 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close(ctx)
-	var runtimeCanUpdate, runtimeCanDelete bool
-	if err := conn.QueryRow(ctx, `SELECT has_table_privilege('contentcloud_runtime','creative_execution_bundles','UPDATE'), has_table_privilege('contentcloud_runtime','creative_execution_bundles','DELETE')`).Scan(&runtimeCanUpdate, &runtimeCanDelete); err != nil {
+	var attemptCanDelete, eventCanUpdate, eventCanDelete bool
+	if err := conn.QueryRow(ctx, `SELECT has_table_privilege('contentcloud_runtime','runtime_attempts','DELETE'), has_table_privilege('contentcloud_runtime','runtime_job_events','UPDATE'), has_table_privilege('contentcloud_runtime','runtime_job_events','DELETE')`).Scan(&attemptCanDelete, &eventCanUpdate, &eventCanDelete); err != nil {
 		t.Fatal(err)
 	}
-	if runtimeCanUpdate || runtimeCanDelete {
-		t.Fatalf("runtime role can mutate CreativeExecutionBundle: update=%t delete=%t", runtimeCanUpdate, runtimeCanDelete)
-	}
-	if _, err := conn.Exec(ctx, `UPDATE creative_execution_bundles SET digest='tampered' WHERE run_id=$1`, run.ID); err == nil {
-		t.Fatal("CreativeExecutionBundle update unexpectedly bypassed the immutability trigger")
-	}
-	if _, err := conn.Exec(ctx, `DELETE FROM creative_execution_bundles WHERE run_id=$1`, run.ID); err == nil {
-		t.Fatal("CreativeExecutionBundle delete unexpectedly bypassed the immutability trigger")
+	if attemptCanDelete || eventCanUpdate || eventCanDelete {
+		t.Fatalf("runtime role can mutate append-only Runtime facts: attempt_delete=%t event_update=%t event_delete=%t", attemptCanDelete, eventCanUpdate, eventCanDelete)
 	}
 	tx, err := conn.Begin(ctx)
 	if err != nil {
@@ -156,11 +144,11 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	if count != 0 {
 		t.Fatalf("tenant B saw tenant A project through RLS: count=%d", count)
 	}
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM run_attempts WHERE id=$1`, lease.Attempt.ID).Scan(&count); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM runtime_attempts WHERE id=$1`, handle.Attempt.ID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
-		t.Fatalf("tenant B saw tenant A run attempt through RLS: count=%d", count)
+		t.Fatalf("tenant B saw tenant A RuntimeAttempt through RLS: count=%d", count)
 	}
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM bootstrap_diagnostics WHERE id=$1`, firstDiagnostic.ID).Scan(&count); err != nil {
 		t.Fatal(err)
@@ -168,10 +156,10 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	if count != 0 {
 		t.Fatalf("tenant B saw tenant A bootstrap diagnostic through RLS: count=%d", count)
 	}
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM creative_execution_bundles WHERE run_id=$1`, run.ID).Scan(&count); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM runtime_job_runs WHERE id=$1`, started.Job.ID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
-		t.Fatalf("tenant B saw tenant A CreativeExecutionBundle through RLS: count=%d", count)
+		t.Fatalf("tenant B saw tenant A JobRun through RLS: count=%d", count)
 	}
 }

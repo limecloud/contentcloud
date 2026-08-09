@@ -222,7 +222,7 @@ Checkpoint
 不包含：
 
 - OS 进程、内存、goroutine、文件描述符或网络连接。
-- 活跃 lease、RunToken、Device token、Secret 或临时签名 URL。
+- 活跃 lease、fence token、Device token、Secret 或临时签名 URL。
 - 浏览器句柄和未登记的服务商客户端状态。
 - 模型隐藏推理或未经策略允许的完整 Transcript。
 
@@ -366,4 +366,4 @@ unknown
 - 状态重放不触发任何智能体、外部服务或工具调用。
 - 创建执行分支不修改原 `JobRun`；分支只能读取父集合的冻结水位，并在自己的 `copy_on_write` 覆盖集合中写入，同时重新校验权限、素材权利、费用和执行配置。
 - 外部操作为 `unknown` 时禁止自动重试；对账成功后只能绑定一个外部对象。
-- 状态、事件和完整对话记录中不得出现密钥、`RunToken`、永久下载地址或超出策略允许范围的原始正文。
+- 状态、事件和完整对话记录中不得出现密钥、fence token、永久下载地址或超出策略允许范围的原始正文。

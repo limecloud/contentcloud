@@ -1,7 +1,7 @@
 {
   "name": "@limecloud/contentcloud-web",
   "private": true,
-  "version": "0.20.0",
+  "version": "0.21.0",
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0",

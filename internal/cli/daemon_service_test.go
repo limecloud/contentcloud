@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/limecloud/contentcloud/internal/app"
 )
 
 type fakeUserDaemonService struct {
@@ -128,28 +126,6 @@ func TestDaemonLaunchEnvironmentKeepsRuntimePathsWithoutPersistingAPIKeys(t *tes
 	}
 	if values["OPENAI_API_KEY"] != "" || values["ANTHROPIC_API_KEY"] != "" {
 		t.Fatalf("daemon plist would persist API keys: %#v", values)
-	}
-}
-
-func TestLaunchdDaemonStatusKeepsLastRuntimeStateWhenStopped(t *testing.T) {
-	stateDir := t.TempDir()
-	t.Setenv("CONTENTCLOUD_DAEMON_STATE_DIR", stateDir)
-	now := time.Date(2026, 7, 31, 14, 0, 0, 0, time.UTC)
-	tracker, err := newDaemonRuntimeTracker(nil, "fixture", 2, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tracker.recordPoll(app.DaemonRuntimePolicy{CurrentVersion: "0.10.0", LatestVersion: "0.20.0", UpdateAvailable: true}, false, nil)
-	service := &launchdDaemonService{
-		home: t.TempDir(), executable: "/opt/contentcloud", version: "0.10.0", uid: 501, now: func() time.Time { return now },
-		run: func(string, ...string) ([]byte, error) { return nil, errors.New("service not loaded") },
-	}
-	state, err := service.Status()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.Running || state.Runtime == nil || !state.Runtime.RuntimePolicy.UpdateAvailable || state.Runtime.RuntimePolicy.CurrentVersion != "0.10.0" {
-		t.Fatalf("stopped daemon status lost runtime state: %#v", state)
 	}
 }
 
