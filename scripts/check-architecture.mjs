@@ -62,6 +62,23 @@ for(const path of filesUnder('internal',new Set(['.go']))){
   }
 }
 
+// Workspace and SOP identity migrations are data boundaries, not current
+// production defaults. Historical rows may still be read by stores/tests,
+// but new application code must not recreate retired identifiers.
+const retiredWorkspaceReferences=['task_marketing_video','legacy/default-short-video'];
+for(const path of filesUnder('internal',new Set(['.go']))){
+  if(projectPath(path).endsWith('_test.go'))continue;
+  const value=source(path);
+  for(const reference of retiredWorkspaceReferences){
+    if(value.includes(reference))fail(path,`current production code must not recreate retired workspace/SOP identity ${reference}`);
+  }
+}
+const bootstrapPath=join(root,'internal/app/bootstrap_onboarding.go');
+const bootstrapSource=source(bootstrapPath);
+for(const required of ['localworkspace.TemplateID','localworkspace.TemplateVersion']){
+  if(!bootstrapSource.includes(required))fail(bootstrapPath,`bootstrap must use current workspace template constant ${required}`);
+}
+
 // Local daemon bindings are current in daemon_bindings. Legacy single-workspace
 // keys may only be decoded and rewritten at the localconfig load boundary.
 const localConfigPath=join(root,'internal/localconfig/config.go');
