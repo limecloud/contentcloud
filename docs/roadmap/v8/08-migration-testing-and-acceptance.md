@@ -9,6 +9,7 @@
 - 当前版本为 `v0.22.0`。Runtime Infra V2 的 I1～I4 核心切片、I5 第二业务流容量边界和 provider-neutral HTTP/异步轮询恢复切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
 - V7 的类型化 Stage 输出、媒体领域、MediaReview、最终 Artifact、DeliveryPackage 和 Web 投影已在 `v0.16.0/v0.17.0` 落地；工作区资料文件夹、上传和资料引用已在 `v0.18.0` 首次落地。
 - V8 已落地 JobRun/NodeRun/JobEvent、独立 RuntimeAttempt、RuntimeCommandStore、事件/outbox 同事务、不可变 outbox + subscriber receipts、终态业务结果持久化消费、fence/资源预留账本、StateCollection/StateRecord CAS、ToolCall、Checkpoint watermark、Fork/Replay、ContextView/AgentInstance、FakeHarness 调度闭环、Codex CLI JSONL/thread resume Harness、Provider inbox/账单对账、Yield/Resume、Projector 和 Runtime Explorer 投影重建/dry-run；各文档必须继续区分已实现内核、离线协议测试与生产能力。
+- 内置 SOP Registry 的旧短视频识别已收回显式 `migrateLegacyBuiltinSOPs` 租户迁移边界：只匹配精确 `brief -> knowledge -> draft -> delivery` 结构，写入 current `template_key/source_ref` 后发布当前模板版本；历史已发布版本和绑定 digest 保持不可变，重复访问不会继续创建版本或保留旧 source 标记。
 - 根 `README.md`、平台基线、产品需求和 V8 路线图已互相指向；历史 V1-V7 路线图不再作为当前能力事实源。
 - provider-neutral HTTP 适配器、签名/超时/SSRF 防护、异步 submit/status/cancel、到期轮询恢复、有上限流式下载、Runtime Effect 关联和 Provider callback/bill HMAC ingress 已有确定性 `httptest` 契约；未知提交不会自动重试；真实媒体服务商凭据、账单补偿演练、完整的媒体租约恢复和确定性后期处理仍未完成。
 - Codex Runtime Harness 已使用官方 CLI JSONL 协议，保存 `thread.started` 的真实 thread ID，并通过 `codex exec resume <thread_id>` 在新的 Harness/worker 进程恢复；Claude Runtime Harness 已使用 `stream-json` 首事件 session ID 和 `--resume`，两者能力均在 worker 侧探测并固定到 Attempt，过程事件经 lease/fence/session 校验后只保存脱敏摘要。helper-process 测试不调用模型，真实在线 Codex/Claude smoke 尚未验收。
@@ -27,6 +28,8 @@ V8 的第一个工作包必须先更新权威文档和能力登记表；不能�
 6. **优先向前恢复**：生产回退以停止新任务准入、排空、暂停或修复为主，不对已经写入数据的新表执行破坏性降级迁移。
 
 本地 CLI 配置也遵循同一边界：`daemon_bindings` 是 current 唯一运行事实；旧单工作区字段只允许在 `localconfig.Load()` 中被读取一次并立即重写，运行期不得保留 fallback 或双写。
+
+SOP Registry 同样遵循一次性迁移边界：旧结构只能在租户首次进入编排默认值时被精确识别并升级；同名但结构不同的自定义 SOP 不迁移。新建任务私有 WorkspaceBinding 使用当前本地模板身份，历史 `task_marketing_video` 绑定只作为历史读取事实，不得再写入。
 
 ## 3. 数据迁移
 
@@ -297,6 +300,7 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
 
 - 动态图等增量能力关闭时，Runtime 线性核心流程不能出现行为回归。
 - 旁路编译对所有内置 SOP 生成稳定摘要，并得出与原流程等价的下一阶段结果。
+- 旧短视频 SOP 迁移最多执行一次：历史 v1、Environment/Project/Task 绑定和 digest 保持可读，当前版本统一使用 current 模板身份，代码与守卫不再生成 `task_marketing_video` 或旧 source 标记。
 - Runtime 线性调度器可以完成 `marketing_video` 测试场景。
 - 100 个节点、20 路并发的稳定性压测中，不得出现重复租约、重复节点、重复输出或重复费用。
 - 故障注入矩阵全部得到预期的恢复、阻断或人工对账状态。

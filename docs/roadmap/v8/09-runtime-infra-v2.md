@@ -290,7 +290,7 @@ FakeHarness 继续作为 CI 基础；真实宿主和真实 Provider 不作为第
 | 分类 | 当前范围 | 约束与退出条件 |
 | --- | --- | --- |
 | `current` | JobRun/NodeRun/RuntimeAttempt 及其 `runtime_*` 权威表、`RuntimeCommandStore`、不可变 outbox/subscriber receipts、Projector、业务结果 consumer、Codex JSONL/thread resume Harness、Claude stream-json/session resume Harness、Runtime worker 协议；Customer Studio 与知识提取的 JobRun；`RuntimeRun` / `RuntimeRunEvent`、`run.list/show/events/log` 以及运行列表/ProjectProjection/lineage 投影 | Runtime 新能力只在这些 owner 内演进；远程 worker 只能凭 Attempt ID + fence token 续租、上报事件和终态收敛；公开读模型只从 JobRun/NodeRun/JobEvent 生成，不拥有独立存储或状态机 |
-| `compat` | StageRun 客户业务阶段投影；本地配置旧 `device_id/workspace_id/project_id/workspace_root` 只在 `localconfig.Load()` 的一次性迁移边界解码 | StageRun 只表达 SOP 业务阶段，不参与 Runtime 调度；旧配置字段读入后立即重写为 `daemon_bindings`，CLI 运行期只消费 current 绑定；退出条件是支持的已安装 CLI 完成一次启动迁移并确认无旧配置回流，随后删除 `configFile` 旧字段解码 |
+| `compat` | StageRun 客户业务阶段投影；本地配置旧 `device_id/workspace_id/project_id/workspace_root` 只在 `localconfig.Load()` 的一次性迁移边界解码；旧短视频 SOP Registry 只在 `migrateLegacyBuiltinSOPs` 中按精确结构迁移 | StageRun 只表达 SOP 业务阶段，不参与 Runtime 调度；旧配置字段读入后立即重写为 `daemon_bindings`，CLI 运行期只消费 current 绑定；旧 SOP v1、历史 WorkspaceBinding 和 digest 只读保留，迁移写入 current `template_key/source_ref` 后不再重复运行；新任务私有绑定只使用 current workspace template；退出条件是支持的租户完成一次迁移并确认无旧身份回流，随后删除兼容识别代码 |
 | `deprecated` | 全局 `store.Store`/`app.Service` 宽接口 | 不再承载执行方法；后续按业务模块拆窄，方法数只能减少 |
 | `dead` | V7 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`、`TaskRun` / `RunProgressEvent` 公开 DTO 名称、`task_run` lineage 类型、daemon poll/report/finish 链、RunToken、旧 daemon journal/outbox；`DurableHarness`、`SessionStore`、`runtime_agent_sessions/events` 镜像；Runtime 内一次性 Codex/Claude Adapter、伪 session | `00034/00036`、代码与 Web 类型删除已完成；架构守卫禁止恢复，历史只存在于迁移 evidence |
 
