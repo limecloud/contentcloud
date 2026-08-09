@@ -1,7 +1,7 @@
 ALTER TABLE runtime_job_runs
   DROP CONSTRAINT IF EXISTS runtime_job_runs_tenant_id_work_task_id_fkey;
 
-ALTER TABLE knowledge_items
+ALTER TABLE IF EXISTS knowledge_items
   DROP CONSTRAINT IF EXISTS knowledge_items_origin_run_id_fkey;
 
 DROP TABLE IF EXISTS run_progress_events;
