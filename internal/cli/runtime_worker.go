@@ -84,8 +84,7 @@ func (r *Root) runRuntimeWorker(ctx context.Context, client *apiclient.Client, o
 	var handle contentruntime.DispatchHandle
 	prepare := app.RuntimeWorkerPrepareNextInput{RuntimeWorkerPrepareInput: app.RuntimeWorkerPrepareInput{HarnessKind: harnessKind, Capabilities: capabilities, Role: role, ExecutionProfileID: profile, Workspace: options.Workspace, Prompt: options.Prompt, MaxTokens: 8192}}
 	if err := client.Dispatch(ctx, "runtime.worker.prepare_next", prepare, &handle); err != nil {
-		var de *domain.Error
-		if once && errors.As(err, &de) && de.Code == "NOT_FOUND" {
+		if once && domain.IsNotFound(err) {
 			return map[string]any{"leased": false}, nil
 		}
 		return nil, err

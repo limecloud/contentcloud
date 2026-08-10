@@ -281,7 +281,7 @@ func (s *Store) JobRunsPage(ctx context.Context, tenantID, projectID, state stri
 	}
 	result := []domain.JobRun{}
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, runtimeJobSelect+` WHERE tenant_id=$1 AND ($2='' OR project_id=$2) AND ($3='' OR state=$3) ORDER BY updated_at DESC,id DESC OFFSET $4 LIMIT $5`, tenantID, projectID, state, after, limit+1)
+		rows, err := tx.Query(ctx, runtimeJobSelect+` WHERE tenant_id=$1 AND (NULLIF($2,'')::uuid IS NULL OR project_id=NULLIF($2,'')::uuid) AND ($3='' OR state=$3) ORDER BY updated_at DESC,id DESC OFFSET $4 LIMIT $5`, tenantID, projectID, state, after, limit+1)
 		if err != nil {
 			return err
 		}
