@@ -108,6 +108,37 @@ func TestRuntimeWorkerFinalizeInputSeparatesBusinessPayloadFromExecutionEnvelope
 	}
 }
 
+func TestRuntimeWorkerOnceTreatsResourceNotFoundAsEmptyQueue(t *testing.T) {
+	prepareCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		prepareCalls++
+		if request.URL.Path != "/api/v1/cli/dispatch" {
+			t.Errorf("unexpected dispatch path: %s", request.URL.Path)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"ok":         false,
+			"command":    "runtime.worker.prepare_next",
+			"request_id": "request-empty-queue",
+			"error":      &domain.Error{Type: "not_found", Subtype: "resource", Code: "RESOURCE_NOT_FOUND", Message: "当前没有可领取任务"},
+		})
+	}))
+	defer server.Close()
+
+	root := &Root{}
+	result, err := root.runRuntimeWorker(t.Context(), apiclient.New(server.URL, "device-token"), runtimeWorkerRunOptions{Fixture: true}, true)
+	if err != nil {
+		t.Fatalf("--once must treat RESOURCE_NOT_FOUND as an empty queue: %v", err)
+	}
+	if leased, ok := result["leased"].(bool); !ok || leased {
+		t.Fatalf("empty queue result must report leased=false: %#v", result)
+	}
+	if prepareCalls != 1 {
+		t.Fatalf("expected exactly one prepare_next request, got %d", prepareCalls)
+	}
+}
+
 func writeRuntimeWorkerResponse(t *testing.T, writer http.ResponseWriter, command string, value any) {
 	t.Helper()
 	writer.Header().Set("Content-Type", "application/json")

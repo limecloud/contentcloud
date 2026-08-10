@@ -6,7 +6,7 @@
 
 截至 2026-08-09：
 
-- 当前版本为 `v0.23.0`。Runtime Infra V2 的 I1～I4 核心切片、I5 第二业务流容量边界和 provider-neutral HTTP/异步轮询恢复切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
+- 当前版本为 `v0.23.1`。Runtime Infra V2 的 I1～I4 核心切片、I5 第二业务流容量边界和 provider-neutral HTTP/异步轮询恢复切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
 - V7 的类型化 Stage 输出、媒体领域、MediaReview、最终 Artifact、DeliveryPackage 和 Web 投影已在 `v0.16.0/v0.17.0` 落地；工作区资料文件夹、上传和资料引用已在 `v0.18.0` 首次落地。
 - V8 已落地 JobRun/NodeRun/JobEvent、独立 RuntimeAttempt、RuntimeCommandStore、事件/outbox 同事务、不可变 outbox + subscriber receipts、终态业务结果持久化消费、fence/资源预留账本、StateCollection/StateRecord CAS、ToolCall、Checkpoint watermark、Fork/Replay、ContextView/AgentInstance、FakeHarness 调度闭环、Codex CLI JSONL/thread resume Harness、Provider inbox/账单对账、Yield/Resume、Projector 和 Runtime Explorer 投影重建/dry-run；各文档必须继续区分已实现内核、离线协议测试与生产能力。
 - 内置 SOP Registry 的旧短视频识别已收回显式 `migrateLegacyBuiltinSOPs` 租户迁移边界：只匹配精确 `brief -> knowledge -> draft -> delivery` 结构，写入 current `template_key/source_ref` 后发布当前模板版本并记录 `sop.legacy_migrated` 审计事件；历史已发布版本和绑定 digest 保持不可变，重复访问不会继续创建版本或保留旧 source 标记。

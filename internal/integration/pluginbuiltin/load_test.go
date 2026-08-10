@@ -16,7 +16,7 @@ func TestLoadBundledStandardPlugin(t *testing.T) {
 	if pkg.Manifest.Name != pluginidentity.VideoProduction || pkg.SpecVersion != "1.0.0" || len(pkg.Skills) == 0 || len(pkg.MCPServers) != 1 {
 		t.Fatalf("unexpected bundled Agent Plugin: %#v", pkg)
 	}
-	if filepath.Base(pkg.Root) != "0.23.0" {
+	if filepath.Base(pkg.Root) != "0.23.1" {
 		t.Fatalf("bundle was not materialized in the versioned store: %s", pkg.Root)
 	}
 }

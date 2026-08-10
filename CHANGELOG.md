@@ -2,6 +2,13 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.23.1] - 2026-08-10
+
+### Fixed
+
+- 修复 Runtime Explorer 列表在省略项目过滤时将 UUID 参数按文本比较导致的 PostgreSQL 500。
+- 修复 Runtime worker `--once` 将服务端 `RESOURCE_NOT_FOUND` 空队列响应误报为失败的问题。
+
 ## [0.23.0] - 2026-08-10
 
 ### Added

@@ -503,7 +503,7 @@ func replaceFile(path string, body []byte, mode fs.FileMode) error {
 	return os.Rename(temporaryPath, path)
 }
 
-const defaultMCPCLIVersion = "0.23.0"
+const defaultMCPCLIVersion = "0.23.1"
 
 func template(targets []string) ([]templateFile, []string, error) {
 	return templateWithCLIVersion(targets, defaultMCPCLIVersion)
