@@ -66,18 +66,12 @@ func main() {
 		os.Exit(1)
 	}
 	serviceOptions := []app.Option{app.WithPlatformAdminEmails(adminEmails...)}
-	admissionEnabled, err := boolEnv("CONTENTCLOUD_RUNTIME_ADMISSION_ENABLED", true)
+	rolloutPolicy, err := runtimeRolloutFromEnv()
 	if err != nil {
-		logger.Error("configure Runtime admission", "error", err)
+		logger.Error("configure Runtime rollout", "error", err)
 		os.Exit(1)
 	}
-	dynamicGraphEnabled, err := boolEnv("CONTENTCLOUD_RUNTIME_DYNAMIC_GRAPH_ENABLED", true)
-	if err != nil {
-		logger.Error("configure Runtime dynamic graph", "error", err)
-		os.Exit(1)
-	}
-	canaryTenantIDs := splitValues(os.Getenv("CONTENTCLOUD_RUNTIME_CANARY_TENANT_IDS"))
-	serviceOptions = append(serviceOptions, app.WithRuntimeRolloutPolicy(contentruntime.RolloutPolicy{AdmissionEnabled: admissionEnabled, DynamicGraphEnabled: dynamicGraphEnabled, TenantIDs: canaryTenantIDs}))
+	serviceOptions = append(serviceOptions, app.WithRuntimeRolloutPolicy(rolloutPolicy))
 	if environmentRuntime.Enabled {
 		serviceOptions = append(serviceOptions, app.WithEnvironmentControlPlane(environmentRuntime.ControlPlane))
 		if len(environmentRuntime.AutomationRequirements) > 0 {
@@ -86,7 +80,7 @@ func main() {
 	}
 	service := app.NewWithBlob(st, logger, blobStore, serviceOptions...)
 	logger.Info("Environment Control Plane configured", "enabled", environmentRuntime.Enabled, "automation_policy", len(environmentRuntime.AutomationRequirements) > 0)
-	logger.Info("Runtime rollout configured", "admission_enabled", admissionEnabled, "dynamic_graph_enabled", dynamicGraphEnabled, "canary_tenant_count", len(canaryTenantIDs))
+	logger.Info("Runtime rollout configured", "admission_enabled", rolloutPolicy.AdmissionEnabled, "dynamic_graph_enabled", rolloutPolicy.DynamicGraphEnabled, "canary_tenant_count", len(rolloutPolicy.TenantIDs))
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	defer cancelWorker()
 	if devMode && databaseURL == "" {
@@ -174,4 +168,19 @@ func boolEnv(key string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("%s 必须是 true 或 false: %w", key, err)
 	}
 	return parsed, nil
+}
+
+func runtimeRolloutFromEnv() (contentruntime.RolloutPolicy, error) {
+	admissionEnabled, err := boolEnv("CONTENTCLOUD_RUNTIME_ADMISSION_ENABLED", false)
+	if err != nil {
+		return contentruntime.RolloutPolicy{}, err
+	}
+	dynamicGraphEnabled, err := boolEnv("CONTENTCLOUD_RUNTIME_DYNAMIC_GRAPH_ENABLED", false)
+	if err != nil {
+		return contentruntime.RolloutPolicy{}, err
+	}
+	return contentruntime.RolloutPolicy{
+		AdmissionEnabled: admissionEnabled, DynamicGraphEnabled: dynamicGraphEnabled,
+		TenantIDs: splitValues(os.Getenv("CONTENTCLOUD_RUNTIME_CANARY_TENANT_IDS")),
+	}, nil
 }

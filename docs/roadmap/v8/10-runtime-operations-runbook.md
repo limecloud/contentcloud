@@ -53,10 +53,11 @@ CONTENTCLOUD_RUNTIME_CANARY_TENANT_IDS=<uuid,uuid,...>
 
 准入策略按以下规则解释：
 
-1. `ADMISSION_ENABLED=0`：拒绝新的 Runtime JobRun；读取、reaper、投影、业务结果消费和已运行 Attempt 不停止。
-2. `ADMISSION_ENABLED=1` 且 `CANARY_TENANT_IDS` 非空：只允许列表中的租户创建新 JobRun。
-3. `DYNAMIC_GRAPH_ENABLED=0`：拒绝 GraphPatch、Fanout 等新的动态图变更；已冻结执行图继续运行。
-4. `CANARY_TENANT_IDS` 同时限制准入和动态图。扩大列表前先检查每个租户的健康状态和 backlog。
+1. 两个开关未配置时默认按 `0` 处理，生产进程必须 fail-closed，不能因为环境文件漏项而全量开放 Runtime。
+2. `ADMISSION_ENABLED=0`：拒绝新的 Runtime JobRun；读取、reaper、投影、业务结果消费和已运行 Attempt 不停止。
+3. `ADMISSION_ENABLED=1` 且 `CANARY_TENANT_IDS` 非空：只允许列表中的租户创建新 JobRun。
+4. `DYNAMIC_GRAPH_ENABLED=0`：拒绝 GraphPatch、Fanout 等新的动态图变更；已冻结执行图继续运行。
+5. `CANARY_TENANT_IDS` 同时限制准入和动态图。扩大列表前先检查每个租户的健康状态和 backlog。
 
 推荐灰度顺序：
 

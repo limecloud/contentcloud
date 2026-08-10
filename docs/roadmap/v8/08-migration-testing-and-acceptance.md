@@ -6,10 +6,10 @@
 
 截至 2026-08-09：
 
-- 当前版本为 `v0.22.0`。Runtime Infra V2 的 I1～I4 核心切片、I5 第二业务流容量边界和 provider-neutral HTTP/异步轮询恢复切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
+- 当前版本为 `v0.23.0`。Runtime Infra V2 的 I1～I4 核心切片、I5 第二业务流容量边界和 provider-neutral HTTP/异步轮询恢复切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
 - V7 的类型化 Stage 输出、媒体领域、MediaReview、最终 Artifact、DeliveryPackage 和 Web 投影已在 `v0.16.0/v0.17.0` 落地；工作区资料文件夹、上传和资料引用已在 `v0.18.0` 首次落地。
 - V8 已落地 JobRun/NodeRun/JobEvent、独立 RuntimeAttempt、RuntimeCommandStore、事件/outbox 同事务、不可变 outbox + subscriber receipts、终态业务结果持久化消费、fence/资源预留账本、StateCollection/StateRecord CAS、ToolCall、Checkpoint watermark、Fork/Replay、ContextView/AgentInstance、FakeHarness 调度闭环、Codex CLI JSONL/thread resume Harness、Provider inbox/账单对账、Yield/Resume、Projector 和 Runtime Explorer 投影重建/dry-run；各文档必须继续区分已实现内核、离线协议测试与生产能力。
-- 内置 SOP Registry 的旧短视频识别已收回显式 `migrateLegacyBuiltinSOPs` 租户迁移边界：只匹配精确 `brief -> knowledge -> draft -> delivery` 结构，写入 current `template_key/source_ref` 后发布当前模板版本；历史已发布版本和绑定 digest 保持不可变，重复访问不会继续创建版本或保留旧 source 标记。
+- 内置 SOP Registry 的旧短视频识别已收回显式 `migrateLegacyBuiltinSOPs` 租户迁移边界：只匹配精确 `brief -> knowledge -> draft -> delivery` 结构，写入 current `template_key/source_ref` 后发布当前模板版本并记录 `sop.legacy_migrated` 审计事件；历史已发布版本和绑定 digest 保持不可变，重复访问不会继续创建版本或保留旧 source 标记。
 - 根 `README.md`、平台基线、产品需求和 V8 路线图已互相指向；历史 V1-V7 路线图不再作为当前能力事实源。
 - provider-neutral HTTP 适配器、签名/超时/SSRF 防护、异步 submit/status/cancel、到期轮询恢复、有上限流式下载、Runtime Effect 关联和 Provider callback/bill HMAC ingress 已有确定性 `httptest` 契约；未知提交不会自动重试；真实媒体服务商凭据、账单补偿演练、完整的媒体租约恢复和确定性后期处理仍未完成。
 - Codex Runtime Harness 已使用官方 CLI JSONL 协议，保存 `thread.started` 的真实 thread ID，并通过 `codex exec resume <thread_id>` 在新的 Harness/worker 进程恢复；Claude Runtime Harness 已使用 `stream-json` 首事件 session ID 和 `--resume`，两者能力均在 worker 侧探测并固定到 Attempt，过程事件经 lease/fence/session 校验后只保存脱敏摘要。helper-process 测试不调用模型，真实在线 Codex/Claude smoke 尚未验收。

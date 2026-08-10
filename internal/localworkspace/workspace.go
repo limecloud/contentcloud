@@ -30,8 +30,13 @@ const (
 	SyncStateSchemaVersion    = "contentcloud.sync-state/3.0"
 	TemplateID                = "workspace_marketing_agent"
 	TemplateVersion           = "3.0.0"
+	TemplateDigest            = "sha256:abaa8a271bfc4efe2f29e199b761bd2b040867a0dd1e34710babde407f3ce54e"
 	LayoutVersion             = 3
 )
+
+func CurrentTemplateRef() environment.WorkspaceTemplateRef {
+	return environment.WorkspaceTemplateRef{ID: TemplateID, Version: TemplateVersion, Digest: TemplateDigest}
+}
 
 type Binding struct {
 	SchemaVersion     string    `json:"schema_version" yaml:"schema_version"`
@@ -498,7 +503,7 @@ func replaceFile(path string, body []byte, mode fs.FileMode) error {
 	return os.Rename(temporaryPath, path)
 }
 
-const defaultMCPCLIVersion = "0.22.0"
+const defaultMCPCLIVersion = "0.23.0"
 
 func template(targets []string) ([]templateFile, []string, error) {
 	return templateWithCLIVersion(targets, defaultMCPCLIVersion)

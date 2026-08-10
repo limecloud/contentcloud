@@ -12,13 +12,6 @@ import (
 	"github.com/limecloud/contentcloud/internal/integration/plugin"
 )
 
-const (
-	VideoProduction        = "contentcloud-video-production"
-	VideoProductionVersion = "0.22.0"
-	WechatArticle          = "contentcloud-wechat-article"
-	WechatArticleVersion   = "0.1.0"
-)
-
 func Load(storeRoot, name, version string) (plugin.Package, error) {
 	if strings.TrimSpace(storeRoot) == "" || strings.TrimSpace(version) == "" {
 		return plugin.Package{}, fmt.Errorf("bundled Agent Plugin requires store root and version")

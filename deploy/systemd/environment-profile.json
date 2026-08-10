@@ -8,7 +8,7 @@
     {
       "id": "contentcloud-video-production",
       "kind": "scene_plugin",
-      "version": "0.22.0",
+      "version": "0.23.0",
       "required": true,
       "scope": "environment",
       "capabilities": [
@@ -17,9 +17,9 @@
     }
   ],
   "workspace_template": {
-    "id": "workspace_marketing_video",
-    "version": "2.2.0",
-    "digest": "sha256:05c1eb41fc549a493bdc8fd077273682e23576d41d759b30773a1a0c84333723"
+    "id": "workspace_marketing_agent",
+    "version": "3.0.0",
+    "digest": "sha256:abaa8a271bfc4efe2f29e199b761bd2b040867a0dd1e34710babde407f3ce54e"
   },
   "capabilities": [
     "contentcloud.knowledge.extract"

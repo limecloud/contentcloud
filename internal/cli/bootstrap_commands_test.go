@@ -23,6 +23,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/environment"
 	"github.com/limecloud/contentcloud/internal/integration/pluginbuiltin"
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
+	"github.com/limecloud/contentcloud/internal/integration/pluginidentity"
 	"github.com/limecloud/contentcloud/internal/localconfig"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 )
@@ -74,7 +75,7 @@ func TestBootstrapPlanIsReadOnlyAndUsesOnlyPublicSessionID(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode output: %v; output=%s", err, stdout.String())
 	}
-	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.22.0" || len(envelope.Data.Plugin.Actions) != 7 || !envelope.Data.WouldEnableDaemon {
+	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.23.0" || len(envelope.Data.Plugin.Actions) != 7 || !envelope.Data.WouldEnableDaemon {
 		t.Fatalf("unexpected plan: %s", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "connect_key") || envelope.Data.AuthorizationMode != "browser_device" || !envelope.Data.WouldAuthorizeDevice {
@@ -510,13 +511,13 @@ func TestRequireHealthyWorkspaceBlocksRegistration(t *testing.T) {
 func successfulBootstrapRunner() *bootstrapRunner {
 	missingMarketplace := `{"marketplaces":[]}`
 	missingPlugin := `{"installed":[],"available":[]}`
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.22.0"}}]}`
-	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.22.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.23.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.23.0","installed":true,"enabled":true}],"available":[]}`
 	return &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
-		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.22.0","installedPath":"/tmp/plugin"}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.23.0","installedPath":"/tmp/plugin"}`},
 		{stdout: currentMarketplace}, {stdout: currentPlugin},
 	}}
 }
@@ -524,8 +525,8 @@ func successfulBootstrapRunner() *bootstrapRunner {
 func successfulBootstrapUpgradeRunner() *bootstrapRunner {
 	oldMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache-old","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.7.0"}}]}`
 	oldPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.7.0","installed":true,"enabled":true}],"available":[]}`
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.22.0"}}]}`
-	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.22.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.23.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.23.0","installed":true,"enabled":true}],"available":[]}`
 	return &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: oldMarketplace}, {stdout: oldPlugin},
 		{stdout: oldMarketplace}, {stdout: oldPlugin},
@@ -533,7 +534,7 @@ func successfulBootstrapUpgradeRunner() *bootstrapRunner {
 		{stdout: `{}`},
 		{stdout: `{}`},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
-		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.22.0","installedPath":"/tmp/plugin"}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.23.0","installedPath":"/tmp/plugin"}`},
 		{stdout: currentMarketplace}, {stdout: currentPlugin},
 	}}
 }
@@ -585,7 +586,7 @@ func (h *testBootstrapHost) Commit(context.Context, pluginhost.NativeChange) err
 
 func testPluginRuntimeHook(t *testing.T, initial pluginhost.Status) func(string) (*hostPluginRuntime, error) {
 	t.Helper()
-	pkg, err := pluginbuiltin.Load(t.TempDir(), pluginbuiltin.VideoProduction, Version)
+	pkg, err := pluginbuiltin.Load(t.TempDir(), pluginidentity.VideoProduction, Version)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -681,7 +682,7 @@ func testRegistryVerifier(t *testing.T) *environment.RegistryVerifier {
 
 func bootstrapEnvironmentFixture(t *testing.T, now time.Time) (environment.Manifest, *environment.Verifier, environment.Registry, *environment.RegistryVerifier) {
 	t.Helper()
-	standardPackage, err := pluginbuiltin.Load(t.TempDir(), pluginbuiltin.VideoProduction, Version)
+	standardPackage, err := pluginbuiltin.Load(t.TempDir(), pluginidentity.VideoProduction, Version)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -226,6 +226,16 @@ func TestLegacyShortVideoSOPUpgradesWithoutRebindingEnvironment(t *testing.T) {
 	if len(upgraded.Versions) != 2 || upgraded.Versions[0].Version != 2 || upgraded.Versions[1].Version != 1 || upgraded.Versions[0].Status != "published" {
 		t.Fatalf("legacy SOP did not receive an additive upgrade: %#v", upgraded.Versions)
 	}
+	legacyMigrationAudited := false
+	for _, event := range admin.Audit {
+		if event.Action == "sop.legacy_migrated" && event.SubjectID == legacy.Definition.ID {
+			legacyMigrationAudited = true
+			break
+		}
+	}
+	if !legacyMigrationAudited {
+		t.Fatalf("legacy SOP migration was not audited: %#v", admin.Audit)
+	}
 	for _, environment := range admin.Environments {
 		if environment.ID == legacyEnvironment.ID && (environment.DefaultSOPID != legacy.Definition.ID || environment.DefaultSOPVersion != 1) {
 			t.Fatalf("legacy environment was silently rebound: %#v", environment)

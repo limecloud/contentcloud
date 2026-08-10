@@ -5,27 +5,28 @@ import (
 	"testing"
 
 	"github.com/limecloud/contentcloud/internal/integration/pluginbuiltin"
+	"github.com/limecloud/contentcloud/internal/integration/pluginidentity"
 )
 
 func TestLoadBundledStandardPlugin(t *testing.T) {
-	pkg, err := pluginbuiltin.Load(t.TempDir(), pluginbuiltin.VideoProduction, "0.22.0")
+	pkg, err := pluginbuiltin.Load(t.TempDir(), pluginidentity.VideoProduction, pluginidentity.VideoProductionVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pkg.Manifest.Name != pluginbuiltin.VideoProduction || pkg.SpecVersion != "1.0.0" || len(pkg.Skills) == 0 || len(pkg.MCPServers) != 1 {
+	if pkg.Manifest.Name != pluginidentity.VideoProduction || pkg.SpecVersion != "1.0.0" || len(pkg.Skills) == 0 || len(pkg.MCPServers) != 1 {
 		t.Fatalf("unexpected bundled Agent Plugin: %#v", pkg)
 	}
-	if filepath.Base(pkg.Root) != "0.22.0" {
+	if filepath.Base(pkg.Root) != "0.23.0" {
 		t.Fatalf("bundle was not materialized in the versioned store: %s", pkg.Root)
 	}
 }
 
 func TestLoadBundledWeChatSkillPack(t *testing.T) {
-	pkg, err := pluginbuiltin.Load(t.TempDir(), pluginbuiltin.WechatArticle, pluginbuiltin.WechatArticleVersion)
+	pkg, err := pluginbuiltin.Load(t.TempDir(), pluginidentity.WechatArticle, pluginidentity.WechatArticleVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pkg.Manifest.Name != pluginbuiltin.WechatArticle || len(pkg.Skills) != 4 || len(pkg.MCPServers) != 0 {
+	if pkg.Manifest.Name != pluginidentity.WechatArticle || len(pkg.Skills) != 4 || len(pkg.MCPServers) != 0 {
 		t.Fatalf("unexpected bundled WeChat Skill Pack: %#v", pkg)
 	}
 }

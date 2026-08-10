@@ -71,7 +71,7 @@ contentcloud-video-production/
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "contentcloud-video-production",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Governed local-first content production workflows.",
   "author": {"name": "GoodVision"},
   "license": "Apache-2.0",
@@ -94,7 +94,7 @@ contentcloud-video-production/
     "contentcloud-local": {
       "type": "stdio",
       "command": "npx",
-      "args": ["--yes", "@limecloud/contentcloud@0.22.0", "mcp", "serve"],
+      "args": ["--yes", "@limecloud/contentcloud@0.23.0", "mcp", "serve"],
       "cwd": "${PLUGIN_ROOT}"
     }
   }
@@ -276,7 +276,7 @@ Apply 失败时，只回滚本次 NativeChange；NativeChange 为空时不执行
 {
   "host": "codex",
   "plugin_id": "contentcloud-video-production",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "package_digest": "sha256:...",
   "state": "repair_required",
   "error_code": "CODEX_PLUGIN_VERIFY_FAILED",

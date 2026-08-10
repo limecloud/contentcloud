@@ -13,7 +13,7 @@ import (
 func TestPlatformRuntimeHealthReportsHeartbeatAndBacklogThresholds(t *testing.T) {
 	store := memory.New()
 	service := New(store, nil, WithPlatformAdminEmails("runtime-health@example.com"))
-	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	service.now = func() time.Time { return now }
 	session, err := service.Register(t.Context(), "runtime-health@example.com", "long-enough-password", "Runtime Health", "Runtime Health")
 	if err != nil {

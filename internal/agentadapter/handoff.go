@@ -5,7 +5,7 @@ import (
 	"net/url"
 
 	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/integration/pluginbuiltin"
+	"github.com/limecloud/contentcloud/internal/integration/pluginidentity"
 )
 
 const HandoffSchemaVersion = "contentcloud.agent-handoff/1.0"
@@ -75,10 +75,10 @@ type codexAgentHandoffAdapter struct {
 
 func (adapter codexAgentHandoffAdapter) Build(request HandoffRequest) (Handoff, error) {
 	client, _ := Lookup(string(ClientCodex))
-	pluginID := pluginbuiltin.VideoProduction
+	pluginID := pluginidentity.VideoProduction
 	pluginVersion := adapter.version
 	if pluginVersion == "" {
-		pluginVersion = pluginbuiltin.VideoProductionVersion
+		pluginVersion = pluginidentity.VideoProductionVersion
 	}
 	prompt, steps, err := codexAgentHandoffContent(pluginID, pluginVersion, request)
 	if err != nil {

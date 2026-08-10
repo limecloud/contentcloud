@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { postWithoutBody } from '../api';
 import { BrandMark } from '../components/Brand';
 import { Banner, Button, Loading } from '../components/ui';
+import { bootstrapDevelopmentSession } from '../devBootstrap';
 import { loginPath } from '../views/auth/returnPath';
 import { studioApi } from './studioApi';
 import type { StudioBootstrap } from './studioTypes';
@@ -31,7 +31,7 @@ export function CustomerStudioApp(){
     }catch(value){
       if((value as {status?:number}).status===401){
         try{
-          await postWithoutBody('/api/v1/dev/bootstrap');
+          if(!await bootstrapDevelopmentSession()){setAuthRequired(true);return}
           setBootstrap(await studioApi.bootstrap());
           setAuthRequired(false);
         }catch{setAuthRequired(true)}

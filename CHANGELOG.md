@@ -2,6 +2,24 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.23.0] - 2026-08-10
+
+### Added
+
+- 增加统一的内置场景插件身份边界、环境 Profile 与工作区模板校验，阻止插件版本、模板摘要和能力发布版本漂移。
+- 增加开发环境专用会话 bootstrap，并加入架构检查，确保生产 Web 构建不会调用开发 bootstrap 接口。
+- 增加运行时 rollout 配置测试、插件身份校验、环境配置校验和 legacy SOP 迁移审计覆盖。
+
+### Changed
+
+- Runtime admission 与 dynamic graph 开关默认 fail-closed，必须显式启用并配置 Canary 租户。
+- 工作区模板统一使用 `workspace_marketing_agent@3.0.0`，同步更新插件、CLI、Server、Worker、Web 和环境 Profile 到 `0.23.0`。
+
+### Fixed
+
+- 修复内置 SOP 模板缺失时的迁移边界处理，避免生成空定义，并记录历史迁移审计事件。
+- 收紧插件加载器与插件身份消费者的依赖边界，防止生产代码绕过统一身份事实源。
+
 ## [0.22.0] - 2026-08-09
 
 ### Added

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	"github.com/limecloud/contentcloud/internal/capabilitycatalog"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
+	"github.com/limecloud/contentcloud/internal/integration/pluginidentity"
+	"github.com/limecloud/contentcloud/internal/localworkspace"
 	"github.com/limecloud/contentcloud/internal/serverconfig"
 )
 
@@ -26,7 +29,7 @@ func TestLoadEnvironmentBuildsVerifiedControlPlaneAndAutomationPolicy(t *testing
 	if !runtime.Enabled || runtime.ControlPlane == nil || len(runtime.AutomationRequirements) != 1 {
 		t.Fatalf("environment runtime = %#v", runtime)
 	}
-	expected, _ := capabilitycatalog.Exact(domain.KnowledgeExtractCapability, "0.8.0")
+	expected, _ := capabilitycatalog.Exact(domain.KnowledgeExtractCapability, pluginidentity.VideoProductionVersion)
 	if runtime.AutomationRequirements[0].Digest != expected.Digest || len(runtime.AutomationPackIDs[expected.ID]) != 1 {
 		t.Fatalf("automation policy did not use canonical capability catalog: %#v", runtime)
 	}
@@ -37,6 +40,27 @@ func TestLoadEnvironmentBuildsVerifiedControlPlaneAndAutomationPolicy(t *testing
 	if manifest.ProjectID != "project-1" || manifest.Signature.KeyID != "environment-config-test" {
 		t.Fatalf("issued manifest = %#v", manifest)
 	}
+}
+
+func TestLoadEnvironmentRejectsStaleReleaseFacts(t *testing.T) {
+	config := environmentConfigFixture(t)
+	var profile environment.Profile
+	readJSON(t, config.ProfilePath, &profile)
+	profile.Plugins[0].Version = "0.15.0"
+	writeJSON(t, config.ProfilePath, profile, 0o600)
+	assertDomainCode(t, loadEnvironmentError(config), "ENVIRONMENT_PLUGIN_RELEASE_MISMATCH")
+
+	config = environmentConfigFixture(t)
+	readJSON(t, config.ProfilePath, &profile)
+	profile.WorkspaceTemplate = environment.WorkspaceTemplateRef{
+		ID: "workspace_marketing_video", Version: "2.2.0", Digest: "sha256:05c1eb41fc549a493bdc8fd077273682e23576d41d759b30773a1a0c84333723",
+	}
+	writeJSON(t, config.ProfilePath, profile, 0o600)
+	assertDomainCode(t, loadEnvironmentError(config), "ENVIRONMENT_WORKSPACE_TEMPLATE_MISMATCH")
+
+	config = environmentConfigFixture(t)
+	config.CapabilityReleaseVersion = "0.15.0"
+	assertDomainCode(t, loadEnvironmentError(config), "CAPABILITY_RELEASE_VERSION_MISMATCH")
 }
 
 func TestLoadEnvironmentFailsClosedForPartialOrUnsafeConfiguration(t *testing.T) {
@@ -113,15 +137,15 @@ func environmentConfigFixture(t *testing.T) serverconfig.EnvironmentConfig {
 	profile := environment.Profile{
 		ID: "contentcloud.video-production", Version: "1.0.0", EnvironmentVersion: "2026.7.1", Harness: "codex", Marketplace: "contentcloud",
 		Plugins: []environment.ProfilePlugin{
-			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: "0.8.0", Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}},
+			{ID: pluginidentity.VideoProduction, Kind: "scene_plugin", Version: pluginidentity.VideoProductionVersion, Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}},
 			{ID: "contentcloud-evidence-reasoning", Kind: "skill_pack", Version: "1.0.0", Required: true, Scope: "task", Capabilities: []string{domain.KnowledgeExtractCapability}},
 		},
-		WorkspaceTemplate: environment.WorkspaceTemplateRef{ID: "workspace_marketing_video", Version: "2.2.0", Digest: "sha256:" + strings.Repeat("c", 64)},
+		WorkspaceTemplate: localworkspace.CurrentTemplateRef(),
 		Capabilities:      []string{domain.KnowledgeExtractCapability},
 		Policies:          environment.Policies{PublishRequiresConfirmation: true, AutomationEnabled: true},
 	}
 	registry := environment.Registry{SchemaURL: "test", SchemaVersion: "1.0", Entries: []environment.RegistryEntry{
-		configRegistryEntry("contentcloud-video-production", "scene_plugin", "0.8.0", "v0.8.0", "a"),
+		configRegistryEntry(pluginidentity.VideoProduction, "scene_plugin", pluginidentity.VideoProductionVersion, "v"+pluginidentity.VideoProductionVersion, "a"),
 		configRegistryEntry("contentcloud-evidence-reasoning", "skill_pack", "1.0.0", "v1.0.0", "b"),
 	}}
 	for index := range registry.Entries {
@@ -147,7 +171,20 @@ func environmentConfigFixture(t *testing.T) serverconfig.EnvironmentConfig {
 	}
 	return serverconfig.EnvironmentConfig{
 		ProfilePath: profilePath, RegistryPath: registryPath, RegistryTrustPath: registryTrustPath, EnvironmentTrustPath: environmentTrustPath,
-		SigningKeyPath: signingKeyPath, SigningKeyID: "environment-config-test", CapabilityReleaseVersion: "0.8.0", ManifestTTL: 24 * time.Hour, RepositoryRoot: repositoryRoot,
+		SigningKeyPath: signingKeyPath, SigningKeyID: "environment-config-test", CapabilityReleaseVersion: pluginidentity.VideoProductionVersion, ManifestTTL: 24 * time.Hour, RepositoryRoot: repositoryRoot,
+	}
+}
+
+func loadEnvironmentError(config serverconfig.EnvironmentConfig) error {
+	_, err := serverconfig.LoadEnvironment(config)
+	return err
+}
+
+func assertDomainCode(t *testing.T, err error, code string) {
+	t.Helper()
+	var domainError *domain.Error
+	if !errors.As(err, &domainError) || domainError.Code != code {
+		t.Fatalf("error = %v, want domain code %s", err, code)
 	}
 }
 

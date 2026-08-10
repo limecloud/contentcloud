@@ -37,6 +37,13 @@ function checkWebBoundary(owner,forbidden){
 checkWebBoundary('studio','admin');
 checkWebBoundary('admin','studio');
 
+const developmentBootstrapPath=join(root,'web/src/devBootstrap.ts');
+if(!source(developmentBootstrapPath).includes('import.meta.env.DEV'))fail(developmentBootstrapPath,'development bootstrap must be removed from production builds');
+for(const path of filesUnder('web/src',new Set(['.ts','.tsx']))){
+  if(path===developmentBootstrapPath||projectPath(path).endsWith('.test.ts')||projectPath(path).endsWith('.test.tsx'))continue;
+  if(source(path).includes('/api/v1/dev/bootstrap'))fail(path,'production web entry must not call the development bootstrap endpoint');
+}
+
 const runtimeBusinessModules=['identity','workspace','source','catalog','work','review','delivery','performance','experience'];
 const runtimeLegacyRunReferences=['TaskRun','RunAttempt','task_runs','run_attempts'];
 for(const path of filesUnder('internal/runtime',new Set(['.go']))){
@@ -65,7 +72,7 @@ for(const path of filesUnder('internal',new Set(['.go']))){
 // Workspace and SOP identity migrations are data boundaries, not current
 // production defaults. Historical rows may still be read by stores/tests,
 // but new application code must not recreate retired identifiers.
-const retiredWorkspaceReferences=['task_marketing_video','legacy/default-short-video'];
+const retiredWorkspaceReferences=['task_marketing_video','workspace_marketing_video','legacy/default-short-video'];
 for(const path of filesUnder('internal',new Set(['.go']))){
   if(projectPath(path).endsWith('_test.go'))continue;
   const value=source(path);
@@ -77,6 +84,11 @@ const bootstrapPath=join(root,'internal/app/bootstrap_onboarding.go');
 const bootstrapSource=source(bootstrapPath);
 for(const required of ['localworkspace.TemplateID','localworkspace.TemplateVersion']){
   if(!bootstrapSource.includes(required))fail(bootstrapPath,`bootstrap must use current workspace template constant ${required}`);
+}
+for(const path of filesUnder('internal',new Set(['.go']))){
+  const relativePath=projectPath(path);
+  if(relativePath.endsWith('_test.go')||relativePath==='internal/cli/plugin_host.go')continue;
+  if(source(path).includes('/integration/pluginbuiltin'))fail(path,'only the CLI installation boundary may depend on the bundled Plugin loader; identity consumers must use pluginidentity');
 }
 
 // Local daemon bindings are current in daemon_bindings. Legacy single-workspace

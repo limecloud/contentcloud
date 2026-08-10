@@ -41,6 +41,8 @@ const bootstrapSource = await readText('internal/httpapi/bootstrap.md');
 const webSource = await readText('web/src/connectBootstrap.ts');
 const agentHandoffSource = await readText('web/src/agentHandoff.ts');
 const systemdEnvironmentSource = await readText('deploy/systemd/contentcloud.env.example');
+const localWorkspaceSource = await readText('internal/localworkspace/workspace.go');
+const pluginIdentitySource = await readText('internal/integration/pluginidentity/identity.go');
 const license = await readText('LICENSE');
 
 const goVersion = exactMatch(goSource, /const\s+Version\s*=\s*"([^"]+)"/, 'internal/cli Version');
@@ -48,6 +50,10 @@ const codexGuideVersion = exactMatch(codexGuideSource, /codexGuideVersion\s*=\s*
 const webCLIVersion = exactMatch(webSource, /@limecloud\/contentcloud@([^'\s]+)'/, 'web CONTENTCLOUD_CLI version');
 const agentHandoffVersion = exactMatch(agentHandoffSource, /integration\.version\s*!==\s*'([^']+)'/, 'web Agent handoff Plugin version');
 const capabilityReleaseVersion = exactMatch(systemdEnvironmentSource, /^CONTENTCLOUD_CAPABILITY_RELEASE_VERSION=([^\s]+)$/m, 'systemd capability release version');
+const workspaceTemplateID = exactMatch(localWorkspaceSource, /TemplateID\s*=\s*"([^"]+)"/, 'current workspace template ID');
+const workspaceTemplateVersion = exactMatch(localWorkspaceSource, /TemplateVersion\s*=\s*"([^"]+)"/, 'current workspace template version');
+const workspaceTemplateDigest = `sha256:${createHash('sha256').update(`${workspaceTemplateID}@${workspaceTemplateVersion}`).digest('hex')}`;
+const pluginIdentityVersion = exactMatch(pluginIdentitySource, /VideoProductionVersion\s*=\s*"([^"]+)"/, 'Go video-production Plugin identity version');
 const bootstrapVersions = [...bootstrapSource.matchAll(/@limecloud\/contentcloud@([^\s`]+)/g)].map(match => match[1]);
 const mcpServer = mcp.mcpServers?.['contentcloud-local'];
 const mcpPackage = Array.isArray(mcpServer?.args)
@@ -68,6 +74,7 @@ const versions = new Map([
   ['web/src/connectBootstrap.ts', webCLIVersion],
   ['web/src/agentHandoff.ts', agentHandoffVersion],
   ['plugin .mcp.json', mcpVersion],
+  ['internal/integration/pluginidentity', pluginIdentityVersion],
 ]);
 for (const [source, value] of versions) {
   check(typeof value === 'string' && value === versionFile, `${source} version ${JSON.stringify(value)} does not match VERSION ${versionFile}`);
@@ -75,6 +82,9 @@ for (const [source, value] of versions) {
 check(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(versionFile), `VERSION is not a supported semantic version: ${versionFile}`);
 check(cliPackage.contentcloudReleaseTag === `v${versionFile}`, 'npm contentcloudReleaseTag must equal v<VERSION>');
 check(bootstrapVersions.length > 0 && bootstrapVersions.every(value => value === versionFile), `internal/httpapi/bootstrap.md contains versions ${JSON.stringify([...new Set(bootstrapVersions)])}, expected ${versionFile}`);
+check(environmentProfile.workspace_template?.id === workspaceTemplateID, 'environment profile workspace template ID must match the current local workspace template');
+check(environmentProfile.workspace_template?.version === workspaceTemplateVersion, 'environment profile workspace template version must match the current local workspace template');
+check(environmentProfile.workspace_template?.digest === workspaceTemplateDigest, 'environment profile workspace template digest must equal sha256(<template-id>@<template-version>)');
 
 check(plugin.name === pluginName, 'plugin manifest name must match its directory');
 check(plugin.license === 'Apache-2.0', 'plugin manifest license must be Apache-2.0');

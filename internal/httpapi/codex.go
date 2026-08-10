@@ -10,11 +10,11 @@ import (
 	"strings"
 	texttemplate "text/template"
 
-	"github.com/limecloud/contentcloud/internal/integration/pluginbuiltin"
+	"github.com/limecloud/contentcloud/internal/integration/pluginidentity"
 )
 
 const (
-	codexGuideVersion       = "0.22.0"
+	codexGuideVersion       = "0.23.0"
 	codexGuideSchemaVersion = "contentcloud.codex-guide/1.0"
 	codexGuideVary          = "Accept, Sec-Fetch-Mode, Sec-Fetch-Dest"
 )
@@ -52,15 +52,15 @@ func newCodexGuide() codexGuide {
 	return codexGuide{
 		SchemaVersion:  codexGuideSchemaVersion,
 		Version:        codexGuideVersion,
-		PluginID:       pluginbuiltin.VideoProduction,
-		PluginVersion:  pluginbuiltin.VideoProductionVersion,
+		PluginID:       pluginidentity.VideoProduction,
+		PluginVersion:  pluginidentity.VideoProductionVersion,
 		HostCommand:    "contentcloud bootstrap --host codex",
 		BootstrapPath:  bootstrapPath,
 		LoginPath:      "/login",
 		ContextTool:    contextTool,
 		DoctorTool:     doctorTool,
 		OpenViewTool:   openViewTool,
-		RecoveryPrompt: codexRecoveryPrompt(pluginbuiltin.VideoProduction),
+		RecoveryPrompt: codexRecoveryPrompt(pluginidentity.VideoProduction),
 		Steps: []codexGuideStep{
 			{
 				Number:  1,

@@ -15,6 +15,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost/claude"
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost/codex"
+	"github.com/limecloud/contentcloud/internal/integration/pluginidentity"
 	"github.com/limecloud/contentcloud/internal/localconfig"
 )
 
@@ -49,7 +50,7 @@ func (r *Root) pluginRuntime(hostName string) (*hostPluginRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
-	pkg, err := pluginbuiltin.Load(store.Root, pluginbuiltin.VideoProduction, Version)
+	pkg, err := pluginbuiltin.Load(store.Root, pluginidentity.VideoProduction, Version)
 	if err != nil {
 		return nil, err
 	}

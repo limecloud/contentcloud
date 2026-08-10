@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { api, postWithoutBody } from '../api';
+import { api } from '../api';
 import type { Session } from '../types';
 import { Banner, Button, Loading } from '../components/ui';
 import { BrandMark } from '../components/Brand';
 import { AdminProvider } from './context';
 import { loginPath } from '../views/auth/returnPath';
 import { consolePath } from '../consoleRoutes';
+import { bootstrapDevelopmentSession } from '../devBootstrap';
 
 export function AdminRoute() {
   const navigate=useNavigate();const location=useLocation();
@@ -20,7 +21,7 @@ export function AdminRoute() {
     try{setSession(await api<Session>('/api/bff/session'));setAuthRequired(false)}
     catch(value){
       if((value as {status?:number}).status===401){
-        try{await postWithoutBody('/api/v1/dev/bootstrap');setSession(await api<Session>('/api/bff/session'));setAuthRequired(false)}
+        try{if(!await bootstrapDevelopmentSession()){setAuthRequired(true);return}setSession(await api<Session>('/api/bff/session'));setAuthRequired(false)}
         catch{setAuthRequired(true)}
       }else setError(value instanceof Error?value.message:'管理员会话加载失败');
     }finally{setLoading(false)}

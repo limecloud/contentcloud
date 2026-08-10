@@ -155,7 +155,10 @@ func (s *Service) ensureBuiltinSOPs(ctx context.Context, actor Actor, current []
 // Historical published versions remain immutable so existing bindings keep
 // their original digest and can still be audited.
 func (s *Service) migrateLegacyBuiltinSOPs(ctx context.Context, actor Actor, current []domain.SOPSummary) ([]domain.SOPSummary, error) {
-	template := builtinSOPTemplateForKey(builtinSOPShortVideo)
+	template, ok := builtinSOPTemplateForKey(builtinSOPShortVideo)
+	if !ok {
+		return current, nil
+	}
 	if _, found := findSOPTemplate(current, template); found {
 		return current, nil
 	}
@@ -177,16 +180,20 @@ func (s *Service) migrateLegacyBuiltinSOPs(ctx context.Context, actor Actor, cur
 			break
 		}
 	}
+	s.audit(ctx, actor, "", "sop.legacy_migrated", "sop_definition", definition.ID, "", map[string]any{
+		"template_key":                 template.Key,
+		"historical_version_preserved": true,
+	})
 	return current, nil
 }
 
-func builtinSOPTemplateForKey(key string) builtinSOPTemplate {
+func builtinSOPTemplateForKey(key string) (builtinSOPTemplate, bool) {
 	for _, template := range builtinSOPTemplates() {
 		if template.Key == key {
-			return template
+			return template, true
 		}
 	}
-	return builtinSOPTemplate{}
+	return builtinSOPTemplate{}, false
 }
 
 // adoptBuiltinDefinition repairs metadata written before built-in templates

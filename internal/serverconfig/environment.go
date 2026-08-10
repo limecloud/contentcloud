@@ -16,6 +16,8 @@ import (
 	"github.com/limecloud/contentcloud/internal/capabilitycatalog"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
+	"github.com/limecloud/contentcloud/internal/integration/pluginidentity"
+	"github.com/limecloud/contentcloud/internal/localworkspace"
 )
 
 const defaultManifestTTL = 24 * time.Hour
@@ -92,6 +94,9 @@ func LoadEnvironment(config EnvironmentConfig) (EnvironmentRuntime, error) {
 	if err := readStrictJSONFile(config.ProfilePath, &profile); err != nil {
 		return EnvironmentRuntime{}, fmt.Errorf("加载创作环境配置失败：%w", err)
 	}
+	if err := validateCurrentEnvironmentProfile(profile, config.CapabilityReleaseVersion); err != nil {
+		return EnvironmentRuntime{}, err
+	}
 	var registry environment.Registry
 	if err := readStrictJSONFile(config.RegistryPath, &registry); err != nil {
 		return EnvironmentRuntime{}, fmt.Errorf("加载插件注册表失败：%w", err)
@@ -130,6 +135,25 @@ func LoadEnvironment(config EnvironmentConfig) (EnvironmentRuntime, error) {
 		packIDs = map[string][]string{}
 	}
 	return EnvironmentRuntime{Enabled: true, ControlPlane: controlPlane, AutomationRequirements: requirements, AutomationPackIDs: packIDs}, nil
+}
+
+func validateCurrentEnvironmentProfile(profile environment.Profile, releaseVersion string) error {
+	if releaseVersion != pluginidentity.VideoProductionVersion {
+		return domain.Invalid("CAPABILITY_RELEASE_VERSION_MISMATCH", "能力发布版本与当前内置场景插件版本不一致")
+	}
+	if profile.WorkspaceTemplate != localworkspace.CurrentTemplateRef() {
+		return domain.Invalid("ENVIRONMENT_WORKSPACE_TEMPLATE_MISMATCH", "创作环境配置必须使用当前工作区模板身份和摘要")
+	}
+	for _, candidate := range profile.Plugins {
+		if candidate.ID != pluginidentity.VideoProduction {
+			continue
+		}
+		if candidate.Kind != "scene_plugin" || candidate.Version != releaseVersion || !candidate.Required || candidate.Scope != "environment" {
+			return domain.Invalid("ENVIRONMENT_PLUGIN_RELEASE_MISMATCH", "创作环境配置中的必装场景插件与当前发布版本不一致")
+		}
+		return nil
+	}
+	return domain.Invalid("ENVIRONMENT_PLUGIN_RELEASE_MISMATCH", "创作环境配置缺少当前必装场景插件")
 }
 
 func automationPolicy(profile environment.Profile, releaseVersion string) ([]environment.CapabilityRequirement, map[string][]string, error) {
