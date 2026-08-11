@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.dev/contracts/channel-callback-1.0.schema.json",
+  "title": "ContentCloud Channel Callback 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "publication_id", "state", "external_id", "external_url", "cost_minor", "currency", "error_code", "safe_summary"],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1},
+    "publication_id": {"type": "string", "minLength": 1},
+    "state": {"enum": ["submitted", "published", "failed", "unknown", "withdrawn"]},
+    "external_id": {"type": "string"},
+    "external_url": {"type": "string", "format": "uri"},
+    "published_at": {"type": "string", "format": "date-time"},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "cost_minor": {"type": "integer", "minimum": 0},
+    "currency": {"type": "string"},
+    "error_code": {"type": "string"},
+    "safe_summary": {"type": "object"}
+  },
+  "allOf": [
+    {"if": {"properties": {"state": {"const": "published"}}}, "then": {"required": ["published_at"], "properties": {"external_id": {"type": "string", "minLength": 1}}}}
+  ]
+}

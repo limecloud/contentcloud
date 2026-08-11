@@ -2,6 +2,7 @@ package agentadapter
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"sync"
 
@@ -32,7 +33,24 @@ func NewDefaultHarnessRegistry() *HarnessRegistry {
 	registry.mustRegister("fake", NewFakeHarness())
 	registry.mustRegister("codex", newCodexExecHarness())
 	registry.mustRegister("claude", newClaudeStreamHarness())
+	registry.mustRegister("remote-http", newRemoteHTTPHarnessFromEnv("remote-http", "CONTENTCLOUD_REMOTE_AGENT"))
+	registry.mustRegister("pi", newRemoteHTTPHarnessFromEnv("pi", "CONTENTCLOUD_PI_AGENT"))
+	registry.mustRegister("agent-saas", newRemoteHTTPHarnessFromEnv("agent-saas", "CONTENTCLOUD_AGENT_SAAS"))
 	return registry
+}
+
+func (r *HarnessRegistry) IDs() []string {
+	if r == nil {
+		return []string{}
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := make([]string, 0, len(r.entries))
+	for id := range r.entries {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func (r *HarnessRegistry) Register(kind string, adapter AgentHarnessAdapter) error {

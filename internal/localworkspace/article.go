@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -139,6 +141,7 @@ type ArticleItem struct {
 	SelectedTitleID    string                 `json:"selected_title_id"`
 	Summary            string                 `json:"summary"`
 	AuthorDisplayName  string                 `json:"author_display_name"`
+	OriginalURL        string                 `json:"original_url,omitempty"`
 	Cover              ArticleImage           `json:"cover"`
 	Blocks             []ArticleBlock         `json:"blocks"`
 	Attribution        ArticleAttribution     `json:"attribution"`
@@ -192,10 +195,47 @@ type ArticleItemDiff struct {
 	UnexpectedPaths []string `json:"unexpected_paths"`
 }
 
-type WeChatRenderer struct {
-	CapabilityID string `json:"capability_id"`
-	Version      string `json:"version"`
-	Digest       string `json:"digest"`
+type WeChatLayoutProfile struct {
+	CapabilityID         string `json:"capability_id"`
+	TemplateID           string `json:"template_id"`
+	TemplateVersion      string `json:"template_version"`
+	TemplateDigest       string `json:"template_digest"`
+	ChannelProfileDigest string `json:"channel_profile_digest"`
+}
+
+type WeChatArticleMetadata struct {
+	Title         string `json:"title"`
+	Summary       string `json:"summary"`
+	Author        string `json:"author"`
+	CoverAssetRef string `json:"cover_asset_ref"`
+	OriginalURL   string `json:"original_url,omitempty"`
+}
+
+type WeChatDOMIntegrity struct {
+	CompiledDigest  string `json:"compiled_digest"`
+	SanitizedDigest string `json:"sanitized_digest"`
+	SanitizeChanged bool   `json:"sanitize_changed"`
+}
+
+type WeChatLineageArtifact struct {
+	Role   string `json:"role"`
+	Path   string `json:"path"`
+	Digest string `json:"digest"`
+}
+
+type WeChatDeliveryLineage struct {
+	ApprovedSnapshotID string                  `json:"approved_snapshot_id"`
+	ContentItemID      string                  `json:"content_item_id"`
+	Artifacts          []WeChatLineageArtifact `json:"artifacts"`
+	DeliveryPackageID  string                  `json:"delivery_package_id"`
+}
+
+type WeChatPlatformDOMDiff struct {
+	Matches        bool      `json:"matches"`
+	ExpectedDigest string    `json:"expected_digest"`
+	ObservedDigest string    `json:"observed_digest"`
+	MissingMarkers []string  `json:"missing_markers"`
+	ObservedAt     time.Time `json:"observed_at"`
 }
 
 type WeChatDeliveryFile struct {
@@ -220,20 +260,23 @@ type WeChatPackageCheck struct {
 }
 
 type WeChatDeliveryPackage struct {
-	SchemaVersion      string               `json:"schema_version"`
-	ID                 string               `json:"id"`
-	ProjectID          string               `json:"project_id"`
-	ApprovedSnapshotID string               `json:"approved_snapshot_id"`
-	ContentItemID      string               `json:"content_item_id"`
-	ContentDigest      string               `json:"content_digest"`
-	ChannelProfileRef  string               `json:"channel_profile_ref"`
-	Renderer           WeChatRenderer       `json:"renderer"`
-	Files              []WeChatDeliveryFile `json:"files"`
-	AssetMapping       []WeChatAssetMapping `json:"asset_mapping"`
-	ExternalActions    []string             `json:"external_actions"`
-	Checks             []WeChatPackageCheck `json:"checks"`
-	Status             string               `json:"status"`
-	CreatedAt          time.Time            `json:"created_at"`
+	SchemaVersion      string                `json:"schema_version"`
+	ID                 string                `json:"id"`
+	ProjectID          string                `json:"project_id"`
+	ApprovedSnapshotID string                `json:"approved_snapshot_id"`
+	ContentItemID      string                `json:"content_item_id"`
+	ContentDigest      string                `json:"content_digest"`
+	ChannelProfileRef  string                `json:"channel_profile_ref"`
+	Metadata           WeChatArticleMetadata `json:"metadata"`
+	LayoutProfile      WeChatLayoutProfile   `json:"layout_profile"`
+	DOMIntegrity       WeChatDOMIntegrity    `json:"dom_integrity"`
+	Files              []WeChatDeliveryFile  `json:"files"`
+	AssetMapping       []WeChatAssetMapping  `json:"asset_mapping"`
+	Lineage            WeChatDeliveryLineage `json:"lineage"`
+	ExternalActions    []string              `json:"external_actions"`
+	Checks             []WeChatPackageCheck  `json:"checks"`
+	Status             string                `json:"status"`
+	CreatedAt          time.Time             `json:"created_at"`
 }
 
 type ExportWeChatPackageResult struct {
@@ -872,12 +915,19 @@ func ExportWeChatPackage(root, contentItemID, outputDirectory string, now time.T
 		files = append(files, WeChatDeliveryFile{Format: output.format, Path: output.path, MediaType: output.mediaType, SHA256: articleDigest(output.body), ByteSize: int64(len(output.body))})
 	}
 	assets := articleAssetMappings(item)
-	rendererDigest := articleDigest([]byte("contentcloud.wechat.package/1.0.0:semantic-html-v1"))
+	compiledDigest := articleDigest(fragment)
+	sanitizedHTML := sanitizeWeChatHTML(string(fragment))
+	sanitizedDigest := articleDigest([]byte(sanitizedHTML))
+	templateDigest := articleDigest([]byte("wechat-editorial-clean@1.0.0:semantic-html-inline-v2"))
+	lineageArtifacts := make([]WeChatLineageArtifact, 0, len(files))
+	for _, file := range files {
+		lineageArtifacts = append(lineageArtifacts, WeChatLineageArtifact{Role: file.Format, Path: file.Path, Digest: file.SHA256})
+	}
 	pkg := WeChatDeliveryPackage{
 		SchemaVersion: WeChatDeliverySchema, ID: packageID, ProjectID: item.ProjectID, ApprovedSnapshotID: snapshot.ID, ContentItemID: item.ID, ContentDigest: contentDigest,
-		ChannelProfileRef: WeChatChannelProfileRef, Renderer: WeChatRenderer{CapabilityID: "contentcloud.wechat.package", Version: "1.0.0", Digest: rendererDigest}, Files: files, AssetMapping: assets,
+		ChannelProfileRef: WeChatChannelProfileRef, Metadata: WeChatArticleMetadata{Title: selectedArticleTitle(item), Summary: item.Summary, Author: item.AuthorDisplayName, CoverAssetRef: item.Cover.AssetRef, OriginalURL: item.OriginalURL}, LayoutProfile: WeChatLayoutProfile{CapabilityID: "content.wechat.layout", TemplateID: "wechat-editorial-clean", TemplateVersion: "1.0.0", TemplateDigest: templateDigest, ChannelProfileDigest: articleDigest([]byte(WeChatChannelProfileRef))}, DOMIntegrity: WeChatDOMIntegrity{CompiledDigest: compiledDigest, SanitizedDigest: sanitizedDigest, SanitizeChanged: compiledDigest != sanitizedDigest}, Files: files, AssetMapping: assets, Lineage: WeChatDeliveryLineage{ApprovedSnapshotID: snapshot.ID, ContentItemID: item.ID, Artifacts: lineageArtifacts, DeliveryPackageID: packageID},
 		ExternalActions: []string{"manual_login", "manual_asset_upload", "manual_preview", "manual_publish", "record_external_binding"},
-		Checks:          []WeChatPackageCheck{{Name: "approved_snapshot", Status: "passed"}, {Name: "article_schema", Status: "passed"}, {Name: "safe_html", Status: "passed"}, {Name: "asset_rights", Status: "passed"}}, Status: "validated", CreatedAt: localNow(now),
+		Checks:          []WeChatPackageCheck{{Name: "approved_snapshot", Status: "passed"}, {Name: "article_schema", Status: "passed"}, {Name: "safe_html", Status: "passed"}, {Name: "layout_template", Status: "passed"}, {Name: "mobile_width", Status: "passed"}, {Name: "asset_rights", Status: "passed"}}, Status: "validated", CreatedAt: localNow(now),
 	}
 	packagePath := filepath.Join(providerRoot, "package.json")
 	if err := replaceJSON(packagePath, pkg, 0o600); err != nil {
@@ -910,14 +960,25 @@ func LintWeChatPackage(root, packageFile string) (WeChatPackageLintReport, error
 	if pkg.SchemaVersion != WeChatDeliverySchema || pkg.ID == "" || pkg.ProjectID == "" || pkg.ApprovedSnapshotID == "" || pkg.ContentItemID == "" || pkg.ChannelProfileRef != WeChatChannelProfileRef || pkg.Status != "validated" {
 		add("WECHAT_PACKAGE_IDENTITY_INVALID", "/", "公众号交付包 identity、profile 或状态无效")
 	}
-	if pkg.Renderer.CapabilityID != "contentcloud.wechat.package" || pkg.Renderer.Version != "1.0.0" || !strings.HasPrefix(pkg.Renderer.Digest, "sha256:") {
-		add("WECHAT_PACKAGE_RENDERER_INVALID", "/renderer", "renderer 引用无效")
+	if pkg.LayoutProfile.CapabilityID != "content.wechat.layout" || pkg.LayoutProfile.TemplateID != "wechat-editorial-clean" || pkg.LayoutProfile.TemplateVersion != "1.0.0" || !strings.HasPrefix(pkg.LayoutProfile.TemplateDigest, "sha256:") || !strings.HasPrefix(pkg.LayoutProfile.ChannelProfileDigest, "sha256:") {
+		add("WECHAT_PACKAGE_TEMPLATE_INVALID", "/layout_profile", "公众号排版模板或渠道 Profile 摘要无效")
+	}
+	if pkg.Metadata.Title == "" || utf8.RuneCountInString(pkg.Metadata.Title) > 64 || pkg.Metadata.Author == "" || pkg.Metadata.Summary == "" || pkg.DOMIntegrity.CompiledDigest == "" || pkg.DOMIntegrity.SanitizedDigest == "" {
+		add("WECHAT_PACKAGE_METADATA_INVALID", "/metadata", "公众号标题、摘要、作者或 DOM 摘要不完整")
+	}
+	if pkg.Lineage.ApprovedSnapshotID != pkg.ApprovedSnapshotID || pkg.Lineage.ContentItemID != pkg.ContentItemID || pkg.Lineage.DeliveryPackageID != pkg.ID || len(pkg.Lineage.Artifacts) != len(pkg.Files) {
+		add("WECHAT_PACKAGE_LINEAGE_INVALID", "/lineage", "公众号交付包必须保留 ApprovedSnapshot、Artifact 和 DeliveryPackage 血缘")
 	}
 	if len(pkg.Files) < 5 || len(pkg.Checks) == 0 || pkg.AssetMapping == nil || pkg.ExternalActions == nil {
 		add("WECHAT_PACKAGE_CONTENT_INCOMPLETE", "/", "交付包文件、检查或外部动作不完整")
 	}
 	base := filepath.Dir(path)
 	seen := map[string]bool{}
+	artifacts := map[string]string{}
+	for _, artifact := range pkg.Lineage.Artifacts {
+		artifacts[artifact.Path] = artifact.Digest
+	}
+	wechatHTML := ""
 	for index, file := range pkg.Files {
 		field := "/files/" + strconv.Itoa(index)
 		clean := filepath.Clean(filepath.FromSlash(file.Path))
@@ -929,6 +990,26 @@ func LintWeChatPackage(root, packageFile string) (WeChatPackageLintReport, error
 		body, readErr := os.ReadFile(filepath.Join(base, clean))
 		if readErr != nil || int64(len(body)) != file.ByteSize || articleDigest(body) != file.SHA256 {
 			add("WECHAT_PACKAGE_FILE_DIGEST_MISMATCH", field, "文件缺失、大小或摘要不一致")
+		}
+		if readErr == nil && file.Format == "wechat_html" {
+			wechatHTML = string(body)
+			for _, issue := range lintWeChatHTML(string(body)) {
+				add(issue.Code, field+"/path", issue.Message)
+			}
+			if articleDigest(body) != pkg.DOMIntegrity.CompiledDigest {
+				add("WECHAT_DOM_DIGEST_MISMATCH", field+"/path", "HTML 文件与 DOM 完整性摘要不一致")
+			}
+			if articleDigest([]byte(sanitizeWeChatHTML(string(body)))) != pkg.DOMIntegrity.SanitizedDigest {
+				add("WECHAT_SANITIZED_DOM_DIGEST_MISMATCH", field+"/path", "HTML 清洗结果与 sanitized DOM 摘要不一致")
+			}
+		}
+		if artifacts[file.Path] != file.SHA256 {
+			add("WECHAT_ARTIFACT_LINEAGE_MISMATCH", field, "交付文件没有匹配的 Artifact 血缘摘要")
+		}
+	}
+	for index, mapping := range pkg.AssetMapping {
+		if mapping.BlockID == "" || mapping.AssetRef == "" || mapping.RightsRef == "" || mapping.Purpose == "" || mapping.State != "manual_upload_required" || !strings.Contains(wechatHTML, `data-asset-ref="`+html.EscapeString(mapping.AssetRef)+`"`) {
+			add("WECHAT_ASSET_MAPPING_INVALID", "/asset_mapping/"+strconv.Itoa(index), "图片映射缺少权利、用途或 HTML 占位引用")
 		}
 	}
 	report.Valid = len(report.Issues) == 0
@@ -1012,39 +1093,163 @@ func renderArticleMarkdown(item ArticleItem) string {
 
 func renderArticleHTML(item ArticleItem) string {
 	var out strings.Builder
-	out.WriteString("<article data-contentcloud-schema=\"contentcloud.article/1.0\">\n")
+	out.WriteString("<article data-contentcloud-schema=\"contentcloud.article/1.0\" style=\"box-sizing:border-box;max-width:680px;margin:0 auto;color:#222;background:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.8;\">\n")
+	if item.Cover.AssetRef != "" {
+		fmt.Fprintf(&out, "<figure id=\"cover\" data-asset-ref=\"%s\" style=\"margin:0 0 24px;padding:0;text-align:center;\"><p style=\"margin:0;padding:16px;background:#f3f5f7;color:#667085;\">[封面待上传：%s]</p></figure>\n", html.EscapeString(item.Cover.AssetRef), html.EscapeString(item.Cover.AltText))
+	}
 	for _, block := range item.Blocks {
 		id := html.EscapeString(block.ID)
-		text := html.EscapeString(block.Text)
+		text := renderMarkedText(block.Text, block.StyleMarks)
 		switch block.Type {
 		case "heading":
-			fmt.Fprintf(&out, "<h%d id=\"%s\">%s</h%d>\n", block.Level, id, text, block.Level)
+			level := block.Level
+			if level < 2 || level > 4 {
+				level = 2
+			}
+			style := map[int]string{2: "margin:28px 0 12px;font-size:22px;line-height:1.45;font-weight:700;", 3: "margin:22px 0 10px;font-size:19px;line-height:1.5;font-weight:700;", 4: "margin:18px 0 8px;font-size:17px;line-height:1.55;font-weight:700;"}[level]
+			fmt.Fprintf(&out, "<h%d id=\"%s\" style=\"%s\">%s</h%d>\n", level, id, style, text, level)
 		case "paragraph":
-			fmt.Fprintf(&out, "<p id=\"%s\">%s</p>\n", id, strings.ReplaceAll(text, "\n", "<br>"))
+			fmt.Fprintf(&out, "<p id=\"%s\" style=\"margin:0 0 18px;line-height:1.85;\">%s</p>\n", id, strings.ReplaceAll(text, "\n", "<br>"))
 		case "list":
 			tag := "ul"
 			if block.Ordered {
 				tag = "ol"
 			}
-			fmt.Fprintf(&out, "<%s id=\"%s\">", tag, id)
+			fmt.Fprintf(&out, "<%s id=\"%s\" style=\"margin:0 0 18px;padding-left:1.5em;line-height:1.8;\">", tag, id)
 			for _, value := range block.Items {
-				out.WriteString("<li>" + html.EscapeString(value) + "</li>")
+				out.WriteString("<li style=\"margin:4px 0;\">" + html.EscapeString(value) + "</li>")
 			}
 			fmt.Fprintf(&out, "</%s>\n", tag)
 		case "quote":
-			fmt.Fprintf(&out, "<blockquote id=\"%s\">%s</blockquote>\n", id, text)
+			fmt.Fprintf(&out, "<blockquote id=\"%s\" style=\"margin:20px 0;padding:12px 16px;border-left:3px solid #2878c7;background:#f5f8fb;color:#344054;\">%s</blockquote>\n", id, text)
 		case "image":
-			fmt.Fprintf(&out, "<figure id=\"%s\" data-asset-ref=\"%s\"><p>[图片待上传：%s]</p><figcaption>%s</figcaption></figure>\n", id, html.EscapeString(block.AssetRef), html.EscapeString(block.AltText), html.EscapeString(block.Caption))
+			fmt.Fprintf(&out, "<figure id=\"%s\" data-asset-ref=\"%s\" style=\"margin:24px 0;text-align:center;\"><p style=\"margin:0;padding:16px;background:#f3f5f7;color:#667085;\">[图片待上传：%s]</p><figcaption style=\"margin-top:8px;color:#667085;font-size:14px;\">%s</figcaption></figure>\n", id, html.EscapeString(block.AssetRef), html.EscapeString(block.AltText), html.EscapeString(block.Caption))
 		case "callout":
-			fmt.Fprintf(&out, "<aside id=\"%s\"><strong>%s</strong><p>%s</p></aside>\n", id, html.EscapeString(block.CalloutKind), text)
+			fmt.Fprintf(&out, "<aside id=\"%s\" style=\"margin:20px 0;padding:14px 16px;border-left:3px solid #2878c7;background:#f5f8fb;\"><strong>%s</strong><p style=\"margin:6px 0 0;\">%s</p></aside>\n", id, html.EscapeString(block.CalloutKind), text)
 		case "divider":
-			fmt.Fprintf(&out, "<hr id=\"%s\">\n", id)
+			fmt.Fprintf(&out, "<hr id=\"%s\" style=\"margin:28px 0;border:0;border-top:1px solid #eaecf0;\">\n", id)
 		case "cta":
-			fmt.Fprintf(&out, "<section id=\"%s\"><strong>%s</strong><p>%s</p></section>\n", id, text, html.EscapeString(block.Target))
+			fmt.Fprintf(&out, "<section id=\"%s\" style=\"margin:24px 0;padding:16px;background:#f8fafc;border:1px solid #e4e7ec;\"><strong>%s</strong><p style=\"margin:6px 0 0;color:#475467;\">%s</p></section>\n", id, text, html.EscapeString(block.Target))
+		case "link":
+			if target, ok := safeArticleURL(block.Target); ok {
+				fmt.Fprintf(&out, "<p id=\"%s\" style=\"margin:0 0 18px;\"><a href=\"%s\" style=\"color:#1769aa;text-decoration:none;\">%s</a></p>\n", id, html.EscapeString(target), text)
+			}
 		}
 	}
 	out.WriteString("</article>\n")
 	return out.String()
+}
+
+func renderMarkedText(value string, marks []string) string {
+	result := html.EscapeString(value)
+	for _, mark := range marks {
+		switch mark {
+		case "strong":
+			result = "<strong>" + result + "</strong>"
+		case "emphasis":
+			result = "<em>" + result + "</em>"
+		}
+	}
+	return result
+}
+
+func safeArticleURL(raw string) (string, bool) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.User != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
+		return "", false
+	}
+	return parsed.String(), true
+}
+
+func lintWeChatHTML(body string) []ContentLintIssue {
+	issues := []ContentLintIssue{}
+	lower := strings.ToLower(body)
+	for _, marker := range []string{"<script", "<iframe", "javascript:", " onerror=", " onclick=", "<table", "<pre", "<code"} {
+		if strings.Contains(lower, marker) {
+			code := "WECHAT_HTML_UNSAFE_MARKUP"
+			message := "公众号 HTML 包含禁止的脚本、嵌入或事件属性"
+			if marker == "<table" {
+				code, message = "WECHAT_HTML_TABLE_UNSUPPORTED", "公众号排版不允许直接粘贴 table，必须转换为移动友好的段落或图片"
+			} else if marker == "<pre" || marker == "<code" {
+				code, message = "WECHAT_HTML_CODE_UNSUPPORTED", "公众号排版不允许直接粘贴代码块，必须转为图片或说明段落"
+			}
+			issues = append(issues, ContentLintIssue{Severity: "error", Code: code, Message: message})
+		}
+	}
+	if strings.Contains(lower, "<style") {
+		issues = append(issues, ContentLintIssue{Severity: "error", Code: "WECHAT_HTML_CSS_NOT_INLINE", Message: "公众号正文 CSS 必须使用 inline style"})
+	}
+	if !strings.Contains(lower, "data-contentcloud-schema=") {
+		issues = append(issues, ContentLintIssue{Severity: "error", Code: "WECHAT_HTML_SCHEMA_MARKER_MISSING", Message: "公众号正文缺少 ContentCloud schema 标记"})
+	}
+	for _, match := range wechatFixedWidthPattern.FindAllStringSubmatch(lower, -1) {
+		width, _ := strconv.Atoi(match[1])
+		if width > 680 {
+			issues = append(issues, ContentLintIssue{Severity: "error", Code: "WECHAT_HTML_MOBILE_WIDTH_OVERFLOW", Message: "公众号正文包含超过 680px 的固定宽度"})
+			break
+		}
+	}
+	return issues
+}
+
+var wechatFixedWidthPattern = regexp.MustCompile(`(?:^|[;\"]|style=)width\s*:\s*([0-9]+)px`)
+
+func sanitizeWeChatHTML(body string) string {
+	if len(lintWeChatHTML(body)) == 0 {
+		return body
+	}
+	return ""
+}
+
+func CompareWeChatPlatformDOM(expected, observed string, now time.Time) WeChatPlatformDOMDiff {
+	expected = strings.TrimSpace(expected)
+	observed = strings.TrimSpace(observed)
+	missing := []string{}
+	for _, marker := range []string{"data-contentcloud-schema=", "style=", "<article", "</article>"} {
+		if !strings.Contains(strings.ToLower(observed), strings.ToLower(marker)) {
+			missing = append(missing, marker)
+		}
+	}
+	return WeChatPlatformDOMDiff{Matches: articleDigest([]byte(expected)) == articleDigest([]byte(observed)) && len(missing) == 0, ExpectedDigest: articleDigest([]byte(expected)), ObservedDigest: articleDigest([]byte(observed)), MissingMarkers: missing, ObservedAt: localNow(now)}
+}
+
+func InspectWeChatPlatformDOM(root, packageFile, observedFile string, now time.Time) (WeChatPlatformDOMDiff, error) {
+	resolved, err := FindRoot(root)
+	if err != nil {
+		return WeChatPlatformDOMDiff{}, err
+	}
+	packagePath, err := resolveWorkspaceFile(resolved, packageFile)
+	if err != nil {
+		return WeChatPlatformDOMDiff{}, err
+	}
+	observedPath, err := resolveWorkspaceFile(resolved, observedFile)
+	if err != nil {
+		return WeChatPlatformDOMDiff{}, err
+	}
+	var pkg WeChatDeliveryPackage
+	if err := readStrictJSON(packagePath, &pkg); err != nil {
+		return WeChatPlatformDOMDiff{}, domain.Invalid("WECHAT_PACKAGE_JSON_INVALID", err.Error())
+	}
+	var expected string
+	for _, file := range pkg.Files {
+		if file.Format != "wechat_html" {
+			continue
+		}
+		body, readErr := os.ReadFile(filepath.Join(filepath.Dir(packagePath), filepath.FromSlash(file.Path)))
+		if readErr != nil {
+			return WeChatPlatformDOMDiff{}, readErr
+		}
+		expected = string(body)
+		break
+	}
+	if expected == "" {
+		return WeChatPlatformDOMDiff{}, domain.Invalid("WECHAT_HTML_MISSING", "交付包缺少公众号 HTML")
+	}
+	observed, err := os.ReadFile(observedPath)
+	if err != nil {
+		return WeChatPlatformDOMDiff{}, err
+	}
+	return CompareWeChatPlatformDOM(expected, string(observed), now), nil
 }
 
 func renderArticlePreview(item ArticleItem, fragment string) string {

@@ -30,6 +30,8 @@ type Server struct {
 	webDist                 string
 	devBootstrapMu          sync.Mutex
 	providerCallbackSecrets map[string][]byte
+	channelCallbackSecrets  map[string][]byte
+	agentCallbackSecrets    map[string][]byte
 }
 
 type envelope struct {
@@ -60,11 +62,35 @@ func WithProviderCallbackSecret(tenantID, providerID string, secret []byte) Opti
 	}
 }
 
+func WithChannelCallbackSecret(tenantID, adapterID string, secret []byte) Option {
+	return func(server *Server) {
+		if server.channelCallbackSecrets == nil {
+			server.channelCallbackSecrets = map[string][]byte{}
+		}
+		key := strings.TrimSpace(tenantID) + ":" + strings.ToLower(strings.TrimSpace(adapterID))
+		if key != ":" && len(secret) > 0 {
+			server.channelCallbackSecrets[key] = append([]byte(nil), secret...)
+		}
+	}
+}
+
+func WithAgentCallbackSecret(tenantID, harnessKind string, secret []byte) Option {
+	return func(server *Server) {
+		if server.agentCallbackSecrets == nil {
+			server.agentCallbackSecrets = map[string][]byte{}
+		}
+		key := strings.TrimSpace(tenantID) + ":" + strings.ToLower(strings.TrimSpace(harnessKind))
+		if key != ":" && len(secret) > 0 {
+			server.agentCallbackSecrets[key] = append([]byte(nil), secret...)
+		}
+	}
+}
+
 func New(service *app.Service, logger *slog.Logger, devMode bool, webDist string, options ...Option) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	server := &Server{service: service, log: logger, devMode: devMode, webDist: webDist, providerCallbackSecrets: map[string][]byte{}}
+	server := &Server{service: service, log: logger, devMode: devMode, webDist: webDist, providerCallbackSecrets: map[string][]byte{}, channelCallbackSecrets: map[string][]byte{}, agentCallbackSecrets: map[string][]byte{}}
 	for _, option := range options {
 		option(server)
 	}
@@ -89,6 +115,8 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/cli/dispatch", s.dispatch)
 		r.Post("/providers/{providerID}/tenants/{tenantID}/callbacks", s.providerCallback)
 		r.Post("/providers/{providerID}/tenants/{tenantID}/bills", s.providerBill)
+		r.Post("/channels/{adapterID}/tenants/{tenantID}/callbacks", s.channelCallback)
+		r.Post("/agent-harnesses/{harnessKind}/tenants/{tenantID}/callbacks", s.agentCallback)
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(s.requireSession)
 			r.Get("/dashboard", s.platformOverview)
@@ -143,6 +171,8 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/projects/{projectID}/knowledge-packs/{packID}/snapshots", s.knowledgeSnapshots)
 		r.Post("/knowledge/query", s.queryKnowledge)
 		r.Get("/projects/{projectID}/sources", s.sources)
+		r.Post("/projects/{projectID}/sources/search", s.searchSources)
+		r.Post("/projects/{projectID}/sources/fetch", s.fetchSource)
 		r.Post("/projects/{projectID}/sources/upload", s.uploadSource)
 		r.Get("/sources/{id}/revisions", s.sourceRevisions)
 		r.Post("/sources/{sourceID}/revisions/upload", s.uploadSourceRevision)
@@ -194,6 +224,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/admin/sops/{sopID}/versions/{fromVersion}/diff/{toVersion}", s.diffAdminSOPVersions)
 		r.Post("/admin/sops/{sopID}/rollback", s.rollbackAdminSOPVersion)
 		r.Get("/agent-clients", s.agentClients)
+		r.Get("/agent-harnesses", s.agentHarnesses)
 		r.Get("/projects", s.projects)
 		r.Post("/projects", s.createProject)
 		r.Get("/projects/{projectID}", s.project)
@@ -211,6 +242,8 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/knowledge/query", s.queryKnowledge)
 		r.Get("/projects/{projectID}/sources", s.sources)
 		r.Post("/projects/{projectID}/sources", s.createSource)
+		r.Post("/projects/{projectID}/sources/search", s.searchSources)
+		r.Post("/projects/{projectID}/sources/fetch", s.fetchSource)
 		r.Post("/projects/{projectID}/sources/upload", s.uploadSource)
 		r.Get("/sources/{id}/revisions", s.sourceRevisions)
 		r.Post("/sources/{sourceID}/revisions/upload", s.uploadSourceRevision)
@@ -248,6 +281,27 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/tasks/{taskID}/revisions", s.createTaskRevision)
 		r.Get("/tasks/{taskID}/deliveries", s.taskDeliveries)
 		r.Post("/tasks/{taskID}/deliveries", s.createTaskDelivery)
+		r.Get("/channel-adapters", s.channelAdapters)
+		r.Get("/projects/{projectID}/channel-bindings", s.channelBindings)
+		r.Post("/projects/{projectID}/channel-bindings", s.createChannelBinding)
+		r.Get("/channel-publications", s.channelPublications)
+		r.Post("/channel-publications", s.prepareChannelPublication)
+		r.Post("/channel-publications/reconcile", s.reconcileChannelPublications)
+		r.Post("/channel-publications/{id}/submit", s.submitChannelPublication)
+		r.Post("/channel-publications/{id}/inspect", s.inspectChannelPublication)
+		r.Post("/channel-publications/{id}/receipt", s.recordManualChannelReceipt)
+		r.Post("/channel-publications/{id}/withdraw", s.withdrawChannelPublication)
+		r.Post("/channel-publications/{id}/performance", s.importChannelPerformance)
+		r.Get("/model-providers", s.modelProviders)
+		r.Post("/tasks/{taskID}/model-candidates", s.generateModelCandidate)
+		r.Get("/tasks/{taskID}/model-receipts", s.modelGenerationReceipts)
+		r.Get("/connector-adapters", s.connectorAdapters)
+		r.Get("/projects/{projectID}/connector-bindings", s.connectorBindings)
+		r.Post("/projects/{projectID}/connector-bindings", s.createConnectorBinding)
+		r.Post("/connector-bindings/{id}/sync", s.syncConnector)
+		r.Get("/connector-receipts", s.connectorReceipts)
+		r.Get("/content-profiles", s.contentProfiles)
+		r.Post("/content-profiles/{profileID}/install", s.installContentProfile)
 		r.Get("/conversation-imports/{id}", s.conversationImport)
 		r.Post("/conversation-imports/{id}/bundle", s.submitConversationBundle)
 		r.Post("/conversation-imports/{id}/cancel", s.cancelConversationImport)

@@ -173,10 +173,10 @@ func TestBuiltinSOPsAreTenantScopedAndIdempotent(t *testing.T) {
 	}
 }
 
-func TestLegacyShortVideoSOPUpgradesWithoutRebindingEnvironment(t *testing.T) {
+func TestProjectGetsSOPBindingOnFirstWorkOSAccess(t *testing.T) {
 	ctx := t.Context()
 	service := app.New(memory.New(), nil)
-	session, err := service.Register(ctx, "builtin-legacy@example.com", "long-enough-password", "旧流程租户", "旧流程租户")
+	session, err := service.Register(ctx, "unbound-project@example.com", "long-enough-password", "未绑定项目用户", "未绑定项目租户")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,86 +184,7 @@ func TestLegacyShortVideoSOPUpgradesWithoutRebindingEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := service.CreateSOP(ctx, actor, app.CreateSOPInput{
-		Name:         "短视频生产",
-		ContentTypes: []string{domain.ContentTypeVideoScript},
-		Stages: []domain.StageDefinition{
-			{ID: "brief", Name: "需求 Brief", Order: 10, OutputSchema: "contentcloud.brief/1.0", ExecutionModes: []string{"local"}},
-			{ID: "knowledge", Name: "知识", Order: 20, OutputSchema: domain.KnowledgeSnapshotSchema, ExecutionModes: []string{"local"}},
-			{ID: "draft", Name: "脚本", Order: 30, OutputSchema: "contentcloud.video_script/1.0", ExecutionModes: []string{"local"}},
-			{ID: "delivery", Name: "交付", Order: 40, OutputSchema: "contentcloud.delivery/1.0", ExecutionModes: []string{"local"}},
-		},
-	}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyVersion, err := service.PublishSOP(ctx, actor, legacy.Definition.ID, 1, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyEnvironment, err := service.CreateEnvironment(ctx, actor, app.SaveEnvironmentInput{Name: "旧默认环境", Slug: "legacy", Status: "active", DefaultSOPID: legacy.Definition.ID, DefaultSOPVersion: legacyVersion.Version}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	admin, err := service.AdminWorkOS(ctx, actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var upgraded *domain.SOPSummary
-	for index := range admin.SOPs {
-		if admin.SOPs[index].Definition.ID == legacy.Definition.ID {
-			upgraded = &admin.SOPs[index]
-			break
-		}
-	}
-	if upgraded == nil || !upgraded.Definition.BuiltIn || upgraded.Definition.TemplateKey != "short_video_production" {
-		t.Fatalf("legacy SOP was not adopted as the built-in template: %#v", upgraded)
-	}
-	if upgraded.Definition.SourceRef != "content-work-os/builtin-sops@1" {
-		t.Fatalf("legacy SOP retained a historical source marker: %#v", upgraded.Definition)
-	}
-	if len(upgraded.Versions) != 2 || upgraded.Versions[0].Version != 2 || upgraded.Versions[1].Version != 1 || upgraded.Versions[0].Status != "published" {
-		t.Fatalf("legacy SOP did not receive an additive upgrade: %#v", upgraded.Versions)
-	}
-	legacyMigrationAudited := false
-	for _, event := range admin.Audit {
-		if event.Action == "sop.legacy_migrated" && event.SubjectID == legacy.Definition.ID {
-			legacyMigrationAudited = true
-			break
-		}
-	}
-	if !legacyMigrationAudited {
-		t.Fatalf("legacy SOP migration was not audited: %#v", admin.Audit)
-	}
-	for _, environment := range admin.Environments {
-		if environment.ID == legacyEnvironment.ID && (environment.DefaultSOPID != legacy.Definition.ID || environment.DefaultSOPVersion != 1) {
-			t.Fatalf("legacy environment was silently rebound: %#v", environment)
-		}
-	}
-	repeated, err := service.AdminWorkOS(ctx, actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, summary := range repeated.SOPs {
-		if summary.Definition.ID == legacy.Definition.ID && len(summary.Versions) != 2 {
-			t.Fatalf("legacy SOP migration was not one-time: %#v", summary.Versions)
-		}
-	}
-}
-
-func TestExistingProjectGetsNewSOPBindingOnFirstWorkOSAccess(t *testing.T) {
-	ctx := t.Context()
-	service := app.New(memory.New(), nil)
-	session, err := service.Register(ctx, "legacy-project@example.com", "long-enough-password", "旧项目用户", "旧项目租户")
-	if err != nil {
-		t.Fatal(err)
-	}
-	actor, _, err := service.SessionActor(ctx, session.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "历史品牌", ProductName: "历史产品", Channel: "douyin"}, "")
+	project, err := service.CreateProject(ctx, actor, app.CreateProjectInput{BrandName: "新品牌", ProductName: "新产品", Channel: "douyin"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +204,7 @@ func TestExistingProjectGetsNewSOPBindingOnFirstWorkOSAccess(t *testing.T) {
 	}
 }
 
-func TestProjectSOPRepairsLegacyBindingToProjectContentType(t *testing.T) {
+func TestProjectSOPEnforcesProjectContentType(t *testing.T) {
 	ctx := t.Context()
 	st := memory.New()
 	service := app.New(st, nil)
@@ -329,57 +250,8 @@ func TestProjectSOPRepairsLegacyBindingToProjectContentType(t *testing.T) {
 		t.Fatal(err)
 	}
 	if binding.SOPID != marketingVideo.SOPID || version.SOPID != marketingVideo.SOPID {
-		t.Fatalf("legacy binding was not repaired to the Project content type: binding=%#v version=%#v", binding, version)
+		t.Fatalf("binding did not match the Project content type: binding=%#v version=%#v", binding, version)
 	}
-}
-
-func TestKnownBuiltinIDRepairsMetadataBeforeUpgrade(t *testing.T) {
-	ctx := t.Context()
-	st := memory.New()
-	service := app.New(st, nil)
-	session, err := service.Register(ctx, "builtin-known-id@example.com", "long-enough-password", "旧内置用户", "旧内置租户")
-	if err != nil {
-		t.Fatal(err)
-	}
-	actor, _, err := service.SessionActor(ctx, session.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	sopID := "builtin-sop-short-video"
-	definition := domain.SOPDefinition{ID: sopID, TenantID: actor.TenantID, Name: "短视频生产", ContentTypes: []string{domain.ContentTypeVideoScript}, CurrentVersion: 1, CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now}
-	version := domain.SOPVersion{ID: "old-builtin-short-video-v1", TenantID: actor.TenantID, SOPID: sopID, Version: 1, SchemaVersion: domain.SOPSchemaVersion, Name: definition.Name, ContentTypes: definition.ContentTypes, Stages: []domain.StageDefinition{
-		{ID: "brief", Name: "需求 Brief", Order: 10, OutputSchema: "contentcloud.brief/1.0", ExecutionModes: []string{"local"}},
-		{ID: "knowledge", Name: "知识", Order: 20, OutputSchema: domain.KnowledgeSnapshotSchema, ExecutionModes: []string{"local"}},
-		{ID: "draft", Name: "脚本", Order: 30, OutputSchema: "contentcloud.video_script/1.0", ExecutionModes: []string{"local"}},
-		{ID: "delivery", Name: "交付", Order: 40, OutputSchema: "contentcloud.delivery/1.0", ExecutionModes: []string{"local"}},
-	}, DefaultExecutionMode: "local", Status: "published", CreatedBy: actor.UserID, PublishedBy: actor.UserID, CreatedAt: now, PublishedAt: &now}
-	digest, err := version.ContentDigest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	version.Digest = "sha256:" + digest
-	if err := st.CreateSOP(ctx, definition, version); err != nil {
-		t.Fatal(err)
-	}
-
-	admin, err := service.AdminWorkOS(ctx, actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, summary := range admin.SOPs {
-		if summary.Definition.ID != sopID {
-			continue
-		}
-		if !summary.Definition.BuiltIn || summary.Definition.TemplateKey != "short_video_production" || summary.Definition.SourceRef == "" {
-			t.Fatalf("known built-in ID did not repair metadata: %#v", summary.Definition)
-		}
-		if len(summary.Versions) != 2 || summary.Versions[0].Version != 2 || summary.Versions[0].Status != "published" {
-			t.Fatalf("known built-in ID did not receive additive upgrade: %#v", summary.Versions)
-		}
-		return
-	}
-	t.Fatalf("known built-in SOP was not returned: %s", sopID)
 }
 
 func TestSOPDiffImpactRollbackAndRetire(t *testing.T) {

@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"mime/multipart"
@@ -16,8 +17,15 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/httpapi"
+	"github.com/limecloud/contentcloud/internal/sourceinfra"
 	"github.com/limecloud/contentcloud/internal/store/memory"
 )
+
+type httpFixtureSearch struct{}
+
+func (httpFixtureSearch) Search(context.Context, string, int) ([]sourceinfra.SearchResult, error) {
+	return []sourceinfra.SearchResult{{Title: "公开来源", URL: "https://example.com/source", Rank: 1}}, nil
+}
 
 func TestSourceUploadBFFCreatesRealRevisions(t *testing.T) {
 	service := app.New(memory.New(), slog.Default())
@@ -43,6 +51,34 @@ func TestSourceUploadBFFCreatesRealRevisions(t *testing.T) {
 	fetched := callBFF[domain.SourceRevision](t, client, http.MethodGet, server.URL+"/api/bff/source-revisions/"+second.ID, nil)
 	if fetched.ID != second.ID || fetched.SupersedesID != first.ID {
 		t.Fatalf("source revision detail mismatch: %#v", fetched)
+	}
+}
+
+func TestSourceSearchAndFetchBFFVerticalSlice(t *testing.T) {
+	sourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<article>受控采集正文</article>"))
+	}))
+	defer sourceServer.Close()
+	fetcher := &sourceinfra.Fetcher{AllowedHosts: []string{strings.TrimPrefix(sourceServer.URL, "http://")}, Client: sourceServer.Client(), MaxBytes: 1024}
+	service := app.New(memory.New(), slog.Default(), app.WithSourceSearchProvider(httpFixtureSearch{}), app.WithSourceFetcher(fetcher))
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	project := callBFF[domain.Project](t, client, http.MethodPost, server.URL+"/api/bff/projects", app.CreateProjectInput{BrandName: "搜索品牌", ProductName: "搜索产品"})
+	search := callBFF[app.SearchSourcesResult](t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/sources/search", app.SearchSourcesInput{Query: "公开来源", Limit: 5})
+	if len(search.Results) != 1 || search.Results[0].URL != "https://example.com/source" {
+		t.Fatalf("unexpected search result %#v", search)
+	}
+	fetched := callBFF[app.FetchSourceReceipt](t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/sources/fetch", app.FetchSourceInput{URL: sourceServer.URL + "/article"})
+	if fetched.Revision.ID == "" || fetched.Revision.ProcessingStatus != "pending" || fetched.MIME != "text/html" {
+		t.Fatalf("unexpected fetch receipt %#v", fetched)
 	}
 }
 

@@ -1,6 +1,6 @@
 # 10：Runtime 运维手册
 
-> 本手册面向平台运维和支持人员，定义 Runtime Infra V2 的健康检查、准入灰度、排空、故障处置和回退边界。它以当前代码、迁移 `00035`～`00043` 和 `/api/v1/admin/runtime-health` 为事实源。
+> 本手册面向平台运维和支持人员，定义 Runtime Infra V2 的健康检查、准入灰度、排空、故障处置和回退边界。它以当前代码、迁移 `00035`、`00037`～`00043` 和 `/api/v1/admin/runtime-health` 为事实源。
 
 ## 1. 上线前检查
 
@@ -103,13 +103,13 @@ Worker 每轮约每 2 秒执行一次，每个 active tenant 的处理上限由 
 
 ## 6. 前向回退
 
-Runtime 迁移采用前向演进。应用 `00035` 后，`runtime_outbox` 的消费者状态已迁到 `runtime_outbox_receipts`；应用 `00036` 后，旧 session 镜像表不再存在；`00042`/`00043` 还增加了 Explorer/幂等索引和 ToolCall 安全结果字段。因此生产回退只允许：
+Runtime 迁移采用前向演进。应用 `00035` 后，`runtime_outbox` 的消费者状态已迁到 `runtime_outbox_receipts`；Session Mirror 创建/删除迁移已从首个用户基线移除；`00042`/`00043` 还增加了 Explorer/幂等索引和 ToolCall 安全结果字段。因此生产回退只允许：
 
 - 保留已理解 `00035`～`00043` schema 的当前二进制，关闭新准入或动态图；
 - 修复配置、Worker 或消费逻辑后重新启动，并用健康接口确认追平；
 - 需要恢复旧版本时，先在隔离数据库副本验证 schema 兼容性，再走经批准的数据库恢复流程。
 
-禁止在生产直接执行迁移 Down、重新创建 `runtime_agent_sessions/events`、恢复 `DurableHarness`/`SessionStore` 或把 receipt 合并回 outbox。`00036` 的 Down 迁移是有意留空，表示旧事实源 forbidden-to-restore。
+禁止在生产直接执行迁移 Down、重新创建 `runtime_agent_sessions/events`、恢复 `DurableHarness`/`SessionStore` 或把 receipt 合并回 outbox。Session Mirror 是 `forbidden-to-restore` 的旧事实源；开发库若记录过已删除迁移版本，必须重建。
 
 ## 7. 事故结束条件
 

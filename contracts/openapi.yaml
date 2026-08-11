@@ -139,6 +139,53 @@ paths:
         '200': {$ref: '#/components/responses/Success'}
         '400': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+  /v1/channels/{adapter_id}/tenants/{tenant_id}/callbacks:
+    parameters:
+      - {name: adapter_id, in: path, required: true, schema: {type: string, minLength: 1}}
+      - {name: tenant_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Runtime Admin]
+      operationId: receiveChannelCallback
+      summary: Receive a signed, deduplicated channel delivery receipt
+      security: []
+      parameters:
+        - {name: X-ContentCloud-Timestamp, in: header, required: true, schema: {type: string, pattern: '^[0-9]+$'}}
+        - {name: X-ContentCloud-Signature, in: header, required: true, schema: {type: string, pattern: '^sha256=[a-f0-9]{64}$'}}
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/ReceiveChannelCallbackInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /v1/agent-harnesses/{harness_kind}/tenants/{tenant_id}/callbacks:
+    parameters:
+      - {name: harness_kind, in: path, required: true, schema: {type: string, enum: [remote-http, pi, agent-saas]}}
+      - {name: tenant_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Runtime Admin]
+      operationId: receiveAgentHarnessCallback
+      summary: Durably receive and apply a signed remote Agent Harness event
+      description: >-
+        Persists the message in the shared Runtime provider inbox before applying it to
+        the bound RuntimeAttempt. The same message ID and digest resume safely after a
+        crash; a changed digest conflicts.
+      security: []
+      parameters:
+        - {name: X-ContentCloud-Timestamp, in: header, required: true, schema: {type: string, pattern: '^[0-9]+$'}}
+        - {name: X-ContentCloud-Signature, in: header, required: true, schema: {type: string, pattern: '^sha256=[a-f0-9]{64}$'}}
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/AgentHarnessCallbackInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /v1/providers/{provider_id}/tenants/{tenant_id}/bills:
     parameters:
       - {name: provider_id, in: path, required: true, schema: {type: string}}
@@ -712,6 +759,52 @@ paths:
     parameters: [{$ref: '#/components/parameters/ProjectID'}]
     get: *jsonRead
     post: *jsonWrite
+  /bff/projects/{project_id}/sources/search:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    post:
+      tags: [Web BFF]
+      operationId: searchSources
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [query]
+              properties:
+                query: {type: string, minLength: 2, maxLength: 500}
+                limit: {type: integer, minimum: 1, maximum: 20, default: 10}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/projects/{project_id}/sources/fetch:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    post:
+      tags: [Web BFF]
+      operationId: fetchSource
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url]
+              properties:
+                url: {type: string, format: uri, pattern: '^https?://'}
+                name: {type: string}
+                source_type: {type: string, default: web_fetch}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /bff/projects/{project_id}/sources/upload:
     parameters: [{$ref: '#/components/parameters/ProjectID'}]
     post:
@@ -1229,6 +1322,307 @@ paths:
     parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
     get: *jsonRead
     post: *jsonWrite
+  /bff/agent-harnesses:
+    get:
+      tags: [Web BFF]
+      operationId: listAgentHarnessCapabilities
+      summary: Detect local, remote, Pi, and Agent SaaS harness capabilities
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /bff/content-profiles:
+    get:
+      tags: [Web BFF]
+      operationId: listContentProfiles
+      summary: List provider-neutral content production profiles
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /bff/content-profiles/{profile_id}/install:
+    parameters:
+      - {name: profile_id, in: path, required: true, schema: {type: string, enum: [douyin-commerce-video, wechat-official-article, serialized-novel]}}
+    post:
+      tags: [Web BFF]
+      operationId: installContentProfile
+      summary: Compile a content profile into the existing versioned SOP model
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/model-providers:
+    get:
+      tags: [Web BFF]
+      operationId: listModelProviders
+      summary: List configured OpenAI-compatible model providers such as vLLM and SGLang
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /bff/tasks/{task_id}/model-candidates:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Web BFF]
+      operationId: generateModelCandidate
+      summary: Generate a draft TaskRevision and immutable model receipt
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/GenerateModelCandidateInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/tasks/{task_id}/model-receipts:
+    parameters: [{name: task_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      tags: [Web BFF]
+      operationId: listModelGenerationReceipts
+      summary: List immutable model generation receipts for a task
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /bff/connector-adapters:
+    get:
+      tags: [Web BFF]
+      operationId: listConnectorAdapters
+      summary: List configured ingestion connector adapters
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /bff/projects/{project_id}/connector-bindings:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get:
+      tags: [Web BFF]
+      operationId: listConnectorBindings
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Web BFF]
+      operationId: createConnectorBinding
+      summary: Bind a connector with an opaque SecretRef, never plaintext credentials
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/CreateConnectorBindingInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/connector-bindings/{id}/sync:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      operationId: syncConnectorBinding
+      summary: Pull one cursor page and materialize records as SourceRevision facts
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/SyncConnectorInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/connector-receipts:
+    get:
+      tags: [Web BFF]
+      operationId: listConnectorSyncReceipts
+      security: [{cookieAuth: []}]
+      parameters:
+        - {name: binding_id, in: query, required: false, schema: {type: string, format: uuid}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /bff/channel-adapters:
+    get:
+      tags: [Web BFF]
+      operationId: listChannelAdapters
+      summary: List configured channel adapters, including manual delivery
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /bff/projects/{project_id}/channel-bindings:
+    parameters: [{$ref: '#/components/parameters/ProjectID'}]
+    get:
+      tags: [Web BFF]
+      operationId: listChannelBindings
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Web BFF]
+      operationId: createChannelBinding
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/CreateChannelBindingInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/channel-publications:
+    get:
+      tags: [Web BFF]
+      operationId: listChannelPublications
+      security: [{cookieAuth: []}]
+      parameters:
+        - {name: task_id, in: query, required: false, schema: {type: string, format: uuid}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Web BFF]
+      operationId: prepareChannelPublication
+      summary: Freeze a DeliveryPackage into an idempotent publication intent
+      security: [{cookieAuth: []}]
+      parameters:
+        - {name: Idempotency-Key, in: header, required: false, schema: {type: string, maxLength: 128}}
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/PrepareChannelPublicationInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/channel-publications/reconcile:
+    post:
+      tags: [Web BFF]
+      operationId: reconcileChannelPublications
+      summary: Inspect pending publications and import authoritative external states
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/ReconcileChannelPublicationsInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /bff/channel-publications/{id}/submit:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      operationId: submitChannelPublication
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/channel-publications/{id}/inspect:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      operationId: inspectChannelPublication
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/channel-publications/{id}/receipt:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      operationId: recordManualChannelReceipt
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/RecordManualChannelReceiptInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/channel-publications/{id}/withdraw:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      operationId: withdrawChannelPublication
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/channel-publications/{id}/performance:
+    parameters: [{$ref: '#/components/parameters/ID'}]
+    post:
+      tags: [Web BFF]
+      operationId: importChannelPublicationPerformance
+      summary: Import metrics only after an external published receipt exists
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/ImportChannelPerformanceInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /bff/conversation-imports/{id}:
     parameters: [{$ref: '#/components/parameters/ID'}]
     get: *jsonRead
@@ -2048,7 +2442,7 @@ components:
         missing_fields: {type: array, minItems: 1, items: {type: string}}
         title: {type: string, maxLength: 300}
         intent: {type: string, maxLength: 10000}
-        content_type: {type: string, enum: [video_script, marketing_video, wechat_article]}
+        content_type: {type: string, enum: [video_script, marketing_video, wechat_article, serialized_novel]}
         priority: {type: string}
         risk_profile: {type: string}
         requested_output: {type: object, additionalProperties: true}
@@ -2750,6 +3144,395 @@ components:
         request_id: {type: string}
         data: {$ref: '#/components/schemas/ReviewGrantCreated'}
         meta: {type: object}
+    HarnessCapabilities:
+      type: object
+      additionalProperties: false
+      required: [kind, events, resume, fork, mcp_stdio, mcp_http, structured_output, sandbox_profile, max_parallel_sessions, transcript_export]
+      properties:
+        kind: {type: string, enum: [fake, codex, claude, remote-http, pi, agent-saas]}
+        events: {type: boolean}
+        resume: {type: boolean}
+        fork: {type: boolean}
+        mcp_stdio: {type: boolean}
+        mcp_http: {type: boolean}
+        structured_output: {type: boolean}
+        sandbox_profile: {type: string}
+        max_parallel_sessions: {type: integer, minimum: 0}
+        transcript_export: {type: boolean}
+    AgentHarnessCapability:
+      type: object
+      additionalProperties: false
+      required: [kind, available, capabilities]
+      properties:
+        kind: {type: string, enum: [fake, codex, claude, remote-http, pi, agent-saas]}
+        available: {type: boolean}
+        capabilities: {$ref: '#/components/schemas/HarnessCapabilities'}
+        error_code: {type: string}
+    AgentHarnessCallbackInput:
+      type: object
+      additionalProperties: false
+      required: [message_id, attempt_id, session_id, event_type]
+      properties:
+        message_id: {type: string, minLength: 1, description: Harness-owned idempotency identity.}
+        attempt_id: {type: string, format: uuid}
+        session_id: {type: string, minLength: 1}
+        event_type:
+          type: string
+          enum: [session.started, session.resumed, session.progress, usage.reported, result.completed, session.failed, session.interrupted, runtime.yield]
+        data: {description: Structured event data; limited to 64 KiB and persisted only after safe-field filtering.}
+        error_code: {type: string, pattern: '^[A-Z0-9_]{1,64}$'}
+        occurred_at: {type: string, format: date-time}
+    AgentHarnessCallbackResult:
+      type: object
+      additionalProperties: false
+      required: [message, attempt, node, applied, replayed]
+      properties:
+        message: {type: object, additionalProperties: true, description: Durable runtime_provider_inbox fact.}
+        attempt: {type: object, additionalProperties: true, description: Authoritative RuntimeAttempt after processing.}
+        node: {type: object, additionalProperties: true, description: Authoritative NodeRun after processing.}
+        job: {type: object, additionalProperties: true, description: Refreshed JobRun when the event changes terminal or yielded state.}
+        applied: {type: boolean, description: True only when this request completed inbox processing.}
+        replayed: {type: boolean, description: True when the inbox identity already existed.}
+    ContentProfileStage:
+      type: object
+      additionalProperties: false
+      required: [id, name, input_refs, capability_id, executor_kinds, deterministic, output_schema, checks, gate_ids, retry_max_attempts]
+      properties:
+        id: {type: string, minLength: 1}
+        name: {type: string, minLength: 1}
+        input_refs: {type: array, items: {type: string}}
+        capability_id: {type: string, minLength: 1}
+        executor_kinds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {type: string, enum: [agent, agent_saas, model, creative_saas, media_provider, search, connector, worker, channel_adapter, browser, human]}
+        deterministic: {type: boolean}
+        output_schema: {type: string, minLength: 1}
+        checks: {type: array, items: {type: string}}
+        gate_ids: {type: array, items: {type: string}}
+        retry_max_attempts: {type: integer, minimum: 0}
+    ContentProfile:
+      type: object
+      additionalProperties: false
+      required: [id, version, digest, name, description, content_types, channels, stages, required_gates, delivery_schema]
+      properties:
+        id: {type: string, enum: [douyin-commerce-video, wechat-official-article, serialized-novel]}
+        version: {type: string}
+        digest: {$ref: '#/components/schemas/SHA256Digest'}
+        name: {type: string}
+        description: {type: string}
+        content_types: {type: array, minItems: 1, items: {type: string, enum: [marketing_video, wechat_article, serialized_novel]}}
+        channels: {type: array, minItems: 1, items: {type: string}}
+        stages: {type: array, minItems: 1, items: {$ref: '#/components/schemas/ContentProfileStage'}}
+        required_gates: {type: array, items: {type: string}}
+        delivery_schema: {type: string}
+    CreateConnectorBindingInput:
+      type: object
+      additionalProperties: false
+      required: [connector_id, authorization_ref]
+      properties:
+        connector_id: {type: string, minLength: 1}
+        authorization_ref: {type: string, pattern: '^(secret|vault|env)://.+'}
+        region: {type: string, default: global}
+    ConnectorBinding:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, connector_id, authorization_ref, region, status, cursor, created_by, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        connector_id: {type: string}
+        authorization_ref: {type: string, pattern: '^(secret|vault|env)://.+'}
+        region: {type: string}
+        status: {type: string, enum: [active, disabled]}
+        cursor: {type: string, description: Opaque adapter cursor; clients must not parse it.}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    SyncConnectorInput:
+      type: object
+      additionalProperties: false
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 1000, default: 100}
+    ConnectorRecord:
+      type: object
+      additionalProperties: false
+      required: [external_id, version, title, deleted, updated_at, rights, metadata]
+      properties:
+        external_id: {type: string}
+        version: {type: string}
+        title: {type: string}
+        source_url: {type: string, format: uri}
+        mime: {type: string}
+        digest: {$ref: '#/components/schemas/SHA256Digest'}
+        deleted: {type: boolean}
+        deleted_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        rights: {type: object, additionalProperties: true}
+        metadata: {type: object, additionalProperties: true}
+    ConnectorSyncReceipt:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, schema_version, binding_id, connector_id, previous_cursor, next_cursor, records, upsert_count, tombstone_count, has_more, digest, observed_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        schema_version: {const: contentcloud.connector-sync/1.0}
+        binding_id: {type: string, format: uuid}
+        connector_id: {type: string}
+        previous_cursor: {type: string}
+        next_cursor: {type: string}
+        records: {type: array, items: {$ref: '#/components/schemas/ConnectorRecord'}}
+        upsert_count: {type: integer, minimum: 0}
+        tombstone_count: {type: integer, minimum: 0}
+        has_more: {type: boolean}
+        digest: {$ref: '#/components/schemas/SHA256Digest'}
+        observed_at: {type: string, format: date-time}
+    ModelMessage:
+      type: object
+      additionalProperties: false
+      required: [role, content]
+      properties:
+        role: {type: string, enum: [system, user, assistant]}
+        content: {type: string, minLength: 1}
+    GenerateModelCandidateInput:
+      type: object
+      additionalProperties: false
+      required: [provider_id, messages, response_schema, content_type, schema_version]
+      properties:
+        provider_id: {type: string, enum: [vllm, sglang]}
+        messages: {type: array, minItems: 1, items: {$ref: '#/components/schemas/ModelMessage'}}
+        response_schema: {type: object, minProperties: 1, additionalProperties: true}
+        content_type: {type: string, enum: [video_script, marketing_video, wechat_article, serialized_novel]}
+        schema_version: {type: string, minLength: 1}
+        temperature: {type: number, minimum: 0, maximum: 2}
+        max_tokens: {type: integer, minimum: 1}
+        request_id: {type: string}
+    ModelGenerationReceipt:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, task_id, task_revision_id, provider_id, provider, model, request_digest, response_digest, input_tokens, output_tokens, total_tokens, created_by, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        task_id: {type: string, format: uuid}
+        task_revision_id: {type: string, format: uuid}
+        provider_id: {type: string}
+        provider: {type: string}
+        model: {type: string}
+        request_id: {type: string}
+        request_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        response_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        input_tokens: {type: integer, format: int64, minimum: 0}
+        output_tokens: {type: integer, format: int64, minimum: 0}
+        total_tokens: {type: integer, format: int64, minimum: 0}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+    CreateChannelBindingInput:
+      type: object
+      additionalProperties: false
+      required: [channel, adapter_id, account_ref, authorization_secret_ref]
+      properties:
+        channel: {type: string, minLength: 1}
+        adapter_id: {type: string, minLength: 1, default: manual}
+        account_ref: {type: string, minLength: 1}
+        authorization_secret_ref: {type: string, pattern: '^(secret|vault|env)://.+'}
+        region: {type: string, default: global}
+    ChannelBinding:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, channel, adapter_id, account_ref, authorization_secret_ref, region, status, created_by, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        channel: {type: string}
+        adapter_id: {type: string}
+        account_ref: {type: string}
+        authorization_secret_ref: {type: string, pattern: '^(secret|vault|env)://.+'}
+        region: {type: string}
+        status: {type: string, enum: [active, disabled]}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    PrepareChannelPublicationInput:
+      type: object
+      additionalProperties: false
+      required: [task_delivery_id, channel_binding_id]
+      properties:
+        task_delivery_id: {type: string, format: uuid}
+        channel_binding_id: {type: string, format: uuid}
+        idempotency_key: {type: string, maxLength: 128}
+        content_profile_id: {type: string, enum: [douyin-commerce-video, wechat-official-article, serialized-novel]}
+        douyin_commerce: {$ref: '#/components/schemas/DouyinCommercePublicationRefs'}
+        scheduled_at: {type: string, format: date-time}
+        metadata: {type: object, additionalProperties: true}
+    DouyinCommerceOfferFacts:
+      type: object
+      additionalProperties: false
+      required: [sku_id, product_version_id, display_price, currency, benefits, conditions]
+      properties:
+        sku_id: {type: string, minLength: 1}
+        product_version_id: {type: string, minLength: 1}
+        display_price: {type: string, minLength: 1}
+        currency: {type: string, pattern: '^[A-Z]{3}$'}
+        benefits: {type: array, uniqueItems: true, items: {type: string, minLength: 1}}
+        conditions: {type: array, uniqueItems: true, items: {type: string, minLength: 1}}
+    DouyinCommerceValidationReceipt:
+      type: object
+      additionalProperties: false
+      required: [schema_version, content_profile_id, project_id, audience_strategy_approved_snapshot_id, audience_strategy_version_id, offer_approved_snapshot_id, offer_snapshot_id, content_approved_snapshot_id, content_item_id, content_item_digest, storyboard_approved_snapshot_id, storyboard_package_id, storyboard_locked_digest, rendered_creative_artifact_id, rendered_creative_digest, voiceover_text_digest, on_screen_text_digest, landing_page_text_digest, offer, observed_benefits, observed_conditions, account_ref, product_anchor_ref, landing_page_ref, scheduled_at, validated_at, receipt_digest]
+      properties:
+        schema_version: {const: contentcloud.douyin-commerce-validation/1.0}
+        content_profile_id: {const: douyin-commerce-video}
+        project_id: {type: string, minLength: 1}
+        audience_strategy_approved_snapshot_id: {type: string, minLength: 1}
+        audience_strategy_version_id: {type: string, minLength: 1}
+        offer_approved_snapshot_id: {type: string, minLength: 1}
+        offer_snapshot_id: {type: string, minLength: 1}
+        content_approved_snapshot_id: {type: string, minLength: 1}
+        content_item_id: {type: string, minLength: 1}
+        content_item_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        storyboard_approved_snapshot_id: {type: string, minLength: 1}
+        storyboard_package_id: {type: string, minLength: 1}
+        storyboard_locked_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        rendered_creative_artifact_id: {type: string, minLength: 1}
+        rendered_creative_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        voiceover_text_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        on_screen_text_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        landing_page_text_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        offer: {$ref: '#/components/schemas/DouyinCommerceOfferFacts'}
+        observed_benefits: {type: array, uniqueItems: true, items: {type: string, minLength: 1}}
+        observed_conditions: {type: array, uniqueItems: true, items: {type: string, minLength: 1}}
+        account_ref: {type: string, minLength: 1}
+        product_anchor_ref: {type: string, minLength: 1}
+        landing_page_ref: {type: string, minLength: 1}
+        scheduled_at: {type: string, format: date-time}
+        validated_at: {type: string, format: date-time}
+        receipt_digest: {$ref: '#/components/schemas/SHA256Digest'}
+    DouyinCommercePublicationRefs:
+      type: object
+      additionalProperties: false
+      required: [audience_strategy_approved_snapshot_id, audience_strategy_version_id, offer_approved_snapshot_id, offer_snapshot_id, content_approved_snapshot_id, content_item_id, storyboard_approved_snapshot_id, storyboard_package_id, rendered_creative_artifact_id, rendered_creative_digest, validation_receipt_digest, account_ref, product_anchor_ref, landing_page_ref, validation_receipt]
+      properties:
+        audience_strategy_approved_snapshot_id: {type: string, minLength: 1}
+        audience_strategy_version_id: {type: string, minLength: 1}
+        offer_approved_snapshot_id: {type: string, minLength: 1}
+        offer_snapshot_id: {type: string, minLength: 1}
+        content_approved_snapshot_id: {type: string, minLength: 1}
+        content_item_id: {type: string, minLength: 1}
+        storyboard_approved_snapshot_id: {type: string, minLength: 1}
+        storyboard_package_id: {type: string, minLength: 1}
+        rendered_creative_artifact_id: {type: string, minLength: 1}
+        rendered_creative_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        validation_receipt_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        account_ref: {type: string, minLength: 1}
+        product_anchor_ref: {type: string, minLength: 1}
+        landing_page_ref: {type: string, minLength: 1}
+        validation_receipt: {$ref: '#/components/schemas/DouyinCommerceValidationReceipt'}
+    RecordManualChannelReceiptInput:
+      type: object
+      additionalProperties: false
+      required: [state, external_id]
+      properties:
+        state: {type: string, enum: [submitted, published, failed, unknown, withdrawn]}
+        external_id: {type: string}
+        external_url: {type: string, format: uri}
+        published_at: {type: string, format: date-time}
+        error_code: {type: string}
+        safe_summary: {type: object, additionalProperties: true}
+    ReceiveChannelCallbackInput:
+      type: object
+      additionalProperties: false
+      required: [event_id, publication_id, state]
+      properties:
+        event_id: {type: string, minLength: 1}
+        publication_id: {type: string, format: uuid}
+        state: {type: string, enum: [submitted, published, failed, unknown, withdrawn]}
+        external_id: {type: string}
+        external_url: {type: string, format: uri}
+        published_at: {type: string, format: date-time}
+        observed_at: {type: string, format: date-time}
+        cost_minor: {type: integer, format: int64, minimum: 0}
+        currency: {type: string, pattern: '^[A-Z]{3}$'}
+        error_code: {type: string}
+        safe_summary: {type: object, additionalProperties: true}
+    ReconcileChannelPublicationsInput:
+      type: object
+      additionalProperties: false
+      properties:
+        limit: {type: integer, minimum: 0, maximum: 1000, default: 100}
+    ImportChannelPerformanceInput:
+      type: object
+      additionalProperties: false
+      required: [approved_snapshot_id, window_hours, sample_status, metrics]
+      properties:
+        approved_snapshot_id: {type: string, format: uuid}
+        window_hours: {type: integer, minimum: 1, maximum: 8760}
+        sample_status: {type: string, enum: [insufficient_sample, seed_candidate, repairable, discarded]}
+        metrics: {type: object, additionalProperties: {type: number, minimum: 0}}
+        currency: {type: string, pattern: '^[A-Z]{3}$'}
+        spend: {type: number, minimum: 0}
+        gmv: {type: number, minimum: 0}
+        issue_category: {type: string, enum: ['', creative, account, delivery, landing]}
+        notes: {type: string}
+    ChannelPublication:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, project_id, task_id, task_delivery_id, delivery_package_id, channel_binding_id, channel, account_ref, state, idempotency_key, delivery_digest, request_digest, checklist, preview, metadata, safe_summary, cost_minor, observed_at, created_by, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        task_id: {type: string, format: uuid}
+        task_delivery_id: {type: string, format: uuid}
+        delivery_package_id: {type: string, format: uuid}
+        channel_binding_id: {type: string, format: uuid}
+        channel: {type: string}
+        account_ref: {type: string}
+        state: {type: string, enum: [prepared, manual_action_required, submitted, published, failed, unknown, withdrawn]}
+        idempotency_key: {type: string}
+        delivery_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        request_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        response_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        external_id: {type: string}
+        external_url: {type: string, format: uri}
+        checklist: {type: array, items: {type: string}}
+        preview: {type: object, additionalProperties: true}
+        metadata: {type: object, additionalProperties: true}
+        safe_summary: {type: object, additionalProperties: true}
+        cost_minor: {type: integer, format: int64, minimum: 0}
+        currency: {type: string, pattern: '^[A-Z]{3}$'}
+        error_code: {type: string}
+        scheduled_at: {type: string, format: date-time}
+        submitted_at: {type: string, format: date-time}
+        published_at: {type: string, format: date-time}
+        observed_at: {type: string, format: date-time}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    ChannelCallbackReceipt:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, publication_id, adapter_id, event_id, payload_digest, state, safe_summary, observed_at, received_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        publication_id: {type: string, format: uuid}
+        adapter_id: {type: string}
+        event_id: {type: string}
+        payload_digest: {$ref: '#/components/schemas/SHA256Digest'}
+        state: {type: string, enum: [submitted, published, failed, unknown, withdrawn]}
+        safe_summary: {type: object, additionalProperties: true}
+        observed_at: {type: string, format: date-time}
+        received_at: {type: string, format: date-time}
+    SHA256Digest:
+      type: string
+      pattern: '^sha256:[a-f0-9]{64}$'
     SuccessEnvelope:
       type: object
       required: [ok, command, request_id, data, meta]

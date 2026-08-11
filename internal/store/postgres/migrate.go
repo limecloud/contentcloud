@@ -52,6 +52,11 @@ const mediaRuntimeEffectLinksMigration = "00040_media_runtime_effect_links.sql"
 const runtimeSchemaRegistryMigration = "00041_runtime_schema_registry.sql"
 const runtimeReadPaginationMigration = "00042_runtime_read_pagination.sql"
 const runtimeToolCallResultsMigration = "00043_runtime_tool_call_results.sql"
+const channelDeliveryReceiptsMigration = "00044_channel_delivery_receipts.sql"
+const modelGenerationReceiptsMigration = "00045_model_generation_receipts.sql"
+const connectorSyncMigration = "00046_connector_sync.sql"
+const contentProfilesMigration = "00047_content_profiles.sql"
+const channelCallbacksMigration = "00048_channel_callbacks.sql"
 
 func (s *Store) Migrate(ctx context.Context) error {
 	conn, err := s.pool.Acquire(ctx)
@@ -126,7 +131,7 @@ func validateV3MigrationSet(available, applied []string) error {
 	// Keep the pure validator compatible with callers that validate the
 	// pre-governance six-file set; Migrate itself passes the current embedded
 	// set and therefore requires every current infrastructure migration.
-	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration, runtimeFencingAndResourcesMigration, runtimeStateToolCallsMigration, runtimeProjectionMigration, runtimeJobContractMigration, runtimePlanRelationalMigration, runtimeFanoutJoinMigration, runtimeProviderInboxMigration, runtimeYieldResumeMigration, runtimeProjectionRebuildMigration, runtimeSessionMirrorCreationMigration, runtimeBusinessBindingMigration, runtimeInputSnapshotMigration, runtimeBusinessOutputMigration, removeV7ExecutionMigration, runtimeOutboxSubscribersMigration, removeRuntimeSessionMirrorMigration, runtimeMaintenanceHealthMigration, providerPollRecoveryMigration, providerPollDeadlineMigration, mediaRuntimeEffectLinksMigration, runtimeSchemaRegistryMigration, runtimeReadPaginationMigration, runtimeToolCallResultsMigration}
+	suffix := []string{taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration, runtimeFencingAndResourcesMigration, runtimeStateToolCallsMigration, runtimeProjectionMigration, runtimeJobContractMigration, runtimePlanRelationalMigration, runtimeFanoutJoinMigration, runtimeProviderInboxMigration, runtimeYieldResumeMigration, runtimeProjectionRebuildMigration, runtimeSessionMirrorCreationMigration, runtimeBusinessBindingMigration, runtimeInputSnapshotMigration, runtimeBusinessOutputMigration, removeV7ExecutionMigration, runtimeOutboxSubscribersMigration, removeRuntimeSessionMirrorMigration, runtimeMaintenanceHealthMigration, providerPollRecoveryMigration, providerPollDeadlineMigration, mediaRuntimeEffectLinksMigration, runtimeSchemaRegistryMigration, runtimeReadPaginationMigration, runtimeToolCallResultsMigration, channelDeliveryReceiptsMigration, modelGenerationReceiptsMigration, connectorSyncMigration, contentProfilesMigration, channelCallbacksMigration}
 	for length := len(suffix); length >= 1; length-- {
 		if len(available) == len(expected)+length {
 			candidate := append([]string{}, suffix[:length]...)

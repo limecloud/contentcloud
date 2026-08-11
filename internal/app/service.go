@@ -13,10 +13,14 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/blob"
+	"github.com/limecloud/contentcloud/internal/channeladapter"
+	"github.com/limecloud/contentcloud/internal/connector"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
 	"github.com/limecloud/contentcloud/internal/mediapipeline"
+	"github.com/limecloud/contentcloud/internal/modelprovider"
 	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
+	"github.com/limecloud/contentcloud/internal/sourceinfra"
 	"github.com/limecloud/contentcloud/internal/store"
 )
 
@@ -30,9 +34,15 @@ type Service struct {
 	automationPolicy    map[string]environment.CapabilityRequirement
 	automationPackIDs   map[string][]string
 	mediaAdapters       map[string]mediapipeline.Adapter
+	sourceSearch        sourceinfra.SearchProvider
+	sourceFetcher       *sourceinfra.Fetcher
 	runtimeService      *contentruntime.Service
 	runtimeHarnesses    *agentadapter.HarnessRegistry
 	runtimeRollout      contentruntime.RolloutPolicy
+	channelAdapters     *channeladapter.Registry
+	modelProviders      *modelprovider.Registry
+	connectorAdapters   *connector.Registry
+	connectorRepository connector.Repository
 }
 
 type Actor struct {
@@ -121,6 +131,57 @@ func WithMediaProviderAdapter(providerID string, adapter mediapipeline.Adapter) 
 	}
 }
 
+// WithSourceSearchProvider and WithSourceFetcher are dependency seams for
+// provider-neutral search/fetch. Production uses the configured defaults;
+// tests and self-hosted deployments can provide a controlled implementation.
+func WithSourceSearchProvider(provider sourceinfra.SearchProvider) Option {
+	return func(service *Service) {
+		if provider != nil {
+			service.sourceSearch = provider
+		}
+	}
+}
+
+func WithSourceFetcher(fetcher *sourceinfra.Fetcher) Option {
+	return func(service *Service) {
+		if fetcher != nil {
+			service.sourceFetcher = fetcher
+		}
+	}
+}
+
+func WithChannelAdapterRegistry(registry *channeladapter.Registry) Option {
+	return func(service *Service) {
+		if registry != nil {
+			service.channelAdapters = registry
+		}
+	}
+}
+
+func WithModelProviderRegistry(registry *modelprovider.Registry) Option {
+	return func(service *Service) {
+		if registry != nil {
+			service.modelProviders = registry
+		}
+	}
+}
+
+func WithConnectorRegistry(registry *connector.Registry) Option {
+	return func(service *Service) {
+		if registry != nil {
+			service.connectorAdapters = registry
+		}
+	}
+}
+
+func WithConnectorRepository(repository connector.Repository) Option {
+	return func(service *Service) {
+		if repository != nil {
+			service.connectorRepository = repository
+		}
+	}
+}
+
 func New(st store.Store, logger *slog.Logger, options ...Option) *Service {
 	return NewWithBlob(st, logger, blob.NewMemory(), options...)
 }
@@ -132,7 +193,10 @@ func NewWithBlob(st store.Store, logger *slog.Logger, blobs blob.Store, options 
 	if blobs == nil {
 		blobs = blob.NewMemory()
 	}
-	service := &Service{store: st, now: time.Now, log: logger, blobs: blobs, platformAdminEmails: map[string]struct{}{}, automationPolicy: map[string]environment.CapabilityRequirement{}, automationPackIDs: map[string][]string{}, mediaAdapters: map[string]mediapipeline.Adapter{}, runtimeHarnesses: agentadapter.NewDefaultHarnessRegistry(), runtimeRollout: contentruntime.DefaultRolloutPolicy()}
+	service := &Service{store: st, now: time.Now, log: logger, blobs: blobs, platformAdminEmails: map[string]struct{}{}, automationPolicy: map[string]environment.CapabilityRequirement{}, automationPackIDs: map[string][]string{}, mediaAdapters: map[string]mediapipeline.Adapter{}, sourceSearch: sourceinfra.NewDefaultSearchProvider(), sourceFetcher: sourceinfra.NewDefaultFetcher(), runtimeHarnesses: agentadapter.NewDefaultHarnessRegistry(), runtimeRollout: contentruntime.DefaultRolloutPolicy(), channelAdapters: channeladapter.NewDefaultRegistry(), modelProviders: modelprovider.NewDefaultRegistry(), connectorAdapters: connector.NewDefaultRegistry()}
+	if repository, ok := st.(connector.Repository); ok {
+		service.connectorRepository = repository
+	}
 	for _, option := range options {
 		option(service)
 	}

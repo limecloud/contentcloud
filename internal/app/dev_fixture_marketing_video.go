@@ -270,7 +270,8 @@ func (s *Service) EnsureMarketingVideoDemoFixture(ctx context.Context, actor Act
 		}
 		return MarketingVideoDemoFixtureResult{}, err
 	}
-	if _, err := s.CreateTaskDelivery(ctx, actor, task.Task.ID, CreateTaskDeliveryInput{RevisionID: revisions[len(revisions)-1].ID, DeliveryPackageID: deliveryPackage.ID, Destination: "workspace"}, fixtureRequestID(requestID, "delivery")); err != nil {
+	deliver := true
+	if _, err := s.CreateTaskDelivery(ctx, actor, task.Task.ID, CreateTaskDeliveryInput{RevisionID: revisions[len(revisions)-1].ID, DeliveryPackageID: deliveryPackage.ID, Destination: "workspace", Deliver: &deliver}, fixtureRequestID(requestID, "delivery")); err != nil {
 		return MarketingVideoDemoFixtureResult{}, err
 	}
 	finalView, err := s.WorkTask(ctx, actor, task.Task.ID)

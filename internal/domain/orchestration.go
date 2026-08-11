@@ -122,6 +122,7 @@ type StageDefinition struct {
 	InputRefs            []string                 `json:"input_refs"`
 	OutputSchema         string                   `json:"output_schema"`
 	RequiredCapabilities []string                 `json:"required_capabilities"`
+	AllowedExecutorKinds []string                 `json:"allowed_executor_kinds"`
 	ExecutionModes       []string                 `json:"execution_modes"`
 	Checks               []string                 `json:"checks"`
 	GateIDs              []string                 `json:"gate_ids"`
@@ -166,6 +167,7 @@ func (v *SOPVersion) NormalizeCollections() {
 		stage.OwnerRoles = normalizeStrings(stage.OwnerRoles)
 		stage.InputRefs = normalizeStrings(stage.InputRefs)
 		stage.RequiredCapabilities = normalizeStrings(stage.RequiredCapabilities)
+		stage.AllowedExecutorKinds = normalizeStrings(stage.AllowedExecutorKinds)
 		stage.ExecutionModes = normalizeStrings(stage.ExecutionModes)
 		stage.Checks = normalizeStrings(stage.Checks)
 		stage.GateIDs = normalizeStrings(stage.GateIDs)

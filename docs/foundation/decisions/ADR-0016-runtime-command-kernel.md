@@ -70,7 +70,7 @@ Service command
 - 迁移 `00021_runtime_fencing_and_resources.sql` 增加 Node/Attempt fence、租户资源配额和带围栏的 Reservation 账本。
 - 迁移 `00022_runtime_state_tool_calls.sql` 增加 Checkpoint 游标/水位、StateCollection/StateRecord、ToolCall，并让历史 Effect 的 Attempt/Reservation 绑定保持可空。
 - 迁移 `00023_runtime_projection.sql` 增加带 RLS 的 Runtime Explorer 快照。
-- 迁移 `00024`～`00033` 固定 Job 契约、关系化计划/Fanout、Provider、Yield/Resume、投影重建、业务绑定和受控输入输出；历史 `00030` session 镜像已由 `00036` 前向删除，不再属于 current Runtime。
+- 迁移 `00024`～`00029`、`00031`～`00033` 固定 Job 契约、关系化计划/Fanout、Provider、Yield/Resume、投影重建、业务绑定和受控输入输出；Session Mirror 不属于首个用户 current Runtime。
 - 迁移 `00034_remove_v7_execution.sql` 解开 JobRun 对单一 WorkTask 的物理外键，并删除 V7 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`。
 - 迁移 `00035_runtime_outbox_subscribers.sql` 把投递状态从 `runtime_outbox` 移入独立 receipts；历史 Projector 状态原样迁移，历史成功 Attempt 为业务结果 subscriber 补 pending receipt 并依赖摘要围栏幂等重放。
 - Runtime Service 的 Job/Node/State/Effect/StateRecord/ToolCall/Dispatch 写路径已切换到命令端口；Harness 事件通过 `AppendFencedRuntimeEvent` 校验 Attempt、owner、lease 和 fence，并在同一事务内追加 JobEvent/outbox，不能走普通事件入口或直接写表。

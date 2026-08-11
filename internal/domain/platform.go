@@ -3,15 +3,17 @@ package domain
 import "time"
 
 const (
-	ContentTypeVideoScript    = "video_script"
-	ContentTypeMarketingVideo = "marketing_video"
-	ContentTypeWeChatArticle  = "wechat_article"
-	DefaultProjectContentType = ContentTypeMarketingVideo
+	ContentTypeVideoScript     = "video_script"
+	ContentTypeMarketingVideo  = "marketing_video"
+	ContentTypeWeChatArticle   = "wechat_article"
+	ContentTypeSerializedNovel = "serialized_novel"
+	DefaultProjectContentType  = ContentTypeMarketingVideo
 )
 
 var optionalTenantContentTypes = map[string]struct{}{
-	ContentTypeMarketingVideo: {},
-	ContentTypeWeChatArticle:  {},
+	ContentTypeMarketingVideo:  {},
+	ContentTypeWeChatArticle:   {},
+	ContentTypeSerializedNovel: {},
 }
 
 // TenantContentCapability is the server-owned entitlement for an optional content type.

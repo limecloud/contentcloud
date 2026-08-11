@@ -240,6 +240,89 @@ func (s *Store) ReceiveProviderInboxCommand(ctx context.Context, message domain.
 	return message, resultEffect, err
 }
 
+func (s *Store) ReceiveAgentInboxCommand(ctx context.Context, message domain.ProviderInboxMessage, event domain.JobEvent) (domain.ProviderInboxMessage, error) {
+	message.NormalizeCollections()
+	if err := message.Validate(); err != nil {
+		return message, err
+	}
+	if message.State != domain.ProviderInboxReceived || message.EffectID != "" || message.ProcessedAt != nil {
+		return message, domain.Invalid("AGENT_INBOX_STATE_INVALID", "Agent 回调首次入站必须处于 received 状态且不能绑定外部操作")
+	}
+	err := s.withTenantCommand(ctx, message.TenantID, "runtime.receive_agent_inbox", func(tx pgx.Tx) error {
+		existing, err := scanRuntimeProviderInbox(tx.QueryRow(ctx, runtimeProviderInboxSelect+` WHERE tenant_id=$1 AND provider_id=$2 AND message_id=$3 FOR UPDATE`, message.TenantID, message.ProviderID, message.MessageID))
+		if err == nil {
+			if existing.ReceivedDigest != message.ReceivedDigest {
+				return domain.Conflict("PROVIDER_INBOX_DIGEST_CONFLICT", "相同 Agent 回调消息 ID 的内容摘要不一致")
+			}
+			message = existing
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if event.TenantID != message.TenantID || event.JobRunID != message.JobRunID {
+			return domain.Invalid("JOB_EVENT_SCOPE_INVALID", "Agent 回调事件不属于当前执行实例")
+		}
+		if event.ID == "" || event.Type == "" || event.ActorType == "" || event.OccurredAt.IsZero() {
+			return domain.Invalid("JOB_EVENT_INVALID", "JobEvent 缺少类型或执行者")
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO runtime_provider_inbox(tenant_id,id,job_run_id,provider_id,message_id,received_digest,external_id,effect_id,provider_state,response_digest,cost_minor,currency,safe_payload,state,error_code,received_at,processed_at,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'',$8,$9,$10,$11,$12,$13,$14,$15,NULL,$16,$17,$18)`, message.TenantID, message.ID, message.JobRunID, message.ProviderID, message.MessageID, message.ReceivedDigest, message.ExternalID, message.ProviderState, message.ResponseDigest, message.CostMinor, message.Currency, jsonValue(message.SafePayload), message.State, message.ErrorCode, message.ReceivedAt, message.Version, message.CreatedAt, message.UpdatedAt); err != nil {
+			return dbError(err)
+		}
+		_, err = appendRuntimeEventTx(ctx, tx, event)
+		return err
+	})
+	return message, err
+}
+
+func (s *Store) CompleteAgentInboxCommand(ctx context.Context, message domain.ProviderInboxMessage, expectedVersion int, event domain.JobEvent) (domain.ProviderInboxMessage, error) {
+	message.NormalizeCollections()
+	if err := message.Validate(); err != nil {
+		return message, err
+	}
+	if message.State != domain.ProviderInboxApplied && message.State != domain.ProviderInboxFailed {
+		return message, domain.Invalid("AGENT_INBOX_STATE_INVALID", "Agent 回调只能收敛为 applied 或 failed")
+	}
+	if message.EffectID != "" || message.ProcessedAt == nil || message.Version != expectedVersion+1 {
+		return message, domain.Invalid("AGENT_INBOX_COMPLETION_INVALID", "Agent 回调完成状态缺少处理时间或版本不连续")
+	}
+	err := s.withTenantCommand(ctx, message.TenantID, "runtime.complete_agent_inbox", func(tx pgx.Tx) error {
+		current, err := scanRuntimeProviderInbox(tx.QueryRow(ctx, runtimeProviderInboxSelect+` WHERE tenant_id=$1 AND provider_id=$2 AND message_id=$3 FOR UPDATE`, message.TenantID, message.ProviderID, message.MessageID))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.NotFound("Agent 回调消息")
+		}
+		if err != nil {
+			return err
+		}
+		if current.ReceivedDigest != message.ReceivedDigest || current.ID != message.ID {
+			return domain.Conflict("PROVIDER_INBOX_DIGEST_CONFLICT", "Agent 回调完成状态与入站事实不一致")
+		}
+		if current.State == message.State && current.Version == message.Version {
+			message = current
+			return nil
+		}
+		if current.State != domain.ProviderInboxReceived || current.Version != expectedVersion {
+			return domain.Conflict("AGENT_INBOX_VERSION_CONFLICT", "Agent 回调已被其他处理器更新")
+		}
+		if event.TenantID != message.TenantID || event.JobRunID != message.JobRunID {
+			return domain.Invalid("JOB_EVENT_SCOPE_INVALID", "Agent 回调完成事件不属于当前执行实例")
+		}
+		if event.ID == "" || event.Type == "" || event.ActorType == "" || event.OccurredAt.IsZero() {
+			return domain.Invalid("JOB_EVENT_INVALID", "JobEvent 缺少类型或执行者")
+		}
+		result, err := tx.Exec(ctx, `UPDATE runtime_provider_inbox SET state=$4,error_code=$5,processed_at=$6,version=$7,updated_at=$8 WHERE tenant_id=$1 AND provider_id=$2 AND message_id=$3 AND version=$9`, message.TenantID, message.ProviderID, message.MessageID, message.State, message.ErrorCode, message.ProcessedAt, message.Version, message.UpdatedAt, expectedVersion)
+		if err != nil {
+			return dbError(err)
+		}
+		if result.RowsAffected() != 1 {
+			return domain.Conflict("AGENT_INBOX_VERSION_CONFLICT", "Agent 回调已被其他处理器更新")
+		}
+		_, err = appendRuntimeEventTx(ctx, tx, event)
+		return err
+	})
+	return message, err
+}
+
 func runtimeProviderEffectEqual(left, right domain.ExternalEffect) bool {
 	return left.ID == right.ID && left.TenantID == right.TenantID && left.JobRunID == right.JobRunID &&
 		left.NodeRunID == right.NodeRunID && left.AttemptID == right.AttemptID && left.ResourceReservationID == right.ResourceReservationID &&

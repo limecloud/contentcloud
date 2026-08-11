@@ -17,18 +17,20 @@ var allowedSourceMIME = map[string]bool{
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   true,
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         true,
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation": true,
-	"image/png":       true,
-	"image/jpeg":      true,
-	"video/mp4":       true,
-	"video/quicktime": true,
-	"video/webm":      true,
-	"audio/mpeg":      true,
-	"audio/wav":       true,
-	"audio/x-wav":     true,
-	"audio/mp4":       true,
-	"text/csv":        true,
-	"text/markdown":   true,
-	"text/plain":      true,
+	"image/png":        true,
+	"image/jpeg":       true,
+	"video/mp4":        true,
+	"video/quicktime":  true,
+	"video/webm":       true,
+	"audio/mpeg":       true,
+	"audio/wav":        true,
+	"audio/x-wav":      true,
+	"audio/mp4":        true,
+	"text/csv":         true,
+	"text/html":        true,
+	"text/markdown":    true,
+	"text/plain":       true,
+	"application/json": true,
 }
 
 var sourceExtensionMIME = map[string]string{
@@ -37,7 +39,7 @@ var sourceExtensionMIME = map[string]string{
 	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
 	".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
 	".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
-	".csv": "text/csv", ".md": "text/markdown", ".txt": "text/plain",
+	".csv": "text/csv", ".html": "text/html", ".htm": "text/html", ".json": "application/json", ".md": "text/markdown", ".txt": "text/plain",
 }
 
 type CreateSourceInput struct {

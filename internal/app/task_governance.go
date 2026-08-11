@@ -699,12 +699,15 @@ func (s *Service) CreateTaskDelivery(ctx context.Context, actor Actor, taskID st
 		return domain.TaskDelivery{}, domain.Invalid("TASK_DELIVERY_MANIFEST_SERVER_OWNED", "交付文件清单由服务端交付包生成，不能由客户端提交")
 	}
 	destination := defaultString(input.Destination, "workspace")
-	deliver := input.Deliver == nil || *input.Deliver
+	deliver := input.Deliver != nil && *input.Deliver
 	manifest := []string{}
 	integrityStatus := "script_only"
 	packageID := strings.TrimSpace(input.DeliveryPackageID)
 	if packageID == "" && deliver {
 		return domain.TaskDelivery{}, domain.Policy("DELIVERY_PACKAGE_REQUIRED", "完成交付必须引用服务端已就绪的交付包", "先完成最终成片批准并构建交付包")
+	}
+	if deliver && destination != "workspace" {
+		return domain.TaskDelivery{}, domain.Policy("CHANNEL_PUBLICATION_RECEIPT_REQUIRED", "渠道交付不能在创建交付记录时直接标记成功", "先创建 ready 交付，再通过渠道发布和外部回执推进状态")
 	}
 	if packageID != "" {
 		pkg, packageErr := s.store.DeliveryPackage(ctx, actor.TenantID, packageID)

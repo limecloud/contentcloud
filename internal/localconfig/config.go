@@ -1,11 +1,13 @@
 package localconfig
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,54 +54,23 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	var disk configFile
-	if err := json.Unmarshal(b, &disk); err != nil {
+	var c Config
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&c); err != nil {
 		return Config{}, fmt.Errorf("解析配置失败：%w", err)
 	}
-	legacyKeysPresent := containsLegacyKeys(b)
-	c := Config{ServerURL: strings.TrimSpace(disk.ServerURL), DaemonBindings: disk.DaemonBindings}
-	legacy := DaemonBinding{ServerURL: disk.ServerURL, DeviceID: disk.DeviceID, Workspaces: []DaemonWorkspace{{WorkspaceID: disk.WorkspaceID, ProjectID: disk.ProjectID, Root: disk.WorkspaceRoot}}}
-	if strings.TrimSpace(legacy.DeviceID) != "" {
-		c.DaemonBindings = upsertDaemonBinding(c.DaemonBindings, legacy)
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return Config{}, fmt.Errorf("解析配置失败：存在多余内容")
 	}
+	c.ServerURL = strings.TrimSpace(c.ServerURL)
 	c.DaemonBindings = normalizeDaemonBindings(c.DaemonBindings)
 	if c.ServerURL == "" {
 		if binding, ok := c.PrimaryBinding(); ok {
 			c.ServerURL = binding.ServerURL
 		}
 	}
-	if disk.hasLegacyBinding() || legacyKeysPresent {
-		if err := savePath(path, c); err != nil {
-			return Config{}, fmt.Errorf("迁移本地配置失败：%w", err)
-		}
-	}
 	return c, nil
-}
-
-type configFile struct {
-	ServerURL      string          `json:"server_url,omitempty"`
-	DaemonBindings []DaemonBinding `json:"daemon_bindings,omitempty"`
-	DeviceID       string          `json:"device_id,omitempty"`
-	WorkspaceID    string          `json:"workspace_id,omitempty"`
-	ProjectID      string          `json:"project_id,omitempty"`
-	WorkspaceRoot  string          `json:"workspace_root,omitempty"`
-}
-
-func (c configFile) hasLegacyBinding() bool {
-	return strings.TrimSpace(c.DeviceID) != "" || strings.TrimSpace(c.WorkspaceID) != "" || strings.TrimSpace(c.ProjectID) != "" || strings.TrimSpace(c.WorkspaceRoot) != ""
-}
-
-func containsLegacyKeys(body []byte) bool {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return false
-	}
-	for _, key := range []string{"device_id", "workspace_id", "project_id", "workspace_root"} {
-		if _, ok := raw[key]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 func Save(c Config) error {

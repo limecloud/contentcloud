@@ -38,9 +38,20 @@ func TestEmbeddedSchemasAreValidJSON(t *testing.T) {
 		"audience-taxonomy-1.0":             AudienceTaxonomyV1Schema,
 		"audience-strategy-1.0":             AudienceStrategyV1Schema,
 		"commerce-offer-1.0":                CommerceOfferV1Schema,
+		"douyin-commerce-validation-1.0":    DouyinCommerceValidationV1Schema,
 		"storyboard-package-1.0":            StoryboardPackageV1Schema,
 		"seedance-prompt-package-1.0":       SeedancePromptPackageV1Schema,
 		"published-creative-binding-1.0":    PublishedCreativeBindingV1Schema,
+		"source-intake-1.0":                 SourceIntakeV1Schema,
+		"channel-publication-1.0":           ChannelPublicationV1Schema,
+		"channel-callback-1.0":              ChannelCallbackV1Schema,
+		"model-generation-1.0":              ModelGenerationV1Schema,
+		"connector-sync-1.0":                ConnectorSyncV1Schema,
+		"agent-execution-1.0":               AgentExecutionV1Schema,
+		"novel-canon-1.0":                   NovelCanonV1Schema,
+		"novel-outline-1.0":                 NovelOutlineV1Schema,
+		"novel-chapter-1.0":                 NovelChapterV1Schema,
+		"novel-release-1.0":                 NovelReleaseV1Schema,
 	} {
 		var schema map[string]any
 		if len(body) == 0 || json.Unmarshal(body, &schema) != nil || schema["$id"] == "" {
@@ -111,6 +122,24 @@ func TestStudioOpenAPIContractKeepsProductBoundaries(t *testing.T) {
 		"/studio/execution-clients",
 		"/studio/projects/{project_id}/connect-sessions",
 		"/studio/connect-sessions/{session_id}",
+		"/v1/channels/{adapter_id}/tenants/{tenant_id}/callbacks",
+		"/v1/agent-harnesses/{harness_kind}/tenants/{tenant_id}/callbacks",
+		"/bff/agent-harnesses",
+		"/bff/content-profiles",
+		"/bff/content-profiles/{profile_id}/install",
+		"/bff/model-providers",
+		"/bff/tasks/{task_id}/model-candidates",
+		"/bff/tasks/{task_id}/model-receipts",
+		"/bff/connector-adapters",
+		"/bff/projects/{project_id}/connector-bindings",
+		"/bff/connector-bindings/{id}/sync",
+		"/bff/connector-receipts",
+		"/bff/channel-adapters",
+		"/bff/projects/{project_id}/channel-bindings",
+		"/bff/channel-publications",
+		"/bff/channel-publications/reconcile",
+		"/bff/channel-publications/{id}/receipt",
+		"/bff/channel-publications/{id}/performance",
 	} {
 		if _, ok := document.Paths[path]; !ok {
 			t.Fatalf("studio path %q is missing from OpenAPI", path)
@@ -120,6 +149,17 @@ func TestStudioOpenAPIContractKeepsProductBoundaries(t *testing.T) {
 		"StudioExecutionClientCatalogEnvelope",
 		"StudioConnectSessionEnvelope",
 		"StudioAssetItem",
+		"AgentHarnessCapability",
+		"AgentHarnessCallbackInput",
+		"AgentHarnessCallbackResult",
+		"ContentProfile",
+		"ConnectorBinding",
+		"ConnectorSyncReceipt",
+		"GenerateModelCandidateInput",
+		"ModelGenerationReceipt",
+		"ChannelBinding",
+		"ChannelPublication",
+		"ChannelCallbackReceipt",
 	} {
 		if _, ok := document.Components.Schemas[schema]; !ok {
 			t.Fatalf("studio schema %q is missing from OpenAPI", schema)

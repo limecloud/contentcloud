@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.dev/contracts/channel-publication-1.0.schema.json",
+  "title": "ContentCloud Channel Publication 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "tenant_id", "project_id", "task_id", "task_delivery_id", "delivery_package_id", "channel_binding_id", "channel", "account_ref", "state", "idempotency_key", "delivery_digest", "request_digest", "checklist", "preview", "metadata", "safe_summary", "cost_minor", "observed_at", "created_by", "created_at", "updated_at"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "task_delivery_id": { "type": "string", "minLength": 1 },
+    "delivery_package_id": { "type": "string", "minLength": 1 },
+    "channel_binding_id": { "type": "string", "minLength": 1 },
+    "channel": { "type": "string", "minLength": 1 },
+    "account_ref": { "type": "string", "minLength": 1 },
+    "state": { "enum": ["prepared", "manual_action_required", "submitted", "published", "failed", "unknown", "withdrawn"] },
+    "idempotency_key": { "type": "string", "minLength": 1 },
+    "delivery_digest": { "$ref": "#/$defs/digest" },
+    "request_digest": { "$ref": "#/$defs/digest" },
+    "response_digest": { "$ref": "#/$defs/digest" },
+    "external_id": { "type": "string" },
+    "external_url": { "type": "string", "format": "uri" },
+    "checklist": { "type": "array", "items": { "type": "string" } },
+    "preview": { "type": "object" },
+    "metadata": { "type": "object" },
+    "safe_summary": { "type": "object" },
+    "cost_minor": { "type": "integer", "minimum": 0 },
+    "currency": { "type": "string" },
+    "error_code": { "type": "string" },
+    "scheduled_at": { "type": "string", "format": "date-time" },
+    "submitted_at": { "type": "string", "format": "date-time" },
+    "published_at": { "type": "string", "format": "date-time" },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "created_by": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

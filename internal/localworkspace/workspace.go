@@ -503,7 +503,7 @@ func replaceFile(path string, body []byte, mode fs.FileMode) error {
 	return os.Rename(temporaryPath, path)
 }
 
-const defaultMCPCLIVersion = "0.23.1"
+const defaultMCPCLIVersion = "0.24.0"
 
 func template(targets []string) ([]templateFile, []string, error) {
 	return templateWithCLIVersion(targets, defaultMCPCLIVersion)
@@ -545,6 +545,7 @@ func templateWithCLIVersion(targets []string, cliVersion string) ([]templateFile
 		{path: "30-knowledge/schema/audience-taxonomy-1.0.schema.json", mode: "managed_replace", body: contracts.AudienceTaxonomyV1Schema},
 		{path: "30-knowledge/schema/audience-strategy-1.0.schema.json", mode: "managed_replace", body: contracts.AudienceStrategyV1Schema},
 		{path: "30-knowledge/schema/commerce-offer-1.0.schema.json", mode: "managed_replace", body: contracts.CommerceOfferV1Schema},
+		{path: "30-knowledge/schema/douyin-commerce-validation-1.0.schema.json", mode: "managed_replace", body: contracts.DouyinCommerceValidationV1Schema},
 		{path: "30-knowledge/schema/storyboard-package-1.0.schema.json", mode: "managed_replace", body: contracts.StoryboardPackageV1Schema},
 		{path: "30-knowledge/schema/seedance-prompt-package-1.0.schema.json", mode: "managed_replace", body: contracts.SeedancePromptPackageV1Schema},
 		{path: "30-knowledge/schema/published-creative-binding-1.0.schema.json", mode: "managed_replace", body: contracts.PublishedCreativeBindingV1Schema},

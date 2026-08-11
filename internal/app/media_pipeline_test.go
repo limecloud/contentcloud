@@ -175,7 +175,8 @@ func TestMarketingVideoGoldenJourney(t *testing.T) {
 	if err != nil || len(finalScriptRevisions) != 1 || finalScriptRevisions[0].Status != domain.TaskRevisionAccepted {
 		t.Fatalf("final script revision projection was not accepted: %#v err=%v", finalScriptRevisions, err)
 	}
-	delivery, err := service.CreateTaskDelivery(ctx, actor, task.Task.ID, app.CreateTaskDeliveryInput{RevisionID: finalScriptRevisions[0].ID, DeliveryPackageID: deliveryPackage.ID, Destination: "workspace"}, "")
+	deliver := true
+	delivery, err := service.CreateTaskDelivery(ctx, actor, task.Task.ID, app.CreateTaskDeliveryInput{RevisionID: finalScriptRevisions[0].ID, DeliveryPackageID: deliveryPackage.ID, Destination: "workspace", Deliver: &deliver}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

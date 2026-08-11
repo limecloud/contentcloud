@@ -21,6 +21,28 @@ func (s *Server) sources(w http.ResponseWriter, r *http.Request) {
 	s.dispatchResult(w, r, "source.list", value, err)
 }
 
+func (s *Server) searchSources(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input app.SearchSourcesInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	input.ProjectID = chi.URLParam(r, "projectID")
+	value, err := s.service.SearchSources(r.Context(), actor, input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "source.search", value, err)
+}
+
+func (s *Server) fetchSource(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input app.FetchSourceInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	input.ProjectID = chi.URLParam(r, "projectID")
+	value, err := s.service.FetchSource(r.Context(), actor, input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "source.fetch", value, err)
+}
+
 func (s *Server) createSource(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	var input app.CreateSourceInput

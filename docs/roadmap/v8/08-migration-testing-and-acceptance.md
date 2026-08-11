@@ -4,12 +4,12 @@
 
 ## 1. 当前基线对账
 
-截至 2026-08-09：
+截至 2026-08-11：
 
-- 当前版本为 `v0.23.1`。Runtime Infra V2 的 I1～I4 核心切片、I5 第二业务流容量边界和 provider-neutral HTTP/异步轮询恢复切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
+- 当前版本为 `v0.24.0`。Runtime Infra V2 的 I1～I4 核心切片、I5 第二业务流容量边界和 provider-neutral HTTP/异步轮询恢复切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
 - V7 的类型化 Stage 输出、媒体领域、MediaReview、最终 Artifact、DeliveryPackage 和 Web 投影已在 `v0.16.0/v0.17.0` 落地；工作区资料文件夹、上传和资料引用已在 `v0.18.0` 首次落地。
 - V8 已落地 JobRun/NodeRun/JobEvent、独立 RuntimeAttempt、RuntimeCommandStore、事件/outbox 同事务、不可变 outbox + subscriber receipts、终态业务结果持久化消费、fence/资源预留账本、StateCollection/StateRecord CAS、ToolCall、Checkpoint watermark、Fork/Replay、ContextView/AgentInstance、FakeHarness 调度闭环、Codex CLI JSONL/thread resume Harness、Provider inbox/账单对账、Yield/Resume、Projector 和 Runtime Explorer 投影重建/dry-run；各文档必须继续区分已实现内核、离线协议测试与生产能力。
-- 内置 SOP Registry 的旧短视频识别已收回显式 `migrateLegacyBuiltinSOPs` 租户迁移边界：只匹配精确 `brief -> knowledge -> draft -> delivery` 结构，写入 current `template_key/source_ref` 后发布当前模板版本并记录 `sop.legacy_migrated` 审计事件；历史已发布版本和绑定 digest 保持不可变，重复访问不会继续创建版本或保留旧 source 标记。
+- 内置 SOP Registry 只接受完整的平台身份（固定 ID、`template_key`、`built_in`、`source_ref`）；按名称/形状认领旧短视频 SOP 和修复旧内置元数据的运行时迁移已删除，发现冲突时重建开发数据，不新增兼容分支。
 - 根 `README.md`、平台基线、产品需求和 V8 路线图已互相指向；历史 V1-V7 路线图不再作为当前能力事实源。
 - provider-neutral HTTP 适配器、签名/超时/SSRF 防护、异步 submit/status/cancel、到期轮询恢复、有上限流式下载、Runtime Effect 关联和 Provider callback/bill HMAC ingress 已有确定性 `httptest` 契约；未知提交不会自动重试；真实媒体服务商凭据、账单补偿演练、完整的媒体租约恢复和确定性后期处理仍未完成。
 - Codex Runtime Harness 已使用官方 CLI JSONL 协议，保存 `thread.started` 的真实 thread ID，并通过 `codex exec resume <thread_id>` 在新的 Harness/worker 进程恢复；Claude Runtime Harness 已使用 `stream-json` 首事件 session ID 和 `--resume`，两者能力均在 worker 侧探测并固定到 Attempt，过程事件经 lease/fence/session 校验后只保存脱敏摘要。helper-process 测试不调用模型，真实在线 Codex/Claude smoke 尚未验收。
@@ -27,9 +27,9 @@ V8 的第一个工作包必须先更新权威文档和能力登记表；不能�
 5. **由功能开关控制准入**：开关只决定新 Job 进入哪条路径；不能把已经运行的动态图降级成线性 Stage。
 6. **优先向前恢复**：生产回退以停止新任务准入、排空、暂停或修复为主，不对已经写入数据的新表执行破坏性降级迁移。
 
-本地 CLI 配置也遵循同一边界：`daemon_bindings` 是 current 唯一运行事实；旧单工作区字段只允许在 `localconfig.Load()` 中被读取一次并立即重写，运行期不得保留 fallback 或双写。
+本地 CLI 配置也遵循同一边界：`daemon_bindings` 是 current 唯一运行事实；`localconfig.Load()` 严格拒绝未知顶层字段，旧单工作区字段不再读取、重写、fallback 或双写，需要重新连接生成 current 配置。
 
-SOP Registry 同样遵循一次性迁移边界：旧结构只能在租户首次进入编排默认值时被精确识别并升级；同名但结构不同的自定义 SOP 不迁移。新建任务私有 WorkspaceBinding 使用当前本地模板身份，历史 `task_marketing_video` 绑定只作为历史读取事实，不得再写入。
+SOP Registry 同样只认显式身份：同名、同结构或只有平台 ID 的不完整记录都不会被自动收编。新建任务私有 WorkspaceBinding 使用当前本地模板身份；`task_marketing_video` 等旧 source 标记不得再写入或恢复。
 
 ## 3. 数据迁移
 
@@ -49,7 +49,7 @@ SOP Registry 同样遵循一次性迁移边界：旧结构只能在租户首次�
 
 所有表都需要由 Memory Store 和 PostgreSQL Store 共同遵守同一份存储契约；迁移集成测试必须使用真实的行级安全策略（RLS）操作人上下文。
 
-当前物理落地：`00014_agentic_job_runtime.sql`～`00020_runtime_append_only_permissions.sql` 建立 Runtime 基础表、ContextView/AgentInstance、RuntimeAttempt、outbox 和追加事实权限；`00021`～`00029` 增加 fence、资源账本、类型化状态、Provider 对账、Yield/Resume 和投影重建；历史 `00030` 曾增加 session 镜像；`00031`～`00033` 冻结 JobRun 业务类型、输入快照和输出上限；`00034_remove_v7_execution.sql` 解开 JobRun 对单一 WorkTask 的物理外键，并删除 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`；`00035_runtime_outbox_subscribers.sql` 将 outbox 收敛为不可变消息，并把投影与业务结果的投递状态迁到独立 subscriber receipts；`00036_remove_runtime_session_mirror.sql` 删除零消费者的 session/event 镜像表；`00037_runtime_maintenance_health.sql` 增加租户级 reaper/delivery 维护心跳及其 RLS；`00038_provider_poll_recovery.sql` 让异步 Provider 只按持久化 poll deadline 恢复，`00039_provider_poll_deadline.sql` 阻止缺失 deadline 的 unknown 提交进入重试循环；`00040_media_runtime_effect_links.sql` 为新媒体 Job/Attempt 增加可空 Runtime Job/Node/Attempt/Effect 关联，历史 V7 行保持未登记；`00041_runtime_schema_registry.sql` 增加租户隔离的 Schema draft/published/retired 生命周期和保留策略；`00042_runtime_read_pagination.sql` 增加 MCP 幂等唯一索引和 Runtime Explorer 读取索引；`00043_runtime_tool_call_results.sql` 为 ToolCall 增加受控 `safe_result`，保证成功幂等重放返回首次结果。迁移不使用 `CASCADE`，出现未识别依赖时整笔回滚。
+当前物理落地：`00014_agentic_job_runtime.sql`～`00020_runtime_append_only_permissions.sql` 建立 Runtime 基础表、ContextView/AgentInstance、RuntimeAttempt、outbox 和追加事实权限；`00021`～`00029` 增加 fence、资源账本、类型化状态、Provider 对账、Yield/Resume 和投影重建；`00031`～`00033` 冻结 JobRun 业务类型、输入快照和输出上限；`00034_remove_v7_execution.sql` 解开 JobRun 对单一 WorkTask 的物理外键，并删除 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`；`00035_runtime_outbox_subscribers.sql` 将 outbox 收敛为不可变消息，并把投影与业务结果的投递状态迁到独立 subscriber receipts；Session Mirror 创建/删除迁移已从首个用户基线移除；`00037_runtime_maintenance_health.sql` 增加租户级 reaper/delivery 维护心跳及其 RLS；`00038_provider_poll_recovery.sql` 让异步 Provider 只按持久化 poll deadline 恢复，`00039_provider_poll_deadline.sql` 阻止缺失 deadline 的 unknown 提交进入重试循环；`00040_media_runtime_effect_links.sql` 为新媒体 Job/Attempt 增加可空 Runtime Job/Node/Attempt/Effect 关联，历史 V7 行保持未登记；`00041_runtime_schema_registry.sql` 增加租户隔离的 Schema draft/published/retired 生命周期和保留策略；`00042_runtime_read_pagination.sql` 增加 MCP 幂等唯一索引和 Runtime Explorer 读取索引；`00043_runtime_tool_call_results.sql` 为 ToolCall 增加受控 `safe_result`，保证成功幂等重放返回首次结果。迁移不使用 `CASCADE`，出现未识别依赖时整笔回滚。
 
 ## 4. 运行读模型与业务投影
 
@@ -300,7 +300,7 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
 
 - 动态图等增量能力关闭时，Runtime 线性核心流程不能出现行为回归。
 - 旁路编译对所有内置 SOP 生成稳定摘要，并得出与原流程等价的下一阶段结果。
-- 旧短视频 SOP 迁移最多执行一次：历史 v1、Environment/Project/Task 绑定和 digest 保持可读，当前版本统一使用 current 模板身份，代码与守卫不再生成 `task_marketing_video` 或旧 source 标记。
+- 旧短视频 SOP 自动认领和内置元数据修复代码不存在；built-in SOP 必须具有完整 current 身份，架构守卫阻止迁移函数、`sop.legacy_migrated` 和旧 source 标记恢复。
 - Runtime 线性调度器可以完成 `marketing_video` 测试场景。
 - 100 个节点、20 路并发的稳定性压测中，不得出现重复租约、重复节点、重复输出或重复费用。
 - 故障注入矩阵全部得到预期的恢复、阻断或人工对账状态。

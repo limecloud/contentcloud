@@ -229,6 +229,20 @@ func (s *Server) handleUserDispatch(w http.ResponseWriter, r *http.Request, req 
 		}
 		v, err := s.service.Sources(r.Context(), actor, in.ProjectID)
 		s.dispatchResult(w, r, req.Command, v, err)
+	case "source.search":
+		var in app.SearchSourcesInput
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.SearchSources(r.Context(), actor, in, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "source.fetch":
+		var in app.FetchSourceInput
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.FetchSource(r.Context(), actor, in, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
 	case "source.status":
 		var in struct {
 			RevisionID string `json:"revision_id"`
@@ -458,6 +472,162 @@ func (s *Server) handleUserDispatch(w http.ResponseWriter, r *http.Request, req 
 			return true
 		}
 		v, err := s.service.DeliveryPackage(r.Context(), actor, in.ID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "channel.adapter.list":
+		s.ok(w, r, req.Command, s.service.ChannelAdapterIDs())
+	case "channel.binding.create":
+		var in app.CreateChannelBindingInput
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.CreateChannelBinding(r.Context(), actor, in, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "channel.binding.list":
+		var in struct {
+			ProjectID string `json:"project_id"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.ChannelBindings(r.Context(), actor, in.ProjectID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "channel.publication.prepare":
+		var in app.PrepareChannelPublicationInput
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.PrepareChannelPublication(r.Context(), actor, in, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "channel.publication.submit", "channel.publication.inspect":
+		var in struct {
+			ID string `json:"id"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		if req.Command == "channel.publication.submit" {
+			v, err := s.service.SubmitChannelPublication(r.Context(), actor, in.ID, requestID)
+			s.dispatchResult(w, r, req.Command, v, err)
+		} else {
+			v, err := s.service.InspectChannelPublication(r.Context(), actor, in.ID, requestID)
+			s.dispatchResult(w, r, req.Command, v, err)
+		}
+	case "channel.publication.receipt":
+		var in struct {
+			ID string `json:"id"`
+			app.RecordManualChannelReceiptInput
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.RecordManualChannelReceipt(r.Context(), actor, in.ID, in.RecordManualChannelReceiptInput, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "channel.publication.withdraw":
+		var in struct {
+			ID     string `json:"id"`
+			Reason string `json:"reason"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.WithdrawChannelPublication(r.Context(), actor, in.ID, in.Reason, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "channel.publication.list":
+		var in struct {
+			TaskID string `json:"task_id"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.ChannelPublications(r.Context(), actor, in.TaskID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "channel.publication.reconcile":
+		var in struct {
+			Limit int `json:"limit"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.ReconcileChannelPublications(r.Context(), actor, in.Limit, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "channel.performance.import":
+		var in struct {
+			ID string `json:"id"`
+			app.ImportChannelPerformanceInput
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.ImportChannelPerformance(r.Context(), actor, in.ID, in.ImportChannelPerformanceInput, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "model.provider.list":
+		s.ok(w, r, req.Command, s.service.ModelProviderIDs())
+	case "model.candidate.generate":
+		var in struct {
+			TaskID string `json:"task_id"`
+			app.GenerateModelCandidateInput
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.GenerateModelCandidate(r.Context(), actor, in.TaskID, in.GenerateModelCandidateInput, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "model.receipt.list":
+		var in struct {
+			TaskID string `json:"task_id"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.ModelGenerationReceipts(r.Context(), actor, in.TaskID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "connector.adapter.list":
+		s.ok(w, r, req.Command, s.service.ConnectorAdapterIDs())
+	case "connector.binding.create":
+		var in app.CreateConnectorBindingInput
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.CreateConnectorBinding(r.Context(), actor, in, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "connector.binding.list":
+		var in struct {
+			ProjectID string `json:"project_id"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.ConnectorBindings(r.Context(), actor, in.ProjectID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "connector.sync":
+		var in struct {
+			BindingID string `json:"binding_id"`
+			app.SyncConnectorInput
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.SyncConnector(r.Context(), actor, in.BindingID, in.SyncConnectorInput, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "connector.receipt.list":
+		var in struct {
+			BindingID string `json:"binding_id"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.ConnectorReceipts(r.Context(), actor, in.BindingID)
+		s.dispatchResult(w, r, req.Command, v, err)
+	case "content_profile.list":
+		s.ok(w, r, req.Command, s.service.ContentProfiles())
+	case "content_profile.install":
+		var in struct {
+			ProfileID string `json:"profile_id"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.InstallContentProfile(r.Context(), actor, in.ProfileID, requestID)
 		s.dispatchResult(w, r, req.Command, v, err)
 	case "artifact.download":
 		var in struct {

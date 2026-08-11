@@ -8,7 +8,7 @@
     {
       "id": "contentcloud-video-production",
       "kind": "scene_plugin",
-      "version": "0.23.1",
+      "version": "0.24.0",
       "required": true,
       "scope": "environment",
       "capabilities": [

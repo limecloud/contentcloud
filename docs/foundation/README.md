@@ -39,9 +39,10 @@ Worker、本地 Agent、服务商和人工完成各自适合的节点
 | 9 | [07-migration-and-delivery.md](./07-migration-and-delivery.md) | 如何从现状渐进迁移并持续交付客户价值 |
 | 10 | [08-developer-experience.md](./08-developer-experience.md) | 开发者如何新增、验证、调试、升级和发布流水线 |
 | 11 | [09-reference-patterns.md](./09-reference-patterns.md) | 外部系统怎样验证产品面、流水线、执行者和结果资产的分层 |
-| 12 | [10-current-state-inventory.md](./10-current-state-inventory.md) | 目标架构对应的当前代码证据、门禁基线和精确退场条件 |
-| 13 | [decisions/README.md](./decisions/README.md) | 哪些重大决策必须记录为 ADR |
-| 14 | [PLAN.md](./PLAN.md) | 本轮文档重构的范围、问题和退出条件 |
+| 12 | [内容创作 AI Infra](../infra/README.md) | 搜索、采集、编排、产物、发布和反馈的横向基础能力地图 |
+| 13 | [10-current-state-inventory.md](./10-current-state-inventory.md) | 目标架构对应的当前代码证据、门禁基线和精确退场条件 |
+| 14 | [decisions/README.md](./decisions/README.md) | 哪些重大决策必须记录为 ADR |
+| 15 | [PLAN.md](./PLAN.md) | 本轮文档重构的范围、问题和退出条件 |
 
 ## 4. 文档事实层级
 

@@ -75,6 +75,9 @@ func TestWeChatArticleGoldenJourney(t *testing.T) {
 	if exported.Package.Status != "validated" || len(exported.Package.Files) != 5 || len(exported.Package.ExternalActions) != 5 {
 		t.Fatalf("unexpected WeChat package: %+v", exported.Package)
 	}
+	if exported.Package.LayoutProfile.TemplateVersion != "1.0.0" || exported.Package.DOMIntegrity.SanitizeChanged || exported.Package.Metadata.Title == "" || len(exported.Package.Lineage.Artifacts) != len(exported.Package.Files) {
+		t.Fatalf("WeChat template, DOM or lineage metadata is incomplete: %+v", exported.Package)
+	}
 	providerRoot := filepath.Dir(filepath.Join(root, filepath.FromSlash(exported.PackagePath)))
 	htmlBody, err := os.ReadFile(filepath.Join(providerRoot, "article.html"))
 	if err != nil {
@@ -82,6 +85,21 @@ func TestWeChatArticleGoldenJourney(t *testing.T) {
 	}
 	if strings.Contains(string(htmlBody), "<script>") || !strings.Contains(string(htmlBody), "&lt;script&gt;") {
 		t.Fatalf("article renderer did not escape unsafe text: %s", htmlBody)
+	}
+	observedPath := filepath.Join(root, "60-delivery", "wechat-observed.html")
+	if err := os.WriteFile(observedPath, htmlBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	domDiff, err := InspectWeChatPlatformDOM(root, exported.PackagePath, relativeWorkspacePath(root, observedPath), now.Add(6*time.Minute))
+	if err != nil || !domDiff.Matches {
+		t.Fatalf("identical platform DOM did not match: %+v, %v", domDiff, err)
+	}
+	if err := os.WriteFile(observedPath, []byte("<article>platform stripped styles</article>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	domDiff, err = InspectWeChatPlatformDOM(root, exported.PackagePath, relativeWorkspacePath(root, observedPath), now.Add(7*time.Minute))
+	if err != nil || domDiff.Matches || len(domDiff.MissingMarkers) == 0 {
+		t.Fatalf("platform DOM cleaning drift was not detected: %+v, %v", domDiff, err)
 	}
 	packageReport, err := LintWeChatPackage(root, exported.PackagePath)
 	if err != nil || !packageReport.Valid {
@@ -140,6 +158,13 @@ func TestArticleAssertionAndRevisionGates(t *testing.T) {
 	}
 	if diff.Valid || !containsString(diff.UnexpectedPaths, "/blocks/1/text") {
 		t.Fatalf("undeclared article revision drift was accepted: %+v", diff)
+	}
+}
+
+func TestWeChatHTMLLintRejectsDesktopOnlyStructures(t *testing.T) {
+	issues := lintWeChatHTML(`<article data-contentcloud-schema="contentcloud.article/1.0" style="width:900px"><table><tr><td>x</td></tr></table><pre><code>x</code></pre></article>`)
+	if !hasArticleIssue(issues, "WECHAT_HTML_TABLE_UNSUPPORTED") || !hasArticleIssue(issues, "WECHAT_HTML_CODE_UNSUPPORTED") {
+		t.Fatalf("table and code layout risks were not rejected: %+v", issues)
 	}
 }
 

@@ -154,7 +154,7 @@ Core 负责：
 - Intent Profile 的解析、能力需求和输入冻结。
 - 通用 ContentItem 信封和 ContentBatch 生命周期。
 - SubmissionRevision、ReviewCycle、Decision 和 ApprovedSnapshot。
-- Artifact、DeliveryPackage、PublishedContentBinding 和结果血缘。
+- Artifact、DeliveryPackage、ChannelPublication 和结果血缘。
 - Schema/Capability/Channel Profile 的可信来源、版本和摘要验证。
 
 Core 不负责：
@@ -366,9 +366,9 @@ Approved ContentItem
 - 外部操作说明和发布前检查。
 - 是否包含需要外部披露的素材。
 
-### 6.6 PublishedContentBinding
+### 6.6 ChannelPublication
 
-现有 PublishedCreativeBinding 面向视频创意和投放。多内容形态需要一个语义更通用的发布绑定，至少包含：
+多内容形态统一复用现有 `ChannelPublication`，不再新增 PublishedCreativeBinding 或 PublishedContentBinding。渠道发布事实至少包含：
 
 ```text
 project_id
@@ -386,7 +386,7 @@ experiment_id / arm_id
 content_digest
 ```
 
-是否直接泛化现有 PublishedCreativeBinding，还是新增 PublishedContentBinding，需在实施前通过使用方和迁移成本评审。本文倾向于新增通用 PublishedContentBinding，并让视频结果也逐步引用它；不建议仅为公众号增加 `WeChatPost` 服务端实体。
+视频、公众号、小说和其他内容都通过 `ChannelBinding -> ChannelPublication -> Callback/Inspect/Reconcile -> Performance` 记录外部状态；渠道特有的商品/文章/小说引用写入现有 Metadata typed refs，不创建新的发布聚合。
 
 ### 6.7 通用状态机
 
@@ -642,7 +642,7 @@ contentcloud-wechat-provider        provider_mcp_pack, task scoped, 后续可选
   -> 本地 WeChat adapter 编译交付包
   -> package lint + 本地预览
   -> 用户在公众号后台粘贴、检查并发布
-  -> 登记 PublishedContentBinding
+  -> 登记 ChannelPublication / 外部 Receipt
   -> 导入 Observation
   -> 人工采纳或拒绝 Learning
 ```
@@ -1099,7 +1099,7 @@ MCP Tool 应围绕稳定业务动作提供类型化参数，不暴露任意 shel
 | D-CONTENT-13 | 不在当前 V5/v0.9 发布中插入多内容重构 | 建议接受 |
 | D-CONTENT-14 | 先逻辑拆分当前 Scene/Video 能力，再物理拆 Plugin | 建议接受 |
 | D-CONTENT-15 | Web 使用可信 Presentation Profile 渲染不同内容 | 待安全评审 |
-| D-CONTENT-16 | 使用通用 PublishedContentBinding 统一发布血缘 | 待领域评审 |
+| D-CONTENT-16 | 使用现有 ChannelPublication 统一发布血缘 | `current-server` |
 | D-CONTENT-17 | Metric Profile 按渠道定义指标语义 | 建议接受 |
 | D-CONTENT-18 | Learning 继续由人工采纳，不自动修改 Skill/Brief | 建议接受 |
 
@@ -1143,7 +1143,7 @@ MCP Tool 应围绕稳定业务动作提供类型化参数，不暴露任意 shel
 2. payload validator 由 CLI 内置、Plugin 资源还是独立 Wasm/声明式运行时提供？首版建议 CLI 内置并由 Capability digest 标识。
 3. 服务端如何安全复验动态 Schema，同时保持 zero-exec？
 4. Video Script 迁移是否需要保留历史 Snapshot 的只读呈现？
-5. PublishedCreativeBinding 与 PublishedContentBinding 如何收敛？
+5. ChannelPublication 的渠道特有 typed refs 如何通过统一 Schema 和 Adapter 验证？
 
 ### 安全与运营
 
@@ -1221,5 +1221,5 @@ MCP Tool 应围绕稳定业务动作提供类型化参数，不暴露任意 shel
 
 - 公众号 Skill Pack 的生产签名 Registry/Profile 条目必须在正式发布时使用仓库外私钥生成；当前工作树不伪造签名。
 - 自动登录公众号、创建草稿、上传素材和正式发布仍是非目标。未来必须作为独立 Provider Capability 设计授权、幂等和外部状态恢复。
-- PublishedContentBinding、公众号指标导入与 Learning 采纳尚未进入本次纵向切片。
+- 真实渠道账号、平台指标口径与 Learning 采纳仍依赖外部平台和运营数据；内部 ChannelPublication 已进入当前纵向切片。
 - 完成定义中的真实公众号账号试点仍需产品和运营验收，不由单元测试替代。

@@ -30,6 +30,11 @@ type RuntimeCommandStore interface {
 	RegisterFencedEffectCommand(context.Context, domain.ExternalEffect, string, time.Time, domain.JobEvent) (domain.ExternalEffect, error)
 	ApplyEffectTransition(context.Context, domain.ExternalEffect, int, domain.JobEvent) (domain.ExternalEffect, error)
 	ReceiveProviderInboxCommand(context.Context, domain.ProviderInboxMessage, *domain.ExternalEffect, int, *domain.ProviderReconciliation, domain.JobEvent) (domain.ProviderInboxMessage, domain.ExternalEffect, error)
+	// Agent harness callbacks share the Provider inbox table, but have no
+	// ExternalEffect or ProviderReconciliation. The two commands make the
+	// durable-receive and post-processing boundary explicit.
+	ReceiveAgentInboxCommand(context.Context, domain.ProviderInboxMessage, domain.JobEvent) (domain.ProviderInboxMessage, error)
+	CompleteAgentInboxCommand(context.Context, domain.ProviderInboxMessage, int, domain.JobEvent) (domain.ProviderInboxMessage, error)
 	RecordProviderBillCommand(context.Context, domain.ProviderBillRecord, *domain.ProviderReconciliation, domain.JobEvent) (domain.ProviderBillRecord, error)
 	ResolveProviderReconciliationCommand(context.Context, domain.ProviderReconciliation, domain.ExternalEffect, int, domain.JobEvent) (domain.ProviderReconciliation, domain.ExternalEffect, error)
 	RuntimeOutboxMessages(context.Context, string, string, time.Time, int) ([]domain.RuntimeOutboxMessage, error)

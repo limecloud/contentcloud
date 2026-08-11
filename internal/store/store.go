@@ -181,6 +181,19 @@ type Store interface {
 	TaskDeliveries(context.Context, string, string) ([]domain.TaskDelivery, error)
 	TaskDelivery(context.Context, string, string) (domain.TaskDelivery, error)
 	SaveTaskDelivery(context.Context, domain.TaskDelivery) error
+	CreateChannelBinding(context.Context, domain.ChannelBinding) error
+	ChannelBindings(context.Context, string, string) ([]domain.ChannelBinding, error)
+	ChannelBinding(context.Context, string, string) (domain.ChannelBinding, error)
+	SaveChannelBinding(context.Context, domain.ChannelBinding) error
+	CreateChannelPublication(context.Context, domain.ChannelPublication) error
+	ChannelPublicationByIdempotencyKey(context.Context, string, string) (domain.ChannelPublication, error)
+	ChannelPublications(context.Context, string, string) ([]domain.ChannelPublication, error)
+	ChannelPublication(context.Context, string, string) (domain.ChannelPublication, error)
+	SaveChannelPublication(context.Context, domain.ChannelPublication) error
+	ApplyChannelCallback(context.Context, domain.ChannelPublication, domain.ChannelCallbackReceipt) (bool, error)
+	CreateModelGenerationReceipt(context.Context, domain.ModelGenerationReceipt) error
+	CreateModelGeneratedRevision(context.Context, domain.TaskRevision, domain.ModelGenerationReceipt) error
+	ModelGenerationReceipts(context.Context, string, string) ([]domain.ModelGenerationReceipt, error)
 
 	CreateSnapshot(context.Context, domain.ContextSnapshot) error
 	Snapshot(context.Context, string, string) (domain.ContextSnapshot, error)

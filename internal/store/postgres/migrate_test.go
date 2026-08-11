@@ -386,44 +386,6 @@ func TestRuntimeProjectionRebuildMigrationRecordsDryRunFacts(t *testing.T) {
 	}
 }
 
-func TestRuntimeSessionStoreMigrationIsAnIsolatedTenantScopedMirror(t *testing.T) {
-	body, err := migrations.Files.ReadFile(runtimeSessionMirrorCreationMigration)
-	if err != nil {
-		t.Fatalf("read SessionStore migration: %v", err)
-	}
-	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
-	for _, required := range []string{
-		"CREATE TABLE runtime_agent_sessions",
-		"CREATE TABLE runtime_agent_session_events",
-		"UNIQUE (tenant_id,harness_kind,session_id,digest)",
-		"FOREIGN KEY (tenant_id,harness_kind,session_id) REFERENCES runtime_agent_sessions",
-		"ALTER TABLE %I FORCE ROW LEVEL SECURITY",
-	} {
-		if !strings.Contains(up, required) {
-			t.Fatalf("SessionStore migration must contain %q", required)
-		}
-	}
-}
-
-func TestRemoveRuntimeSessionMirrorMigrationDropsRetiredTables(t *testing.T) {
-	body, err := migrations.Files.ReadFile(removeRuntimeSessionMirrorMigration)
-	if err != nil {
-		t.Fatalf("read Runtime session mirror removal migration: %v", err)
-	}
-	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
-	for _, required := range []string{
-		"DROP TABLE IF EXISTS runtime_agent_session_events",
-		"DROP TABLE IF EXISTS runtime_agent_sessions",
-	} {
-		if !strings.Contains(up, required) {
-			t.Fatalf("Runtime session mirror removal migration must contain %q", required)
-		}
-	}
-	if strings.Contains(up, "CASCADE") {
-		t.Fatal("Runtime session mirror removal migration must not cascade into unrelated tables")
-	}
-}
-
 func TestRuntimeMaintenanceHealthMigrationAddsTenantScopedHeartbeat(t *testing.T) {
 	body, err := migrations.Files.ReadFile(runtimeMaintenanceHealthMigration)
 	if err != nil {

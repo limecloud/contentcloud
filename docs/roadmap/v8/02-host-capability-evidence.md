@@ -19,7 +19,7 @@ ContentCloud
 
 两种宿主都支持 MCP，因此 ContentCloud 可以向一次执行尝试（`Attempt`）暴露自建的 `state.cas`、`child.propose`、`effect.prepare` 等受限工具。智能体只能提交子任务提议，不能直接创建节点；调用是否被允许、如何提交事务、如何恢复以及如何跨租户隔离，仍必须由 ContentCloud 服务端实现。
 
-官方能力证据核验截至 2026-08-05，仓库实现对账更新于 2026-08-09。本文件只引用届时可访问的官方公开资料和当前仓库代码；官方文档或 CLI 协议发生变化后，必须重新执行适配器兼容性验证，不能根据本文猜测新增能力。
+官方能力证据核验截至 2026-08-05，仓库实现对账更新于 2026-08-11。本文件只引用届时可访问的官方公开资料和当前仓库代码；官方文档或 CLI 协议发生变化后，必须重新执行适配器兼容性验证，不能根据本文猜测新增能力。
 
 ## 2. 官方来源
 
@@ -145,7 +145,7 @@ Codex 支持标准输入输出和 Streamable HTTP MCP，Claude Code 也支持标
 | Claude 使用 `stream-json`、真实 `session_id`、`--session-id`/`--resume` 的 Runtime Harness | 事件流、结构化结果、租户绑定和跨 Harness 实例 Resume 已接入 | 真实 Claude 在线 Start/中断/Resume smoke、CLI 版本兼容和权限与数据处理评审 |
 | ContextView、Yield/Resume、State/Effect 命令、Attempt 范围 MCP Gateway 和设备命令入口已实现 | 宿主对话不再承担业务恢复，工具调用必须经过 fence、ContextView allowlist 和 ToolCall 审计 | 真实宿主 MCP stdio/HTTP smoke、在线模型中断/恢复 |
 
-旧 `DurableHarness + SessionStore` 镜像没有生产消费者，已删除代码，并由 `00036_remove_runtime_session_mirror.sql` 前向删除表。`RuntimeAttempt.session_ref` 是唯一持久宿主绑定，完整 transcript 继续由 provider 拥有。
+旧 `DurableHarness + SessionStore` 镜像没有生产消费者，代码、迁移文件和正向测试均已删除。`RuntimeAttempt.session_ref` 是唯一持久宿主绑定，完整 transcript 继续由 provider 拥有；带旧 Session Mirror 迁移记录的开发库必须重建。
 
 ## 7. `AgentHarnessAdapter` 契约
 

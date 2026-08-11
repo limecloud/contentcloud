@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.dev/contracts/novel-canon-1.0.schema.json",
+  "title": "ContentCloud Novel Canon 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "series_id", "version", "characters", "locations", "world_rules", "open_threads", "timeline"],
+  "properties": {
+    "schema_version": {"const": "contentcloud.novel-canon/1.0"},
+    "series_id": {"type": "string", "minLength": 1},
+    "version": {"type": "integer", "minimum": 1},
+    "characters": {"type": "array", "items": {"$ref": "#/$defs/character"}},
+    "locations": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "world_rules": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "open_threads": {"type": "array", "items": {"$ref": "#/$defs/thread"}},
+    "timeline": {"type": "array", "items": {"$ref": "#/$defs/event"}}
+  },
+  "$defs": {
+    "character": {"type": "object", "additionalProperties": false, "required": ["id", "name", "aliases", "traits"], "properties": {"id": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}, "aliases": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "traits": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}},
+    "thread": {"type": "object", "additionalProperties": false, "required": ["id", "description", "opened_in"], "properties": {"id": {"type": "string", "minLength": 1}, "description": {"type": "string", "minLength": 1}, "opened_in": {"type": "integer", "minimum": 1}}},
+    "event": {"type": "object", "additionalProperties": false, "required": ["id", "order", "summary", "refs"], "properties": {"id": {"type": "string", "minLength": 1}, "order": {"type": "integer", "minimum": 1}, "summary": {"type": "string", "minLength": 1}, "refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}}
+  }
+}

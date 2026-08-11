@@ -247,8 +247,11 @@ export interface StudioPublication {
   id:string;
   project_name:string;
   destination:string;
+  account_ref:string;
   status:string;
-  published_at:string;
+  external_url?:string;
+  published_at?:string;
+  updated_at:string;
 }
 
 export interface StudioDeliveries {

@@ -145,7 +145,7 @@ func buildPublishCheckpoint(options publishBuildOptions) (domain.SubmissionBundl
 		counts[disclosure.Level]++
 	}
 	preflight := publishPreflight{
-		PreflightPlane: codexLocalExecutionPlane, ApplyPlane: "contentcloud_server",
+		PreflightPlane: localWorkspaceExecutionPlane, ApplyPlane: "contentcloud_server",
 		SubmissionType: options.SubmissionType, SchemaVersion: domain.SubmissionSchemaVersion(options.SubmissionType), Files: relativePaths(options.Root, resolvedFiles), ObjectCount: len(objects), BlockedCount: blocked,
 		DisclosureCount: counts, UploadBytes: fileBytes + disclosureBytes, ContentHash: bundle.ContentHash, IdempotencyKey: bundle.IdempotencyKey, EnvironmentHash: environmentDigest, WorkspaceStateHash: "sha256:" + workspaceStateHash, BaseSnapshotIDs: append([]string(nil), bundle.BaseSnapshotIDs...),
 		ReviewVisible: []string{"objects", "local_run_summary", "source_disclosures", "artifact_manifest"}, ExternalEffects: []string{"创建不可变的提交修订版本", "让审核人员查看结构化对象和已声明的来源披露"}, RawFilesUpload: false, RequiresConfirm: true,

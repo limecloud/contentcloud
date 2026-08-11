@@ -1,13 +1,9 @@
 package httpapi
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -121,26 +117,9 @@ func (s *Server) authenticateProviderIngress(w http.ResponseWriter, r *http.Requ
 		s.fail(w, r, "provider.ingress.auth", domain.Policy("PROVIDER_INGRESS_SECRET_UNAVAILABLE", "Provider ingress 未配置回调密钥", "在服务端密钥配置中登记当前租户和 Provider 的 HMAC 密钥"))
 		return "", "", nil, false
 	}
-	timestamp := strings.TrimSpace(r.Header.Get("X-ContentCloud-Timestamp"))
-	provided := strings.TrimSpace(r.Header.Get("X-ContentCloud-Signature"))
-	seconds, parseErr := strconv.ParseInt(timestamp, 10, 64)
-	if parseErr != nil || timestamp == "" || provided == "" || absDuration(time.Since(time.Unix(seconds, 0))) > providerIngressClockSkew {
-		s.fail(w, r, "provider.ingress.auth", domain.Invalid("PROVIDER_INGRESS_REPLAY", "Provider ingress 时间戳无效或已超出重放保护窗口"))
-		return "", "", nil, false
-	}
-	body, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, providerIngressBodyLimit+1))
-	if readErr != nil || int64(len(body)) > providerIngressBodyLimit {
-		s.fail(w, r, "provider.ingress.auth", domain.Invalid("PROVIDER_INGRESS_BODY_TOO_LARGE", "Provider ingress 请求体超过大小限制"))
-		return "", "", nil, false
-	}
-	digest := sha256.Sum256(body)
-	digestHex := hex.EncodeToString(digest[:])
-	message := timestamp + "\n" + digestHex + "\n" + r.URL.Path
-	mac := hmac.New(sha256.New, secret)
-	_, _ = mac.Write([]byte(message))
-	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-	if !hmac.Equal([]byte(expected), []byte(provided)) {
-		s.fail(w, r, "provider.ingress.auth", domain.Invalid("PROVIDER_INGRESS_SIGNATURE_INVALID", "Provider ingress 签名校验失败"))
+	body, _, authErr := verifySignedIngress(w, r, secret, "PROVIDER_INGRESS", "Provider")
+	if authErr != nil {
+		s.fail(w, r, "provider.ingress.auth", authErr)
 		return "", "", nil, false
 	}
 	return providerID, tenantID, body, true
@@ -154,11 +133,4 @@ func decodeProviderIngressBody(body []byte, out any) bool {
 	}
 	var extra any
 	return decoder.Decode(&extra) == io.EOF
-}
-
-func absDuration(value time.Duration) time.Duration {
-	if value < 0 {
-		return -value
-	}
-	return value
 }

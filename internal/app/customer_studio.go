@@ -192,11 +192,14 @@ type StudioDeliveryPackage struct {
 }
 
 type StudioPublication struct {
-	ID          string    `json:"id"`
-	ProjectName string    `json:"project_name"`
-	Destination string    `json:"destination"`
-	Status      string    `json:"status"`
-	PublishedAt time.Time `json:"published_at"`
+	ID          string     `json:"id"`
+	ProjectName string     `json:"project_name"`
+	Destination string     `json:"destination"`
+	AccountRef  string     `json:"account_ref"`
+	Status      string     `json:"status"`
+	ExternalURL string     `json:"external_url,omitempty"`
+	PublishedAt *time.Time `json:"published_at,omitempty"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 type StudioDeliveries struct {
@@ -1028,25 +1031,16 @@ func (s *Service) CustomerStudioDeliveries(ctx context.Context, actor Actor) (St
 			result.Packages = append(result.Packages, StudioDeliveryPackage{ID: value.ID, ProjectName: project.BrandName, Status: value.Status, Files: files, CreatedAt: value.CreatedAt})
 		}
 	}
-	tasks, err := s.WorkTasks(ctx, actor, "")
+	publications, err := s.ChannelPublications(ctx, actor, "")
 	if err != nil {
 		return StudioDeliveries{}, err
 	}
-	for _, task := range tasks {
-		deliveries, deliveryErr := s.WorkTaskDeliveries(ctx, actor, task.ID)
-		if deliveryErr != nil {
-			return StudioDeliveries{}, deliveryErr
-		}
-		for _, value := range deliveries {
-			if value.Status != domain.TaskDeliveryDelivered || value.DeliveredAt == nil {
-				continue
-			}
-			result.Publications = append(result.Publications, StudioPublication{ID: value.ID, ProjectName: projectNames[value.ProjectID], Destination: value.Destination, Status: value.Status, PublishedAt: *value.DeliveredAt})
-		}
+	for _, value := range publications {
+		result.Publications = append(result.Publications, StudioPublication{ID: value.ID, ProjectName: projectNames[value.ProjectID], Destination: value.Channel, AccountRef: value.AccountRef, Status: value.State, ExternalURL: value.ExternalURL, PublishedAt: value.PublishedAt, UpdatedAt: value.UpdatedAt})
 	}
 	sort.Slice(result.Packages, func(i, j int) bool { return result.Packages[i].CreatedAt.After(result.Packages[j].CreatedAt) })
 	sort.Slice(result.Publications, func(i, j int) bool {
-		return result.Publications[i].PublishedAt.After(result.Publications[j].PublishedAt)
+		return result.Publications[i].UpdatedAt.After(result.Publications[j].UpdatedAt)
 	})
 	return result, nil
 }

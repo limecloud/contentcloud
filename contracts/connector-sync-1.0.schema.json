@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.dev/contracts/connector-sync-1.0.schema.json",
+  "title": "ContentCloud Connector Sync Receipt 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "tenant_id", "project_id", "schema_version", "binding_id", "connector_id", "previous_cursor", "next_cursor", "records", "upsert_count", "tombstone_count", "has_more", "digest", "observed_at"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "schema_version": { "const": "contentcloud.connector-sync/1.0" },
+    "binding_id": { "type": "string", "minLength": 1 },
+    "connector_id": { "type": "string", "minLength": 1 },
+    "previous_cursor": { "type": "string" },
+    "next_cursor": { "type": "string" },
+    "records": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/record" } },
+    "upsert_count": { "type": "integer", "minimum": 0 },
+    "tombstone_count": { "type": "integer", "minimum": 0 },
+    "has_more": { "type": "boolean" },
+    "digest": { "$ref": "#/$defs/digest" },
+    "observed_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external_id", "version", "title", "deleted", "updated_at", "rights", "metadata"],
+      "properties": {
+        "external_id": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "source_url": { "type": "string", "format": "uri" },
+        "mime": { "type": "string" },
+        "digest": { "$ref": "#/$defs/digest" },
+        "deleted": { "type": "boolean" },
+        "deleted_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "rights": { "type": "object" },
+        "metadata": { "type": "object" }
+      }
+    }
+  }
+}

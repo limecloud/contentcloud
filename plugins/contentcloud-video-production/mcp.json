@@ -6,7 +6,7 @@
       "command": "npx",
       "args": [
         "--yes",
-        "@limecloud/contentcloud@0.23.1",
+        "@limecloud/contentcloud@0.24.0",
         "mcp",
         "serve"
       ],

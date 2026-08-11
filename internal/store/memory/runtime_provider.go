@@ -148,6 +148,72 @@ func (s *Store) ReceiveProviderInboxCommand(_ context.Context, message domain.Pr
 	return message, resultEffect, nil
 }
 
+func (s *Store) ReceiveAgentInboxCommand(_ context.Context, message domain.ProviderInboxMessage, event domain.JobEvent) (domain.ProviderInboxMessage, error) {
+	message.NormalizeCollections()
+	if err := message.Validate(); err != nil {
+		return message, err
+	}
+	if message.State != domain.ProviderInboxReceived || message.EffectID != "" || message.ProcessedAt != nil {
+		return message, domain.Invalid("AGENT_INBOX_STATE_INVALID", "Agent 回调首次入站必须处于 received 状态且不能绑定外部操作")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := providerInboxKey(message.TenantID, message.ProviderID, message.MessageID)
+	if existing, ok := s.runtimeProviderInbox[key]; ok {
+		if existing.ReceivedDigest != message.ReceivedDigest {
+			return existing, domain.Conflict("PROVIDER_INBOX_DIGEST_CONFLICT", "相同 Agent 回调消息 ID 的内容摘要不一致")
+		}
+		return existing, nil
+	}
+	if event.TenantID != message.TenantID || event.JobRunID != message.JobRunID {
+		return message, domain.Invalid("JOB_EVENT_SCOPE_INVALID", "Agent 回调事件不属于当前执行实例")
+	}
+	if err := validateCommandEvent(s, event); err != nil {
+		return message, err
+	}
+	s.runtimeProviderInbox[key] = message
+	appendRuntimeEventLocked(s, event)
+	return message, nil
+}
+
+func (s *Store) CompleteAgentInboxCommand(_ context.Context, message domain.ProviderInboxMessage, expectedVersion int, event domain.JobEvent) (domain.ProviderInboxMessage, error) {
+	message.NormalizeCollections()
+	if err := message.Validate(); err != nil {
+		return message, err
+	}
+	if message.State != domain.ProviderInboxApplied && message.State != domain.ProviderInboxFailed {
+		return message, domain.Invalid("AGENT_INBOX_STATE_INVALID", "Agent 回调只能收敛为 applied 或 failed")
+	}
+	if message.EffectID != "" || message.ProcessedAt == nil || message.Version != expectedVersion+1 {
+		return message, domain.Invalid("AGENT_INBOX_COMPLETION_INVALID", "Agent 回调完成状态缺少处理时间或版本不连续")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := providerInboxKey(message.TenantID, message.ProviderID, message.MessageID)
+	current, ok := s.runtimeProviderInbox[key]
+	if !ok {
+		return message, domain.NotFound("Agent 回调消息")
+	}
+	if current.ReceivedDigest != message.ReceivedDigest || current.ID != message.ID {
+		return current, domain.Conflict("PROVIDER_INBOX_DIGEST_CONFLICT", "Agent 回调完成状态与入站事实不一致")
+	}
+	if current.State == message.State && current.Version == message.Version {
+		return current, nil
+	}
+	if current.State != domain.ProviderInboxReceived || current.Version != expectedVersion {
+		return current, domain.Conflict("AGENT_INBOX_VERSION_CONFLICT", "Agent 回调已被其他处理器更新")
+	}
+	if event.TenantID != message.TenantID || event.JobRunID != message.JobRunID {
+		return message, domain.Invalid("JOB_EVENT_SCOPE_INVALID", "Agent 回调完成事件不属于当前执行实例")
+	}
+	if err := validateCommandEvent(s, event); err != nil {
+		return message, err
+	}
+	s.runtimeProviderInbox[key] = message
+	appendRuntimeEventLocked(s, event)
+	return message, nil
+}
+
 func providerEffectEqual(left, right domain.ExternalEffect) bool {
 	return left.ID == right.ID && left.TenantID == right.TenantID && left.JobRunID == right.JobRunID &&
 		left.NodeRunID == right.NodeRunID && left.AttemptID == right.AttemptID && left.ResourceReservationID == right.ResourceReservationID &&

@@ -59,13 +59,9 @@ func TestTaskLifecycleRevisionAndDelivery(t *testing.T) {
 	if err != nil || revision.Status != domain.TaskRevisionAccepted {
 		t.Fatalf("revision should be accepted after final stage: %#v err=%v", revision, err)
 	}
-	if _, err := service.CreateTaskDelivery(ctx, actor, view.Task.ID, app.CreateTaskDeliveryInput{RevisionID: revision.ID, Destination: "workspace"}, ""); err == nil {
-		t.Fatal("empty client manifest must not create a delivered record")
-	}
-	deliver := false
-	delivery, err := service.CreateTaskDelivery(ctx, actor, view.Task.ID, app.CreateTaskDeliveryInput{RevisionID: revision.ID, Destination: "workspace", Deliver: &deliver}, "")
+	delivery, err := service.CreateTaskDelivery(ctx, actor, view.Task.ID, app.CreateTaskDeliveryInput{RevisionID: revision.ID, Destination: "workspace"}, "")
 	if err != nil || delivery.Status != domain.TaskDeliveryReady || delivery.IntegrityStatus != "script_only" {
-		t.Fatalf("script-only delivery projection was not created: %#v err=%v", delivery, err)
+		t.Fatalf("delivery must default to an explicit ready state: %#v err=%v", delivery, err)
 	}
 	view, err = service.WorkTask(ctx, actor, view.Task.ID)
 	if err != nil || view.Task.Status != domain.TaskStatusAccepted || len(view.Deliveries) != 1 {

@@ -24,6 +24,7 @@
     "selected_title_id": {"type": "string", "minLength": 1},
     "summary": {"type": "string", "minLength": 1, "maxLength": 120},
     "author_display_name": {"type": "string", "minLength": 1},
+    "original_url": {"type": "string", "format": "uri"},
     "cover": {"$ref": "#/$defs/image"},
     "blocks": {"type": "array", "items": {"$ref": "#/$defs/block"}},
     "attribution": {"$ref": "#/$defs/attribution"},

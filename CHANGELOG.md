@@ -2,6 +2,20 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.24.0] - 2026-08-11
+
+### Added
+
+- 增加多内容基础设施：渠道发布回执、模型生成回执、连接器同步、内容画像、渠道回调与 Agent Harness 回调。
+- 增加文章、来源、小说、抖音电商校验及 Agent 执行等领域合同和 OpenAPI 接口，并补齐 Memory/PostgreSQL 存储与 CLI/Web 入口。
+- 增加渠道、连接器、模型、内容画像、来源和回调的 PostgreSQL 迁移（`00044` 至 `00048`）。
+- 扩展 Runtime、工作区本地文件、内容摄取和服务端治理检查，覆盖远程 Harness 与回调的安全边界。
+
+### Changed
+
+- Server、Worker、Web、CLI、Plugin、MCP 和 Environment Profile 统一升级到 `0.24.0`。
+- 收敛多内容生产与渠道交付的事实来源，补充运行手册、基础设施文档和架构约束。
+
 ## [0.23.1] - 2026-08-10
 
 ### Fixed

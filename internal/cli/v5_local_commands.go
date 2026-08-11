@@ -9,7 +9,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 )
 
-const codexLocalExecutionPlane = "codex_local"
+const localWorkspaceExecutionPlane = "local_workspace"
 
 func (r *Root) localAudienceCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "audience", Short: "创建和校验本地抖音人群策略候选方案"}
@@ -217,8 +217,93 @@ func (r *Root) localSeedanceCommand() *cobra.Command {
 	return cmd
 }
 
+func (r *Root) localDouyinCommerceCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "douyin-commerce", Short: "校验抖音电商最终成片、商品事实和发布血缘"}
+
+	var directory, audienceSnapshotID, audienceID, offerSnapshotID, offerID, contentSnapshotID, contentID string
+	var storyboardSnapshotID, storyboardID, artifactID, artifactFile, landingTextFile, accountRef, anchorRef, landingRef, outputFile string
+	var benefits, conditions []string
+	var scheduledAt time.Time
+	validate := &cobra.Command{Use: "validate", Args: cobra.NoArgs, Short: "生成不可变的抖音电商发布前校验回执", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := r.requireLocalContentType(directory, domain.ContentTypeVideoScript); err != nil {
+			return err
+		}
+		result, err := localworkspace.ValidateDouyinCommerce(localworkspace.ValidateDouyinCommerceOptions{
+			Root:                               directory,
+			AudienceStrategyApprovedSnapshotID: audienceSnapshotID, AudienceStrategyVersionID: audienceID,
+			OfferApprovedSnapshotID: offerSnapshotID, OfferSnapshotID: offerID,
+			ContentApprovedSnapshotID: contentSnapshotID, ContentItemID: contentID,
+			StoryboardApprovedSnapshotID: storyboardSnapshotID, StoryboardPackageID: storyboardID,
+			RenderedCreativeArtifactID: artifactID, RenderedCreativeFile: artifactFile, LandingPageTextFile: landingTextFile,
+			ObservedBenefits: benefits, ObservedConditions: conditions,
+			AccountRef: accountRef, ProductAnchorRef: anchorRef, LandingPageRef: landingRef,
+			ScheduledAt: scheduledAt, ValidatedAt: r.currentTime(), OutputFile: outputFile,
+		})
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.douyin-commerce.validate", localExecutionResult(map[string]any{"validation": result, "authority": "validated_local_delivery"}))
+	}}
+	validate.Flags().StringVar(&directory, "directory", "", "工作区路径；默认使用当前目录")
+	validate.Flags().StringVar(&audienceSnapshotID, "audience-snapshot", "", "AudienceStrategyVersion 所在的批准快照 ID")
+	validate.Flags().StringVar(&audienceID, "audience", "", "已批准的 AudienceStrategyVersion ID")
+	validate.Flags().StringVar(&offerSnapshotID, "offer-snapshot", "", "CommerceOfferSnapshot 所在的批准快照 ID")
+	validate.Flags().StringVar(&offerID, "offer", "", "已批准的 CommerceOfferSnapshot ID")
+	validate.Flags().StringVar(&contentSnapshotID, "content-snapshot", "", "ContentItem 所在的批准快照 ID")
+	validate.Flags().StringVar(&contentID, "content-item", "", "已批准的 ContentItem ID")
+	validate.Flags().StringVar(&storyboardSnapshotID, "storyboard-snapshot", "", "StoryboardPackage 所在的批准快照 ID")
+	validate.Flags().StringVar(&storyboardID, "storyboard", "", "已批准的 StoryboardPackage ID")
+	validate.Flags().StringVar(&artifactID, "artifact-id", "", "DeliveryPackage 中最终成片 Artifact ID")
+	validate.Flags().StringVar(&artifactFile, "artifact-file", "", "工作区内最终成片文件")
+	validate.Flags().StringVar(&landingTextFile, "landing-page-text", "", "工作区内用于发布的落地页纯文本文件")
+	validate.Flags().StringSliceVar(&benefits, "benefit", nil, "正文中出现且由 Offer 允许的权益；可重复")
+	validate.Flags().StringSliceVar(&conditions, "condition", nil, "正文中出现且由 Offer 允许的条件；可重复")
+	validate.Flags().StringVar(&accountRef, "account-ref", "", "固定的抖音账号引用")
+	validate.Flags().StringVar(&anchorRef, "product-anchor-ref", "", "固定的商品锚点引用")
+	validate.Flags().StringVar(&landingRef, "landing-page-ref", "", "固定的落地页引用")
+	validate.Flags().TimeVar(&scheduledAt, "scheduled-at", time.Time{}, []string{time.RFC3339}, "计划发布时间（RFC3339）")
+	validate.Flags().StringVar(&outputFile, "out", "", "校验回执输出路径")
+	_ = validate.MarkFlagRequired("audience-snapshot")
+	_ = validate.MarkFlagRequired("audience")
+	_ = validate.MarkFlagRequired("offer-snapshot")
+	_ = validate.MarkFlagRequired("offer")
+	_ = validate.MarkFlagRequired("content-snapshot")
+	_ = validate.MarkFlagRequired("content-item")
+	_ = validate.MarkFlagRequired("storyboard-snapshot")
+	_ = validate.MarkFlagRequired("storyboard")
+	_ = validate.MarkFlagRequired("artifact-id")
+	_ = validate.MarkFlagRequired("artifact-file")
+	_ = validate.MarkFlagRequired("landing-page-text")
+	_ = validate.MarkFlagRequired("account-ref")
+	_ = validate.MarkFlagRequired("product-anchor-ref")
+	_ = validate.MarkFlagRequired("landing-page-ref")
+	_ = validate.MarkFlagRequired("scheduled-at")
+
+	var lintDirectory, lintArtifactFile, lintLandingTextFile string
+	lint := &cobra.Command{Use: "lint <validation-receipt.json>", Args: cobra.ExactArgs(1), Short: "复算校验回执并检测批准输入、成片和落地页漂移", RunE: func(cmd *cobra.Command, args []string) error {
+		report, receipt, err := localworkspace.LintDouyinCommerceReceipt(lintDirectory, args[0], lintArtifactFile, lintLandingTextFile)
+		if err != nil {
+			return err
+		}
+		if !report.Valid {
+			lintErr := domain.Invalid("DOUYIN_COMMERCE_RECEIPT_LINT_FAILED", "抖音电商校验回执复算失败")
+			lintErr.Details = report
+			return lintErr
+		}
+		return r.writeOK("local.douyin-commerce.lint", localExecutionResult(map[string]any{"receipt": receipt, "report": report, "authority": "validated_local_delivery"}))
+	}}
+	lint.Flags().StringVar(&lintDirectory, "directory", "", "工作区路径；默认使用当前目录")
+	lint.Flags().StringVar(&lintArtifactFile, "artifact-file", "", "工作区内最终成片文件")
+	lint.Flags().StringVar(&lintLandingTextFile, "landing-page-text", "", "工作区内用于发布的落地页纯文本文件")
+	_ = lint.MarkFlagRequired("artifact-file")
+	_ = lint.MarkFlagRequired("landing-page-text")
+
+	cmd.AddCommand(validate, lint)
+	return cmd
+}
+
 func localExecutionResult(data map[string]any) map[string]any {
-	data["execution_plane"] = codexLocalExecutionPlane
+	data["execution_plane"] = localWorkspaceExecutionPlane
 	if _, exists := data["authority"]; !exists {
 		data["authority"] = "candidate_only"
 	}

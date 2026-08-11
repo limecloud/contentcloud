@@ -54,7 +54,7 @@ Codex CLI 已提供稳定的 JSONL 执行协议和持久 thread：新执行以 `
 ## 兼容与迁移
 
 - `DurableHarness`、`SessionStore`、PostgreSQL 实现和正向测试删除，不保留 compat 包装。
-- 迁移 `00036_remove_runtime_session_mirror.sql` 前向删除 `runtime_agent_session_events` 和 `runtime_agent_sessions`；`00030` 仅保留为已发布迁移历史。
+- `runtime_agent_sessions` 和 `runtime_agent_session_events` 从首个用户迁移基线中删除；创建/删除它们的历史迁移文件与正向测试不再存在。已有开发库遇到旧版本记录时必须重建。
 - 架构扫描禁止在生产 Go 中恢复旧类型、表名或 `--ephemeral` Codex Runtime 路径。
 - 旧 Attempt 没有真实 provider thread 时不能伪造；由 lease 回收并按新 ContextView 创建新 Attempt。
 

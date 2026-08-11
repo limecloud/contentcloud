@@ -5,8 +5,10 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/csv"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"html"
 	"io"
 	"os"
 	"os/exec"
@@ -35,6 +37,7 @@ type Evidence struct {
 }
 
 func DetectMIME(data []byte) string {
+	trimmed := bytes.TrimSpace(data)
 	switch {
 	case len(data) >= 5 && string(data[:5]) == "%PDF-":
 		return "application/pdf"
@@ -62,6 +65,10 @@ func DetectMIME(data []byte) string {
 			}
 		}
 		return "application/zip"
+	case len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') && json.Valid(trimmed):
+		return "application/json"
+	case len(trimmed) > 0 && trimmed[0] == '<' && bytes.Contains(trimmed, []byte{'>'}):
+		return "text/html"
 	case utf8.Valid(data) && !bytes.ContainsRune(data, '\x00'):
 		return "text/plain"
 	default:
@@ -74,6 +81,10 @@ func Parse(fileName, mimeType string, data []byte) Result {
 	var err error
 	switch mimeType {
 	case "text/plain":
+		evidence = textEvidence(string(data))
+	case "text/html":
+		evidence = htmlEvidence(string(data))
+	case "application/json":
 		evidence = textEvidence(string(data))
 	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
 		evidence, err = parseDOCX(data)
@@ -102,6 +113,50 @@ func Parse(fileName, mimeType string, data []byte) Result {
 		}
 	}
 	return Result{Status: status, Evidence: evidence}
+}
+
+// htmlEvidence keeps the ingestion dependency-free while handling the common
+// web-document path. Script/style blocks are discarded and block elements
+// become paragraph boundaries; raw markup never enters evidence quotes.
+func htmlEvidence(value string) []Evidence {
+	value = strings.ReplaceAll(value, "\r", "")
+	for _, tag := range []string{"script", "style", "noscript", "svg"} {
+		for {
+			lower := strings.ToLower(value)
+			start := strings.Index(lower, "<"+tag)
+			if start < 0 {
+				break
+			}
+			end := strings.Index(lower[start:], "</"+tag+">")
+			if end < 0 {
+				value = value[:start]
+				break
+			}
+			value = value[:start] + value[start+end+len("</"+tag+">"):]
+		}
+	}
+	var builder strings.Builder
+	inTag := false
+	for _, r := range value {
+		switch r {
+		case '<':
+			inTag = true
+			builder.WriteByte(' ')
+		case '>':
+			inTag = false
+			builder.WriteByte(' ')
+		default:
+			if !inTag {
+				builder.WriteRune(r)
+			}
+		}
+	}
+	text := html.UnescapeString(builder.String())
+	text = strings.Join(strings.Fields(text), " ")
+	if text == "" {
+		return nil
+	}
+	return []Evidence{{LocatorKind: "document", Locator: map[string]any{"format": "html"}, QuoteText: text}}
 }
 
 func textEvidence(value string) []Evidence {

@@ -107,6 +107,8 @@ func main() {
 		}()
 	}
 	httpOptions := providerCallbackHTTPOptions(os.Getenv("CONTENTCLOUD_PROVIDER_CALLBACK_SECRETS"))
+	httpOptions = append(httpOptions, channelCallbackHTTPOptions(os.Getenv("CONTENTCLOUD_CHANNEL_CALLBACK_SECRETS"))...)
+	httpOptions = append(httpOptions, agentCallbackHTTPOptions(os.Getenv("CONTENTCLOUD_AGENT_CALLBACK_SECRETS"))...)
 	server := &http.Server{Addr: addr, Handler: httpapi.New(service, logger, devMode, webDist, httpOptions...).Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		logger.Info("contentcloud server listening", "addr", addr, "dev_mode", devMode, "zero_exec", true)
@@ -124,7 +126,19 @@ func main() {
 	_ = server.Shutdown(ctx)
 }
 
+func channelCallbackHTTPOptions(raw string) []httpapi.Option {
+	return scopedCallbackHTTPOptions(raw, httpapi.WithChannelCallbackSecret)
+}
+
 func providerCallbackHTTPOptions(raw string) []httpapi.Option {
+	return scopedCallbackHTTPOptions(raw, httpapi.WithProviderCallbackSecret)
+}
+
+func agentCallbackHTTPOptions(raw string) []httpapi.Option {
+	return scopedCallbackHTTPOptions(raw, httpapi.WithAgentCallbackSecret)
+}
+
+func scopedCallbackHTTPOptions(raw string, option func(string, string, []byte) httpapi.Option) []httpapi.Option {
 	options := []httpapi.Option{}
 	for _, entry := range splitValues(raw) {
 		parts := strings.SplitN(entry, "=", 2)
@@ -135,7 +149,7 @@ func providerCallbackHTTPOptions(raw string) []httpapi.Option {
 		if len(scope) != 2 || strings.TrimSpace(scope[0]) == "" || strings.TrimSpace(scope[1]) == "" || strings.TrimSpace(parts[1]) == "" {
 			continue
 		}
-		options = append(options, httpapi.WithProviderCallbackSecret(scope[0], scope[1], []byte(parts[1])))
+		options = append(options, option(scope[0], scope[1], []byte(parts[1])))
 	}
 	return options
 }

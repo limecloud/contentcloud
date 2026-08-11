@@ -9,7 +9,6 @@ import (
 
 const (
 	KnowledgeObjectSchema   = "contentcloud.knowledge-object/1.0"
-	KnowledgePackSchema     = "contentcloud.knowledge-pack/1.0"
 	KnowledgeSnapshotSchema = "contentcloud.knowledge-snapshot/1.0"
 )
 

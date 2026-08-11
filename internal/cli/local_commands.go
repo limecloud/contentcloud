@@ -12,7 +12,7 @@ import (
 
 func (r *Root) localCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "local", Short: "运行本地优先的来源、知识和任务工作流"}
-	cmd.AddCommand(r.localSourceCommand(), r.localRunCommand(), r.localHandoffCommand(), r.localKnowledgeCommand(), r.localAudienceCommand(), r.localOfferCommand(), r.localBriefCommand(), r.localContentCommand(), r.localArticleCommand(), r.localWeChatCommand(), r.localStoryboardCommand(), r.localSeedanceCommand())
+	cmd.AddCommand(r.localSourceCommand(), r.localRunCommand(), r.localHandoffCommand(), r.localKnowledgeCommand(), r.localAudienceCommand(), r.localOfferCommand(), r.localBriefCommand(), r.localContentCommand(), r.localArticleCommand(), r.localWeChatCommand(), r.localStoryboardCommand(), r.localSeedanceCommand(), r.localDouyinCommerceCommand())
 	return cmd
 }
 
@@ -174,7 +174,21 @@ func (r *Root) localWeChatCommand() *cobra.Command {
 		return r.writeOK("local.wechat.package.lint", report)
 	}}
 	lint.Flags().StringVar(&lintDirectory, "directory", "", "工作区路径；默认为当前目录")
-	packageCommand.AddCommand(export, lint)
+	var inspectDirectory, observedFile string
+	inspect := &cobra.Command{Use: "inspect-dom <package.json>", Args: cobra.ExactArgs(1), Short: "比较平台粘贴清洗后的 HTML 与交付包 DOM", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := r.requireLocalContentType(inspectDirectory, domain.ContentTypeWeChatArticle); err != nil {
+			return err
+		}
+		report, err := localworkspace.InspectWeChatPlatformDOM(inspectDirectory, args[0], observedFile, r.currentTime())
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.wechat.package.inspect_dom", report)
+	}}
+	inspect.Flags().StringVar(&inspectDirectory, "directory", "", "工作区路径；默认为当前目录")
+	inspect.Flags().StringVar(&observedFile, "observed", "", "从微信编辑器复制回来的 HTML 文件")
+	_ = inspect.MarkFlagRequired("observed")
+	packageCommand.AddCommand(export, lint, inspect)
 	cmd.AddCommand(packageCommand)
 	return cmd
 }

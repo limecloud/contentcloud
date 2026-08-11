@@ -1,7 +1,7 @@
 export interface User { id: string; email: string; display_name: string }
 export interface Tenant { id: string; name: string; slug: string; status:string; created_at:string }
 export interface Session { user: User; tenant: Tenant; role: string; is_platform_admin:boolean }
-export type ContentType = 'video_script'|'marketing_video'|'wechat_article';
+export type ContentType = 'video_script'|'marketing_video'|'wechat_article'|'serialized_novel';
 export interface PlatformTenant extends Tenant { member_count:number; project_count:number; device_count:number; active_run_count:number; content_types:ContentType[]; last_activity_at?:string }
 export interface PlatformUserMembership { tenant_id:string; tenant_name:string; role:string; status:string }
 export interface PlatformUser { id:string; email:string; display_name:string; verified_at?:string; created_at:string; is_platform_admin:boolean; memberships:PlatformUserMembership[] }

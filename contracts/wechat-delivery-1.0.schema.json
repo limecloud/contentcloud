@@ -4,21 +4,25 @@
   "title": "ContentCloud WeChatDeliveryPackage 1.0",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "id", "project_id", "approved_snapshot_id", "content_item_id", "content_digest", "channel_profile_ref", "renderer", "files", "asset_mapping", "external_actions", "checks", "status", "created_at"],
+  "required": ["schema_version", "id", "project_id", "approved_snapshot_id", "content_item_id", "content_digest", "channel_profile_ref", "metadata", "layout_profile", "dom_integrity", "files", "asset_mapping", "lineage", "external_actions", "checks", "status", "created_at"],
   "properties": {
     "schema_version": {"const": "contentcloud.wechat-delivery/1.0"},
     "id": {"type": "string", "minLength": 1},
     "project_id": {"type": "string", "minLength": 1},
     "approved_snapshot_id": {"type": "string", "minLength": 1},
     "content_item_id": {"type": "string", "minLength": 1},
-    "content_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "content_digest": {"$ref": "#/$defs/digest"},
     "channel_profile_ref": {"const": "channel:wechat-official-account-cn@1.0.0"},
-    "renderer": {"type": "object", "additionalProperties": false, "required": ["capability_id", "version", "digest"], "properties": {"capability_id": {"const": "contentcloud.wechat.package"}, "version": {"const": "1.0.0"}, "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}}},
-    "files": {"type": "array", "minItems": 4, "items": {"type": "object", "additionalProperties": false, "required": ["format", "path", "media_type", "sha256", "byte_size"], "properties": {"format": {"type": "string"}, "path": {"type": "string"}, "media_type": {"type": "string"}, "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "byte_size": {"type": "integer", "minimum": 0}}}},
+    "metadata": {"type": "object", "additionalProperties": false, "required": ["title", "summary", "author", "cover_asset_ref"], "properties": {"title": {"type": "string", "minLength": 1, "maxLength": 64}, "summary": {"type": "string", "minLength": 1, "maxLength": 120}, "author": {"type": "string", "minLength": 1}, "cover_asset_ref": {"type": "string"}, "original_url": {"type": "string", "format": "uri"}}},
+    "layout_profile": {"type": "object", "additionalProperties": false, "required": ["capability_id", "template_id", "template_version", "template_digest", "channel_profile_digest"], "properties": {"capability_id": {"const": "content.wechat.layout"}, "template_id": {"const": "wechat-editorial-clean"}, "template_version": {"const": "1.0.0"}, "template_digest": {"$ref": "#/$defs/digest"}, "channel_profile_digest": {"$ref": "#/$defs/digest"}}},
+    "dom_integrity": {"type": "object", "additionalProperties": false, "required": ["compiled_digest", "sanitized_digest", "sanitize_changed"], "properties": {"compiled_digest": {"$ref": "#/$defs/digest"}, "sanitized_digest": {"$ref": "#/$defs/digest"}, "sanitize_changed": {"type": "boolean"}}},
+    "files": {"type": "array", "minItems": 5, "items": {"type": "object", "additionalProperties": false, "required": ["format", "path", "media_type", "sha256", "byte_size"], "properties": {"format": {"type": "string"}, "path": {"type": "string"}, "media_type": {"type": "string"}, "sha256": {"$ref": "#/$defs/digest"}, "byte_size": {"type": "integer", "minimum": 0}}}},
     "asset_mapping": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["block_id", "asset_ref", "rights_ref", "purpose", "state"], "properties": {"block_id": {"type": "string"}, "asset_ref": {"type": "string"}, "rights_ref": {"type": "string"}, "purpose": {"type": "string"}, "state": {"const": "manual_upload_required"}}}},
+    "lineage": {"type": "object", "additionalProperties": false, "required": ["approved_snapshot_id", "content_item_id", "artifacts", "delivery_package_id"], "properties": {"approved_snapshot_id": {"type": "string", "minLength": 1}, "content_item_id": {"type": "string", "minLength": 1}, "artifacts": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["role", "path", "digest"], "properties": {"role": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "digest": {"$ref": "#/$defs/digest"}}}}, "delivery_package_id": {"type": "string", "minLength": 1}}},
     "external_actions": {"type": "array", "items": {"enum": ["manual_login", "manual_asset_upload", "manual_preview", "manual_publish", "record_external_binding"]}},
     "checks": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["name", "status"], "properties": {"name": {"type": "string"}, "status": {"const": "passed"}}}},
     "status": {"const": "validated"},
     "created_at": {"type": "string", "format": "date-time"}
-  }
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}}
 }

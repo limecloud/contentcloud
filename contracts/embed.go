@@ -83,6 +83,9 @@ var AudienceStrategyV1Schema []byte
 //go:embed commerce-offer-1.0.schema.json
 var CommerceOfferV1Schema []byte
 
+//go:embed douyin-commerce-validation-1.0.schema.json
+var DouyinCommerceValidationV1Schema []byte
+
 //go:embed storyboard-package-1.0.schema.json
 var StoryboardPackageV1Schema []byte
 
@@ -91,6 +94,36 @@ var SeedancePromptPackageV1Schema []byte
 
 //go:embed published-creative-binding-1.0.schema.json
 var PublishedCreativeBindingV1Schema []byte
+
+//go:embed source-intake-1.0.schema.json
+var SourceIntakeV1Schema []byte
+
+//go:embed channel-publication-1.0.schema.json
+var ChannelPublicationV1Schema []byte
+
+//go:embed channel-callback-1.0.schema.json
+var ChannelCallbackV1Schema []byte
+
+//go:embed model-generation-1.0.schema.json
+var ModelGenerationV1Schema []byte
+
+//go:embed connector-sync-1.0.schema.json
+var ConnectorSyncV1Schema []byte
+
+//go:embed agent-execution-1.0.schema.json
+var AgentExecutionV1Schema []byte
+
+//go:embed novel-canon-1.0.schema.json
+var NovelCanonV1Schema []byte
+
+//go:embed novel-outline-1.0.schema.json
+var NovelOutlineV1Schema []byte
+
+//go:embed novel-chapter-1.0.schema.json
+var NovelChapterV1Schema []byte
+
+//go:embed novel-release-1.0.schema.json
+var NovelReleaseV1Schema []byte
 
 //go:embed openapi.yaml
 var OpenAPIYAML []byte

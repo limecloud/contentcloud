@@ -536,6 +536,42 @@ func (r *Root) deviceGrantCommand(action, short string) *cobra.Command {
 func (r *Root) sourceCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "source", Short: "上传和查看受治理的来源文件"}
 	cmd.AddCommand(r.projectListCommand("list", "source.list", "列出项目来源", "project_id"))
+	var searchLimit int
+	search := &cobra.Command{Use: "search <query>", Args: cobra.ExactArgs(1), Short: "搜索公开来源或验证 URL 入口", RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, client, _, err := r.userClient()
+		if err != nil {
+			return err
+		}
+		projectID, err := localconfig.ResolveProject(r.projectID, cfg)
+		if err != nil {
+			return domain.Invalid("PROJECT_CONTEXT_REQUIRED", "未解析到唯一项目上下文")
+		}
+		var result app.SearchSourcesResult
+		if err := client.Dispatch(cmd.Context(), "source.search", app.SearchSourcesInput{ProjectID: projectID, Query: args[0], Limit: searchLimit}, &result); err != nil {
+			return err
+		}
+		return r.writeOK("source.search", result)
+	}}
+	search.Flags().IntVar(&searchLimit, "limit", 10, "最多返回的结果数量")
+	var fetchName, fetchType string
+	fetch := &cobra.Command{Use: "fetch <url>", Args: cobra.ExactArgs(1), Short: "在安全策略允许的范围内采集公开来源", RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, client, _, err := r.userClient()
+		if err != nil {
+			return err
+		}
+		projectID, err := localconfig.ResolveProject(r.projectID, cfg)
+		if err != nil {
+			return domain.Invalid("PROJECT_CONTEXT_REQUIRED", "未解析到唯一项目上下文")
+		}
+		var result app.FetchSourceReceipt
+		if err := client.Dispatch(cmd.Context(), "source.fetch", app.FetchSourceInput{ProjectID: projectID, URL: args[0], Name: fetchName, SourceType: fetchType}, &result); err != nil {
+			return err
+		}
+		return r.writeOK("source.fetch", result)
+	}}
+	fetch.Flags().StringVar(&fetchName, "name", "", "逻辑来源名称")
+	fetch.Flags().StringVar(&fetchType, "type", "web_fetch", "来源类型")
+	cmd.AddCommand(search, fetch)
 	var name, sourceType, mimeType string
 	var uploadDryRun bool
 	upload := &cobra.Command{Use: "upload <file>", Args: cobra.ExactArgs(1), Short: "上传一个受支持且不可变的来源版本", RunE: func(cmd *cobra.Command, args []string) error {

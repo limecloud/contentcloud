@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.dev/contracts/novel-chapter-1.0.schema.json",
+  "title": "ContentCloud Novel Chapter 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "series_id", "chapter_no", "title", "summary", "body", "outline_ref", "character_refs", "location_refs", "resolved_threads", "opened_threads", "timeline_order", "status", "approved_snapshot_id"],
+  "properties": {
+    "schema_version": {"const": "contentcloud.novel-chapter/1.0"},
+    "id": {"type": "string", "minLength": 1},
+    "series_id": {"type": "string", "minLength": 1},
+    "chapter_no": {"type": "integer", "minimum": 1},
+    "title": {"type": "string", "minLength": 1},
+    "summary": {"type": "string", "minLength": 1},
+    "body": {"type": "string", "minLength": 1},
+    "outline_ref": {"type": "string", "minLength": 1},
+    "character_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "location_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "resolved_threads": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "opened_threads": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["id", "description", "opened_in"], "properties": {"id": {"type": "string", "minLength": 1}, "description": {"type": "string", "minLength": 1}, "opened_in": {"type": "integer", "minimum": 1}}}},
+    "timeline_order": {"type": "integer", "minimum": 1},
+    "status": {"enum": ["draft", "review_ready", "approved"]},
+    "approved_snapshot_id": {"type": "string", "minLength": 1}
+  }
+}

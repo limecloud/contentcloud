@@ -2,9 +2,7 @@ package app
 
 import (
 	"context"
-	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/domain"
@@ -121,11 +119,6 @@ func builtinSOPTemplates() []builtinSOPTemplate {
 }
 
 func (s *Service) ensureBuiltinSOPs(ctx context.Context, actor Actor, current []domain.SOPSummary) ([]domain.SOPSummary, error) {
-	var err error
-	current, err = s.migrateLegacyBuiltinSOPs(ctx, actor, current)
-	if err != nil {
-		return nil, err
-	}
 	for _, template := range builtinSOPTemplates() {
 		summary, found := findSOPTemplate(current, template)
 		if !found {
@@ -137,85 +130,11 @@ func (s *Service) ensureBuiltinSOPs(ctx context.Context, actor Actor, current []
 			}
 			continue
 		}
-		adopted, err := s.adoptBuiltinDefinition(ctx, summary, template)
-		if err != nil {
-			return nil, err
-		}
-		summary = adopted
 		if err := s.ensureBuiltinVersion(ctx, actor, summary, template); err != nil {
 			return nil, err
 		}
 	}
 	return s.store.SOPs(ctx, actor.TenantID)
-}
-
-// migrateLegacyBuiltinSOPs is a one-time, tenant-scoped data migration. The
-// exact legacy shape is recognized only while the current template identity is
-// absent; once TemplateKey is written, subsequent reads take the current path.
-// Historical published versions remain immutable so existing bindings keep
-// their original digest and can still be audited.
-func (s *Service) migrateLegacyBuiltinSOPs(ctx context.Context, actor Actor, current []domain.SOPSummary) ([]domain.SOPSummary, error) {
-	template, ok := builtinSOPTemplateForKey(builtinSOPShortVideo)
-	if !ok {
-		return current, nil
-	}
-	if _, found := findSOPTemplate(current, template); found {
-		return current, nil
-	}
-	legacy, ok := matchLegacyShortVideo(current)
-	if !ok {
-		return current, nil
-	}
-	definition := legacy.Definition
-	definition.TemplateKey = template.Key
-	definition.BuiltIn = true
-	definition.SourceRef = template.SourceRef
-	definition.UpdatedAt = s.now().UTC()
-	if err := s.store.SaveSOPDefinition(ctx, definition); err != nil {
-		return nil, err
-	}
-	for index := range current {
-		if current[index].Definition.ID == definition.ID {
-			current[index].Definition = definition
-			break
-		}
-	}
-	s.audit(ctx, actor, "", "sop.legacy_migrated", "sop_definition", definition.ID, "", map[string]any{
-		"template_key":                 template.Key,
-		"historical_version_preserved": true,
-	})
-	return current, nil
-}
-
-func builtinSOPTemplateForKey(key string) (builtinSOPTemplate, bool) {
-	for _, template := range builtinSOPTemplates() {
-		if template.Key == key {
-			return template, true
-		}
-	}
-	return builtinSOPTemplate{}, false
-}
-
-// adoptBuiltinDefinition repairs metadata written before built-in templates
-// had explicit identity fields. It only adopts a known platform ID or key;
-// arbitrary same-name custom SOPs remain untouched.
-func (s *Service) adoptBuiltinDefinition(ctx context.Context, summary domain.SOPSummary, template builtinSOPTemplate) (domain.SOPSummary, error) {
-	definition := summary.Definition
-	if definition.BuiltIn && definition.TemplateKey == template.Key && definition.SourceRef == template.SourceRef {
-		return summary, nil
-	}
-	if definition.ID != template.ID && definition.TemplateKey != template.Key {
-		return summary, nil
-	}
-	definition.TemplateKey = template.Key
-	definition.BuiltIn = true
-	definition.SourceRef = template.SourceRef
-	definition.UpdatedAt = s.now().UTC()
-	if err := s.store.SaveSOPDefinition(ctx, definition); err != nil {
-		return domain.SOPSummary{}, err
-	}
-	summary.Definition = definition
-	return summary, nil
 }
 
 func (s *Service) ensureBuiltinVersion(ctx context.Context, actor Actor, summary domain.SOPSummary, template builtinSOPTemplate) error {
@@ -258,28 +177,9 @@ func builtinSOPVersion(template builtinSOPTemplate, sopID string, version int, a
 
 func findSOPTemplate(sops []domain.SOPSummary, template builtinSOPTemplate) (domain.SOPSummary, bool) {
 	for _, summary := range sops {
-		if summary.Definition.TemplateKey == template.Key || summary.Definition.ID == template.ID {
+		definition := summary.Definition
+		if definition.ID == template.ID && definition.TemplateKey == template.Key && definition.BuiltIn && definition.SourceRef == template.SourceRef {
 			return summary, true
-		}
-	}
-	return domain.SOPSummary{}, false
-}
-
-func matchLegacyShortVideo(sops []domain.SOPSummary) (domain.SOPSummary, bool) {
-	for _, summary := range sops {
-		if summary.Definition.BuiltIn || summary.Definition.TemplateKey != "" || summary.Definition.Name != "短视频生产" {
-			continue
-		}
-		for _, version := range summary.Versions {
-			if version.Status != "published" || len(version.Stages) != 4 || len(version.Gates) != 0 || len(version.ContentTypes) != 1 || version.ContentTypes[0] != domain.ContentTypeVideoScript {
-				continue
-			}
-			stages := append([]domain.StageDefinition{}, version.Stages...)
-			sort.SliceStable(stages, func(i, j int) bool { return stages[i].Order < stages[j].Order })
-			ids := []string{stages[0].ID, stages[1].ID, stages[2].ID, stages[3].ID}
-			if strings.Join(ids, ",") == "brief,knowledge,draft,delivery" {
-				return summary, true
-			}
 		}
 	}
 	return domain.SOPSummary{}, false

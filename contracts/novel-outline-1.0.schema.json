@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.dev/contracts/novel-outline-1.0.schema.json",
+  "title": "ContentCloud Novel Outline 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "series_id", "canon_version", "volume", "arc", "chapters"],
+  "properties": {
+    "schema_version": {"const": "contentcloud.novel-outline/1.0"},
+    "id": {"type": "string", "minLength": 1},
+    "series_id": {"type": "string", "minLength": 1},
+    "canon_version": {"type": "integer", "minimum": 1},
+    "volume": {"type": "integer", "minimum": 1},
+    "arc": {"type": "string", "minLength": 1},
+    "chapters": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["chapter_no", "title", "goal", "character_refs", "thread_refs"], "properties": {"chapter_no": {"type": "integer", "minimum": 1}, "title": {"type": "string", "minLength": 1}, "goal": {"type": "string", "minLength": 1}, "character_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "thread_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}}}
+  }
+}
