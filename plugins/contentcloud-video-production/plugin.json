@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "contentcloud-video-production",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "description": "Governed local-first content production workflows.",
   "author": {
     "name": "GoodVision",

@@ -87,15 +87,25 @@ export function StudioHomePage(){
   const attention=tasks.filter(task=>attentionStatuses.includes(task.status));
   const recent=tasks.slice(0,4);
   const firstName=bootstrap.session.user.display_name.trim().split(/\s+/)[0]||bootstrap.session.user.display_name;
+  const firstExperience=bootstrap.experiences[0];
+  const hasConnectedProject=bootstrap.projects.some(project=>project.status!=='archived'&&project.execution_client_connected);
+  const startPath=firstExperience&&hasConnectedProject?`/studio/tasks/new?experience=${encodeURIComponent(firstExperience.id)}`:'/studio/connect';
 
-  return <div className="studio-view studio-home">
-    <PageHeading eyebrow="今天" title={`${firstName}，今天想推进哪一部分？`} detail="从一个工作面板开始；流程、版本和执行方式由 Content Work OS 在后台承接。"/>
-    {error&&<StudioNotice kind="error" onRetry={reload}>{error}</StudioNotice>}
-    {bootstrap.experiences.length===0?<StudioUnavailableWorkbench tasks={tasks} operationsPath={bootstrap.session.can_view_operations?bootstrap.session.operations_path:undefined}/>:bootstrap.experiences.map(experience=><StudioExperienceWorkbench key={experience.id} experience={experience} tasks={tasks} canCreate={bootstrap.session.can_create}/>)}
-    <div className="studio-home-grid">
-      <section className="studio-section"><SectionHeading icon={<ClipboardCheck size={17}/>} title="等待你处理" count={attention.length}/>{loading?<StudioLoading label="正在整理待办…"/>:attention.length===0?<CompactEmpty icon={<CheckCircle2 size={21}/>} title="当前没有待确认事项" detail="需要补资料或确认的任务会显示在这里。"/>:<div className="studio-task-stack">{attention.slice(0,4).map(task=><TaskRow key={task.id} task={task}/>)}</div>}</section>
-      <section className="studio-section"><SectionHeading icon={<Clock3 size={17}/>} title="最近任务" count={recent.length} action={<Link to="/studio/tasks">查看全部 <ArrowRight size={14}/></Link>}/>{loading?<StudioLoading label="正在读取任务…"/>:recent.length===0?<CompactEmpty icon={<Sparkles size={21}/>} title="还没有创作任务" detail="从上方选择一个创作目标开始。"/>:<div className="studio-task-stack">{recent.map(task=><TaskRow key={task.id} task={task}/>)}</div>}</section>
-    </div>
+  return <div className="studio-view studio-home studio-home-layout">
+    <aside className="studio-home-context" aria-label="创作任务概览">
+      <header className="studio-context-heading"><span>CONTENT WORK OS</span><h1>创作</h1><p>从当前任务继续，或开始一项新的内容工作。</p></header>
+      <div className="studio-context-actions">
+        {bootstrap.session.can_create&&firstExperience?<Link className="studio-context-action is-primary" to={startPath}><Sparkles size={18}/><span>{hasConnectedProject?'新建创作任务':'连接创作电脑'}</span><ArrowRight size={16}/></Link>:<Link className="studio-context-action is-primary" to="/studio/tasks"><ListTodo size={18}/><span>查看创作任务</span><ArrowRight size={16}/></Link>}
+        <Link className="studio-context-action" to="/studio/assets"><Archive size={17}/><span>从已有资产开始</span><ArrowRight size={15}/></Link>
+      </div>
+      <section className="studio-context-section"><SectionHeading icon={<ClipboardCheck size={17}/>} title="当前任务" count={attention.length}/>{loading?<StudioLoading label="正在整理待办…"/>:attention.length===0?<CompactEmpty icon={<CheckCircle2 size={21}/>} title="当前没有待确认事项" detail="需要补资料或确认的任务会显示在这里。"/>:<div className="studio-task-stack">{attention.slice(0,3).map(task=><TaskRow key={task.id} task={task}/>)}</div>}</section>
+      <section className="studio-context-section"><SectionHeading icon={<Clock3 size={17}/>} title="最近任务" count={recent.length} action={<Link to="/studio/tasks">全部 <ArrowRight size={13}/></Link>}/>{loading?<StudioLoading label="正在读取任务…"/>:recent.length===0?<CompactEmpty icon={<Sparkles size={21}/>} title="还没有创作任务" detail="从上方选择一个创作目标开始。"/>:<div className="studio-task-stack">{recent.slice(0,3).map(task=><TaskRow key={task.id} task={task}/>)}</div>}</section>
+    </aside>
+    <main className="studio-home-canvas">
+      <PageHeading eyebrow="创作工作面" title={`${firstName}，今天想推进哪一部分？`} detail="选择资料、已有结果或一个明确目标，Content Work OS 会接住后续流程、版本和执行方式。"/>
+      {error&&<StudioNotice kind="error" onRetry={reload}>{error}</StudioNotice>}
+      {bootstrap.experiences.length===0?<StudioUnavailableWorkbench tasks={tasks} operationsPath={bootstrap.session.can_view_operations?bootstrap.session.operations_path:undefined}/>:bootstrap.experiences.map(experience=><StudioExperienceWorkbench key={experience.id} experience={experience} tasks={tasks} canCreate={bootstrap.session.can_create}/>)}
+    </main>
   </div>;
 }
 
@@ -198,6 +208,11 @@ function StudioExperienceWorkbench({experience,tasks,canCreate}:{experience:Stud
   ];
   return <section className="studio-workbench" aria-labelledby={`experience-${experience.id}`}>
     <header className="studio-workbench-header"><div><span><WandSparkles size={15}/>已发布创作流水线</span><h2 id={`experience-${experience.id}`}>{experience.name}</h2><p>{experience.description}</p></div><div>{primaryTask&&<Link className="studio-secondary-link" to={`/studio/tasks/${encodeURIComponent(primaryTask.id)}`}><Play size={15}/>继续当前任务</Link>}{canCreate&&hasProject?<Link className="studio-primary-link" to={hasConnectedProject?newTaskPath:'/studio/connect'}>{hasConnectedProject?<Plus size={15}/>:<MonitorUp size={15}/>} {hasConnectedProject?'新建创作任务':'连接创作电脑'}</Link>:<span className="studio-workbench-unavailable">{!hasProject?'等待运营绑定项目':'当前角色仅可查看'}</span>}</div></header>
+    <div className="studio-compose-surface">
+      <Link className="studio-compose-source" to="/studio/assets"><Archive size={24}/><span><strong>选择资料与已有结果</strong><small>从团队资产、项目参考或已确认成果开始</small></span></Link>
+      <div className="studio-compose-copy"><span>{primaryTask?'继续当前任务':'开始新的创作任务'}</span><strong>{primaryTask?primaryTask.next_action:'描述这次要完成的内容结果'}</strong><p>{primaryTask?`${primaryTask.title} 已固定 ${primaryTask.asset_count} 项输入，打开后继续处理当前决定。`:'系统会根据已发布流水线组织资料、创作、确认和交付。'}</p></div>
+      <footer><span><ClipboardCheck size={15}/>版本与确认自动留痕</span><span><MonitorUp size={15}/>{hasConnectedProject?'创作电脑已连接':'需要连接创作电脑'}</span><Link to={primaryTask?`/studio/tasks/${encodeURIComponent(primaryTask.id)}`:startPath} aria-label={primaryTask?'继续当前任务':'开始创作'}><ArrowRight size={19}/></Link></footer>
+    </div>
     <div className="studio-workbench-panels">{panels.map(panel=>{
       const currentTask=activeTasks.find(task=>panel.stepIDs.includes(task.current_step_id));
       const href=currentTask?`/studio/tasks/${encodeURIComponent(currentTask.id)}`:panel.href;
