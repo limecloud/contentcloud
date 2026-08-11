@@ -31,7 +31,7 @@ import (
 	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
-const Version = "0.24.0"
+const Version = "0.25.0"
 
 type Root struct {
 	json                   bool

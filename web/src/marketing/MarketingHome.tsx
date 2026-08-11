@@ -2,6 +2,7 @@ import {
   Archive,
   ArrowRight,
   BookOpen,
+  CheckCircle2,
   CircleDot,
   FileSearch,
   FileText,
@@ -39,7 +40,7 @@ export function MarketingHome() {
 
   useEffect(() => {
     document.title = 'Content Work OS';
-    const description = 'Content Work OS 把资料、创作资产、流水线和不同执行者组织成简单、可追溯的内容创作任务。';
+    const description = 'Content Work OS 连接资料、证据、知识、Agent、模型、Worker、人工和发布渠道，让内容结果可以审核、交付并持续复用。';
     let meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     if (!meta) {
       meta = document.createElement('meta');
@@ -69,28 +70,26 @@ export function MarketingHome() {
       <div className="marketing-header-inner">
         <a className="marketing-brand" href="#overview" aria-label="Content Work OS 首页" onClick={() => setMenuOpen(false)}>
           <BrandMark className="marketing-brand-mark"/>
-          <span><strong>Content Work OS</strong><small>内容运营系统</small></span>
+          <span><strong>Content Work OS</strong><small>内容创作 AI Infra</small></span>
         </a>
         <nav className="marketing-nav" aria-label="官网主导航">
-          <a href="#product">客户创作台</a>
-          <a href="#system">资产系统</a>
-          <a href="#architecture">运行架构</a>
-          <a href="#content-packs">内容形态</a>
+          <a href="#product">创作流程</a>
+          <a href="#system">AI Infra</a>
+          <a href="#content-packs">可用场景</a>
           <Link to="/docs">文档</Link>
         </nav>
         <div className="marketing-header-actions">
           <Link className="marketing-text-link" to="/login">登录</Link>
-          <Link className="marketing-header-button" to={consolePath.studio}>进入创作台 <ArrowRight size={15}/></Link>
+          <Link className="marketing-header-button" to={consolePath.studio}>开始创作 <ArrowRight size={15}/></Link>
         </div>
         <button className="marketing-menu-button" type="button" aria-label={menuOpen?'关闭导航':'打开导航'} aria-expanded={menuOpen} onClick={() => setMenuOpen(value=>!value)}>
           {menuOpen?<X size={21}/>:<Menu size={21}/>}
         </button>
       </div>
       {menuOpen&&<nav className="marketing-mobile-nav" aria-label="移动端导航">
-        <a href="#product" onClick={()=>setMenuOpen(false)}>客户创作台</a>
-        <a href="#system" onClick={()=>setMenuOpen(false)}>资产系统</a>
-        <a href="#architecture" onClick={()=>setMenuOpen(false)}>运行架构</a>
-        <a href="#content-packs" onClick={()=>setMenuOpen(false)}>内容形态</a>
+        <a href="#product" onClick={()=>setMenuOpen(false)}>创作流程</a>
+        <a href="#system" onClick={()=>setMenuOpen(false)}>AI Infra</a>
+        <a href="#content-packs" onClick={()=>setMenuOpen(false)}>可用场景</a>
         <Link to="/docs" onClick={()=>setMenuOpen(false)}>文档</Link>
         <Link to={consolePath.studio} onClick={()=>setMenuOpen(false)}>进入创作台 <ArrowRight size={16}/></Link>
       </nav>}
@@ -100,12 +99,16 @@ export function MarketingHome() {
       <HeroWorkCanvas/>
       <section className="marketing-hero" id="overview">
         <div className="marketing-shell marketing-hero-content">
-          <span className="marketing-overline"><CircleDot size={13}/> CONTENT WORK OS</span>
-          <h1><span>Content Work OS</span><strong>把任务输入、创作与交付组织成一个系统</strong></h1>
-          <p>带入任务输入和项目参考，也可以复用已确认的人物原型、剧本、分镜、图片或视频结果。系统在背后组织流水线、人工确认和不同执行者，让每次成果都能继续编辑、交付和复用。</p>
+          <span className="marketing-overline"><CircleDot size={13}/> STUDIO-FIRST CONTENT CREATION INFRA</span>
+          <h1><span>Content Work OS</span><strong>让内容生产从一次交付，变成<em>持续积累</em></strong></h1>
+          <p>把资料和已有成果带进任务。系统组织证据、知识、Agent、模型、Worker 和人工确认，产出可审核、可交付、可复用的内容结果。</p>
           <div className="marketing-hero-actions">
             <Link className="marketing-primary-button" to={consolePath.studio}><Sparkles size={17}/>开始一项创作</Link>
-            <a className="marketing-secondary-button" href="#system"><Workflow size={17}/>查看系统怎么工作</a>
+            <a className="marketing-secondary-button" href="#product"><Workflow size={17}/>查看创作流程</a>
+          </div>
+          <div className="marketing-hero-facts" aria-label="产品能力摘要">
+            <span><CheckCircle2 size={15}/>来源、版本与审核全程可追溯</span>
+            <span><CheckCircle2 size={15}/>人物、剧本、分镜与媒体结果持续复用</span>
           </div>
         </div>
       </section>
@@ -113,9 +116,9 @@ export function MarketingHome() {
       <section className="marketing-section marketing-product" id="product">
         <div className="marketing-shell">
           <header className="marketing-section-heading">
-            <span>客户创作台</span>
-            <h2>客户只看当前任务，<br/>不需要理解底层系统</h2>
-            <p>任务输入、项目参考、当前进度、需要确认的选择和可以带走的结果，都收敛在一个创作任务里。</p>
+            <span>从任务输入，到可交付结果</span>
+            <h2>复杂执行留在系统里，<br/>客户只处理当前决定</h2>
+            <p>资料、项目参考、当前进度、候选结果和人工门禁收敛在一项创作任务里；每一步都显示阻断原因和唯一推荐动作。</p>
           </header>
           <div className="marketing-workspace-preview" aria-label="Content Work OS 客户创作任务预览">
             <div className="marketing-preview-topbar">
@@ -160,9 +163,9 @@ export function MarketingHome() {
       <section className="marketing-section marketing-packs" id="content-packs">
         <div className="marketing-shell">
           <header className="marketing-section-heading is-centered">
-            <span>内容能力包</span>
-            <h2>先选想完成的内容，<br/>再进入对应流水线</h2>
-            <p>客户选择创作目标，平台负责装配对应的步骤、能力、确认节点和交付标准。</p>
+            <span>当前可用场景</span>
+            <h2>先选想完成的内容，<br/>再进入已验证的生产链</h2>
+            <p>公开场景状态来自文档目录。底层能力已实现，不代表外部平台账号、配额或自动发布已经接通。</p>
           </header>
           <div className="marketing-pack-list">
             {catalogState==='ready'&&catalog?.content_types.map((content,index)=>{
@@ -176,7 +179,7 @@ export function MarketingHome() {
             })}
             {catalogState==='loading'&&<div className="marketing-pack-state"><CircleDot size={22}/><div><strong>正在读取内容能力包目录</strong><span>能力状态以公开登记目录为准。</span></div></div>}
             {catalogState==='unavailable'&&<div className="marketing-pack-state is-error"><CircleDot size={22}/><div><strong>状态目录暂不可用</strong><span>官网不会猜测客户端或内容能力包的启用状态。</span><Link to="/docs">前往使用文档 <ArrowRight size={14}/></Link></div></div>}
-            <article className="is-planned"><header><span>下一个能力包</span><b>路线图</b></header><Sparkles size={26}/><h3>更多内容形态</h3><p>邮件通讯、社交媒体与播客脚本，只有在契约、技能和审核链完整可用后才会开放。</p><Link to="/docs">查看路线图 <ArrowRight size={15}/></Link></article>
+            <article className="is-planned"><header><span>扩展中的场景</span><b>按状态开放</b></header><Sparkles size={26}/><h3>抖音电商与小说连载</h3><p>类型化契约、本地校验和渠道基础能力正在形成；只有完整客户路径经过验证后才会进入公开可用目录。</p><Link to="/docs">查看能力边界 <ArrowRight size={15}/></Link></article>
           </div>
         </div>
       </section>
@@ -184,8 +187,8 @@ export function MarketingHome() {
       <section className="marketing-cta">
         <div className="marketing-shell">
           <span>CONTENT WORK OS</span>
-          <h2>从一个明确的<br/>创作任务开始</h2>
-          <p>带入已有资料和资产，选择想完成的内容，在需要判断的地方做决定。</p>
+          <h2>带入已有资料，<br/>开始一项明确的创作任务</h2>
+          <p>选择已验证的内容场景，在需要判断的地方做决定，其余执行、版本和追溯交给系统。</p>
           <div><Link className="marketing-primary-button" to={consolePath.studio}><Play size={16}/>开始创作</Link><Link className="marketing-secondary-button" to="/docs"><BookOpen size={16}/>查看使用文档</Link></div>
         </div>
       </section>
@@ -193,8 +196,8 @@ export function MarketingHome() {
 
     <footer className="marketing-footer">
       <div className="marketing-shell marketing-footer-grid">
-        <div><a className="marketing-brand is-footer" href="#overview"><BrandMark className="marketing-brand-mark"/><span><strong>Content Work OS</strong><small>内容运营系统</small></span></a><p>资料进入工作区，生成结果持续复用，团队在确认后继续交付。</p></div>
-        <nav aria-label="产品链接"><strong>产品</strong><a href="#product">客户创作台</a><a href="#system">资产系统</a><a href="#architecture">运行架构</a></nav>
+        <div><a className="marketing-brand is-footer" href="#overview"><BrandMark className="marketing-brand-mark"/><span><strong>Content Work OS</strong><small>内容创作 AI Infra</small></span></a><p>连接资料、证据、执行者与发布渠道，让每次结果可以审核、交付和继续复用。</p></div>
+        <nav aria-label="产品链接"><strong>产品</strong><a href="#product">创作流程</a><a href="#system">AI Infra</a><a href="#content-packs">可用场景</a></nav>
         <nav aria-label="资源链接"><strong>资源</strong><Link to="/docs">使用文档</Link><Link to="/docs/clients/codex">Codex 接入</Link><Link to="/docs/content/wechat-article">公众号文章</Link></nav>
         <nav aria-label="账户链接"><strong>账户</strong><Link to="/login">登录</Link><Link to="/register">注册</Link><Link to={consolePath.studio}>创作台</Link></nav>
       </div>

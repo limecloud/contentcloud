@@ -11,14 +11,19 @@ describe('Content Work OS website',()=>{
   it('renders the product claim and routes the primary CTA to the authenticated workspace',()=>{
     const markup=renderHome();
     expect(markup).toContain('Content Work OS');
-    expect(markup).toContain('把任务输入、创作与交付组织成一个系统');
+    expect(markup).toContain('让内容生产从一次交付，变成');
+    expect(markup).toContain('<em>持续积累</em>');
     expect(markup).toContain('class="marketing-home-scene"');
     expect(markup).toContain('href="/studio"');
     expect(markup).toContain('创作资产目录，不是另一个文件夹');
     expect(markup).toContain('结果资产参与每一次创作');
     expect(markup).not.toContain('品牌、灵感和已批准结果会继续服务下一次任务');
-    expect(markup).toContain('客户页面保持简单，复杂能力留在平台底层');
-    expect(markup).toContain('ContentCloud Agentic Job Runtime');
+    expect(markup).toContain('三种执行平面协作，但不混淆事实所有权');
+    expect(markup).toContain('开放 Agent Harness');
+    expect(markup).toContain('代码已经具备什么，外部还需要接通什么');
+    expect(markup).toContain('source.search / source.fetch');
+    expect(markup).toContain('公众号当前为人工发布');
+    expect(markup).toContain('抖音电商与小说连载');
   });
 
   it('keeps content-pack status pending until the public catalog has loaded',()=>{
