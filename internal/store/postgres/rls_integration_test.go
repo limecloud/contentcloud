@@ -108,25 +108,37 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	daemonInstanceID := domain.NewID()
+	_, err = service.ReportDaemonInstance(ctx, deviceActor, app.DaemonInstanceReportInput{
+		ID: daemonInstanceID, ConnectionEpoch: 1, ReportSequence: 1, PID: 42,
+		Version: "test", State: "connected", StartedAt: time.Now().UTC().Add(-time.Minute),
+		WorkspaceObservations: []domain.DaemonWorkspaceObservation{{
+			WorkspaceID: "rls-workspace-" + suffix, ProjectID: project.ID, Status: "ready",
+			Reason: "integration_test", Generation: "sha256:" + strings.Repeat("c", 64), ObservedAt: time.Now().UTC(),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	sop := domain.SOPVersion{ID: "rls-runtime-sop-v1", TenantID: a.TenantID, SOPID: "rls-runtime-sop", Version: 1, SchemaVersion: domain.SOPSchemaVersion, Name: "RLS Runtime", Status: "published", DefaultExecutionMode: "agent", Stages: []domain.StageDefinition{{ID: "execute", Name: "执行", Order: 10, OutputSchema: "contentcloud.rls/1.0", ExecutionModes: []string{"agent"}}}}
 	started, err := service.Runtime().Start(ctx, contentruntime.StartInput{TenantID: a.TenantID, ProjectID: project.ID, WorkTaskID: "rls-runtime-" + suffix, BusinessType: "rls.test", InputSnapshotID: "rls-input-" + suffix, SOP: sop, BindingDigest: "sha256:" + strings.Repeat("a", 64), InputDigest: "sha256:" + strings.Repeat("b", 64), RuntimePolicyID: "runtime-policy/rls", ContractMajor: 1, CreatedBy: a.UserID, IdempotencyKey: "rls-runtime-" + suffix})
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle, err := service.PrepareRuntimeWorker(ctx, deviceActor, app.RuntimeWorkerPrepareInput{JobRunID: started.Job.ID, HarnessKind: "fake", Capabilities: agentadapter.HarnessCapabilities{Kind: "fake", Events: true, StructuredOutput: true, Resume: true, MaxParallelSessions: 128}, Role: "worker", ExecutionProfileID: "rls-test", MaxTokens: 512})
+	handle, err := service.PrepareRuntimeWorker(ctx, deviceActor, app.RuntimeWorkerPrepareInput{JobRunID: started.Job.ID, DaemonInstanceID: daemonInstanceID, HarnessKind: "fake", Capabilities: agentadapter.HarnessCapabilities{Kind: "fake", Events: true, StructuredOutput: true, Resume: true, MaxParallelSessions: 128}, Role: "worker", ExecutionProfileID: "rls-test", MaxTokens: 512})
 	if err != nil {
 		t.Fatal(err)
 	}
 	sessionRef := agentadapter.AgentSessionRef{TenantID: a.TenantID, HarnessKind: "fake", SessionID: "rls-session-" + suffix}
-	handle, err = service.ActivateRuntimeWorker(ctx, deviceActor, app.RuntimeWorkerActivateInput{AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, Session: sessionRef})
+	handle, err = service.ActivateRuntimeWorker(ctx, deviceActor, app.RuntimeWorkerActivateInput{DaemonInstanceID: daemonInstanceID, AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, Session: sessionRef})
 	if err != nil {
 		t.Fatal(err)
 	}
 	harnessEvent := agentadapter.AgentEvent{Type: "turn.started", Session: sessionRef, Data: json.RawMessage(`{"phase":"started"}`), OccurredAt: time.Now().UTC()}
-	if err := service.RecordRuntimeWorkerEvent(ctx, deviceActor, app.RuntimeWorkerEventInput{AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, Event: harnessEvent}); err != nil {
+	if err := service.RecordRuntimeWorkerEvent(ctx, deviceActor, app.RuntimeWorkerEventInput{DaemonInstanceID: daemonInstanceID, AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, Event: harnessEvent}); err != nil {
 		t.Fatalf("PostgreSQL fenced Harness event failed: %v", err)
 	}
-	if err := service.RecordRuntimeWorkerEvent(ctx, deviceActor, app.RuntimeWorkerEventInput{AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, Event: harnessEvent}); err != nil {
+	if err := service.RecordRuntimeWorkerEvent(ctx, deviceActor, app.RuntimeWorkerEventInput{DaemonInstanceID: daemonInstanceID, AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, Event: harnessEvent}); err != nil {
 		t.Fatalf("PostgreSQL fenced Harness event replay failed: %v", err)
 	}
 	runtimeEvents, err := service.Runtime().Events(ctx, a.TenantID, started.Job.ID, 0)
@@ -142,7 +154,7 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	if attemptEventCount != 1 {
 		t.Fatalf("PostgreSQL fenced Harness event replay created duplicates: %d", attemptEventCount)
 	}
-	if err := service.RecordRuntimeWorkerEvent(ctx, deviceActor, app.RuntimeWorkerEventInput{AttemptID: handle.Attempt.ID, FenceToken: "stale", Event: agentadapter.AgentEvent{Type: "turn.started", Session: sessionRef, OccurredAt: time.Now().UTC()}}); err == nil {
+	if err := service.RecordRuntimeWorkerEvent(ctx, deviceActor, app.RuntimeWorkerEventInput{DaemonInstanceID: daemonInstanceID, AttemptID: handle.Attempt.ID, FenceToken: "stale", Event: agentadapter.AgentEvent{Type: "turn.started", Session: sessionRef, OccurredAt: time.Now().UTC()}}); err == nil {
 		t.Fatal("PostgreSQL accepted a stale Harness event fence")
 	}
 	maintenanceNow := time.Now().UTC()
