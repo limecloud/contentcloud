@@ -178,6 +178,57 @@ Studio form
 
 影子路径：
 
+### 6.2 本地 Daemon、同步与 Agent 联动
+
+本地执行端有两条职责不同的通道，不能混用：
+
+```text
+HTTPS：权威命令面
+  prepare / activate / heartbeat / event / finalize
+  lease、fence、业务结果、Attempt-scoped MCP Gateway
+
+WSS：低延迟控制面
+  control.sync_state -> control.ready
+  runtime.available 唤醒
+  control.heartbeat / 断线重连
+```
+
+同步时机固定为：
+
+1. Daemon 启动或重连时，先用设备凭据建立 WSS，并发送完整 `control.sync_state`。服务端创建或更新 `DaemonInstance`，按 `connection_epoch + report_seq` 拒绝同一实例的旧报告；连接被关闭时写入 `stopped` 状态。
+2. WSS 收到 `runtime.available` 时只唤醒本地 worker。worker 仍必须通过 HTTPS `prepare_next` 竞争权威 JobRun/NodeRun，不能把 WSS 通知当作任务事实。
+3. Daemon 启动时探测完整 Runtime inventory（类型、版本、健康/错误和能力），每 5 分钟重新探测安装、升级、卸载与登录状态；Workspace 只读观察在启动时执行，之后每 30 秒刷新。Workspace 观察只上传 `project_id/workspace_id`、五类服务端声明摘要、本地 Plugin receipt、Skill/MCP/Workspace 观察摘要、状态、原因和 generation，不上传绝对路径。任一观察变化立即发送新的完整 current-state。选中的 Harness 不健康或 Workspace 不是 `ready` 时停止领取新 Attempt，但已运行 Attempt 继续使用冻结能力快照。服务端以 45 秒 `last_seen_at` freshness 计算 Presence。在线不能推导 Environment ready，Environment、Plugin、Skill、MCP 或 Workspace generation 变化时，当前 Agent 会话必须结束并创建新会话。
+4. `prepare_next` 在创建 RuntimeAttempt 前必须按项目选择唯一 Workspace，并以服务端冻结的 Environment、Plugin、Skill、MCP、Workspace 五类摘要逐项比对 current-state；缺失、非 ready、多 Workspace 或任一摘要漂移都 fail-closed，不创建 Attempt。通过后才创建 Attempt 专属自动化工作区，写入 `TaskContract`、完整 Skill、Output Schema 和租约；它与交互式 Workspace 分离，Harness 只操作该目录。Attempt 终态后删除自动化工作区，交互式 Workspace 保留为客户资料面。
+5. Attempt 执行期间，worker 按 HTTPS heartbeat 续租，并通过 fenced event/finalize 上报。断线后由租约超时和 reaper 收敛；恢复时优先使用宿主真实 thread/session resume，不能依赖 ContentCloud 进程内存。
+6. Agent 只获得当前 Attempt 的短期 `rtg_` Gateway Token 和冻结的工具/数据范围；设备 `dt_`、Workspace token、Run token 不进入 Codex/Claude 环境。Token 只在 Attempt running 且 lease 有效时可用，终态立即撤销。
+
+执行进展与故障诊断的边界：worker 只有收到有效结构化事件才刷新 Harness 进展 watchdog；Claude 的 `system/unknown` 元事件不算业务进展。默认两分钟没有有效进展会中断进程组、以 `HARNESS_PROGRESS_TIMEOUT` 收敛可重试 Attempt。Codex/Claude stderr 只在适配器内部用于分类，Runtime 和本地日志只保留稳定错误码（认证、限流、权限、网络、进程失败），不保存原始 stderr、提示词或用户路径。
+
+Daemon 生命周期也必须可验证：LaunchAgent 的状态文件使用原子写入和 `0600` 权限，runtime-status 绑定写入进程 PID，读取时与当前 launchd PID 不一致则标记 stale。日志按大小轮转并在落盘前脱敏。`daemon diagnostics --out <file>` 只在用户显式要求时生成本地 `0600` JSON，默认不上传；设备/Attempt 引用使用哈希、日志只保留受限尾部摘要。
+
+因此，数据不是“页面打开时同步”，而是由权威事件和状态变化触发：WSS 负责在线状态和唤醒，HTTPS/Runtime 负责执行事实，PostgreSQL JobRun/NodeRun/RuntimeAttempt 负责持久化一致性，Admin 页面只读取投影并显示 freshness/staleness。
+
+Runtime inventory 属于易变的执行端 Presence，不是业务事实。版本或认证状态变化只影响后续准入；`ExecutionBindingSnapshot`、`ContextView`、Skill/Plugin/MCP generation 和 Attempt capability snapshot 在 Attempt 创建时冻结。Skills 为 Agent 提供领域流程，Plugin 负责把 Skills/MCP 安装进宿主，MCP Gateway 只暴露当前 Attempt 授权工具；三者都不能直接领取任务、改变 lease 或写 Runtime 终态。
+
+Codex、Claude Code 和后续 Agent 宿主统一经过同一组标准端口，不按宿主复制业务协议：
+
+| 层 | 权威来源 | 进入 Agent 的方式 | 明确不能做 |
+| --- | --- | --- | --- |
+| Plugin | 服务端 Environment 声明；本机只上报安装 receipt | 宿主分发和安装 Skills/MCP，receipt 参与准入比对 | 领取任务、签发工具权限、冒充服务端声明 |
+| Skill | 服务端按冻结 Capability 映射到已发布版本 | 完整 `SKILL.md` 以只读文件注入 Attempt Workspace | 自己选择任务、扩大工具或数据范围 |
+| MCP | `ExecutionBindingSnapshot.AllowedTools` 与 Runtime Gateway | Harness 注入 Attempt-scoped Gateway 配置和短期 token | 暴露未冻结工具、绕过 fence、直接写终态 |
+| Harness | `AgentHarnessAdapter` 能力探测和冻结 capability snapshot | `Start/Resume/Event/Interrupt/Inspect`；宿主 session ID 对 Runtime 不透明 | 拥有 JobRun/NodeRun/Attempt 状态机 |
+| Workspace | 项目绑定和服务端五类声明；本机观察只证明当前收敛状态 | Agent 只进入 Attempt 专属目录，通过契约引用或获准 MCP 访问数据 | 上传绝对路径、把交互式目录当执行租约或直接全量同步 |
+
+这里没有“把本地目录自动同步到云端”的隐含行为。启动与每 30 秒观察只同步摘要和健康；任务正文、客户资料和中间文件是否离开本机，必须由冻结的 TaskContract、数据分类、工具授权和具体 MCP/Provider 调用逐项决定并留下 Runtime 事实。
+
+协议边界也固定如下：
+
+- WSS 首帧必须是完整 `control.sync_state`；服务端返回 `control.ready` 后才发送 `runtime.available`。WSS 不承载命令事务、Attempt 领取或业务结果。
+- 同一 `DaemonInstance` 的 `connection_epoch` 和 `report_seq` 必须单调递增；重复、倒序和 stopped 后同 epoch 的复活报告被拒绝。新进程连接会让同设备旧 live 实例停止，服务端按设备行锁串行处理，不依赖客户端 `started_at` 排序。
+- HTTPS Runtime worker 输入只允许 `harness_kind`、`capabilities`、`daemon_instance_id` 以及服务端派生的 Attempt/fence 字段；`role`、预算、工具白名单等客户端控制字段不再生效。
+- MCP Gateway 仅接受当前 ContentCloud 服务端同源地址。`prepared` Attempt 的 `rtg_` token 只能等待 `activate`，不能执行工具；`running` 且 lease 未过期时才可调用，终态立即撤销，数据库只保存 token hash。
+
 | 路径 | 行为 |
 | --- | --- |
 | 缺少输入 | 不创建 JobRun，返回具体字段和允许格式 |
@@ -187,7 +238,7 @@ Studio form
 | 无执行能力 | WorkTask 可保留草稿，JobRun 准入失败并给出运营原因 |
 | 预算不足 | 返回需要审批或调整的业务动作 |
 
-### 6.2 节点执行
+### 6.3 节点执行
 
 ```text
 Scheduler finds ready NodeRun
@@ -202,7 +253,7 @@ Scheduler finds ready NodeRun
   -> downstream readiness recalculated
 ```
 
-### 6.3 人工决定
+### 6.4 人工决定
 
 ```text
 NodeRun waits at Gate
@@ -214,7 +265,7 @@ NodeRun waits at Gate
   -> affected downstream nodes continue, invalidate or branch
 ```
 
-### 6.4 中断恢复
+### 6.5 中断恢复
 
 ```text
 process / agent stops
@@ -228,7 +279,7 @@ process / agent stops
 
 完整聊天历史和进程内存不是检查点。检查点只包含可验证的业务引用、执行状态摘要和恢复位置。
 
-### 6.5 资产沉淀与复用
+### 6.6 资产沉淀与复用
 
 ```text
 Task input / project reference changed

@@ -27,6 +27,7 @@ type Store struct {
 	bootstrapEvents           map[string]map[int64]domain.BootstrapProgressEvent
 	bootstrapDiagnostics      map[string]domain.BootstrapDiagnostic
 	devices                   map[string]domain.Device
+	daemonInstances           map[string]domain.DaemonInstance
 	workspaceBindings         map[string]domain.WorkspaceBinding
 	userDeviceFlows           map[string]domain.UserDeviceFlow
 	cliTokens                 map[string]domain.CLIToken
@@ -68,6 +69,7 @@ type Store struct {
 	connectorReceipts         map[string]connector.SyncReceipt
 	snapshots                 map[string]domain.ContextSnapshot
 	runtimePlans              map[string]domain.JobPlanRevision
+	runtimeExecutionBindings  map[string]domain.ExecutionBindingSnapshot
 	runtimeJobs               map[string]domain.JobRun
 	runtimeNodes              map[string]domain.NodeRun
 	runtimeFanoutSets         map[string]domain.FanoutSet
@@ -114,10 +116,10 @@ func New() *Store {
 	return &Store{
 		users: map[string]domain.User{}, userByEmail: map[string]string{}, sessions: map[string]domain.Session{},
 		tenants: map[string]domain.Tenant{}, tenantContentCaps: map[string]domain.TenantContentCapability{}, memberships: map[string]domain.Membership{}, membershipInvites: map[string]domain.MembershipInvite{}, projects: map[string]domain.Project{}, projectTemplates: map[string]domain.ProjectTemplate{},
-		connects: map[string]domain.ConnectSession{}, bootstrapAttempts: map[string]domain.BootstrapAttempt{}, bootstrapEvents: map[string]map[int64]domain.BootstrapProgressEvent{}, bootstrapDiagnostics: map[string]domain.BootstrapDiagnostic{}, devices: map[string]domain.Device{}, workspaceBindings: map[string]domain.WorkspaceBinding{}, userDeviceFlows: map[string]domain.UserDeviceFlow{}, cliTokens: map[string]domain.CLIToken{},
+		connects: map[string]domain.ConnectSession{}, bootstrapAttempts: map[string]domain.BootstrapAttempt{}, bootstrapEvents: map[string]map[int64]domain.BootstrapProgressEvent{}, bootstrapDiagnostics: map[string]domain.BootstrapDiagnostic{}, devices: map[string]domain.Device{}, daemonInstances: map[string]domain.DaemonInstance{}, workspaceBindings: map[string]domain.WorkspaceBinding{}, userDeviceFlows: map[string]domain.UserDeviceFlow{}, cliTokens: map[string]domain.CLIToken{},
 		sources: map[string]domain.Source{}, revisions: map[string]domain.SourceRevision{}, evidence: map[string]domain.EvidenceSpan{}, assets: map[string]domain.Asset{}, workspaceFolders: map[string]domain.WorkspaceFolder{}, workspaceMaterials: map[string]domain.WorkspaceMaterial{}, rightsRecords: map[string]domain.RightsRecord{}, knowledgeObjects: map[string]domain.KnowledgeObject{}, knowledgeDecisions: map[string]domain.KnowledgeDecision{}, knowledgePacks: map[string]domain.KnowledgePack{}, knowledgeSnapshots: map[string]domain.KnowledgeSnapshot{}, environments: map[string]domain.Environment{}, sopDefinitions: map[string]domain.SOPDefinition{}, sopVersions: map[string]domain.SOPVersion{}, projectSOPBindings: map[string]domain.ProjectSOPBinding{}, workTasks: map[string]domain.WorkTask{}, inputItems: map[string]domain.InputItem{}, conversationImports: map[string]domain.ConversationImport{}, stageRuns: map[string]domain.StageRun{}, stageOutputs: map[string]domain.TaskStageOutput{}, providerProfiles: map[string]domain.ProviderProfile{}, providerBindings: map[string]domain.ProviderBinding{}, mediaJobs: map[string]domain.MediaGenerationJob{}, providerAttempts: map[string]domain.ProviderAttempt{}, mediaReviews: map[string]domain.MediaReview{}, gateEvaluations: map[string]domain.GateEvaluation{}, taskRevisions: map[string]domain.TaskRevision{}, taskDeliveries: map[string]domain.TaskDelivery{}, channelBindings: map[string]domain.ChannelBinding{}, channelPublications: map[string]domain.ChannelPublication{}, channelCallbackReceipts: map[string]domain.ChannelCallbackReceipt{}, modelGenerationReceipts: map[string]domain.ModelGenerationReceipt{}, connectorBindings: map[string]connector.Binding{}, connectorSyncLeases: map[string]connector.SyncLease{}, connectorRecords: map[string]connector.RecordMapping{}, connectorReceipts: map[string]connector.SyncReceipt{},
 		snapshots:    map[string]domain.ContextSnapshot{},
-		runtimePlans: map[string]domain.JobPlanRevision{}, runtimeJobs: map[string]domain.JobRun{}, runtimeNodes: map[string]domain.NodeRun{}, runtimeFanoutSets: map[string]domain.FanoutSet{}, runtimeFanoutMembers: map[string]domain.FanoutMember{}, runtimeEvents: map[string][]domain.JobEvent{}, runtimeOutbox: map[string]domain.RuntimeOutboxMessage{}, runtimeOutboxReceipts: map[string]runtimeOutboxReceipt{}, runtimeContextViews: map[string]domain.ContextView{}, runtimeAgents: map[string]domain.AgentInstance{}, runtimeAttempts: map[string]domain.RuntimeAttempt{}, runtimeStates: map[string]domain.RuntimeState{}, runtimeStateMutations: map[string]string{}, runtimeCheckpoints: map[string]domain.Checkpoint{}, runtimeEffects: map[string]domain.ExternalEffect{}, runtimeProviderInbox: map[string]domain.ProviderInboxMessage{}, runtimeProviderRecons: map[string]domain.ProviderReconciliation{}, runtimeProviderBills: map[string]domain.ProviderBillRecord{}, runtimeYields: map[string]domain.RuntimeYield{}, runtimeResourceQuotas: map[string]domain.ResourceQuota{}, runtimeReservations: map[string]domain.ResourceReservation{}, runtimeSchemas: map[string]domain.RuntimeSchema{}, runtimeStateCollections: map[string]domain.StateCollection{}, runtimeStateRecords: map[string]domain.StateRecord{}, runtimeToolCalls: map[string]domain.ToolCall{}, runtimeProjections: map[string]domain.RuntimeExplorerView{}, runtimeProjectionRebuilds: map[string]domain.RuntimeProjectionRebuildRun{}, runtimeMaintenance: map[string]domain.RuntimeMaintenanceHeartbeat{},
+		runtimePlans: map[string]domain.JobPlanRevision{}, runtimeExecutionBindings: map[string]domain.ExecutionBindingSnapshot{}, runtimeJobs: map[string]domain.JobRun{}, runtimeNodes: map[string]domain.NodeRun{}, runtimeFanoutSets: map[string]domain.FanoutSet{}, runtimeFanoutMembers: map[string]domain.FanoutMember{}, runtimeEvents: map[string][]domain.JobEvent{}, runtimeOutbox: map[string]domain.RuntimeOutboxMessage{}, runtimeOutboxReceipts: map[string]runtimeOutboxReceipt{}, runtimeContextViews: map[string]domain.ContextView{}, runtimeAgents: map[string]domain.AgentInstance{}, runtimeAttempts: map[string]domain.RuntimeAttempt{}, runtimeStates: map[string]domain.RuntimeState{}, runtimeStateMutations: map[string]string{}, runtimeCheckpoints: map[string]domain.Checkpoint{}, runtimeEffects: map[string]domain.ExternalEffect{}, runtimeProviderInbox: map[string]domain.ProviderInboxMessage{}, runtimeProviderRecons: map[string]domain.ProviderReconciliation{}, runtimeProviderBills: map[string]domain.ProviderBillRecord{}, runtimeYields: map[string]domain.RuntimeYield{}, runtimeResourceQuotas: map[string]domain.ResourceQuota{}, runtimeReservations: map[string]domain.ResourceReservation{}, runtimeSchemas: map[string]domain.RuntimeSchema{}, runtimeStateCollections: map[string]domain.StateCollection{}, runtimeStateRecords: map[string]domain.StateRecord{}, runtimeToolCalls: map[string]domain.ToolCall{}, runtimeProjections: map[string]domain.RuntimeExplorerView{}, runtimeProjectionRebuilds: map[string]domain.RuntimeProjectionRebuildRun{}, runtimeMaintenance: map[string]domain.RuntimeMaintenanceHeartbeat{},
 		approvals: map[string]domain.ApprovalDecision{}, reviewCycles: map[string]domain.ReviewCycle{}, reviewComments: map[string]domain.ReviewComment{}, reviewGrants: map[string]domain.ReviewGrant{}, submissions: map[string]domain.Submission{}, submissionRevisions: map[string]domain.SubmissionRevision{}, approvedSnapshots: map[string]domain.ApprovedSnapshot{}, artifacts: map[string]domain.Artifact{}, deliveryPackages: map[string]domain.DeliveryPackage{}, performanceBatches: map[string]domain.PerformanceImportBatch{}, observations: map[string]domain.PerformanceObservation{}, ratingDecisions: map[string]domain.RatingDecision{}, audits: []domain.AuditEvent{},
 	}
 }
@@ -640,6 +642,23 @@ func (s *Store) SaveDevice(_ context.Context, v domain.Device) error {
 	}
 	return nil
 }
+func (s *Store) RotateDeviceCredential(_ context.Context, tenantID, deviceID, tokenHash string, now time.Time) (domain.Device, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	device, ok := s.devices[deviceID]
+	if !ok || device.TenantID != tenantID || device.RevokedAt != nil {
+		return device, domain.NotFound("设备")
+	}
+	device.TokenHash = tokenHash
+	device.CredentialVersion++
+	if device.CredentialVersion < 1 {
+		device.CredentialVersion = 1
+	}
+	device.CredentialRotatedAt = now
+	s.devices[deviceID] = device
+	device.TokenHash = ""
+	return device, nil
+}
 func (s *Store) DeviceByTokenHash(_ context.Context, hash string) (domain.Device, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -677,6 +696,65 @@ func (s *Store) Device(_ context.Context, tenantID, id string) (domain.Device, e
 	}
 	v.TokenHash = ""
 	return v, nil
+}
+
+func (s *Store) SaveDaemonInstance(_ context.Context, value domain.DaemonInstance) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	device, ok := s.devices[value.DeviceID]
+	if !ok || device.TenantID != value.TenantID || device.RevokedAt != nil {
+		return domain.NotFound("设备")
+	}
+	if _, exists := s.daemonInstances[value.ID]; !exists && value.ConnectionEpoch == 1 && value.ReportSequence == 1 && value.State != "stopped" {
+		for id, other := range s.daemonInstances {
+			if id == value.ID || other.TenantID != value.TenantID || other.DeviceID != value.DeviceID || other.State == "stopped" {
+				continue
+			}
+			stoppedAt := value.LastSeenAt
+			other.State = "stopped"
+			other.StoppedAt = &stoppedAt
+			s.daemonInstances[id] = other
+		}
+	}
+	if existing, ok := s.daemonInstances[value.ID]; ok {
+		stale := value.ConnectionEpoch < existing.ConnectionEpoch ||
+			(value.ConnectionEpoch == existing.ConnectionEpoch && value.ReportSequence <= existing.ReportSequence) ||
+			(value.ConnectionEpoch == existing.ConnectionEpoch && existing.State == "stopped" && value.State != "stopped")
+		for _, other := range s.daemonInstances {
+			if other.ID != existing.ID && other.TenantID == existing.TenantID && other.DeviceID == existing.DeviceID && other.State != "stopped" {
+				stale = true
+				break
+			}
+		}
+		if existing.TenantID != value.TenantID || existing.DeviceID != value.DeviceID || stale {
+			return domain.Conflict("DAEMON_INSTANCE_REPORT_STALE", "DaemonInstance 状态报告已过期")
+		}
+	}
+	s.daemonInstances[value.ID] = value
+	return nil
+}
+
+func (s *Store) DaemonInstance(_ context.Context, tenantID, id string) (domain.DaemonInstance, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.daemonInstances[id]
+	if !ok || value.TenantID != tenantID {
+		return value, domain.NotFound("DaemonInstance")
+	}
+	return value, nil
+}
+
+func (s *Store) DaemonInstances(_ context.Context, tenantID, deviceID string) ([]domain.DaemonInstance, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	values := []domain.DaemonInstance{}
+	for _, value := range s.daemonInstances {
+		if value.TenantID == tenantID && (deviceID == "" || value.DeviceID == deviceID) {
+			values = append(values, value)
+		}
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i].LastSeenAt.After(values[j].LastSeenAt) })
+	return values, nil
 }
 
 func (s *Store) GrantDeviceProject(_ context.Context, tenantID, projectID, deviceID, _ string, now time.Time) error {

@@ -45,6 +45,8 @@
 5. 连接页只说明客户需要完成的动作，不展示 adapter、lease、MCP 参数、设备令牌或完整诊断日志。
 6. 连接成功后，客户不需要再次选择每个步骤的执行者；Runtime 根据已发布流水线和能力绑定分配 Worker、客户端、Provider 或人工节点。
 
+连接后的本地数据不会因为设备在线而自动全量上传。Daemon 在启动时和之后每 30 秒只读观察项目 Workspace，只同步脱敏的 ID、声明/观察摘要、状态、原因、generation 和时间；绝对路径、客户文件正文、提示词和完整 Agent 会话不进入 current-state。某项任务确实需要把资料交给 MCP、Provider 或云端 Worker 时，仍必须由该任务冻结的数据分类、TaskContract、工具白名单和可审计调用单独授权。
+
 ## 4. 多客户端发布门槛
 
 Claude Code、Codex 和其他客户端在 Runtime 内部属于同一类执行者，但“能执行本地自动化”不等于“能作为客户项目连接方式发布”。新客户端至少必须通过：
@@ -65,6 +67,9 @@ Claude Code、Codex 和其他客户端在 Runtime 内部属于同一类执行者
 - `ConnectSession` 的状态变化必须通过服务端 bootstrap 授权流程产生，前端不能自行把项目标成已连接。
 - 任务创建仍需回源检查项目是否有已连接设备；读投影过期时不能绕过该门禁。
 - 未来支持第二种客户端时，先扩展连接契约和适配器测试，再增加客户 UI 选项；不在现有 Codex 流程上增加未生效的多选字段。
+- 项目连接投影只回答“是否具备获准的本地执行面”；实际领取前还必须由 Runtime 校验该 Daemon 的 Workspace current-state 为 `ready`，并逐项比对 Environment、Plugin、Skill、MCP、Workspace 五类冻结声明。
+- Codex、Claude Code 等宿主必须实现同一 `AgentHarnessAdapter` 端口。Skill 以完整只读 `SKILL.md` 注入 Attempt 专属目录；MCP 只通过 Attempt-scoped Gateway 和工具白名单提供；Plugin 只负责宿主分发和安装，不拥有连接、租约或任务终态。
+- Agent 不直接在客户交互式 Workspace 中执行。Runtime 创建与 Attempt 一一对应的隔离目录并注入 TaskContract、Output Schema、Skill 和租约；终态后只清理该目录，不删除客户 Workspace。
 
 ## 6. 验收
 
@@ -73,4 +78,5 @@ Claude Code、Codex 和其他客户端在 Runtime 内部属于同一类执行者
 3. 客户页面只显示已验证的连接方式；Claude Code 在 bootstrap 未完成前不能显示为可连接。
 4. 连接成功后，至少一个已发布客户体验可以开始任务；任务内部仍可混用 Worker、Provider、Agent 和人工 Gate。
 5. 本地客户端断线不会删除或隐藏历史任务、结果资产和交付包。
-
+6. Workspace 观察不包含绝对路径或客户文件正文；状态或五类声明漂移时，新 Attempt 在创建前被拒绝，已有 Attempt 保持原快照。
+7. 同一个冻结 TaskContract 可经统一 Harness 端口交给 Codex 或 Claude Code；两者获得相同的 Skill、Output Schema、MCP 工具范围和 Runtime 围栏语义。

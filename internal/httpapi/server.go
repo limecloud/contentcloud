@@ -32,6 +32,8 @@ type Server struct {
 	providerCallbackSecrets map[string][]byte
 	channelCallbackSecrets  map[string][]byte
 	agentCallbackSecrets    map[string][]byte
+	runtimeWakeHub          *runtimeWakeHub
+	runtimeWakeContext      context.Context
 }
 
 type envelope struct {
@@ -46,6 +48,14 @@ type envelope struct {
 type actorKey struct{}
 
 type Option func(*Server)
+
+func WithRuntimeWakeContext(ctx context.Context) Option {
+	return func(server *Server) {
+		if ctx != nil {
+			server.runtimeWakeContext = ctx
+		}
+	}
+}
 
 // WithProviderCallbackSecret registers an ingress-only HMAC secret. Secrets
 // are keyed by the authenticated tenant/provider pair and are never exposed
@@ -90,11 +100,30 @@ func New(service *app.Service, logger *slog.Logger, devMode bool, webDist string
 	if logger == nil {
 		logger = slog.Default()
 	}
-	server := &Server{service: service, log: logger, devMode: devMode, webDist: webDist, providerCallbackSecrets: map[string][]byte{}, channelCallbackSecrets: map[string][]byte{}, agentCallbackSecrets: map[string][]byte{}}
+	server := &Server{service: service, log: logger, devMode: devMode, webDist: webDist, providerCallbackSecrets: map[string][]byte{}, channelCallbackSecrets: map[string][]byte{}, agentCallbackSecrets: map[string][]byte{}, runtimeWakeHub: newRuntimeWakeHub(), runtimeWakeContext: context.Background()}
 	for _, option := range options {
 		option(server)
 	}
+	if service != nil && service.Runtime() != nil {
+		service.Runtime().SetAvailableNotifier(server.publishRuntimeWake)
+		if service.HasRuntimeWakeBroker() {
+			go func() {
+				if err := service.ListenRuntimeWakes(server.runtimeWakeContext, server.runtimeWakeHub.publish); err != nil && server.runtimeWakeContext.Err() == nil {
+					server.log.Error("runtime wake listener stopped", "error", err)
+				}
+			}()
+		}
+	}
 	return server
+}
+
+func (s *Server) publishRuntimeWake(tenantID string) {
+	s.runtimeWakeHub.publish(tenantID)
+	ctx, cancel := context.WithTimeout(s.runtimeWakeContext, 2*time.Second)
+	defer cancel()
+	if err := s.service.PublishRuntimeWake(ctx, tenantID); err != nil && s.runtimeWakeContext.Err() == nil {
+		s.log.Warn("runtime cross-instance wake publish failed", "tenant_id", tenantID, "error", err)
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -113,6 +142,8 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/dev/bootstrap", s.devBootstrap)
 		}
 		r.Post("/cli/dispatch", s.dispatch)
+		r.Get("/runtime/worker/control", s.runtimeWorkerControl)
+		r.Post("/runtime/mcp/call", s.runtimeGatewayCall)
 		r.Post("/providers/{providerID}/tenants/{tenantID}/callbacks", s.providerCallback)
 		r.Post("/providers/{providerID}/tenants/{tenantID}/bills", s.providerBill)
 		r.Post("/channels/{adapterID}/tenants/{tenantID}/callbacks", s.channelCallback)
@@ -318,6 +349,7 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/projects/{projectID}/devices/{id}/attach", s.attachDevice)
 		r.Post("/projects/{projectID}/devices/{id}/detach", s.detachDevice)
 		r.Post("/devices/{id}/revoke", s.revokeDevice)
+		r.Post("/devices/{id}/credentials/rotate", s.rotateDeviceCredential)
 		r.Post("/device-auth/approve", s.approveDeviceAuth)
 		r.Get("/projects/{projectID}/runs", s.runs)
 		r.Get("/runs/{id}", s.run)
@@ -895,6 +927,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, req.Command, err)
 			return
 		}
+		value.GatewayURL = "/api/v1/runtime/mcp/call"
 		s.ok(w, r, req.Command, value)
 	case "runtime.worker.prepare_next":
 		actor, _, err := s.deviceFromRequest(r)
@@ -912,6 +945,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, req.Command, err)
 			return
 		}
+		value.GatewayURL = "/api/v1/runtime/mcp/call"
 		s.ok(w, r, req.Command, value)
 	case "runtime.worker.activate":
 		actor, _, err := s.deviceFromRequest(r)
@@ -987,7 +1021,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in app.RuntimeWorkerFinalizeInput
-		if err := json.Unmarshal(req.Params, &in); err != nil {
+		if err := strictDecodeParams(req.Params, &in); err != nil {
 			s.fail(w, r, req.Command, domain.Invalid("INPUT_INVALID", "Runtime worker 终态参数错误"))
 			return
 		}

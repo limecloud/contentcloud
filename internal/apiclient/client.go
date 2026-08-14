@@ -55,6 +55,9 @@ func (c *Client) Dispatch(ctx context.Context, command string, params any, out a
 	if err != nil {
 		return err
 	}
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError {
+		return &domain.Error{Type: "network", Subtype: "upstream", Code: "UPSTREAM_UNAVAILABLE", Message: fmt.Sprintf("服务端暂时不可用（HTTP %d）", resp.StatusCode), Retryable: true, Hint: "稍后自动重试", ExitCode: 5}
+	}
 	var env Envelope
 	if err := json.Unmarshal(body, &env); err != nil {
 		return fmt.Errorf("服务端响应无效（%d）：%s", resp.StatusCode, strings.TrimSpace(string(body)))

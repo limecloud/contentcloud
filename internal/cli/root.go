@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -28,10 +29,12 @@ import (
 	"github.com/limecloud/contentcloud/internal/environment"
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 	"github.com/limecloud/contentcloud/internal/localconfig"
+	"github.com/limecloud/contentcloud/internal/localworkspace"
+	"github.com/limecloud/contentcloud/internal/workbench"
 	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
-const Version = "0.25.0"
+const Version = "0.26.0"
 
 type Root struct {
 	json                   bool
@@ -40,6 +43,10 @@ type Root struct {
 	stdout                 io.Writer
 	stderr                 io.Writer
 	mcpCWD                 string
+	mcpWorkspaceMu         sync.Mutex
+	mcpWorkspaceRoot       string
+	workbenchManager       *workbench.Manager
+	proposalStore          *localworkspace.ProposalStore
 	now                    func() time.Time
 	pluginRunner           pluginhost.CommandRunner
 	pluginRuntimeHook      func(string) (*hostPluginRuntime, error)
@@ -313,6 +320,34 @@ func (r *Root) daemonCommand() *cobra.Command {
 		}
 		return r.writeOK("daemon.status", state)
 	}}
+	var diagnosticOutput string
+	diagnostics := &cobra.Command{Use: "diagnostics", Short: "在本机生成脱敏且不自动上传的 Daemon 诊断包", RunE: func(cmd *cobra.Command, args []string) error {
+		service, err := r.localDaemonService()
+		if err != nil {
+			return err
+		}
+		state, err := service.Status()
+		if err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		if r.now != nil {
+			now = r.now().UTC()
+		}
+		bundle, err := createDaemonDiagnosticBundle(diagnosticOutput, state, now)
+		if err != nil {
+			return err
+		}
+		body, err := os.ReadFile(diagnosticOutput)
+		if err != nil {
+			return err
+		}
+		digest := sha256.Sum256(body)
+		absolutePath, _ := filepath.Abs(diagnosticOutput)
+		return r.writeOK("daemon.diagnostics", map[string]any{"path": absolutePath, "schema_version": bundle.SchemaVersion, "redacted": bundle.Redacted, "uploaded": bundle.Uploaded, "sha256": hex.EncodeToString(digest[:]), "byte_size": len(body)})
+	}}
+	diagnostics.Flags().StringVar(&diagnosticOutput, "out", "", "诊断包 JSON 输出文件")
+	_ = diagnostics.MarkFlagRequired("out")
 	var ifInstalled bool
 	restart := &cobra.Command{Use: "restart", Short: "使用当前程序重新加载 Runtime worker 服务", RunE: func(cmd *cobra.Command, args []string) error {
 		service, err := r.localDaemonService()
@@ -345,7 +380,7 @@ func (r *Root) daemonCommand() *cobra.Command {
 	run.Flags().BoolVar(&fixture, "fixture", false, "使用确定性 JSON 结果，不启动本地 Agent")
 	run.Flags().StringVar(&adapterKind, "adapter", "auto", "本地智能体适配器：auto、codex 或 claude-code")
 	run.Flags().StringVar(&logFile, "log-file", "", "受管后台服务日志路径")
-	cmd.AddCommand(start, stop, status, restart, run)
+	cmd.AddCommand(start, stop, status, diagnostics, restart, run)
 	return cmd
 }
 
@@ -547,7 +582,7 @@ func commandSchemas() map[string]any {
 		"membership.list": userRead(nil, "租户成员列表"), "membership.invite.list": userRead(nil, "租户邀请列表"), "membership.invite.create": write("user", []string{"email", "--role", "--dry-run"}, "一次性租户邀请"), "membership.invite.accept": write("user", []string{"invite-token", "--dry-run"}, "已接受的成员资格"), "membership.invite.revoke": high([]string{"invite-id"}, "已撤销的租户邀请"), "membership.update": write("user", []string{"user-id", "role", "--dry-run"}, "已更新的固定成员角色"), "membership.revoke": high([]string{"user-id"}, "已撤销的成员资格和租户会话"),
 		"project.list": userRead(nil, "项目列表"), "project.show": userRead([]string{"project-id"}, "项目"), "project.resolve": userRead([]string{"name-or-slug"}, "稳定的项目 ID"), "project.create": write("user", []string{"--brand", "--product", "--channel", "--objective", "--owner", "--reviewer", "--client-approver", "--template", "--dry-run"}, "单一产品项目"), "project.update": write("user", []string{"project-id", "--row-version", "--brand", "--product", "--channel", "--objective", "--owner", "--reviewer", "--client-approver", "--dry-run"}, "通过乐观并发控制更新的项目"), "project.archive": high([]string{"project-id", "--row-version"}, "已归档的只读项目"), "project.restore": high([]string{"project-id", "--row-version"}, "已恢复的活跃项目"), "project_template.list": userRead(nil, "已脱敏的项目模板列表"), "project_template.create": write("user", []string{"--name", "--channel", "--objective", "--dry-run"}, "已脱敏的项目模板"),
 		"device.connect_session.create": write("user", []string{"project-id", "--project", "--dry-run"}, "一次性项目连接会话"), "device.connect_session.show": userRead([]string{"session-id"}, "项目连接会话"), "device.connect_session.cancel": high([]string{"session-id"}, "已取消的项目连接会话"),
-		"device.list": userRead([]string{"--project"}, "设备列表"), "device.show": userRead([]string{"device-id"}, "设备"), "device.attach": write("user", []string{"device-id", "--project", "--dry-run"}, "项目设备授权"), "device.detach": high([]string{"device-id", "--project"}, "已撤销的项目设备授权"), "device.revoke": high([]string{"device-id"}, "已撤销的设备"),
+		"device.list": userRead([]string{"--project"}, "设备列表"), "device.show": userRead([]string{"device-id"}, "设备"), "device.attach": write("user", []string{"device-id", "--project", "--dry-run"}, "项目设备授权"), "device.detach": high([]string{"device-id", "--project"}, "已撤销的项目设备授权"), "device.revoke": high([]string{"device-id"}, "已撤销的设备"), "device.credential.rotate": high([]string{"device-id"}, "旧 token 立即失效并返回一次性新 token"),
 		"source.list": userRead([]string{"--project"}, "来源列表"), "source.search": userRead([]string{"query", "--project", "--limit"}, "搜索公开来源"), "source.fetch": write("user", []string{"url", "--project", "--name", "--type"}, "受控采集公开来源"), "source.upload": write("user", []string{"file", "--project", "--name", "--type", "--mime", "--dry-run"}, "来源修订版本"), "source.status": userRead([]string{"revision-id"}, "来源修订版本状态"),
 		"source.revisions": userRead([]string{"source-id"}, "不可变的来源修订版本列表"), "source.revise": write("user", []string{"source-id", "file", "--mime", "--dry-run"}, "新的不可变来源修订版本"), "source.impact": userRead([]string{"source-id"}, "受影响对象列表"), "evidence.review": write("user", []string{"evidence-id", "decision", "--dry-run"}, "已审核的证据片段"),
 		"connector.adapter.list": userRead(nil, "已配置 Connector Adapter 列表"), "connector.binding.create": write("user", []string{"--project", "--connector", "--authorization-ref", "--region"}, "Connector 授权绑定"), "connector.binding.list": userRead([]string{"--project"}, "项目 Connector 绑定"), "connector.sync": write("user", []string{"binding-id", "--limit"}, "增量同步回执"), "connector.receipt.list": userRead([]string{"--binding"}, "Connector 同步回执"),
@@ -557,8 +592,8 @@ func commandSchemas() map[string]any {
 		"asset.list": userRead([]string{"--project"}, "受治理素材列表"), "asset.create": write("user", []string{"--project", "--name", "--type", "--source-revision", "--usage", "--dry-run"}, "受治理素材"), "rights.list": userRead([]string{"asset-id"}, "素材权利记录"), "rights.create": write("user", []string{"asset-id", "--holder", "--type", "--territory", "--channel", "--proof-source-revision", "--valid-from", "--valid-until", "--restriction", "--dry-run"}, "权利记录"), "rights.review": write("user", []string{"rights-id", "decision", "--dry-run"}, "已审核的权利记录"),
 		"knowledge.list": userRead([]string{"--project"}, "知识对象列表"), "knowledge.show": userRead([]string{"knowledge-id"}, "知识对象"), "knowledge.extract": write("user", []string{"--project", "--source-revision", "--count", "--idempotency-key", "--dry-run"}, "已排队的本地知识提取运行"), "knowledge.review": write("user", []string{"id", "decision", "--reason", "--dry-run"}, "已审核的知识对象"),
 		"run.list": userRead([]string{"--project"}, "运行列表"), "run.show": userRead([]string{"run-id"}, "任务运行"), "run.events": userRead([]string{"run-id", "--after"}, "Runtime 不可变的增量进度事件"), "run.log": userRead([]string{"run-id"}, "已脱敏的持久化进度"), "run.cancel": high([]string{"run-id"}, "已取消的任务运行"),
-		"runtime.worker.prepare":      write("device", []string{"job-run-id", "--harness", "--role", "--execution-profile", "--workspace", "--prompt"}, "已绑定 ContextView、AgentInstance、RuntimeAttempt 和 fence token 的准备句柄"),
-		"runtime.worker.prepare_next": write("device", []string{"--harness", "--role", "--execution-profile", "--workspace", "--prompt"}, "按 Runtime 公平调度领取的准备句柄"),
+		"runtime.worker.prepare":      write("device", []string{"job-run-id", "--harness"}, "按服务端冻结策略绑定 ContextView、AgentInstance、RuntimeAttempt 和 fence token"),
+		"runtime.worker.prepare_next": write("device", []string{"--harness"}, "按 Runtime 公平调度和服务端冻结策略领取准备句柄"),
 		"runtime.worker.activate":     write("device", []string{"attempt-id", "fence-token", "session-id", "--harness"}, "已绑定外部会话的 RuntimeAttempt"),
 		"runtime.worker.heartbeat":    write("device", []string{"attempt-id", "fence-token"}, "续期后的 RuntimeAttempt 租约"),
 		"runtime.worker.mcp":          write("device", []string{"attempt-id", "fence-token", "tool-name", "request-id", "arguments"}, "经过 Attempt fence 和 ContextView 授权的 Runtime MCP 工具结果"),
@@ -568,8 +603,8 @@ func commandSchemas() map[string]any {
 		"review.create": write("user", []string{"submission-revision-id", "--email", "--dry-run"}, "一次性客户审核链接"), "review.list": userRead([]string{"submission-revision-id"}, "客户审核授权列表"), "review.revoke": high([]string{"grant-id", "--dry-run"}, "已撤销的客户审核授权"), "review.status": userRead([]string{"submission-revision-id"}, "客户审核状态"),
 		"result.list": userRead([]string{"--project"}, "观察数据列表"), "result.import": write("user", []string{"json-or-csv-or-xlsx-file", "--project", "--dry-run"}, "原子化效果数据导入批次"), "result.batches": userRead([]string{"--project"}, "不可变的导入批次列表"), "result.batch-show": userRead([]string{"batch-id"}, "导入批次及其观察数据"), "result.rate": write("user", []string{"subject-type", "subject-id", "--project", "--observation", "--rating", "--reason", "--next-action", "--dry-run"}, "人工评分决定"), "result.ratings": userRead([]string{"--project"}, "人工评分决定列表"),
 		"lineage.show": userRead([]string{"--project", "--type", "--id", "--direction"}, "双向项目血缘图"), "lineage.impact": userRead([]string{"--project", "--type", "--id"}, "包含原因和动作的受影响对象"), "audit.list": userRead([]string{"--project", "--limit"}, "不可变的审计事件列表"),
-		"daemon.start": write("device", nil, "已安装并运行的用户级后台服务"), "daemon.stop": write("none", nil, "已停止的后台服务"), "daemon.status": read(nil, "后台服务进程、日志、版本和最近运行健康状态"), "daemon.restart": write("device", []string{"--if-installed"}, "已使用当前二进制文件重新加载的后台服务"), "daemon.run": write("device", []string{"--once", "--fixture", "--adapter", "--log-file"}, "租约任务运行结果"), "skills.list": read(nil, "内置技能列表"), "skills.read": read([]string{"name", "--path"}, "技能内容"), "skills.status": read(nil, "技能版本状态"), "skills.install": write("none", []string{"name", "--target"}, "本地安装路径"), "schema": read([]string{"command"}, "CLI 契约"), "request.get": userRead([]string{"projects|tenants|runs"}, "允许列表中的资源"),
-		"runtime-worker.run": write("device", []string{"--once", "--fixture", "--harness", "--role", "--execution-profile", "--workspace", "--prompt", "--result-file"}, "通过 Runtime Attempt/fence 协议完成的节点执行结果"),
+		"daemon.start": write("device", nil, "已安装并运行的用户级后台服务"), "daemon.stop": write("none", nil, "已停止的后台服务"), "daemon.status": read(nil, "后台服务进程、日志、版本和最近运行健康状态"), "daemon.diagnostics": write("none", []string{"--out"}, "显式生成的本地脱敏诊断包摘要"), "daemon.restart": write("device", []string{"--if-installed"}, "已使用当前二进制文件重新加载的后台服务"), "daemon.run": write("device", []string{"--once", "--fixture", "--adapter", "--log-file"}, "租约任务运行结果"), "skills.list": read(nil, "内置技能列表"), "skills.read": read([]string{"name", "--path"}, "技能内容"), "skills.status": read(nil, "技能版本状态"), "skills.install": write("none", []string{"name", "--target"}, "本地安装路径"), "schema": read([]string{"command"}, "CLI 契约"), "request.get": userRead([]string{"projects|tenants|runs"}, "允许列表中的资源"),
+		"runtime-worker.run": write("device", []string{"--once", "--fixture", "--harness", "--workspace", "--result-file"}, "通过 Runtime Attempt/fence 协议完成的节点执行结果"),
 	}
 }
 

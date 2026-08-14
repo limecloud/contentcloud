@@ -1,23 +1,23 @@
-# Provider Export Profiles
+# 供应商导出 Profile
 
-Last reviewed: 2026-07-25. Treat every value as export guidance that must be revalidated against the actual product surface.
+最后复核：2026-07-25。将所有值视为导出指导，并且必须对照实际产品界面重新验证。
 
-## Generic domestic-tool profile
+## 通用国内工具 Profile
 
-- Prefer concise Chinese prompts with separate subject, action, camera, sound, and constraints.
-- Keep each generated segment short enough to retry independently.
-- Reference exact packaging and readable text through real assets and later compositing.
-- Keep negative constraints in a separate derived field only when the selected tool exposes one.
+- 优先使用简洁中文提示词，分别描述主体、动作、镜头、声音和约束。
+- 每个生成片段保持足够短，以便独立重试。
+- 通过真实资产和后期合成引用准确包装与可读文字。
+- 只有选中工具提供相应字段时，才将负向约束保存在独立派生字段中。
 
-## Seedance-family profile
+## Seedance 系列 Profile
 
-- Multi-reference and multi-shot features vary by Doubao, Jimeng, Dreamina, and API surfaces.
-- Validate current duration, prompt length, reference count, and negative-prompt support at export time.
-- Avoid relying on generated product text or named intellectual property.
+- 多参考和多镜头能力因豆包、即梦、Dreamina 和 API 界面而异。
+- 导出时验证当前时长、提示词长度、引用数量和负向提示词支持情况。
+- 避免依赖生成的产品文字或具名知识产权。
 
-## Kling-family profile
+## Kling 系列 Profile
 
-- Validate current duration and multi-shot availability at export time.
-- Keep pre-generation safety wording concise; one rejected term can invalidate an entire submission on some surfaces.
+- 导出时验证当前时长和多镜头可用性。
+- 保持生成前安全措辞简洁；部分界面中一个被拒绝词语就可能使整个提交失效。
 
-The canonical Script Package must not contain hard-coded provider quotas. A versioned exporter converts the package into the chosen profile and records the profile version.
+Canonical Script Package 不得包含硬编码供应商配额。由版本化导出器将包转换为选中 Profile，并记录 Profile 版本。

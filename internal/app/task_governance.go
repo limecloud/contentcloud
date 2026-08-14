@@ -269,12 +269,10 @@ func (s *Service) ensureRuntimeRun(ctx context.Context, actor Actor, task domain
 	} else if task.Priority == "urgent" {
 		priority = 20
 	}
-	bindingDigest, err := domain.CanonicalHash(struct {
-		EnvironmentID string `json:"environment_id"`
-		SOPID         string `json:"sop_id"`
-		SOPVersion    int    `json:"sop_version"`
-		SOPDigest     string `json:"sop_digest"`
-	}{task.EnvironmentID, sop.SOPID, sop.Version, sop.Digest})
+	executionBinding, err := s.buildRuntimeExecutionBinding(ctx, runtimeExecutionBindingInput{
+		TenantID: task.TenantID, ProjectID: task.ProjectID, EnvironmentID: task.EnvironmentID,
+		ContentTypes: sop.ContentTypes, RuntimePolicyID: "runtime-policy/work-task-v1",
+	})
 	if err != nil {
 		return err
 	}
@@ -288,7 +286,7 @@ func (s *Service) ensureRuntimeRun(ctx context.Context, actor Actor, task domain
 	_, err = s.runtimeService.Start(ctx, contentruntime.StartInput{
 		TenantID: task.TenantID, ProjectID: task.ProjectID, WorkTaskID: task.ID,
 		BusinessType: "work_task." + task.ContentType, SOP: sop,
-		BindingDigest: "sha256:" + bindingDigest, InputDigest: "sha256:" + inputDigest,
+		ExecutionBinding: &executionBinding, InputDigest: "sha256:" + inputDigest,
 		RuntimePolicyID: "runtime-policy/work-task-v1", ContractMajor: 1, ContractMinor: 0,
 		Priority: priority, CreatedBy: actor.UserID, IdempotencyKey: "work-task:" + task.ID + ":" + stageRun.StageID,
 		CorrelationID: "task-start:" + task.ID,

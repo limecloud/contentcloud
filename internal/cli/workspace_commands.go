@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -24,6 +25,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 	"github.com/limecloud/contentcloud/internal/projectview"
+	"github.com/limecloud/contentcloud/internal/workbench"
 )
 
 func (r *Root) workspaceCommand() *cobra.Command {
@@ -444,6 +446,9 @@ func (r *Root) mcpCommand() *cobra.Command {
 		&cobra.Command{Use: "serve", Args: cobra.NoArgs, Short: "通过标准输入输出提供项目本地 MCP 工具", RunE: func(cmd *cobra.Command, args []string) error {
 			return r.serveMCP(cmd.Context(), cmd.InOrStdin())
 		}},
+		&cobra.Command{Use: "runtime-serve", Args: cobra.NoArgs, Short: "通过标准输入输出提供 Attempt 级 Runtime MCP 工具", RunE: func(cmd *cobra.Command, args []string) error {
+			return r.serveRuntimeMCP(cmd.Context(), cmd.InOrStdin())
+		}},
 	)
 	return cmd
 }
@@ -493,6 +498,51 @@ type mcpProjectViewResult struct {
 	BrowserHandoff mcpBrowserHandoff  `json:"browserHandoff"`
 }
 
+type mcpWorkspaceViewArguments struct {
+	Directory               string `json:"directory,omitempty"`
+	View                    string `json:"view"`
+	Ref                     string `json:"ref,omitempty"`
+	RunID                   string `json:"run_id,omitempty"`
+	ExpectedContextRevision uint64 `json:"expected_context_revision,omitempty"`
+	ExpectedDigest          string `json:"expected_digest,omitempty"`
+}
+
+type mcpWorkbenchArguments struct {
+	Directory               string `json:"directory,omitempty"`
+	View                    string `json:"view,omitempty"`
+	Ref                     string `json:"ref,omitempty"`
+	RunID                   string `json:"run_id,omitempty"`
+	ExpectedContextRevision uint64 `json:"expected_context_revision,omitempty"`
+	ExpectedDigest          string `json:"expected_digest,omitempty"`
+}
+
+type mcpWorkspaceProposalPrepareArguments struct {
+	Directory               string `json:"directory,omitempty"`
+	RunID                   string `json:"run_id"`
+	ClaimToken              string `json:"claim_token"`
+	OwnerKind               string `json:"owner_kind"`
+	OwnerID                 string `json:"owner_id"`
+	OwnerEpoch              uint64 `json:"owner_epoch"`
+	ExpectedContextRevision uint64 `json:"expected_context_revision"`
+	TypedAction             string `json:"typed_action"`
+	Ref                     string `json:"ref"`
+	ExpectedDigest          string `json:"expected_digest"`
+	Content                 string `json:"content"`
+	IdempotencyKey          string `json:"idempotency_key"`
+}
+
+type mcpWorkspaceProposalApplyArguments struct {
+	Directory               string `json:"directory,omitempty"`
+	ProposalID              string `json:"proposal_id"`
+	ClaimToken              string `json:"claim_token"`
+	OwnerKind               string `json:"owner_kind"`
+	OwnerID                 string `json:"owner_id"`
+	OwnerEpoch              uint64 `json:"owner_epoch"`
+	ExpectedContextRevision uint64 `json:"expected_context_revision"`
+	IdempotencyKey          string `json:"idempotency_key"`
+	Confirm                 bool   `json:"confirm"`
+}
+
 func (r *Root) serveMCP(ctx context.Context, input io.Reader) error {
 	if strings.TrimSpace(r.mcpCWD) == "" {
 		cwd, err := os.Getwd()
@@ -501,6 +551,8 @@ func (r *Root) serveMCP(ctx context.Context, input io.Reader) error {
 		}
 		r.mcpCWD = cwd
 	}
+	manager := r.localWorkbenchManager()
+	defer manager.Close()
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
 	encoder := json.NewEncoder(r.stdout)
@@ -554,6 +606,8 @@ func (r *Root) handleMCPRequest(ctx context.Context, request mcpRequest) mcpResp
 		}
 	case "resources/list":
 		response.Result = map[string]any{"resources": contentCloudMCPResources()}
+	case "resources/templates/list":
+		response.Result = map[string]any{"resourceTemplates": contentCloudMCPResourceTemplates()}
 	case "resources/read":
 		result, err := r.readContentCloudMCPResource(request.Params)
 		if err != nil {
@@ -856,12 +910,29 @@ func mcpTools() []map[string]any {
 		"properties": map[string]any{
 			"directory":         map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"run_id":            map[string]any{"type": "string"},
-			"owner":             map[string]any{"type": "string", "description": "稳定的对话或工作进程持有者 ID"},
+			"owner_kind":        map[string]any{"type": "string", "enum": []string{"agent", "browser"}},
+			"owner_id":          map[string]any{"type": "string", "description": "稳定的对话、工作进程或 Workbench 持有者 ID"},
 			"expected_revision": map[string]any{"type": "integer", "minimum": 1},
 			"ttl_seconds":       map[string]any{"type": "integer", "minimum": 1, "maximum": 14400},
 			"takeover_expired":  map[string]any{"type": "boolean"},
 		},
-		"required":             []string{"run_id", "owner", "expected_revision"},
+		"required":             []string{"run_id", "owner_kind", "owner_id", "expected_revision"},
+		"additionalProperties": false,
+	}
+	localRunTakeover := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":           map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
+			"run_id":              map[string]any{"type": "string"},
+			"owner_kind":          map[string]any{"type": "string", "enum": []string{"agent", "browser"}},
+			"owner_id":            map[string]any{"type": "string"},
+			"expected_owner_kind": map[string]any{"type": "string", "enum": []string{"agent", "browser"}},
+			"expected_owner_id":   map[string]any{"type": "string"},
+			"expected_epoch":      map[string]any{"type": "integer", "minimum": 1},
+			"expected_revision":   map[string]any{"type": "integer", "minimum": 1},
+			"ttl_seconds":         map[string]any{"type": "integer", "minimum": 1, "maximum": 14400},
+		},
+		"required":             []string{"run_id", "owner_kind", "owner_id", "expected_owner_kind", "expected_owner_id", "expected_epoch", "expected_revision"},
 		"additionalProperties": false,
 	}
 	localRunClaimControl := map[string]any{
@@ -897,11 +968,12 @@ func mcpTools() []map[string]any {
 		"properties": map[string]any{
 			"directory":        map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
 			"handoff_id":       map[string]any{"type": "string"},
-			"owner":            map[string]any{"type": "string"},
+			"owner_kind":       map[string]any{"type": "string", "enum": []string{"agent", "browser"}},
+			"owner_id":         map[string]any{"type": "string"},
 			"ttl_seconds":      map[string]any{"type": "integer", "minimum": 1, "maximum": 14400},
 			"takeover_expired": map[string]any{"type": "boolean"},
 		},
-		"required":             []string{"handoff_id", "owner"},
+		"required":             []string{"handoff_id", "owner_kind", "owner_id"},
 		"additionalProperties": false,
 	}
 	handoffControl := map[string]any{
@@ -1017,6 +1089,66 @@ func mcpTools() []map[string]any {
 		"required":             []string{"content_item_id"},
 		"additionalProperties": false,
 	}
+	workspaceView := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":                 map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
+			"view":                      map[string]any{"type": "string", "enum": []string{"workspace_summary", "file", "run", "handoff", "content_item", "render", "diff", "delivery"}},
+			"ref":                       map[string]any{"type": "string", "description": "允许目录内的 Workspace-relative 文件路径"},
+			"run_id":                    map[string]any{"type": "string"},
+			"expected_context_revision": map[string]any{"type": "integer", "minimum": 1},
+			"expected_digest":           map[string]any{"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+		},
+		"required":             []string{"view"},
+		"additionalProperties": false,
+	}
+	workbenchOpen := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":                 map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
+			"view":                      map[string]any{"type": "string", "enum": []string{"workspace_summary", "file", "run", "handoff", "content_item", "render", "diff", "delivery"}},
+			"ref":                       map[string]any{"type": "string", "description": "允许目录内的 Workspace-relative 文件或目录"},
+			"run_id":                    map[string]any{"type": "string"},
+			"expected_context_revision": map[string]any{"type": "integer", "minimum": 1},
+			"expected_digest":           map[string]any{"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+		},
+		"additionalProperties": false,
+	}
+	workspaceProposalPrepare := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":                 map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
+			"run_id":                    map[string]any{"type": "string"},
+			"claim_token":               map[string]any{"type": "string"},
+			"owner_kind":                map[string]any{"type": "string", "enum": []string{"agent", "browser"}},
+			"owner_id":                  map[string]any{"type": "string"},
+			"owner_epoch":               map[string]any{"type": "integer", "minimum": 1},
+			"expected_context_revision": map[string]any{"type": "integer", "minimum": 1},
+			"typed_action":              map[string]any{"type": "string", "enum": []string{"workspace_file.replace"}},
+			"ref":                       map[string]any{"type": "string"},
+			"expected_digest":           map[string]any{"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+			"content":                   map[string]any{"type": "string", "maxLength": 2097152},
+			"idempotency_key":           map[string]any{"type": "string", "minLength": 8, "maxLength": 128},
+		},
+		"required":             []string{"run_id", "claim_token", "owner_kind", "owner_id", "owner_epoch", "expected_context_revision", "typed_action", "ref", "expected_digest", "content", "idempotency_key"},
+		"additionalProperties": false,
+	}
+	workspaceProposalApply := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":                 map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
+			"proposal_id":               map[string]any{"type": "string"},
+			"claim_token":               map[string]any{"type": "string"},
+			"owner_kind":                map[string]any{"type": "string", "enum": []string{"agent", "browser"}},
+			"owner_id":                  map[string]any{"type": "string"},
+			"owner_epoch":               map[string]any{"type": "integer", "minimum": 1},
+			"expected_context_revision": map[string]any{"type": "integer", "minimum": 1},
+			"idempotency_key":           map[string]any{"type": "string", "minLength": 8, "maxLength": 128},
+			"confirm":                   map[string]any{"type": "boolean", "const": true},
+		},
+		"required":             []string{"proposal_id", "claim_token", "owner_kind", "owner_id", "owner_epoch", "expected_context_revision", "idempotency_key", "confirm"},
+		"additionalProperties": false,
+	}
 	return []map[string]any{
 		{
 			"name":        "contentcloud_open_studio_view",
@@ -1028,6 +1160,12 @@ func mcpTools() []map[string]any {
 			}},
 		},
 		{"name": "workspace_context", "description": "读取跨对话保存的 Content Work OS 工作区状态，不访问云端，也不声明任何写入", "inputSchema": directory, "annotations": readOnlyAnnotations},
+		{"name": "workspace_view", "description": "把允许目录内的 Workspace 文件、Run 或 Handoff 读取为带 digest 的类型化本地视图，不访问云端", "inputSchema": workspaceView, "annotations": readOnlyAnnotations},
+		{"name": "workspace_open_workbench", "description": "在当前 stdio MCP 进程内启动或复用受限 loopback Workbench，并返回私有浏览器交接元数据；不访问云端", "inputSchema": workbenchOpen, "annotations": readOnlyAnnotations},
+		{"name": "workspace_workbench_status", "description": "读取当前 MCP 进程内的本地 Workbench 状态，不返回 URL 或 capability", "inputSchema": directory, "annotations": readOnlyAnnotations},
+		{"name": "workspace_close_workbench", "description": "关闭当前 MCP 进程内的本地 Workbench listener 和所有浏览器 capability", "inputSchema": directory, "annotations": workspaceWriteAnnotations},
+		{"name": "workspace_proposal_prepare", "description": "在有效 owner/epoch 下校验本地草稿并生成绑定 revision 与文件 digest 的一次性 Proposal，不写正式文件", "inputSchema": workspaceProposalPrepare, "annotations": workspaceWriteAnnotations},
+		{"name": "workspace_proposal_apply", "description": "只应用用户准确确认且 owner、epoch、revision、digest 均未变化的 Proposal，并推进 LocalRun revision", "inputSchema": workspaceProposalApply, "annotations": workspaceWriteAnnotations},
 		{"name": "memory_status", "description": "检查本地记忆投影是否存在、陈旧或损坏，不读取云端", "inputSchema": directory, "annotations": readOnlyAnnotations},
 		{"name": "memory_rebuild", "description": "从当前工作区文本文件重建可删除的本地记忆检索投影，不上传文件", "inputSchema": directory, "annotations": workspaceWriteAnnotations},
 		{"name": "memory_remember", "description": "保存一条绑定当前来源文件的本地记忆候选，不晋升为正式知识", "inputSchema": memoryRemember, "annotations": workspaceWriteAnnotations},
@@ -1040,7 +1178,8 @@ func mcpTools() []map[string]any {
 		{"name": "environment_execution_plan", "description": "离线解析已签名的本地执行计划并准确报告缺少的任务能力包，不执行安装", "inputSchema": localExecutionPlan, "annotations": readOnlyAnnotations},
 		{"name": "environment_prepare_plan", "description": "披露缺少能力包的准确权限、数据流、费用和会话影响，不执行安装", "inputSchema": localExecutionPlan, "annotations": readOnlyAnnotations},
 		{"name": "environment_prepare_apply", "description": "只安装用户准确确认的能力包计划，原子更新环境锁，重新执行诊断并返回新对话交接", "inputSchema": environmentPreparationApply, "annotations": environmentWriteAnnotations},
-		{"name": "local_run_claim", "description": "取得指定本地运行上下文版本的单写入者锁", "inputSchema": localRunClaim},
+		{"name": "local_run_claim", "description": "取得指定本地运行上下文版本的单写入者租约，明文 token 只在本次结果中返回", "inputSchema": localRunClaim, "annotations": workspaceWriteAnnotations},
+		{"name": "local_run_takeover", "description": "在用户确认后按当前 owner、epoch 和 revision 接管仍有效的单写入者租约", "inputSchema": localRunTakeover, "annotations": workspaceWriteAnnotations},
 		{"name": "local_run_renew", "description": "续期有效的本地运行锁", "inputSchema": localRunClaimControl},
 		{"name": "local_run_release", "description": "释放有效的本地运行锁", "inputSchema": localRunClaimControl},
 		{"name": "handoff_create_ready", "description": "根据已锁定运行创建经过摘要校验的待接手交接，并释放运行锁", "inputSchema": handoffCreate},
@@ -1110,9 +1249,15 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			StorageMode          string               `json:"storage_mode"`
 			SourceID             string               `json:"source_id"`
 			RunID                string               `json:"run_id"`
-			Owner                string               `json:"owner"`
+			OwnerKind            string               `json:"owner_kind"`
+			OwnerID              string               `json:"owner_id"`
+			OwnerEpoch           uint64               `json:"owner_epoch"`
+			ExpectedOwnerKind    string               `json:"expected_owner_kind"`
+			ExpectedOwnerID      string               `json:"expected_owner_id"`
+			ExpectedEpoch        uint64               `json:"expected_epoch"`
 			ClaimToken           string               `json:"claim_token"`
 			ExpectedRevision     uint64               `json:"expected_revision"`
+			ContextRevision      uint64               `json:"expected_context_revision"`
 			TTLSeconds           int64                `json:"ttl_seconds"`
 			TakeoverExpired      bool                 `json:"takeover_expired"`
 			HandoffID            string               `json:"handoff_id"`
@@ -1172,11 +1317,16 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			Files                []string             `json:"files"`
 			DisclosuresFile      string               `json:"disclosures_file"`
 			Message              string               `json:"message"`
+			Content              string               `json:"content"`
+			TypedAction          string               `json:"typed_action"`
+			ProposalID           string               `json:"proposal_id"`
 			IdempotencyKey       string               `json:"idempotency_key"`
 			PlanID               string               `json:"plan_id"`
 			PreparationID        string               `json:"preparation_id"`
 			Accept               bool                 `json:"accept"`
 			View                 string               `json:"view"`
+			Ref                  string               `json:"ref"`
+			ExpectedDigest       string               `json:"expected_digest"`
 			Focus                *mcpProjectViewFocus `json:"focus"`
 		} `json:"arguments"`
 	}
@@ -1213,7 +1363,83 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		}
 		return openProjectViewEnvelope(link), nil
 	case "workspace_context":
-		value, err = r.workspaceConversationContext(params.Arguments.Directory)
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = r.workspaceConversationContext(root)
+	case "workspace_view":
+		arguments, decodeErr := decodeWorkspaceViewArguments(raw)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		root, resolveErr := r.resolveMCPWorkspace(arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.BuildWorkspaceView(localworkspace.WorkspaceViewOptions{
+			Root: root, View: arguments.View, Ref: arguments.Ref, RunID: arguments.RunID,
+			ExpectedContextRevision: arguments.ExpectedContextRevision, ExpectedDigest: arguments.ExpectedDigest,
+			Now: r.currentTime(),
+		})
+	case "workspace_open_workbench":
+		arguments, decodeErr := decodeWorkbenchArguments(raw, "workspace_open_workbench")
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		root, resolveErr := r.resolveMCPWorkspace(arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		opened, openErr := r.localWorkbenchManager().Open(ctx, workbench.OpenOptions{Root: root, View: arguments.View, Ref: arguments.Ref, RunID: arguments.RunID, ExpectedContextRevision: arguments.ExpectedContextRevision, ExpectedDigest: arguments.ExpectedDigest})
+		if openErr != nil {
+			return nil, openErr
+		}
+		return workbenchOpenEnvelope(opened), nil
+	case "workspace_workbench_status":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = r.localWorkbenchManager().Status(root)
+	case "workspace_close_workbench":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		err = r.localWorkbenchManager().CloseWorkspace(root)
+		value = map[string]any{"closed": err == nil}
+	case "workspace_proposal_prepare":
+		arguments, decodeErr := decodeWorkspaceProposalPrepareArguments(raw)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		root, resolveErr := r.resolveMCPWorkspace(arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = r.localProposalStore().PrepareIdempotent(arguments.IdempotencyKey, localworkspace.PrepareWorkspaceProposalOptions{
+			Root: root, RunID: arguments.RunID, ClaimToken: arguments.ClaimToken,
+			OwnerKind: arguments.OwnerKind, OwnerID: arguments.OwnerID, OwnerEpoch: arguments.OwnerEpoch,
+			ExpectedContextRevision: arguments.ExpectedContextRevision, TypedAction: arguments.TypedAction,
+			Ref: arguments.Ref, ExpectedDigest: arguments.ExpectedDigest, Content: arguments.Content, Now: r.currentTime(),
+		})
+	case "workspace_proposal_apply":
+		arguments, decodeErr := decodeWorkspaceProposalApplyArguments(raw)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if !arguments.Confirm {
+			return nil, domain.Invalid("WORKSPACE_PROPOSAL_CONFIRMATION_REQUIRED", "workspace_proposal_apply 需要 confirm=true 准确确认同一 Proposal")
+		}
+		root, resolveErr := r.resolveMCPWorkspace(arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = r.localProposalStore().ApplyIdempotent(arguments.IdempotencyKey, arguments.ProposalID, localworkspace.ApplyWorkspaceProposalOptions{
+			Root: root, ClaimToken: arguments.ClaimToken, OwnerKind: arguments.OwnerKind, OwnerID: arguments.OwnerID,
+			OwnerEpoch: arguments.OwnerEpoch, ExpectedContextRevision: arguments.ExpectedContextRevision, Now: r.currentTime(),
+		})
 	case "memory_status":
 		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
 		if resolveErr != nil {
@@ -1376,7 +1602,18 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		if resolveErr != nil {
 			return nil, resolveErr
 		}
-		value, err = localworkspace.ClaimRun(localworkspace.ClaimRunOptions{Root: root, RunID: params.Arguments.RunID, Owner: params.Arguments.Owner, ExpectedRevision: params.Arguments.ExpectedRevision, TTL: secondsDuration(params.Arguments.TTLSeconds), TakeoverExpired: params.Arguments.TakeoverExpired, Now: r.currentTime()})
+		value, err = localworkspace.ClaimRun(localworkspace.ClaimRunOptions{Root: root, RunID: params.Arguments.RunID, OwnerKind: params.Arguments.OwnerKind, OwnerID: params.Arguments.OwnerID, ExpectedRevision: params.Arguments.ExpectedRevision, TTL: secondsDuration(params.Arguments.TTLSeconds), TakeoverExpired: params.Arguments.TakeoverExpired, Now: r.currentTime()})
+	case "local_run_takeover":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.TakeoverRunClaim(localworkspace.TakeoverRunClaimOptions{
+			Root: root, RunID: params.Arguments.RunID, OwnerKind: params.Arguments.OwnerKind, OwnerID: params.Arguments.OwnerID,
+			ExpectedOwnerKind: params.Arguments.ExpectedOwnerKind, ExpectedOwnerID: params.Arguments.ExpectedOwnerID,
+			ExpectedEpoch: params.Arguments.ExpectedEpoch, ExpectedRevision: params.Arguments.ExpectedRevision,
+			TTL: secondsDuration(params.Arguments.TTLSeconds), Now: r.currentTime(),
+		})
 	case "local_run_renew":
 		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
 		if resolveErr != nil {
@@ -1411,7 +1648,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		}
 		var handoff localworkspace.HandoffRecord
 		var claim localworkspace.RunClaim
-		handoff, claim, err = localworkspace.AcceptHandoff(localworkspace.AcceptHandoffOptions{Root: root, HandoffID: params.Arguments.HandoffID, Owner: params.Arguments.Owner, TTL: secondsDuration(params.Arguments.TTLSeconds), TakeoverExpired: params.Arguments.TakeoverExpired, Now: r.currentTime()})
+		handoff, claim, err = localworkspace.AcceptHandoff(localworkspace.AcceptHandoffOptions{Root: root, HandoffID: params.Arguments.HandoffID, OwnerKind: params.Arguments.OwnerKind, OwnerID: params.Arguments.OwnerID, TTL: secondsDuration(params.Arguments.TTLSeconds), TakeoverExpired: params.Arguments.TakeoverExpired, Now: r.currentTime()})
 		value = map[string]any{"handoff": handoff, "claim": claim}
 	case "handoff_complete":
 		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
@@ -1825,7 +2062,15 @@ func mcpToolSuccessEnvelope(value any, link *projectview.Link) (map[string]any, 
 		return nil, err
 	}
 	if link == nil {
-		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(body)}}, "structuredContent": value, "isError": false}, nil
+		resources := localWorkspaceResourceLinks(value)
+		if len(resources) == 0 {
+			return map[string]any{"content": []map[string]string{{"type": "text", "text": string(body)}}, "structuredContent": value, "isError": false}, nil
+		}
+		content := []map[string]any{{"type": "text", "text": string(body)}}
+		for _, resource := range resources {
+			content = append(content, resource)
+		}
+		return map[string]any{"content": content, "structuredContent": value, "isError": false}, nil
 	}
 	return map[string]any{
 		"content": []map[string]any{
@@ -1835,6 +2080,61 @@ func mcpToolSuccessEnvelope(value any, link *projectview.Link) (map[string]any, 
 		"structuredContent": value,
 		"isError":           false,
 	}, nil
+}
+
+func localWorkspaceResourceLinks(value any) []map[string]any {
+	refs := []localworkspace.WorkspaceResourceRef{}
+	switch typed := value.(type) {
+	case localworkspace.WorkspaceView:
+		refs = typed.Resources
+	default:
+		return nil
+	}
+	links := make([]map[string]any, 0, len(refs))
+	for _, ref := range refs {
+		links = append(links, map[string]any{
+			"type": "resource_link", "uri": ref.URI, "name": ref.Name,
+			"description": ref.Digest, "mimeType": ref.MIMEType,
+		})
+	}
+	return links
+}
+
+func (r *Root) localWorkbenchManager() *workbench.Manager {
+	r.mcpWorkspaceMu.Lock()
+	defer r.mcpWorkspaceMu.Unlock()
+	if r.proposalStore == nil {
+		r.proposalStore = localworkspace.NewProposalStore()
+	}
+	if r.workbenchManager == nil {
+		r.workbenchManager = workbench.NewManagerWithProposalStore(r.currentTime, r.proposalStore)
+	}
+	return r.workbenchManager
+}
+
+func (r *Root) localProposalStore() *localworkspace.ProposalStore {
+	r.mcpWorkspaceMu.Lock()
+	defer r.mcpWorkspaceMu.Unlock()
+	if r.proposalStore == nil {
+		r.proposalStore = localworkspace.NewProposalStore()
+	}
+	return r.proposalStore
+}
+
+func workbenchOpenEnvelope(opened workbench.OpenResult) map[string]any {
+	body, _ := json.Marshal(opened.Descriptor)
+	content := []map[string]any{{"type": "text", "text": string(body)}}
+	for _, resource := range localWorkspaceResourceLinks(opened.Descriptor.Fallback) {
+		content = append(content, resource)
+	}
+	return map[string]any{
+		"content":           content,
+		"structuredContent": opened.Descriptor,
+		"isError":           false,
+		"_meta": map[string]any{
+			"run.zhongcao.contentcloud/browserHandoff": opened.Private,
+		},
+	}
 }
 
 func validSubmissionType(value string) bool {
@@ -1872,6 +2172,68 @@ func decodeOpenProjectViewArguments(raw json.RawMessage) (mcpProjectViewArgument
 		return mcpProjectViewArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "contentcloud_open_studio_view 需要 view")
 	}
 	return params.Arguments, nil
+}
+
+func decodeWorkspaceViewArguments(raw json.RawMessage) (mcpWorkspaceViewArguments, error) {
+	var params struct {
+		Name      string                    `json:"name"`
+		Arguments mcpWorkspaceViewArguments `json:"arguments"`
+	}
+	if err := decodeStrictMCPParams(raw, &params); err != nil {
+		return mcpWorkspaceViewArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "workspace_view 参数无效或包含未知字段")
+	}
+	if params.Name != "workspace_view" || strings.TrimSpace(params.Arguments.View) == "" {
+		return mcpWorkspaceViewArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "workspace_view 需要 view")
+	}
+	return params.Arguments, nil
+}
+
+func decodeWorkbenchArguments(raw json.RawMessage, expectedName string) (mcpWorkbenchArguments, error) {
+	var params struct {
+		Name      string                `json:"name"`
+		Arguments mcpWorkbenchArguments `json:"arguments"`
+	}
+	if err := decodeStrictMCPParams(raw, &params); err != nil {
+		return mcpWorkbenchArguments{}, domain.Invalid("MCP_PARAMS_INVALID", expectedName+" 参数无效或包含未知字段")
+	}
+	if params.Name != expectedName {
+		return mcpWorkbenchArguments{}, domain.Invalid("MCP_PARAMS_INVALID", expectedName+" 工具名称无效")
+	}
+	return params.Arguments, nil
+}
+
+func decodeWorkspaceProposalPrepareArguments(raw json.RawMessage) (mcpWorkspaceProposalPrepareArguments, error) {
+	var params struct {
+		Name      string                               `json:"name"`
+		Arguments mcpWorkspaceProposalPrepareArguments `json:"arguments"`
+	}
+	if err := decodeStrictMCPParams(raw, &params); err != nil || params.Name != "workspace_proposal_prepare" {
+		return mcpWorkspaceProposalPrepareArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "workspace_proposal_prepare 参数无效或包含未知字段")
+	}
+	return params.Arguments, nil
+}
+
+func decodeWorkspaceProposalApplyArguments(raw json.RawMessage) (mcpWorkspaceProposalApplyArguments, error) {
+	var params struct {
+		Name      string                             `json:"name"`
+		Arguments mcpWorkspaceProposalApplyArguments `json:"arguments"`
+	}
+	if err := decodeStrictMCPParams(raw, &params); err != nil || params.Name != "workspace_proposal_apply" {
+		return mcpWorkspaceProposalApplyArguments{}, domain.Invalid("MCP_PARAMS_INVALID", "workspace_proposal_apply 参数无效或包含未知字段")
+	}
+	return params.Arguments, nil
+}
+
+func decodeStrictMCPParams(raw json.RawMessage, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return errors.New("MCP 参数必须是单个 JSON 对象")
+	}
+	return nil
 }
 
 func openProjectViewEnvelope(link projectview.Link) map[string]any {
@@ -1914,6 +2276,12 @@ func contentCloudMCPResources() []map[string]any {
 	}
 }
 
+func contentCloudMCPResourceTemplates() []map[string]any {
+	return []map[string]any{
+		{"uriTemplate": "contentcloud://workspace/files/{path}?digest={sha256}", "name": "Content Work OS 本地文件", "description": "由 workspace_view 返回的摘要固定本地文件；必须包含观察到的 SHA-256", "mimeType": "application/octet-stream"},
+	}
+}
+
 func (r *Root) readContentCloudMCPResource(raw json.RawMessage) (map[string]any, error) {
 	var params struct {
 		URI string `json:"uri"`
@@ -1925,11 +2293,33 @@ func (r *Root) readContentCloudMCPResource(raw json.RawMessage) (map[string]any,
 	var err error
 	switch params.URI {
 	case "contentcloud://workspace/conversation-context":
-		value, err = r.workspaceConversationContext("")
+		root, resolveErr := r.resolveMCPWorkspace("")
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = r.workspaceConversationContext(root)
 	case "contentcloud://workspace/status":
-		value, err = r.contentCloudWorkspaceStatus("")
+		root, resolveErr := r.resolveMCPWorkspace("")
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = r.contentCloudWorkspaceStatus(root)
 	default:
-		return nil, domain.NotFound("MCP 资源")
+		root, resolveErr := r.resolveMCPWorkspace("")
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		resource, readErr := localworkspace.ReadWorkspaceResource(root, params.URI)
+		if readErr != nil {
+			return nil, readErr
+		}
+		content := map[string]string{"uri": resource.URI, "mimeType": resource.MIMEType}
+		if len(resource.Blob) > 0 {
+			content["blob"] = base64.StdEncoding.EncodeToString(resource.Blob)
+		} else {
+			content["text"] = resource.Text
+		}
+		return map[string]any{"contents": []map[string]string{content}}, nil
 	}
 	if err != nil {
 		return nil, err
@@ -2279,9 +2669,25 @@ func pluginHostForWorkspace(root string) (pluginhost.HostID, error) {
 }
 
 func (r *Root) resolveMCPWorkspace(directory string) (string, error) {
-	resolution, err := localworkspace.ResolveWorkspaceRoot(directory, r.mcpCWD)
+	r.mcpWorkspaceMu.Lock()
+	defer r.mcpWorkspaceMu.Unlock()
+
+	requested := directory
+	if strings.TrimSpace(requested) == "" && r.mcpWorkspaceRoot != "" {
+		requested = r.mcpWorkspaceRoot
+	}
+	resolution, err := localworkspace.ResolveWorkspaceRoot(requested, r.mcpCWD)
 	if err != nil {
 		return "", err
+	}
+	if r.mcpWorkspaceRoot == "" {
+		r.mcpWorkspaceRoot = resolution.Root
+		return resolution.Root, nil
+	}
+	if resolution.Root != r.mcpWorkspaceRoot {
+		conflict := domain.Conflict("MCP_WORKSPACE_SESSION_CONFLICT", "当前 MCP 会话已绑定另一个 Content Work OS 工作区")
+		conflict.Hint = "为另一个工作区启动独立的 Agent 会话；不要在同一 MCP 子进程中混用客户工作区"
+		return "", conflict
 	}
 	return resolution.Root, nil
 }

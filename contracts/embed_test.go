@@ -166,3 +166,62 @@ func TestStudioOpenAPIContractKeepsProductBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeWorkerOpenAPIContractMatchesCurrentServerBoundary(t *testing.T) {
+	var document struct {
+		Components struct {
+			Schemas map[string]map[string]any `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(OpenAPIYAML, &document); err != nil {
+		t.Fatalf("openapi.yaml is invalid: %v", err)
+	}
+	schema, ok := document.Components.Schemas["RuntimeWorkerPrepareInput"]
+	if !ok {
+		t.Fatal("RuntimeWorkerPrepareInput schema is missing")
+	}
+	required, ok := schema["required"].([]any)
+	if !ok {
+		t.Fatalf("RuntimeWorkerPrepareInput.required has unexpected type: %#v", schema["required"])
+	}
+	got := map[string]bool{}
+	for _, value := range required {
+		if name, ok := value.(string); ok {
+			got[name] = true
+		}
+	}
+	if !got["harness_kind"] || !got["capabilities"] || len(got) != 2 {
+		t.Fatalf("RuntimeWorkerPrepareInput.required=%v, want only harness_kind and capabilities", got)
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("RuntimeWorkerPrepareInput.properties has unexpected type: %#v", schema["properties"])
+	}
+	for _, retired := range []string{"role", "execution_profile_id", "max_tokens", "budget_minor", "remaining_descendants", "workspace", "prompt"} {
+		if _, exists := properties[retired]; exists {
+			t.Fatalf("RuntimeWorkerPrepareInput still exposes retired client-controlled field %q", retired)
+		}
+	}
+	if _, ok := properties["daemon_instance_id"]; !ok {
+		t.Fatal("RuntimeWorkerPrepareInput must expose daemon_instance_id")
+	}
+	for _, path := range []string{"/v1/runtime/worker/control", "/v1/runtime/mcp/call"} {
+		var raw map[string]any
+		if err := yaml.Unmarshal(OpenAPIYAML, &raw); err != nil {
+			t.Fatal(err)
+		}
+		paths, ok := raw["paths"].(map[string]any)
+		if !ok {
+			t.Fatal("OpenAPI paths have unexpected type")
+		}
+		if _, ok := paths[path]; !ok {
+			t.Fatalf("Runtime path %q is missing from OpenAPI", path)
+		}
+	}
+	if _, ok := document.Components.Schemas["RuntimeGatewayCallInput"]; !ok {
+		t.Fatal("RuntimeGatewayCallInput schema is missing")
+	}
+	if _, ok := document.Components.Schemas["RuntimeControlSyncFrame"]; !ok {
+		t.Fatal("RuntimeControlSyncFrame schema is missing")
+	}
+}

@@ -96,11 +96,22 @@ func (s *Service) CreateKnowledgeExtractionRun(ctx context.Context, actor Actor,
 			return domain.RuntimeRun{}, err
 		}
 	}
+	environmentID, err := s.projectRuntimeEnvironmentID(ctx, actor.TenantID, project.ID)
+	if err != nil {
+		return domain.RuntimeRun{}, err
+	}
+	executionBinding, err := s.buildRuntimeExecutionBinding(ctx, runtimeExecutionBindingInput{
+		TenantID: actor.TenantID, ProjectID: project.ID, EnvironmentID: environmentID,
+		ContentTypes: []string{"knowledge_extract"}, RuntimePolicyID: "runtime-policy/knowledge-extract-v1",
+	})
+	if err != nil {
+		return domain.RuntimeRun{}, err
+	}
 	start, err := s.runtimeService.Start(ctx, contentruntime.StartInput{
 		TenantID: actor.TenantID, ProjectID: project.ID,
 		WorkTaskID:   runtimeKey,
 		BusinessType: "knowledge_extract", InputSnapshotID: snapshot.ID, BusinessOutputCount: in.OutputCount,
-		SOP: knowledgeExtractionSOP(), BindingDigest: "sha256:" + snapshot.ManifestHash,
+		SOP: knowledgeExtractionSOP(), ExecutionBinding: &executionBinding,
 		InputDigest: "sha256:" + snapshot.ManifestHash, RuntimePolicyID: "runtime-policy/knowledge-extract-v1",
 		ContractMajor: 1, ContractMinor: 0, Priority: 60, CreatedBy: actor.UserID,
 		IdempotencyKey: runtimeKey, CorrelationID: requestID,

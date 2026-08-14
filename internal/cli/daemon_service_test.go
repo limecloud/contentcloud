@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/limecloud/contentcloud/internal/localconfig"
 )
 
 type fakeUserDaemonService struct {
@@ -147,5 +149,102 @@ func TestDaemonRestartIfInstalledSkipsWithoutRegistrationOrCredentials(t *testin
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || !envelope.Data.Skipped || service.restartCalls != 0 {
 		t.Fatalf("unexpected skip result: error=%v output=%s service=%#v", err, stdout.String(), service)
+	}
+}
+
+func TestDaemonRuntimeStatusIsAtomicMetadataOnlyAndFreshnessAware(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now().UTC()
+	service := &launchdDaemonService{home: home, executable: "/opt/contentcloud", version: Version, uid: 501, now: func() time.Time { return now }, run: func(name string, args ...string) ([]byte, error) {
+		return []byte("state = running\npid = 4242\n"), nil
+	}}
+	recorder := newDaemonRuntimeStatusRecorder(service.runtimeStatusPath(), []localconfig.DaemonBinding{{DeviceID: "device-1"}}, 4242)
+	recorder.observeControl("device-1", runtimeWakeObservation{State: "open"})
+	recorder.observeWorker("device-1", runtimeWorkerObservation{State: "running", AttemptID: "attempt-1", At: now})
+	recorder.observeWorker("device-1", runtimeWorkerObservation{State: "event", AttemptID: "attempt-1", At: now})
+	recorder.mu.Lock()
+	recorder.writeLocked(now)
+	recorder.mu.Unlock()
+	body, err := os.ReadFile(service.runtimeStatusPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"token", "prompt", "workspace", "event_data", "server_url"} {
+		if strings.Contains(strings.ToLower(string(body)), forbidden) {
+			t.Fatalf("runtime status exposed forbidden field %q: %s", forbidden, body)
+		}
+	}
+	info, err := os.Stat(service.runtimeStatusPath())
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("runtime status permissions = %v err=%v", info.Mode().Perm(), err)
+	}
+	state, err := service.Status()
+	if err != nil || state.Runtime == nil || !state.Runtime.Fresh || len(state.Runtime.Bindings) != 1 || state.Runtime.Bindings[0].WorkerState != "running" || state.Runtime.Bindings[0].CurrentAttemptID != "attempt-1" || state.Runtime.Bindings[0].LastEventAt == nil {
+		t.Fatalf("fresh runtime status = %#v err=%v", state.Runtime, err)
+	}
+	service.now = func() time.Time { return now.Add(daemonRuntimeStatusStaleAfter + time.Second) }
+	state, err = service.Status()
+	if err != nil || state.Runtime == nil || state.Runtime.Fresh {
+		t.Fatalf("stale runtime status = %#v err=%v", state.Runtime, err)
+	}
+}
+
+func TestRotatingDaemonLogRedactsRuntimeCredentialsAndPaths(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "daemon.log")
+	writer, err := newRotatingLogWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	input := "device=dt_device-secret bearer wt_workspace-secret token=rtg_gateway-secret path=/Users/coso/private"
+	if _, err := writer.Write([]byte(input + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, secret := range []string{"dt_device-secret", "wt_workspace-secret", "rtg_gateway-secret"} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("daemon log leaked %q: %s", secret, text)
+		}
+	}
+	if !strings.Contains(text, "[REDACTED]") || strings.Contains(text, "/Users/coso/private") {
+		t.Fatalf("daemon log redaction incomplete: %s", text)
+	}
+}
+
+func TestDaemonDiagnosticBundleIsLocalRedactedAndHashable(t *testing.T) {
+	root := t.TempDir()
+	logPath := filepath.Join(root, "daemon.log")
+	if err := os.WriteFile(logPath, []byte("device=dt_secret bearer wt_secret path=/Users/coso/project\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	status := &daemonRuntimeStatusSnapshot{
+		SchemaVersion: daemonRuntimeStatusSchemaVersion, ProcessID: 4242, WrittenAt: time.Now().UTC(), Fresh: true,
+		Bindings: []daemonBindingStatusSnapshot{{DeviceID: "device-secret", CurrentAttemptID: "attempt-secret", LastAttemptID: "attempt-secret", WorkerState: "running"}},
+	}
+	now := time.Now().UTC()
+	output := filepath.Join(root, "diagnostics.json")
+	bundle, err := createDaemonDiagnosticBundle(output, userDaemonState{Supported: true, Running: true, PID: 4242, LogPath: logPath, ErrorLogPath: logPath, Runtime: status}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(output)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("diagnostic permissions=%v err=%v", info.Mode().Perm(), err)
+	}
+	for _, forbidden := range []string{"dt_secret", "wt_secret", "device-secret", "attempt-secret", "/Users/coso/project"} {
+		if strings.Contains(strings.ToLower(string(body)), strings.ToLower(forbidden)) {
+			t.Fatalf("diagnostic leaked %q: %s", forbidden, body)
+		}
+	}
+	if !bundle.Redacted || bundle.Uploaded || len(bundle.Logs) != 1 || !bundle.Logs[0].Available || bundle.Logs[0].Excerpt == "" {
+		t.Fatalf("unexpected diagnostic bundle: %#v", bundle)
 	}
 }

@@ -3,6 +3,7 @@ package localconfig
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -95,5 +96,17 @@ func TestPrimaryBindingAndWorkspace(t *testing.T) {
 	binding, workspace, ok := config.PrimaryWorkspace()
 	if !ok || binding.DeviceID != "device-1" || workspace.ProjectID != "project-1" {
 		t.Fatalf("unexpected primary binding: %#v %#v", binding, workspace)
+	}
+}
+
+func TestEnsureMachineIDIsStableAndValid(t *testing.T) {
+	var config Config
+	first, err := config.EnsureMachineID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := config.EnsureMachineID()
+	if err != nil || second != first || !strings.HasPrefix(first, "mach_") || len(first) != 37 {
+		t.Fatalf("machine id is not stable: first=%q second=%q err=%v", first, second, err)
 	}
 }

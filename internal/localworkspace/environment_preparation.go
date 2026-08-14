@@ -23,7 +23,9 @@ type EnvironmentPreparationLease struct {
 
 type ActiveRunClaim struct {
 	RunID     string    `json:"run_id"`
-	Owner     string    `json:"owner"`
+	OwnerKind string    `json:"owner_kind"`
+	OwnerID   string    `json:"owner_id"`
+	Epoch     uint64    `json:"epoch"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
@@ -120,7 +122,7 @@ func activeRunClaims(root string, now time.Time) ([]ActiveRunClaim, error) {
 			return nil, err
 		}
 		if claim.ExpiresAt.After(now) {
-			claims = append(claims, ActiveRunClaim{RunID: claim.RunID, Owner: claim.Owner, ExpiresAt: claim.ExpiresAt})
+			claims = append(claims, ActiveRunClaim{RunID: claim.RunID, OwnerKind: claim.OwnerKind, OwnerID: claim.OwnerID, Epoch: claim.Epoch, ExpiresAt: claim.ExpiresAt})
 		}
 	}
 	sort.Slice(claims, func(i, j int) bool { return claims[i].RunID < claims[j].RunID })

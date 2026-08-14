@@ -45,7 +45,38 @@ func TestValidateV3MigrationSetRejectsTenantCapabilitiesWithoutV5(t *testing.T) 
 }
 
 func currentMigrationSet() []string {
-	return []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration, runProgressEventsMigration, knowledgeInfrastructureMigration, orchestrationInfrastructureMigration, taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration, runtimeFencingAndResourcesMigration, runtimeStateToolCallsMigration, runtimeProjectionMigration, runtimeJobContractMigration, runtimePlanRelationalMigration, runtimeFanoutJoinMigration, runtimeProviderInboxMigration, runtimeYieldResumeMigration, runtimeProjectionRebuildMigration, runtimeSessionMirrorCreationMigration, runtimeBusinessBindingMigration, runtimeInputSnapshotMigration, runtimeBusinessOutputMigration, removeV7ExecutionMigration, runtimeOutboxSubscribersMigration, removeRuntimeSessionMirrorMigration, runtimeMaintenanceHealthMigration, providerPollRecoveryMigration, providerPollDeadlineMigration, mediaRuntimeEffectLinksMigration, runtimeSchemaRegistryMigration, runtimeReadPaginationMigration, runtimeToolCallResultsMigration}
+	return []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration, runProgressEventsMigration, knowledgeInfrastructureMigration, orchestrationInfrastructureMigration, taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration, runtimeFencingAndResourcesMigration, runtimeStateToolCallsMigration, runtimeProjectionMigration, runtimeJobContractMigration, runtimePlanRelationalMigration, runtimeFanoutJoinMigration, runtimeProviderInboxMigration, runtimeYieldResumeMigration, runtimeProjectionRebuildMigration, runtimeSessionMirrorCreationMigration, runtimeBusinessBindingMigration, runtimeInputSnapshotMigration, runtimeBusinessOutputMigration, removeV7ExecutionMigration, runtimeOutboxSubscribersMigration, removeRuntimeSessionMirrorMigration, runtimeMaintenanceHealthMigration, providerPollRecoveryMigration, providerPollDeadlineMigration, mediaRuntimeEffectLinksMigration, runtimeSchemaRegistryMigration, runtimeReadPaginationMigration, runtimeToolCallResultsMigration, channelDeliveryReceiptsMigration, modelGenerationReceiptsMigration, connectorSyncMigration, contentProfilesMigration, channelCallbacksMigration, deviceDaemonInstancesMigration, runtimeExecutionBindingSnapshotsMigration, runtimeAttemptGatewayTokensMigration}
+}
+
+func TestRuntimeAttemptGatewayTokensMigrationIsRegisteredAndScoped(t *testing.T) {
+	body, err := migrations.Files.ReadFile(runtimeAttemptGatewayTokensMigration)
+	if err != nil {
+		t.Fatalf("read Runtime Gateway token migration: %v", err)
+	}
+	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
+	for _, required := range []string{"ADD COLUMN gateway_token_hash text", "ADD COLUMN gateway_expires_at timestamptz", "runtime_attempts_gateway_token_hash_format", "CREATE UNIQUE INDEX runtime_attempts_gateway_token_hash_unique", "contentcloud_lookup_runtime_gateway_token", "RETURNS TABLE(tenant_id uuid, attempt_id text)", "a.state IN ('prepared','running')", "REVOKE ALL ON FUNCTION contentcloud_lookup_runtime_gateway_token(text) FROM PUBLIC", "GRANT EXECUTE ON FUNCTION contentcloud_lookup_runtime_gateway_token(text) TO contentcloud_runtime"} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("Runtime Gateway token migration must contain %q", required)
+		}
+	}
+}
+
+func TestDeviceDaemonInstancesMigrationUsesTenantScopedDeviceAndForcedRLS(t *testing.T) {
+	body, err := migrations.Files.ReadFile(deviceDaemonInstancesMigration)
+	if err != nil {
+		t.Fatalf("read DaemonInstance migration: %v", err)
+	}
+	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
+	for _, required := range []string{
+		"ADD CONSTRAINT devices_tenant_id_id_unique UNIQUE (tenant_id,id)",
+		"FOREIGN KEY (tenant_id,device_id) REFERENCES devices(tenant_id,id)",
+		"ALTER TABLE daemon_instances FORCE ROW LEVEL SECURITY",
+		"FOREIGN KEY (tenant_id,device_id)",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("DaemonInstance migration must contain %q", required)
+		}
+	}
 }
 
 func TestRuntimeToolCallResultsMigrationAddsDurableReplayPayload(t *testing.T) {

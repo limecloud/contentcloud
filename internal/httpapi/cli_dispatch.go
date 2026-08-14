@@ -220,6 +220,15 @@ func (s *Server) handleUserDispatch(w http.ResponseWriter, r *http.Request, req 
 		}
 		v, err := s.service.RevokeDevice(r.Context(), actor, in.DeviceID, requestID)
 		s.dispatchResult(w, r, req.Command, v, err)
+	case "device.credential.rotate":
+		var in struct {
+			DeviceID string `json:"device_id"`
+		}
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.RotateDeviceCredential(r.Context(), actor, in.DeviceID, requestID)
+		s.dispatchResult(w, r, req.Command, v, err)
 	case "source.list":
 		var in struct {
 			ProjectID string `json:"project_id"`

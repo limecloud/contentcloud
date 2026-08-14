@@ -23,18 +23,19 @@ const (
 )
 
 type userDaemonState struct {
-	SchemaVersion  string     `json:"schema_version"`
-	Supported      bool       `json:"supported"`
-	Installed      bool       `json:"installed"`
-	Running        bool       `json:"running"`
-	AlreadyRunning bool       `json:"already_running,omitempty"`
-	PID            int        `json:"pid,omitempty"`
-	Version        string     `json:"version,omitempty"`
-	Executable     string     `json:"executable,omitempty"`
-	PlistPath      string     `json:"plist_path,omitempty"`
-	LogPath        string     `json:"log_path,omitempty"`
-	ErrorLogPath   string     `json:"error_log_path,omitempty"`
-	UpdatedAt      *time.Time `json:"updated_at,omitempty"`
+	SchemaVersion  string                       `json:"schema_version"`
+	Supported      bool                         `json:"supported"`
+	Installed      bool                         `json:"installed"`
+	Running        bool                         `json:"running"`
+	AlreadyRunning bool                         `json:"already_running,omitempty"`
+	PID            int                          `json:"pid,omitempty"`
+	Version        string                       `json:"version,omitempty"`
+	Executable     string                       `json:"executable,omitempty"`
+	PlistPath      string                       `json:"plist_path,omitempty"`
+	LogPath        string                       `json:"log_path,omitempty"`
+	ErrorLogPath   string                       `json:"error_log_path,omitempty"`
+	UpdatedAt      *time.Time                   `json:"updated_at,omitempty"`
+	Runtime        *daemonRuntimeStatusSnapshot `json:"runtime,omitempty"`
 }
 
 type userDaemonService interface {
@@ -173,11 +174,14 @@ func (s *launchdDaemonService) Status() (userDaemonState, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return state, err
 	}
-	output, err := s.run("launchctl", "print", fmt.Sprintf("gui/%d/%s", s.uid, userDaemonLabel))
-	if err != nil {
-		return state, nil
+	if output, err := s.run("launchctl", "print", fmt.Sprintf("gui/%d/%s", s.uid, userDaemonLabel)); err == nil {
+		state.PID, state.Running = parseLaunchdStatus(output)
 	}
-	state.PID, state.Running = parseLaunchdStatus(output)
+	runtimeStatus, err := readDaemonRuntimeStatus(s.runtimeStatusPath(), s.currentTime(), state.Running, state.PID)
+	if err != nil {
+		return state, err
+	}
+	state.Runtime = runtimeStatus
 	return state, nil
 }
 
@@ -211,6 +215,10 @@ func (s *launchdDaemonService) logPath() string {
 
 func (s *launchdDaemonService) errorLogPath() string {
 	return filepath.Join(s.configDir(), "daemon-error.log")
+}
+
+func (s *launchdDaemonService) runtimeStatusPath() string {
+	return filepath.Join(s.configDir(), "runtime-status.json")
 }
 
 func (s *launchdDaemonService) currentTime() time.Time {
@@ -261,11 +269,35 @@ func daemonLaunchEnvironment(home string) map[string]string {
 }
 
 func writeDaemonFile(path string, body []byte, mode os.FileMode) error {
-	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, body, mode); err != nil {
+	temporary, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(temporary, path)
+	temporaryPath := temporary.Name()
+	cleanup := true
+	defer func() {
+		_ = temporary.Close()
+		if cleanup {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if err := temporary.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err := temporary.Write(body); err != nil {
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 func parseLaunchdStatus(body []byte) (int, bool) {

@@ -14,6 +14,8 @@ type Repository interface {
 	RuntimeCommandStore
 
 	CreatePlan(context.Context, domain.JobPlanRevision) error
+	CreateExecutionBindingSnapshot(context.Context, domain.ExecutionBindingSnapshot) error
+	ExecutionBindingSnapshot(context.Context, string, string) (domain.ExecutionBindingSnapshot, error)
 	Plan(context.Context, string, string) (domain.JobPlanRevision, error)
 	Plans(context.Context, string) ([]domain.JobPlanRevision, error)
 	FanoutSet(context.Context, string, string) (domain.FanoutSet, error)
@@ -29,7 +31,7 @@ type Repository interface {
 	NodeRuns(context.Context, string, string) ([]domain.NodeRun, error)
 	NodeRunsPage(context.Context, string, string, int, int) ([]domain.NodeRun, bool, error)
 	NodeRun(context.Context, string, string) (domain.NodeRun, error)
-	NextReadyNode(context.Context, string, string) (domain.NodeRun, error)
+	NextReadyNode(context.Context, string, string, []string) (domain.NodeRun, error)
 
 	CreateContextView(context.Context, domain.ContextView) error
 	ContextView(context.Context, string, string) (domain.ContextView, error)
@@ -41,6 +43,7 @@ type Repository interface {
 	AgentInstanceForNode(context.Context, string, string) (domain.AgentInstance, error)
 
 	RuntimeAttempt(context.Context, string, string) (domain.RuntimeAttempt, error)
+	RuntimeAttemptByGatewayTokenHash(context.Context, string) (domain.RuntimeAttempt, error)
 	RuntimeAttempts(context.Context, string, string) ([]domain.RuntimeAttempt, error)
 	RuntimeYield(context.Context, string, string) (domain.RuntimeYield, error)
 	RuntimeYields(context.Context, string, string) ([]domain.RuntimeYield, error)

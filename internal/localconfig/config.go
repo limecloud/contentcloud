@@ -2,7 +2,9 @@ package localconfig
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,6 +19,7 @@ import (
 
 type Config struct {
 	ServerURL      string          `json:"server_url,omitempty"`
+	MachineID      string          `json:"machine_id,omitempty"`
 	DaemonBindings []DaemonBinding `json:"daemon_bindings,omitempty"`
 }
 
@@ -79,6 +82,22 @@ func Save(c Config) error {
 		return err
 	}
 	return savePath(path, c)
+}
+
+func (c *Config) EnsureMachineID() (string, error) {
+	if c == nil {
+		return "", fmt.Errorf("本地配置不可用")
+	}
+	if value := strings.TrimSpace(c.MachineID); value != "" {
+		c.MachineID = value
+		return value, nil
+	}
+	random := make([]byte, 24)
+	if _, err := rand.Read(random); err != nil {
+		return "", err
+	}
+	c.MachineID = "mach_" + base64.RawURLEncoding.EncodeToString(random)
+	return c.MachineID, nil
 }
 
 func savePath(path string, c Config) error {

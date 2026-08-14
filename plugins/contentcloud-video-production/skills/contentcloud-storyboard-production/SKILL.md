@@ -1,27 +1,27 @@
 ---
 name: contentcloud-storyboard-production
-description: Build, generate, validate, publish, and revise local storyboard image packages from an approved ContentItem in a bound ContentCloud workspace. Use for ContentItem-to-shot planning, first/end-frame production, review-sheet preparation, storyboard review handoff, or digest drift diagnosis; enforce that Codex produces candidates while ContentCloud server approval creates the only authoritative locked snapshot.
+description: 在已绑定的 ContentCloud 工作区中，根据已批准 ContentItem 构建、生成、校验、发布和修订本地分镜图片包。适用于 ContentItem 到镜头规划、首尾帧制作、审核表准备、分镜审核交接或 digest 漂移诊断；必须确保 Codex 只生成候选，唯一权威锁定快照由 ContentCloud 服务端批准产生。
 ---
 
-# ContentCloud Storyboard Production
+# ContentCloud 分镜制作
 
-Produce independently reviewable first/end frames from an approved provider-neutral ContentItem. Preserve product truth, continuity, rights, citations, and experiment intent.
+根据已批准且供应商中立的 ContentItem 制作可独立审核的首帧/尾帧。保留产品事实、连续性、权利、引用和实验意图。
 
-## Execution boundary
+## 执行边界
 
-| Plane | Allowed work |
+| 平面 | 允许工作 |
 | --- | --- |
-| `Codex local` | Pull approved content, create shot tasks, call an authorized image capability, write local media, calculate digests, generate a review sheet, and lint a `review_ready` candidate. |
-| `ContentCloud server` | Receive an explicit storyboard publish, validate the submitted revision, host review, create the ApprovedSnapshot, and record the lock decision and audit trail. |
-| `Human` | Select generated frames, judge product truth and continuity, authorize disclosure, confirm publish, and approve or request changes. |
+| `Codex local` | 拉取已批准内容、创建镜头任务、调用已授权图片能力、写入本地媒体、计算 digest、生成审核表，并 lint `review_ready` 候选。 |
+| `ContentCloud server` | 接收明确的分镜发布、校验提交修订版本、承载审核、创建 ApprovedSnapshot，并记录锁定决策和审计轨迹。 |
+| `Human` | 选择生成帧、判断产品事实与连续性、授权披露、确认发布，并批准或要求修改。 |
 
-`StoryboardPackage.status=review_ready` is local readiness only. It is not `approved` or `locked`. A storyboard is locked only when a `storyboard` ApprovedSnapshot has been pulled from ContentCloud and the packaged `locked_digest` still matches local media.
+`StoryboardPackage.status=review_ready` 只表示本地就绪，不是 `approved` 或 `locked`。只有从 ContentCloud 拉取 `storyboard` ApprovedSnapshot，且包内 `locked_digest` 仍与本地媒体匹配时，分镜才被锁定。
 
-## Workflow
+## 工作流
 
-1. Require a pulled `content_batch` ApprovedSnapshot containing a deliverable ContentItem. Never start from an unapproved `50-production/batches` candidate.
+1. 必须使用已拉取且包含可交付 ContentItem 的 `content_batch` ApprovedSnapshot。不得从未批准的 `50-production/batches` 候选开始。
 
-2. Create the local storyboard package:
+2. 创建本地分镜包：
 
    ```bash
    contentcloud local storyboard create \
@@ -32,37 +32,37 @@ Produce independently reviewable first/end frames from an approved provider-neut
      --capability-digest sha256:<digest>
    ```
 
-3. For each generated shot directory, write exactly one `first-frame` image and an optional `end-frame` image. Keep the file extension supported by the active capability. Generate `review-sheet` at the package root for human review.
+3. 每个生成镜头目录准确写入一张 `first-frame` 图片和一张可选 `end-frame` 图片。文件扩展名必须受有效能力支持。在包根目录生成 `review-sheet` 供人工审核。
 
-4. Use approved real product assets whenever appearance matters. Do not regenerate SKU shape, packaging text, ports, accessories, scale, certification, price, discount, or product result. Switch to the declared Plan B when product truth cannot be preserved.
+4. 只要外观重要，就使用已批准真实产品资产。不得重新生成 SKU 形状、包装文字、接口、配件、比例、认证、价格、折扣或产品结果。无法保留产品事实时，切换到已声明 Plan B。
 
-5. Preserve every shot's incoming/outgoing state, movement axis, lighting lock, product lock, anchors, rights, knowledge, claim references, negative constraints, and acceptance criteria. A review sheet is never a default video-model reference.
+5. 保留每个镜头的传入/传出状态、运动轴、光照锁定、产品锁定、锚点、权利、知识、断言引用、负向约束和验收标准。审核表不得作为默认视频模型参考。
 
-6. Discover media and prepare review:
+6. 发现媒体并准备审核：
 
    ```bash
    contentcloud local storyboard prepare <manifest.json>
    contentcloud local storyboard lint <manifest.json>
    ```
 
-7. Run storyboard publish preflight. Confirm the exact disclosure list and plan before sending anything to the server:
+7. 运行分镜发布预检。向服务端发送任何内容前，确认准确披露列表和计划：
 
    ```bash
    contentcloud publish storyboard --file <manifest.json> --dry-run
    ```
 
-8. Stop after publish. The user or authorized reviewer completes review on ContentCloud server. Do not mutate the local manifest to `approved` or `locked`, and do not create a fake ApprovedSnapshot.
+8. 发布后停止。由用户或已授权审核员在 ContentCloud 服务端完成审核。不得将本地清单修改为 `approved` 或 `locked`，也不得创建伪造 ApprovedSnapshot。
 
-9. After server approval, pull the exact snapshot:
+9. 服务端批准后，拉取准确快照：
 
    ```bash
    contentcloud pull approved --type storyboard
    ```
 
-10. Before handing off to Seedance export, verify all local file SHA-256 values and the package `locked_digest` against the pulled snapshot. Any changed, replaced, recompressed, cropped, or renamed file requires a new local candidate and a new review revision.
+10. 交接给 Seedance 导出前，对照已拉取快照校验所有本地文件 SHA-256 和包 `locked_digest`。任何被修改、替换、重新压缩、裁剪或重命名的文件都必须创建新的本地候选和审核修订版本。
 
-## Review requirements
+## 审核要求
 
-Require human review of narrative alignment, audience strategy, product appearance and usage, first/end-state continuity, movement axis, lighting, identity anchors, rights, 9:16 safe composition, subtitle space, and observable acceptance criteria.
+要求人工审核叙事一致性、受众策略、产品外观与使用方式、首尾状态连续性、运动轴、光照、身份锚点、权利、9:16 安全构图、字幕空间和可观察验收标准。
 
-Stop if any first frame, review sheet, right, Plan B, capability digest, or approved upstream reference is missing. Report the exact shot and next local or server action without crossing the execution boundary.
+任何首帧、审核表、权利、Plan B、能力 digest 或已批准上游引用缺失时停止。报告准确镜头和下一项本地或服务端动作，不得跨越执行边界。

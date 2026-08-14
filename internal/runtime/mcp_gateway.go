@@ -30,6 +30,14 @@ type GatewayRequest struct {
 	Arguments  map[string]any `json:"arguments"`
 }
 
+// GatewayTokenRequest is the untrusted HTTP/MCP input. Attempt identity,
+// tenant scope and fence are resolved exclusively from the hashed rtg_ token.
+type GatewayTokenRequest struct {
+	ToolName  string         `json:"tool_name"`
+	RequestID string         `json:"request_id"`
+	Arguments map[string]any `json:"arguments"`
+}
+
 type GatewayResponse struct {
 	ToolCall domain.ToolCall `json:"tool_call"`
 	Result   map[string]any  `json:"result,omitempty"`
@@ -52,6 +60,34 @@ type RuntimeMCPGateway struct {
 
 func NewRuntimeMCPGateway(service *Service) *RuntimeMCPGateway {
 	return &RuntimeMCPGateway{service: service}
+}
+
+func (g *RuntimeMCPGateway) CallWithToken(ctx context.Context, token string, request GatewayTokenRequest) (GatewayResponse, error) {
+	if g == nil || g.service == nil || g.service.repo == nil {
+		return GatewayResponse{}, domain.Policy("MCP_GATEWAY_UNAVAILABLE", "Runtime MCP Gateway 尚未配置", "联系平台运营人员启用 Runtime Gateway")
+	}
+	token = strings.TrimSpace(token)
+	if !strings.HasPrefix(token, "rtg_") || len(token) < 32 {
+		return GatewayResponse{}, domain.E("authentication", "runtime_gateway", "RUNTIME_GATEWAY_TOKEN_INVALID", "Runtime Gateway 凭据无效", 3)
+	}
+	attempt, err := g.service.repo.RuntimeAttemptByGatewayTokenHash(ctx, domain.TokenHash(token))
+	if err != nil {
+		return GatewayResponse{}, domain.E("authentication", "runtime_gateway", "RUNTIME_GATEWAY_TOKEN_INVALID", "Runtime Gateway 凭据无效", 3)
+	}
+	now := g.service.now().UTC()
+	if attempt.GatewayTokenHash != domain.TokenHash(token) || attempt.GatewayExpiresAt == nil || !attempt.GatewayExpiresAt.After(now) || (attempt.State != domain.RuntimeAttemptPrepared && attempt.State != domain.RuntimeAttemptRunning) || attempt.LeaseExpiresAt == nil || !attempt.LeaseExpiresAt.After(now) {
+		return GatewayResponse{}, domain.E("authentication", "runtime_gateway", "RUNTIME_GATEWAY_TOKEN_INVALID", "Runtime Gateway 凭据无效或已过期", 3)
+	}
+	if attempt.State == domain.RuntimeAttemptPrepared {
+		err := domain.Conflict("MCP_GATEWAY_NOT_ACTIVE", "Runtime Attempt 尚未完成 Agent 会话激活")
+		err.Retryable = true
+		err.Hint = "等待 worker 完成 activate 后重试"
+		return GatewayResponse{}, err
+	}
+	return g.Call(ctx, GatewayRequest{
+		TenantID: attempt.TenantID, AttemptID: attempt.ID, FenceToken: attempt.FenceToken,
+		ToolName: request.ToolName, RequestID: request.RequestID, Arguments: request.Arguments,
+	})
 }
 
 func (g *RuntimeMCPGateway) Call(ctx context.Context, request GatewayRequest) (GatewayResponse, error) {

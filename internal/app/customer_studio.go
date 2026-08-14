@@ -481,14 +481,22 @@ func (s *Service) ensureCustomerStudioRuntime(ctx context.Context, actor Actor, 
 		s.audit(ctx, actor, task.ProjectID, "runtime.start_failed", "task", task.ID, requestID, map[string]any{"error_code": "RUNTIME_UNAVAILABLE"})
 		return err
 	}
-	bindingDigest, inputDigest, err := customerStudioRuntimeAdmissionDigests(task, sop)
+	inputDigest, err := customerStudioRuntimeInputDigest(task)
 	if err != nil {
 		s.audit(ctx, actor, task.ProjectID, "runtime.start_failed", "task", task.ID, requestID, map[string]any{"error_code": "RUNTIME_ADMISSION_DIGEST_FAILED"})
 		return domain.Policy("RUNTIME_ADMISSION_DIGEST_FAILED", "创作任务的运行时准入快照无法冻结", "请检查任务输入和执行绑定后重试")
 	}
+	executionBinding, err := s.buildRuntimeExecutionBinding(ctx, runtimeExecutionBindingInput{
+		TenantID: actor.TenantID, ProjectID: task.ProjectID, EnvironmentID: task.EnvironmentID,
+		ContentTypes: sop.ContentTypes, RuntimePolicyID: "runtime-policy/customer-studio-v1",
+	})
+	if err != nil {
+		s.audit(ctx, actor, task.ProjectID, "runtime.start_failed", "task", task.ID, requestID, map[string]any{"error_code": "RUNTIME_EXECUTION_BINDING_FAILED"})
+		return domain.Policy("RUNTIME_EXECUTION_BINDING_FAILED", "创作任务的执行环境绑定无法冻结", "请检查执行环境和插件配置后重试")
+	}
 	if _, err := s.runtimeService.Start(ctx, contentruntime.StartInput{
 		TenantID: actor.TenantID, ProjectID: task.ProjectID, WorkTaskID: task.ID, SOP: sop,
-		BindingDigest: bindingDigest, InputDigest: inputDigest, RuntimePolicyID: "runtime-policy/customer-studio-v1",
+		ExecutionBinding: &executionBinding, InputDigest: inputDigest, RuntimePolicyID: "runtime-policy/customer-studio-v1",
 		ContractMajor: 1, ContractMinor: 0,
 		Priority: runtimePriority(task.Priority), CreatedBy: actor.UserID, IdempotencyKey: idempotencyKey,
 		CorrelationID: requestID,
@@ -504,26 +512,16 @@ func (s *Service) ensureCustomerStudioRuntime(ctx context.Context, actor Actor, 
 	return nil
 }
 
-func customerStudioRuntimeAdmissionDigests(task domain.WorkTask, sop domain.SOPVersion) (string, string, error) {
-	bindingDigest, err := domain.CanonicalHash(struct {
-		EnvironmentID        string `json:"environment_id"`
-		SOPID                string `json:"sop_id"`
-		SOPVersion           int    `json:"sop_version"`
-		SOPDigest            string `json:"sop_digest"`
-		DefaultExecutionMode string `json:"default_execution_mode"`
-	}{task.EnvironmentID, sop.SOPID, sop.Version, task.SOPDigest, sop.DefaultExecutionMode})
-	if err != nil {
-		return "", "", err
-	}
+func customerStudioRuntimeInputDigest(task domain.WorkTask) (string, error) {
 	inputDigest, err := domain.CanonicalHash(struct {
 		ContentType     string         `json:"content_type"`
 		InputRefs       []string       `json:"input_refs"`
 		RequestedOutput map[string]any `json:"requested_output"`
 	}{task.ContentType, task.InputRefs, task.RequestedOutput})
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return "sha256:" + bindingDigest, "sha256:" + inputDigest, nil
+	return "sha256:" + inputDigest, nil
 }
 
 func contentFormat(contentType string) string {

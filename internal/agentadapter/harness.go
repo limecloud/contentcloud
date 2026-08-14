@@ -10,11 +10,21 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
+const defaultHarnessHandshakeTimeout = 60 * time.Second
+
+func resolvedHarnessHandshakeTimeout(configured time.Duration) time.Duration {
+	if configured > 0 {
+		return configured
+	}
+	return defaultHarnessHandshakeTimeout
+}
+
 // HarnessCapabilities is the capability handshake used by Runtime scheduling.
 // A binary name alone is never sufficient to assume resume, MCP or event
 // support.
 type HarnessCapabilities struct {
 	Kind                string `json:"kind"`
+	Version             string `json:"version,omitempty"`
 	Events              bool   `json:"events"`
 	Resume              bool   `json:"resume"`
 	Fork                bool   `json:"fork"`
@@ -24,6 +34,17 @@ type HarnessCapabilities struct {
 	SandboxProfile      string `json:"sandbox_profile"`
 	MaxParallelSessions int    `json:"max_parallel_sessions"`
 	TranscriptExport    bool   `json:"transcript_export"`
+}
+
+// HarnessProbe is host presence data. It is deliberately separate from
+// RuntimeAttempt: probes may change while an Attempt keeps its frozen
+// capability snapshot.
+type HarnessProbe struct {
+	Kind         string              `json:"kind"`
+	Version      string              `json:"version,omitempty"`
+	Status       string              `json:"status"`
+	ErrorCode    string              `json:"error_code,omitempty"`
+	Capabilities HarnessCapabilities `json:"capabilities,omitempty"`
 }
 
 type StartAgentRequest struct {
@@ -36,15 +57,23 @@ type StartAgentRequest struct {
 	OutputSchema   json.RawMessage
 	ContextDigest  string
 	SessionOptions map[string]string
+	RuntimeGateway RuntimeGatewayConfig
 }
 
 type ResumeAgentRequest struct {
-	TenantID      string
-	Session       AgentSessionRef
-	Workspace     string
-	Prompt        string
-	OutputSchema  json.RawMessage
-	ContextDigest string
+	TenantID       string
+	Session        AgentSessionRef
+	Workspace      string
+	Prompt         string
+	OutputSchema   json.RawMessage
+	ContextDigest  string
+	RuntimeGateway RuntimeGatewayConfig
+}
+
+type RuntimeGatewayConfig struct {
+	URL          string   `json:"url,omitempty"`
+	Token        string   `json:"token,omitempty"`
+	AllowedTools []string `json:"allowed_tools,omitempty"`
 }
 
 type AgentSessionRef struct {

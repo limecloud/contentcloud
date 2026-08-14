@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/limecloud/contentcloud/internal/agentadapter"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/fixturev3"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
@@ -60,10 +62,14 @@ func (s *Service) EnsureMarketingVideoDemoFixture(ctx context.Context, actor Act
 			return MarketingVideoDemoFixtureResult{}, err
 		}
 	}
-	if _, _, err := s.ensureFixtureWorkspace(ctx, actor, project, fixturev3.WorkspaceSpec{
+	device, _, err := s.ensureFixtureWorkspace(ctx, actor, project, fixturev3.WorkspaceSpec{
 		TemplateID: localworkspace.TemplateID, TemplateVersion: marketingVideoDemoFixtureVersion,
 		Targets: []string{"codex"}, DeviceName: "营销视频演示创作环境",
-	}, fixtureRequestID(requestID, "workspace")); err != nil {
+	}, fixtureRequestID(requestID, "workspace"))
+	if err != nil {
+		return MarketingVideoDemoFixtureResult{}, err
+	}
+	if err := s.ensureMarketingVideoDemoDaemon(ctx, device, project); err != nil {
 		return MarketingVideoDemoFixtureResult{}, err
 	}
 	project, err = s.Project(ctx, actor, project.ID)
@@ -283,6 +289,57 @@ func (s *Service) EnsureMarketingVideoDemoFixture(ctx context.Context, actor Act
 		return MarketingVideoDemoFixtureResult{}, err
 	}
 	return MarketingVideoDemoFixtureResult{FixtureVersion: marketingVideoDemoFixtureVersion, Project: project, Task: finalView}, nil
+}
+
+func (s *Service) ensureMarketingVideoDemoDaemon(ctx context.Context, device domain.Device, project domain.Project) error {
+	if s.deviceControl == nil {
+		return domain.Policy("DAEMON_INSTANCE_STORE_UNAVAILABLE", "DaemonInstance 持久层未配置", "检查服务端设备控制存储配置")
+	}
+	now := s.now().UTC()
+	instanceID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("contentcloud:development-fixture:"+device.TenantID+":"+device.ID)).String()
+	workspaceID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("contentcloud:development-workspace:"+project.ID)).String()
+	workspaceObservation := domain.DaemonWorkspaceObservation{
+		WorkspaceID: workspaceID, ProjectID: project.ID, Status: "ready", Reason: "local_components_observed",
+		Generation: "sha256:development-workspace-generation", EnvironmentDeclaration: "sha256:development-environment",
+		PluginDeclaration: "sha256:development-plugin", SkillDeclaration: "sha256:development-skill",
+		MCPDeclaration: "sha256:development-mcp", WorkspaceDeclaration: "sha256:development-workspace",
+		PluginHostReceiptDigest: "sha256:development-plugin-receipt", ObservedSkillDigest: "sha256:development-skill",
+		ObservedMCPDigest: "sha256:development-mcp", ObservedWorkspaceDigest: "sha256:development-workspace",
+		ObservedAt: now,
+	}
+	instance := domain.DaemonInstance{
+		ID: instanceID, TenantID: device.TenantID, DeviceID: device.ID,
+		ConnectionEpoch: 1, ReportSequence: 1, Version: "fixture-v3", State: "connected",
+		Capabilities: map[string]any{
+			"environment_status": "ready", "environment_reason": "development_fixture",
+			"runtime_status": "healthy", "runtime_reason": "development_fixture", "harness_kind": "codex",
+			"workspace_observations": []domain.DaemonWorkspaceObservation{workspaceObservation},
+			"runtimes": []agentadapter.HarnessProbe{
+				{Kind: "codex", Version: "codex fixture", Status: "healthy", Capabilities: agentadapter.HarnessCapabilities{Kind: "codex", Version: "codex fixture", Events: true, Resume: true, MCPStdio: true, StructuredOutput: true, SandboxProfile: "development_fixture", MaxParallelSessions: 1, TranscriptExport: true}},
+				{Kind: "claude", Status: "unhealthy", ErrorCode: "CLAUDE_AUTH_REQUIRED", Capabilities: agentadapter.HarnessCapabilities{Kind: "claude"}},
+			},
+		},
+		ActiveAttempts: []string{}, StartedAt: now, LastSeenAt: now,
+	}
+	existing, err := s.deviceControl.DaemonInstance(ctx, device.TenantID, instanceID)
+	if err == nil {
+		instance.StartedAt = existing.StartedAt
+		instance.ConnectionEpoch = existing.ConnectionEpoch
+		instance.ReportSequence = existing.ReportSequence + 1
+		if existing.State == "stopped" || existing.StoppedAt != nil {
+			instance.ConnectionEpoch++
+			instance.ReportSequence = 1
+			instance.StartedAt = now
+		}
+	} else if !isNotFound(err) {
+		return err
+	}
+	if err := s.deviceControl.SaveDaemonInstance(ctx, instance); err != nil {
+		return err
+	}
+	device.LastSeenAt = now
+	device.Version = instance.Version
+	return s.store.SaveDevice(ctx, device)
 }
 
 func (s *Service) createMarketingVideoDemoSource(ctx context.Context, actor Actor, project domain.Project) (domain.SourceRevision, []string, error) {

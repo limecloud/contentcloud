@@ -107,6 +107,7 @@ func main() {
 		}()
 	}
 	httpOptions := providerCallbackHTTPOptions(os.Getenv("CONTENTCLOUD_PROVIDER_CALLBACK_SECRETS"))
+	httpOptions = append(httpOptions, httpapi.WithRuntimeWakeContext(workerCtx))
 	httpOptions = append(httpOptions, channelCallbackHTTPOptions(os.Getenv("CONTENTCLOUD_CHANNEL_CALLBACK_SECRETS"))...)
 	httpOptions = append(httpOptions, agentCallbackHTTPOptions(os.Getenv("CONTENTCLOUD_AGENT_CALLBACK_SECRETS"))...)
 	server := &http.Server{Addr: addr, Handler: httpapi.New(service, logger, devMode, webDist, httpOptions...).Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second}

@@ -1,17 +1,17 @@
-# Validation Checklist
+# 校验检查表
 
-Return `review_ready` only when every blocking item passes.
+只有所有阻断项通过时才返回 `review_ready`。
 
-- Brief and knowledge come from pulled ApprovedSnapshots or the immutable Automation contract.
-- One primary selling point, one CTA, and one primary test variable are present.
-- Required roles `hook`, `proof`, `cta`, and one of `product_intro|product_solution` exist.
-- Timecodes are contiguous and equal the declared target duration.
-- Every spoken claim, on-screen claim, and visual fact has an allowed citation.
-- Proof shots reference observable proof rather than unsupported praise.
-- Product marks, packaging, and readable text use an explicit real-asset strategy.
-- Subject, scene, lighting, movement axis, props, and product state are continuous.
-- Every shot has first state, motion, end state, sound intent, negative constraints, and measurable acceptance criteria.
-- The primary experiment variable matches the ContentBatch and is absent from controlled dimensions.
-- No source instruction, local secret, path, runtime identity, prompt, or unrelated project content appears in output.
+- Brief 和知识来自已拉取 ApprovedSnapshot 或不可变 Automation Contract。
+- 存在一个主要卖点、一个 CTA 和一个主要测试变量。
+- 存在必需角色 `hook`、`proof`、`cta`，以及 `product_intro|product_solution` 之一。
+- 时间码连续且总长等于已声明目标时长。
+- 每个口播断言、画面断言和视觉事实都有允许的引用。
+- 证明镜头引用可观察证据，而不是无依据赞美。
+- 产品标记、包装和可读文字使用明确的真实资产策略。
+- 主体、场景、光照、运动轴、道具和产品状态保持连续。
+- 每个镜头都有初始状态、运动、结束状态、声音意图、负向约束和可测量验收标准。
+- 主要实验变量与 ContentBatch 匹配，且不出现在控制维度中。
+- 输出中不出现来源指令、本地秘密、路径、运行时身份、提示词或无关项目内容。
 
-If a check fails, use a stable blocked code and name the responsible role and next action. Do not invent a substitute fact or silently drop the selling point.
+检查失败时，使用稳定 blocked 代码，并说明负责角色和下一步动作。不得虚构替代事实或静默删除卖点。

@@ -19,6 +19,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/environment"
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
+	"github.com/limecloud/contentcloud/internal/workbench"
 )
 
 func TestWorkspaceCommandsAndMCPUseLocalState(t *testing.T) {
@@ -210,7 +211,7 @@ func TestMCPListsAndCallsWorkspaceTools(t *testing.T) {
 		name, _ := tool["name"].(string)
 		names[name] = true
 	}
-	for _, name := range []string{"contentcloud_open_studio_view", "workspace_context", "memory_status", "memory_rebuild", "memory_remember", "memory_consolidate", "memory_promote", "memory_extract", "memory_remote_query", "memory_query", "workspace_project_brief", "environment_execution_plan", "environment_prepare_plan", "environment_prepare_apply", "workspace_status", "workspace_doctor", "source_register", "source_list", "source_ingest", "source_verify", "local_run_init", "local_run_show", "local_run_claim", "local_run_renew", "local_run_release", "handoff_create_ready", "handoff_list_ready", "handoff_accept", "handoff_complete", "handoff_supersede", "knowledge_import", "knowledge_lint", "knowledge_query", "knowledge_diagnose", "knowledge_pack", "brief_lint", "content_batch_init", "content_item_lint", "content_batch_lint", "content_batch_finalize", "content_item_diff", "delivery_export", "article_brief_lint", "article_batch_create", "article_item_lint", "article_batch_lint", "article_batch_finalize", "article_item_diff", "wechat_package_export", "wechat_package_lint", "publish_preflight", "publish_apply", "submission_status", "review_feedback_list", "review_feedback_pull", "review_feedback_inbox", "approved_snapshot_list", "approved_snapshot_pull", "approved_snapshot_inbox", "approved_snapshot_show"} {
+	for _, name := range []string{"contentcloud_open_studio_view", "workspace_context", "workspace_view", "workspace_open_workbench", "workspace_workbench_status", "workspace_close_workbench", "workspace_proposal_prepare", "workspace_proposal_apply", "memory_status", "memory_rebuild", "memory_remember", "memory_consolidate", "memory_promote", "memory_extract", "memory_remote_query", "memory_query", "workspace_project_brief", "environment_execution_plan", "environment_prepare_plan", "environment_prepare_apply", "workspace_status", "workspace_doctor", "source_register", "source_list", "source_ingest", "source_verify", "local_run_init", "local_run_show", "local_run_claim", "local_run_takeover", "local_run_renew", "local_run_release", "handoff_create_ready", "handoff_list_ready", "handoff_accept", "handoff_complete", "handoff_supersede", "knowledge_import", "knowledge_lint", "knowledge_query", "knowledge_diagnose", "knowledge_pack", "brief_lint", "content_batch_init", "content_item_lint", "content_batch_lint", "content_batch_finalize", "content_item_diff", "delivery_export", "article_brief_lint", "article_batch_create", "article_item_lint", "article_batch_lint", "article_batch_finalize", "article_item_diff", "wechat_package_export", "wechat_package_lint", "publish_preflight", "publish_apply", "submission_status", "review_feedback_list", "review_feedback_pull", "review_feedback_inbox", "approved_snapshot_list", "approved_snapshot_pull", "approved_snapshot_inbox", "approved_snapshot_show"} {
 		if !names[name] {
 			t.Fatalf("MCP tool %q is missing: %#v", name, tools)
 		}
@@ -243,6 +244,17 @@ func TestMCPListsAndCallsWorkspaceTools(t *testing.T) {
 	resources, ok := resourceList.Result.(map[string]any)
 	if resourceList.Error != nil || !ok || len(resources["resources"].([]map[string]any)) != 2 {
 		t.Fatalf("unexpected resource list: %#v", resourceList)
+	}
+	templateList := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("5.1"), Method: "resources/templates/list"})
+	templates, ok := templateList.Result.(map[string]any)
+	if templateList.Error != nil || !ok || len(templates["resourceTemplates"].([]map[string]any)) != 1 {
+		t.Fatalf("unexpected resource template list: %#v", templateList)
+	}
+	for _, template := range templates["resourceTemplates"].([]map[string]any) {
+		uri, _ := template["uriTemplate"].(string)
+		if !strings.Contains(uri, "digest={sha256}") {
+			t.Fatalf("resource template is not digest-bound: %#v", template)
+		}
 	}
 	resourceParams, _ := json.Marshal(map[string]any{"uri": "contentcloud://workspace/conversation-context"})
 	resourceRead := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("6"), Method: "resources/read", Params: resourceParams})
@@ -301,6 +313,35 @@ func TestMCPListsAndCallsWorkspaceTools(t *testing.T) {
 	if call.Error != nil || !ok || result["isError"] != false {
 		t.Fatalf("script diff MCP tool failed: error=%+v result=%#v", call.Error, call.Result)
 	}
+}
+
+func TestMCPBindsExplicitWorkspaceForSubsequentResourceReads(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-bind", WorkspaceID: "workspace-bind", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	ref := "50-production/local.md"
+	body := []byte("bound to the customer workspace\n")
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(ref)), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := &Root{mcpCWD: filepath.Join(t.TempDir(), "plugin-root"), now: func() time.Time { return time.Date(2026, 8, 14, 5, 0, 0, 0, time.UTC) }}
+	viewResult := callMCPToolForTest(t, r, "workspace_view", map[string]any{"directory": root, "view": "file", "ref": ref})
+	view := viewResult["structuredContent"].(localworkspace.WorkspaceView)
+	params, _ := json.Marshal(map[string]any{"uri": view.Resources[0].URI})
+	read := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "resources/read", Params: params})
+	if read.Error != nil {
+		t.Fatalf("bound resource read failed: %#v", read.Error)
+	}
+	otherRoot := filepath.Join(t.TempDir(), "other")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: otherRoot, ProjectID: "project-other", WorkspaceID: "workspace-other", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := r.resolveMCPWorkspace(otherRoot)
+	if err == nil {
+		t.Fatal("MCP session accepted a second workspace")
+	}
+	assertCLIErrorCode(t, err, "MCP_WORKSPACE_SESSION_CONFLICT")
 }
 
 func TestMCPOpenProjectViewReturnsTrustedResourceLink(t *testing.T) {
@@ -497,6 +538,239 @@ func TestMCPWorkspaceToolLinkFailureDoesNotReverseBusinessSuccess(t *testing.T) 
 	}
 }
 
+func TestMCPWorkspaceViewResourcesStayLocal(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-view", WorkspaceID: "workspace-view", ServerURL: "https://content.example.com", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	ref := "50-production/脚本 候选.md"
+	body := []byte("# 脚本候选\n\n只在本地展示。\n")
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(ref)), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := &Root{mcpCWD: root, now: func() time.Time { return time.Date(2026, 8, 14, 4, 0, 0, 0, time.UTC) }}
+	viewResult := callMCPToolForTest(t, r, "workspace_view", map[string]any{"view": "content_item", "ref": ref})
+	view, ok := viewResult["structuredContent"].(localworkspace.WorkspaceView)
+	if !ok || view.View.Text != string(body) || view.ObservedDigest == "" || len(view.Resources) != 1 {
+		t.Fatalf("unexpected workspace view result: %#v", viewResult)
+	}
+	serialized, err := json.Marshal(viewResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(serialized), root) || strings.Contains(string(serialized), "https://content.example.com") {
+		t.Fatalf("workspace view leaked local root or cloud URL: %s", serialized)
+	}
+	viewContent, ok := viewResult["content"].([]map[string]any)
+	if !ok || len(viewContent) != 2 || viewContent[1]["type"] != "resource_link" || viewContent[1]["uri"] != view.Resources[0].URI {
+		t.Fatalf("workspace view is missing its standard MCP resource_link: %#v", viewResult["content"])
+	}
+	fileResourceParams, _ := json.Marshal(map[string]any{"uri": view.Resources[0].URI})
+	fileResource := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "resources/read", Params: fileResourceParams})
+	filePayload, ok := fileResource.Result.(map[string]any)
+	if fileResource.Error != nil || !ok {
+		t.Fatalf("workspace file resource failed: %#v", fileResource)
+	}
+	fileContents := filePayload["contents"].([]map[string]string)
+	if len(fileContents) != 1 || fileContents[0]["text"] != string(body) || fileContents[0]["blob"] != "" {
+		t.Fatalf("unexpected text resource payload: %#v", fileContents)
+	}
+
+	pngRef := "50-production/source.png"
+	pngBody := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(pngRef)), pngBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pngResult := callMCPToolForTest(t, r, "workspace_view", map[string]any{"view": "file", "ref": pngRef})
+	pngView := pngResult["structuredContent"].(localworkspace.WorkspaceView)
+	pngParams, _ := json.Marshal(map[string]any{"uri": pngView.Resources[0].URI})
+	pngRead := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("3"), Method: "resources/read", Params: pngParams})
+	pngPayload := pngRead.Result.(map[string]any)
+	pngContents := pngPayload["contents"].([]map[string]string)
+	if len(pngContents) != 1 || pngContents[0]["blob"] == "" || pngContents[0]["text"] != "" {
+		t.Fatalf("binary resource did not use MCP blob: %#v", pngContents)
+	}
+}
+
+func TestMCPWorkbenchKeepsBrowserHandoffPrivateAndClosesCleanly(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-workbench", WorkspaceID: "workspace-workbench", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	ref := "50-production/local.md"
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(ref)), []byte("local workbench\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := &Root{mcpCWD: root}
+	t.Cleanup(func() { _ = r.localWorkbenchManager().Close() })
+
+	opened := callMCPToolForTest(t, r, "workspace_open_workbench", map[string]any{"view": "file", "ref": ref})
+	descriptor, ok := opened["structuredContent"].(workbench.Descriptor)
+	if !ok || descriptor.WorkbenchID == "" || descriptor.View != "file" || descriptor.Ref != ref || descriptor.Fallback.ObservedDigest == "" {
+		t.Fatalf("unexpected public workbench descriptor: %#v", opened)
+	}
+	publicBody, err := json.Marshal(descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(publicBody), root) || strings.Contains(string(publicBody), "127.0.0.1") || strings.Contains(string(publicBody), "handoff=") {
+		t.Fatalf("public workbench descriptor leaked private handoff state: %s", publicBody)
+	}
+	meta, ok := opened["_meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("workbench result is missing private MCP metadata: %#v", opened)
+	}
+	private, ok := meta["run.zhongcao.contentcloud/browserHandoff"].(workbench.PrivateHandoff)
+	if !ok || private.WorkbenchID != descriptor.WorkbenchID || private.Origin == "" || !strings.HasPrefix(private.URL, private.Origin+"/#handoff=") {
+		t.Fatalf("unexpected private browser handoff: %#v", meta)
+	}
+
+	statusResult := callMCPToolForTest(t, r, "workspace_workbench_status", map[string]any{})
+	status, ok := statusResult["structuredContent"].(workbench.Status)
+	if !ok || status.WorkbenchID != descriptor.WorkbenchID || status.State != "ready" {
+		t.Fatalf("unexpected workbench status: %#v", statusResult)
+	}
+	closed := callMCPToolForTest(t, r, "workspace_close_workbench", map[string]any{})
+	closedValue, ok := closed["structuredContent"].(map[string]any)
+	if !ok || closedValue["closed"] != true {
+		t.Fatalf("unexpected workbench close result: %#v", closed)
+	}
+	afterClose := callMCPToolExpectErrorForTest(t, r, "workspace_workbench_status", map[string]any{})
+	if got := mcpToolErrorCodeForTest(t, afterClose); got != "RESOURCE_NOT_FOUND" {
+		t.Fatalf("closed workbench remained visible: %q %#v", got, afterClose)
+	}
+}
+
+func TestMCPWorkspaceProposalUsesSameKernelAndIsIdempotent(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	now := time.Date(2026, 8, 14, 9, 0, 0, 0, time.UTC)
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-proposal", WorkspaceID: "workspace-proposal", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	run, err := localworkspace.InitLocalRun(localworkspace.InitLocalRunOptions{Root: root, RunID: "run-mcp-proposal", Intent: "intent:content", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := "50-production/draft.md"
+	path := filepath.Join(root, filepath.FromSlash(ref))
+	if err := os.WriteFile(path, []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := &Root{mcpCWD: root, now: func() time.Time { return now }}
+	claimResult := callMCPToolForTest(t, r, "local_run_claim", map[string]any{
+		"run_id": run.RunID, "owner_kind": "agent", "owner_id": "conversation-proposal", "expected_revision": run.ContextRevision,
+	})
+	claim, ok := claimResult["structuredContent"].(localworkspace.RunClaim)
+	if !ok || claim.Token == "" || claim.Epoch == 0 {
+		t.Fatalf("unexpected proposal claim: %#v", claimResult)
+	}
+	viewResult := callMCPToolForTest(t, r, "workspace_view", map[string]any{"view": "file", "ref": ref, "run_id": run.RunID, "expected_context_revision": run.ContextRevision})
+	view := viewResult["structuredContent"].(localworkspace.WorkspaceView)
+	prepareArguments := map[string]any{
+		"run_id": run.RunID, "claim_token": claim.Token, "owner_kind": claim.OwnerKind, "owner_id": claim.OwnerID, "owner_epoch": claim.Epoch,
+		"expected_context_revision": run.ContextRevision, "typed_action": "workspace_file.replace", "ref": ref,
+		"expected_digest": view.ObservedDigest, "content": "after\n", "idempotency_key": "mcp-prepare-001",
+	}
+	prepared := callMCPToolForTest(t, r, "workspace_proposal_prepare", prepareArguments)
+	proposal, ok := prepared["structuredContent"].(localworkspace.WorkspaceProposal)
+	if !ok || proposal.ProposalID == "" || proposal.OwnerEpoch != claim.Epoch {
+		t.Fatalf("unexpected MCP Proposal: %#v", prepared)
+	}
+	replayed := callMCPToolForTest(t, r, "workspace_proposal_prepare", prepareArguments)
+	if replayedProposal := replayed["structuredContent"].(localworkspace.WorkspaceProposal); replayedProposal.ProposalID != proposal.ProposalID {
+		t.Fatalf("idempotent MCP prepare created another Proposal: first=%s replay=%s", proposal.ProposalID, replayedProposal.ProposalID)
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != "before\n" {
+		t.Fatalf("MCP prepare changed the workspace: body=%q err=%v", body, err)
+	}
+	applyArguments := map[string]any{
+		"proposal_id": proposal.ProposalID, "claim_token": claim.Token, "owner_kind": claim.OwnerKind, "owner_id": claim.OwnerID, "owner_epoch": claim.Epoch,
+		"expected_context_revision": run.ContextRevision, "idempotency_key": "mcp-apply-001", "confirm": true,
+	}
+	applied := callMCPToolForTest(t, r, "workspace_proposal_apply", applyArguments)
+	applyResult, ok := applied["structuredContent"].(localworkspace.WorkspaceProposalApplyResult)
+	if !ok || !applyResult.Applied || applyResult.ContextRevision != run.ContextRevision+1 {
+		t.Fatalf("unexpected MCP Apply: %#v", applied)
+	}
+	replayedApply := callMCPToolForTest(t, r, "workspace_proposal_apply", applyArguments)
+	if replayedResult := replayedApply["structuredContent"].(localworkspace.WorkspaceProposalApplyResult); replayedResult.ProposalID != applyResult.ProposalID {
+		t.Fatalf("idempotent MCP Apply changed result: first=%#v replay=%#v", applyResult, replayedResult)
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != "after\n" {
+		t.Fatalf("MCP Apply did not persist the exact draft: body=%q err=%v", body, err)
+	}
+	unknown := callMCPToolExpectErrorForTest(t, r, "workspace_proposal_prepare", map[string]any{
+		"run_id": run.RunID, "claim_token": claim.Token, "owner_kind": claim.OwnerKind, "owner_id": claim.OwnerID, "owner_epoch": claim.Epoch,
+		"expected_context_revision": applyResult.ContextRevision, "typed_action": "workspace_file.replace", "ref": ref,
+		"expected_digest": applyResult.Outputs[0].Digest, "content": "other\n", "idempotency_key": "mcp-prepare-002", "url": "https://evil.example",
+	})
+	if got := mcpToolErrorCodeForTest(t, unknown); got != "MCP_PARAMS_INVALID" {
+		t.Fatalf("proposal tool accepted an unknown field: %q %#v", got, unknown)
+	}
+}
+
+func TestMCPWorkspaceViewRejectsUnknownFieldsAndStaleDigest(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-view", WorkspaceID: "workspace-view", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	ref := "50-production/item.json"
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(ref)), []byte(`{"id":"item-1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := &Root{mcpCWD: root}
+	unknown := callMCPToolExpectErrorForTest(t, r, "workspace_view", map[string]any{"view": "file", "ref": ref, "url": "https://evil.example"})
+	if got := mcpToolErrorCodeForTest(t, unknown); got != "MCP_PARAMS_INVALID" {
+		t.Fatalf("unknown workspace_view field was accepted: %q %#v", got, unknown)
+	}
+	stale := callMCPToolExpectErrorForTest(t, r, "workspace_view", map[string]any{"view": "file", "ref": ref, "expected_digest": "sha256:" + strings.Repeat("0", 64)})
+	if got := mcpToolErrorCodeForTest(t, stale); got != "WORKSPACE_VIEW_STALE" {
+		t.Fatalf("stale workspace view was accepted: %q %#v", got, stale)
+	}
+	removedRender := callMCPToolExpectErrorForTest(t, r, "workspace_render", map[string]any{"ref": ref})
+	if got := mcpToolErrorCodeForTest(t, removedRender); got != "RESOURCE_NOT_FOUND" {
+		t.Fatalf("removed workspace_render tool is still callable: %q %#v", got, removedRender)
+	}
+}
+
+func TestMCPServeSerializesLocalWorkspaceResourceLinks(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-view", WorkspaceID: "workspace-view", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	ref := "50-production/local.md"
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(ref)), []byte("local view\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"workspace_view","arguments":{"view":"file","ref":"50-production/local.md"}}}` + "\n"
+	var output bytes.Buffer
+	if err := (&Root{mcpCWD: root, stdout: &output}).serveMCP(t.Context(), strings.NewReader(request)); err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Result struct {
+			Content []struct {
+				Type     string `json:"type"`
+				URI      string `json:"uri"`
+				MimeType string `json:"mimeType"`
+			} `json:"content"`
+			StructuredContent struct {
+				ObservedDigest string `json:"observed_digest"`
+			} `json:"structuredContent"`
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &response); err != nil {
+		t.Fatalf("invalid MCP JSON response: %v output=%s", err, output.String())
+	}
+	if response.Result.IsError || len(response.Result.Content) != 2 || response.Result.Content[1].Type != "resource_link" || response.Result.Content[1].MimeType != "text/markdown" || !strings.HasPrefix(response.Result.Content[1].URI, "contentcloud://workspace/files/") || response.Result.StructuredContent.ObservedDigest == "" {
+		t.Fatalf("unexpected serialized local resource contract: %#v", response.Result)
+	}
+	if strings.Contains(output.String(), root) {
+		t.Fatalf("serialized local view leaked workspace root: %s", output.String())
+	}
+}
+
 func mcpToolErrorCodeForTest(t *testing.T, result map[string]any) string {
 	t.Helper()
 	structured, ok := result["structuredContent"].(map[string]any)
@@ -655,8 +929,8 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 	if _, err := localworkspace.StoreEnvironment(root, manifest, installed, manifestVerifier, now); err != nil {
 		t.Fatal(err)
 	}
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.25.0"}}]}`
-	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.25.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.26.0"}}]}`
+	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.26.0","installed":true,"enabled":true}],"available":[]}`
 	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: currentMarketplace}, {stdout: missingPack},
@@ -683,9 +957,9 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 }
 
 func successfulTaskPackResponses() []bootstrapRunnerResponse {
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.25.0"}}]}`
-	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.25.0","installed":true,"enabled":true}],"available":[]}`
-	currentPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.25.0","installed":true,"enabled":true},{"pluginId":"contentcloud-visual-storytelling@contentcloud","name":"contentcloud-visual-storytelling","marketplaceName":"contentcloud","version":"1.2.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.26.0"}}]}`
+	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.26.0","installed":true,"enabled":true}],"available":[]}`
+	currentPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.26.0","installed":true,"enabled":true},{"pluginId":"contentcloud-visual-storytelling@contentcloud","name":"contentcloud-visual-storytelling","marketplaceName":"contentcloud","version":"1.2.0","installed":true,"enabled":true}],"available":[]}`
 	return []bootstrapRunnerResponse{
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: currentMarketplace}, {stdout: missingPack},
@@ -979,7 +1253,7 @@ func TestMCPRunsCrossConversationHandoffLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := &Root{mcpCWD: root, now: func() time.Time { return now }}
-	claimResult := callMCPToolForTest(t, r, "local_run_claim", map[string]any{"run_id": run.RunID, "owner": "conversation-a", "expected_revision": run.ContextRevision})
+	claimResult := callMCPToolForTest(t, r, "local_run_claim", map[string]any{"run_id": run.RunID, "owner_kind": "agent", "owner_id": "conversation-a", "expected_revision": run.ContextRevision})
 	claim, ok := claimResult["structuredContent"].(localworkspace.RunClaim)
 	if !ok || claim.Token == "" {
 		t.Fatalf("unexpected claim result: %#v", claimResult)
@@ -1002,7 +1276,7 @@ func TestMCPRunsCrossConversationHandoffLifecycle(t *testing.T) {
 	if !ok || len(conversation.ReadyHandoffs) != 1 || conversation.ReadyHandoffs[0].HandoffID != handoff.HandoffID {
 		t.Fatalf("handoff missing from conversation context: %#v", contextResult)
 	}
-	acceptResult := callMCPToolForTest(t, r, "handoff_accept", map[string]any{"handoff_id": handoff.HandoffID, "owner": "conversation-b"})
+	acceptResult := callMCPToolForTest(t, r, "handoff_accept", map[string]any{"handoff_id": handoff.HandoffID, "owner_kind": "agent", "owner_id": "conversation-b"})
 	accepted, ok := acceptResult["structuredContent"].(map[string]any)
 	if !ok {
 		t.Fatalf("unexpected accept result: %#v", acceptResult)

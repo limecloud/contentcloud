@@ -1,18 +1,20 @@
 # 10：Runtime 运维手册
 
-> 本手册面向平台运维和支持人员，定义 Runtime Infra V2 的健康检查、准入灰度、排空、故障处置和回退边界。它以当前代码、迁移 `00035`、`00037`～`00043` 和 `/api/v1/admin/runtime-health` 为事实源。
+> 本手册面向平台运维和支持人员，定义 Runtime Infra V2 的健康检查、准入灰度、排空、故障处置和回退边界。它以当前代码、迁移 `00035`、`00037`～`00043`、`00049`～`00051` 和 `/api/v1/admin/runtime-health` 为事实源。
 
 ## 1. 上线前检查
 
 上线或扩大灰度前，必须确认：
 
-- 数据库已按顺序应用至 `00043_runtime_tool_call_results.sql`；不得跳过迁移或把旧迁移文件改写成当前事实。新媒体 Job 必须显式绑定 Runtime Effect，历史空关联行只能按 `legacy_unledgered` 处理。
+- 数据库已按顺序应用至 `00051_runtime_attempt_gateway_tokens.sql`；不得跳过迁移或把旧迁移文件改写成当前事实。新媒体 Job 必须显式绑定 Runtime Effect，历史空关联行只能按 `legacy_unledgered` 处理；DaemonInstance 使用租户范围复合外键和 forced RLS，Gateway token 只保存 hash。
 - Server 和 standalone Worker 使用同一版本；`contentcloud-worker` 连接 PostgreSQL，并启用 `CONTENTCLOUD_AUTO_MIGRATE=1` 或由发布流程显式完成迁移。
 - 至少有一个 Worker 正常运行，能够执行 reaper、业务结果 consumer 和 Runtime Explorer projector。
 - `CONTENTCLOUD_RUNTIME_ADMISSION_ENABLED`、`CONTENTCLOUD_RUNTIME_DYNAMIC_GRAPH_ENABLED` 和 `CONTENTCLOUD_RUNTIME_CANARY_TENANT_IDS` 已记录在发布变更中。
+- 每个受管设备的 WSS 控制通道能完成 `control.sync_state` -> `control.ready`，断线后 DaemonInstance 在 freshness 窗口内恢复；重复/乱序报告和旧实例覆盖测试已通过。自动化集成测试还必须验证强制断开首连接后保持 DaemonInstance identity、递增 `connection_epoch`，并在新 epoch 从 `report_seq=1` 重发完整 current-state；这不能替代长期网络抖动、睡眠唤醒和 soak 验收。
+- 每个参与本地执行的项目在目标 Daemon 上恰好有一个 Workspace 观察；状态为 `ready`，Environment、Plugin、Skill、MCP、Workspace 五类声明摘要与冻结执行绑定一致，且上报中不包含绝对路径。Plugin host receipt 与本地 Skill/MCP/Workspace 观察摘要必须单独保留，不能填入声明字段冒充一致。
 - 平台管理员能够请求健康接口，并能保存一份发布前 JSON 作为对照证据。
 
-代码级提交后故障钩子、核心 RLS 和 FairnessReport 已具备；真实 PostgreSQL 故障环境、生产容量压测、在线 Codex/Claude/MCP/Provider 和生产 Canary 仍是独立验收项。本手册不能把 Memory Store、离线 Harness 或可控钩子测试当作这些验收的替代品。
+代码级提交后故障钩子、核心 RLS、FairnessReport 和独立 CLI MCP stdio -> HTTP Gateway 本地传输 smoke 已具备；真实 PostgreSQL 故障环境、生产容量压测、在线 Codex/Claude 宿主注入与模型调用、真实 Provider 和生产 Canary 仍是独立验收项。本手册不能把 Memory Store、离线 Harness、本地传输 smoke 或可控钩子测试当作这些验收的替代品。
 
 ## 2. 健康检查
 
@@ -79,6 +81,12 @@ CONTENTCLOUD_RUNTIME_CANARY_TENANT_IDS=<uuid,uuid,...>
 
 Worker 每轮约每 2 秒执行一次，每个 active tenant 的处理上限由 `limit=50` 控制。reaper 会把过期 Attempt 收敛为 `expired` 并释放 Node/Agent/Reservation；旧 worker 随后的心跳、事件和终态提交必须被 fence 拒绝。
 
+Daemon 排空还必须单独确认：先停止新准入，再等待 WSS 控制通道报告 stopped 或转移到另一进程；不能只看设备 online。新进程建立连接后，旧 DaemonInstance 的 stopped/live 报告都不得覆盖当前 live 实例；`prepared` Attempt 的 Gateway token 只能等待 activate，不能用来执行 MCP 工具。Runtime 安装、升级、卸载或登录变化最多在 5 分钟重探测窗口内同步；Workspace 收敛状态最多在 30 秒观察窗口内同步。若要立即生效，重启 Daemon。选中 Harness 不健康时应看到 `selected_harness_unavailable`，Workspace 漂移时应看到对应 reason 和 generation；两者都阻断新 Attempt，活动 Attempt 仍按冻结快照收敛。
+
+Attempt Workspace 随 Attempt 创建，Runtime heartbeat 同步续期本地 `lease.json`，终态后清理。运维不得把交互式 Workspace 配置为 Attempt 临时目录，不得在活动 Attempt 期间编辑 `lease.json`、`contract.json`、`output.schema.json` 或 `SKILL.md`；`AUTOMATION_WORKSPACE_LEASE_CHANGED` 表示本地租约身份被修改，应保留现场错误码并让 Runtime 按可重试失败收敛，而不是手工覆盖文件。
+
+本地排障只使用 `daemon status` 和显式 `daemon diagnostics --out <private-file>`。诊断包默认不上传，包含受限日志尾部、稳定错误码、PID freshness 和哈希化设备/Attempt 引用；不要从日志、Prompt、环境变量或诊断包中复制凭据、用户路径、URL、邮箱或完整模型输出。Harness 没有有效结构化进展达到两分钟时会报告 `HARNESS_PROGRESS_TIMEOUT` 并回收进程组；这与 WSS 在线状态、Runtime lease 和 PostgreSQL 权威 Attempt 是三个不同维度。
+
 ## 5. 故障处置
 
 ### 5.1 `RUNTIME_REAPER_STALLED`
@@ -101,9 +109,13 @@ Worker 每轮约每 2 秒执行一次，每个 active tenant 的处理上限由 
 
 这是预期保护行为。保留错误码、Attempt ID 和 request ID，确认新 Attempt 已持有租约；不要为旧 worker 延长 lease，不要删除迟到事件。相同终态摘要可以幂等重报，不同摘要必须保持冲突。
 
+### 5.6 Workspace 漂移或准入失败
+
+先在执行端详情确认项目只有一个 Workspace，并记录 status、reason、generation 和观察时间。`plugin_drift`、`skill_drift`、`mcp_drift`、`managed_files_drift` 或 `workspace_binding_mismatch` 都应阻断新 Attempt；不要通过改 BFF 投影、清空摘要或把状态手工改为 ready 绕过。修复本地安装或绑定后等待最多 30 秒的新 current-state；若需立即验证，重启 Daemon。已经运行的 Attempt 不做热替换，仍按原 `ExecutionBindingSnapshot` 和本地 Attempt Workspace 收敛。
+
 ## 6. 前向回退
 
-Runtime 迁移采用前向演进。应用 `00035` 后，`runtime_outbox` 的消费者状态已迁到 `runtime_outbox_receipts`；Session Mirror 创建/删除迁移已从首个用户基线移除；`00042`/`00043` 还增加了 Explorer/幂等索引和 ToolCall 安全结果字段。因此生产回退只允许：
+Runtime 迁移采用前向演进。应用 `00035` 后，`runtime_outbox` 的消费者状态已迁到 `runtime_outbox_receipts`；Session Mirror 创建/删除迁移已从首个用户基线移除；`00042`/`00043` 增加了 Explorer/幂等索引和 ToolCall 安全结果字段，`00049`～`00051` 增加了 DaemonInstance、执行绑定快照和 Gateway token。因此生产回退只允许：
 
 - 保留已理解 `00035`～`00043` schema 的当前二进制，关闭新准入或动态图；
 - 修复配置、Worker 或消费逻辑后重新启动，并用健康接口确认追平；

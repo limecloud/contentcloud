@@ -85,6 +85,117 @@ const (
 	ReservationExpired  = "expired"
 )
 
+const ExecutionBindingSnapshotSchema = "contentcloud.execution-binding/1.0"
+
+// ExecutionBindingSnapshot freezes the execution policy referenced by
+// JobRun.BindingDigest. It contains only refs, digests and policy ceilings;
+// local paths, credentials and agent transcripts never belong here.
+type ExecutionBindingSnapshot struct {
+	TenantID              string    `json:"tenant_id"`
+	Digest                string    `json:"digest"`
+	SchemaVersion         string    `json:"schema_version"`
+	ProfileID             string    `json:"profile_id"`
+	ProfileVersion        string    `json:"profile_version"`
+	ProfileDigest         string    `json:"profile_digest,omitempty"`
+	RuntimePolicyID       string    `json:"runtime_policy_id"`
+	HarnessKinds          []string  `json:"harness_kinds"`
+	ProviderRef           string    `json:"provider_ref,omitempty"`
+	ModelRef              string    `json:"model_ref,omitempty"`
+	EnvironmentID         string    `json:"environment_id,omitempty"`
+	EnvironmentDigest     string    `json:"environment_digest,omitempty"`
+	PluginDigest          string    `json:"plugin_digest,omitempty"`
+	SkillDigest           string    `json:"skill_digest,omitempty"`
+	MCPDigest             string    `json:"mcp_digest,omitempty"`
+	AllowedTools          []string  `json:"allowed_tools"`
+	SandboxProfile        string    `json:"sandbox_profile"`
+	IsolationProfile      string    `json:"isolation_profile"`
+	EgressPolicy          string    `json:"egress_policy"`
+	Region                string    `json:"region,omitempty"`
+	DataClassification    string    `json:"data_classification"`
+	MaxTokens             int       `json:"max_tokens"`
+	MaxDurationSeconds    int       `json:"max_duration_seconds"`
+	MaxCostMinor          int64     `json:"max_cost_minor"`
+	MaxDynamicDescendants int       `json:"max_dynamic_descendants"`
+	FallbackPolicy        string    `json:"fallback_policy"`
+	WorkspaceTemplateID   string    `json:"workspace_template_id,omitempty"`
+	WorkspaceDigest       string    `json:"workspace_digest,omitempty"`
+	Legacy                bool      `json:"legacy,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
+}
+
+func (snapshot *ExecutionBindingSnapshot) NormalizeCollections() {
+	if snapshot.HarnessKinds == nil {
+		snapshot.HarnessKinds = []string{}
+	}
+	if snapshot.AllowedTools == nil {
+		snapshot.AllowedTools = []string{}
+	}
+	sort.Strings(snapshot.HarnessKinds)
+	sort.Strings(snapshot.AllowedTools)
+}
+
+// ContentDigest excludes storage scope and observation time. A binding with
+// the same policy content therefore has the same identity across retries,
+// while the tenant-scoped primary key still prevents cross-tenant reads.
+func (snapshot ExecutionBindingSnapshot) ContentDigest() (string, error) {
+	snapshot.NormalizeCollections()
+	hash, err := CanonicalHash(struct {
+		SchemaVersion         string   `json:"schema_version"`
+		ProfileID             string   `json:"profile_id"`
+		ProfileVersion        string   `json:"profile_version"`
+		ProfileDigest         string   `json:"profile_digest,omitempty"`
+		RuntimePolicyID       string   `json:"runtime_policy_id"`
+		HarnessKinds          []string `json:"harness_kinds"`
+		ProviderRef           string   `json:"provider_ref,omitempty"`
+		ModelRef              string   `json:"model_ref,omitempty"`
+		EnvironmentID         string   `json:"environment_id,omitempty"`
+		EnvironmentDigest     string   `json:"environment_digest,omitempty"`
+		PluginDigest          string   `json:"plugin_digest,omitempty"`
+		SkillDigest           string   `json:"skill_digest,omitempty"`
+		MCPDigest             string   `json:"mcp_digest,omitempty"`
+		AllowedTools          []string `json:"allowed_tools"`
+		SandboxProfile        string   `json:"sandbox_profile"`
+		IsolationProfile      string   `json:"isolation_profile"`
+		EgressPolicy          string   `json:"egress_policy"`
+		Region                string   `json:"region,omitempty"`
+		DataClassification    string   `json:"data_classification"`
+		MaxTokens             int      `json:"max_tokens"`
+		MaxDurationSeconds    int      `json:"max_duration_seconds"`
+		MaxCostMinor          int64    `json:"max_cost_minor"`
+		MaxDynamicDescendants int      `json:"max_dynamic_descendants"`
+		FallbackPolicy        string   `json:"fallback_policy"`
+		WorkspaceTemplateID   string   `json:"workspace_template_id,omitempty"`
+		WorkspaceDigest       string   `json:"workspace_digest,omitempty"`
+		Legacy                bool     `json:"legacy,omitempty"`
+	}{
+		snapshot.SchemaVersion, snapshot.ProfileID, snapshot.ProfileVersion, snapshot.ProfileDigest,
+		snapshot.RuntimePolicyID, snapshot.HarnessKinds, snapshot.ProviderRef, snapshot.ModelRef,
+		snapshot.EnvironmentID, snapshot.EnvironmentDigest, snapshot.PluginDigest, snapshot.SkillDigest,
+		snapshot.MCPDigest, snapshot.AllowedTools, snapshot.SandboxProfile, snapshot.IsolationProfile,
+		snapshot.EgressPolicy, snapshot.Region, snapshot.DataClassification, snapshot.MaxTokens,
+		snapshot.MaxDurationSeconds, snapshot.MaxCostMinor, snapshot.MaxDynamicDescendants,
+		snapshot.FallbackPolicy, snapshot.WorkspaceTemplateID, snapshot.WorkspaceDigest, snapshot.Legacy,
+	})
+	if err != nil {
+		return "", err
+	}
+	return "sha256:" + hash, nil
+}
+
+func (snapshot ExecutionBindingSnapshot) Validate() error {
+	snapshot.NormalizeCollections()
+	if strings.TrimSpace(snapshot.TenantID) == "" || !sha256Pattern.MatchString(snapshot.Digest) || !strings.HasPrefix(snapshot.Digest, "sha256:") || strings.TrimSpace(snapshot.SchemaVersion) == "" || strings.TrimSpace(snapshot.ProfileID) == "" || strings.TrimSpace(snapshot.ProfileVersion) == "" || strings.TrimSpace(snapshot.RuntimePolicyID) == "" || strings.TrimSpace(snapshot.SandboxProfile) == "" || strings.TrimSpace(snapshot.IsolationProfile) == "" || strings.TrimSpace(snapshot.EgressPolicy) == "" || strings.TrimSpace(snapshot.DataClassification) == "" || snapshot.MaxTokens <= 0 || snapshot.MaxDurationSeconds <= 0 || snapshot.MaxCostMinor < 0 || snapshot.MaxDynamicDescendants < 0 || strings.TrimSpace(snapshot.FallbackPolicy) == "" || snapshot.CreatedAt.IsZero() {
+		return Invalid("EXECUTION_BINDING_SNAPSHOT_INVALID", "ExecutionBindingSnapshot 缺少执行配置、隔离策略、预算上限或摘要")
+	}
+	if !snapshot.Legacy {
+		digest, err := snapshot.ContentDigest()
+		if err != nil || digest != snapshot.Digest {
+			return Conflict("EXECUTION_BINDING_SNAPSHOT_DIGEST_MISMATCH", "ExecutionBindingSnapshot 内容与摘要不一致")
+		}
+	}
+	return nil
+}
+
 type RuntimeLimits struct {
 	MaxNodes              int   `json:"max_nodes"`
 	MaxDepth              int   `json:"max_depth"`
@@ -631,29 +742,31 @@ func (agent AgentInstance) Transition(next string) error {
 
 // RuntimeAttempt is the authoritative execution-attempt model.
 type RuntimeAttempt struct {
-	ID              string         `json:"id"`
-	TenantID        string         `json:"tenant_id"`
-	JobRunID        string         `json:"job_run_id"`
-	NodeRunID       string         `json:"node_run_id"`
-	AgentInstanceID string         `json:"agent_instance_id"`
-	ContextViewID   string         `json:"context_view_id"`
-	AttemptNo       int            `json:"attempt_no"`
-	HarnessKind     string         `json:"harness_kind"`
-	Capabilities    map[string]any `json:"capabilities"`
-	SessionRef      string         `json:"session_ref,omitempty"`
-	State           string         `json:"state"`
-	LeaseOwner      string         `json:"lease_owner,omitempty"`
-	FenceToken      string         `json:"fence_token,omitempty"`
-	LeaseExpiresAt  *time.Time     `json:"lease_expires_at,omitempty"`
-	OutputRefs      []string       `json:"output_refs"`
-	ResultDigest    string         `json:"result_digest,omitempty"`
-	SafeSummary     map[string]any `json:"safe_summary"`
-	ErrorCode       string         `json:"error_code,omitempty"`
-	Version         int            `json:"version"`
-	CreatedAt       time.Time      `json:"created_at"`
-	StartedAt       *time.Time     `json:"started_at,omitempty"`
-	FinishedAt      *time.Time     `json:"finished_at,omitempty"`
-	UpdatedAt       time.Time      `json:"updated_at"`
+	ID               string         `json:"id"`
+	TenantID         string         `json:"tenant_id"`
+	JobRunID         string         `json:"job_run_id"`
+	NodeRunID        string         `json:"node_run_id"`
+	AgentInstanceID  string         `json:"agent_instance_id"`
+	ContextViewID    string         `json:"context_view_id"`
+	AttemptNo        int            `json:"attempt_no"`
+	HarnessKind      string         `json:"harness_kind"`
+	Capabilities     map[string]any `json:"capabilities"`
+	SessionRef       string         `json:"session_ref,omitempty"`
+	State            string         `json:"state"`
+	LeaseOwner       string         `json:"lease_owner,omitempty"`
+	FenceToken       string         `json:"fence_token,omitempty"`
+	GatewayTokenHash string         `json:"-"`
+	GatewayExpiresAt *time.Time     `json:"gateway_expires_at,omitempty"`
+	LeaseExpiresAt   *time.Time     `json:"lease_expires_at,omitempty"`
+	OutputRefs       []string       `json:"output_refs"`
+	ResultDigest     string         `json:"result_digest,omitempty"`
+	SafeSummary      map[string]any `json:"safe_summary"`
+	ErrorCode        string         `json:"error_code,omitempty"`
+	Version          int            `json:"version"`
+	CreatedAt        time.Time      `json:"created_at"`
+	StartedAt        *time.Time     `json:"started_at,omitempty"`
+	FinishedAt       *time.Time     `json:"finished_at,omitempty"`
+	UpdatedAt        time.Time      `json:"updated_at"`
 }
 
 func (attempt RuntimeAttempt) Validate() error {
@@ -666,6 +779,9 @@ func (attempt RuntimeAttempt) Validate() error {
 	if attempt.State == RuntimeAttemptPrepared || attempt.State == RuntimeAttemptRunning {
 		if strings.TrimSpace(attempt.LeaseOwner) == "" || strings.TrimSpace(attempt.FenceToken) == "" || attempt.LeaseExpiresAt == nil || !attempt.LeaseExpiresAt.After(attempt.UpdatedAt) || attempt.FinishedAt != nil {
 			return Invalid("RUNTIME_ATTEMPT_LEASE_INVALID", "运行中的 RuntimeAttempt 缺少有效租约")
+		}
+		if (attempt.GatewayTokenHash != "" || attempt.GatewayExpiresAt != nil) && (len(attempt.GatewayTokenHash) != 64 || attempt.GatewayExpiresAt == nil || !attempt.GatewayExpiresAt.After(attempt.UpdatedAt)) {
+			return Invalid("RUNTIME_ATTEMPT_GATEWAY_INVALID", "运行中的 RuntimeAttempt 缺少 Attempt 级 Gateway 凭据")
 		}
 	} else if attempt.LeaseOwner != "" || attempt.FenceToken != "" || attempt.LeaseExpiresAt != nil || attempt.FinishedAt == nil {
 		return Invalid("RUNTIME_ATTEMPT_TERMINAL_INVALID", "终态 RuntimeAttempt 必须释放租约并记录完成时间")

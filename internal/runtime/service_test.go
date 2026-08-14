@@ -122,6 +122,83 @@ func TestRuntimeStartIdempotencyAndStateCAS(t *testing.T) {
 	}
 }
 
+func TestRuntimeStartPersistsStructuredExecutionBinding(t *testing.T) {
+	repo := memory.New()
+	now := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
+	runtimeService := New(repo, func() time.Time { return now })
+	input := testStartInput("task-binding", "job-binding")
+	input.BindingDigest = ""
+	input.ExecutionBinding = &domain.ExecutionBindingSnapshot{
+		ProfileID: "profile.content-production", ProfileVersion: "2.1.0",
+		RuntimePolicyID: input.RuntimePolicyID, HarnessKinds: []string{"fake"},
+		AllowedTools: []string{ToolStateGet}, SandboxProfile: "fake", IsolationProfile: "workspace",
+		EgressPolicy: "deny", DataClassification: "internal", MaxTokens: 2048,
+		MaxDurationSeconds: 900, MaxCostMinor: 50, MaxDynamicDescendants: 4, FallbackPolicy: "none",
+	}
+	started, err := runtimeService.Start(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := repo.ExecutionBindingSnapshot(t.Context(), input.TenantID, started.Job.BindingDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Legacy || stored.ProfileID != input.ExecutionBinding.ProfileID || stored.MaxTokens != 2048 || stored.Digest != started.Job.BindingDigest {
+		t.Fatalf("structured execution binding was not frozen: %#v", stored)
+	}
+	digest, err := stored.ContentDigest()
+	if err != nil || digest != stored.Digest {
+		t.Fatalf("binding digest mismatch: digest=%q err=%v stored=%q", digest, err, stored.Digest)
+	}
+}
+
+func TestRuntimeStartMarksOpaqueBindingAsLegacy(t *testing.T) {
+	repo := memory.New()
+	runtimeService := New(repo, time.Now)
+	input := testStartInput("task-legacy-binding", "job-legacy-binding")
+	started, err := runtimeService.Start(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := repo.ExecutionBindingSnapshot(t.Context(), input.TenantID, started.Job.BindingDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.Legacy || stored.Digest != input.BindingDigest {
+		t.Fatalf("opaque compatibility binding was not marked legacy: %#v", stored)
+	}
+}
+
+func TestRuntimeAvailableNotifierFiresOnlyAfterReadyStatePersists(t *testing.T) {
+	repo := memory.New()
+	runtimeService := New(repo, time.Now)
+	notifications := make(chan string, 2)
+	runtimeService.SetAvailableNotifier(func(tenantID string) { notifications <- tenantID })
+	started, err := runtimeService.Start(t.Context(), testStartInput("task-notify", "job-notify"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case tenantID := <-notifications:
+		if tenantID != "tenant-1" {
+			t.Fatalf("notification tenant = %q", tenantID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ready Runtime did not publish an availability hint")
+	}
+	if _, err := runtimeService.Refresh(t.Context(), "tenant-1", started.Job.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case tenantID := <-notifications:
+		if tenantID != "tenant-1" {
+			t.Fatalf("refresh notification tenant = %q", tenantID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("refresh did not reassert available work")
+	}
+}
+
 func TestEffectUnknownCannotBeRetriedBlindly(t *testing.T) {
 	repo := memory.New()
 	runtimeService := New(repo, time.Now)

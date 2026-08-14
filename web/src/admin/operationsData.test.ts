@@ -38,7 +38,20 @@ describe('work OS API collection normalization', () => {
 
     expect(normalized.executors[0].capabilities).toEqual([]);
     expect(normalized.executors[0].projects).toEqual([]);
-    expect(normalized.online_window_seconds).toBe(120);
+    expect(normalized.executors[0].active_attempt_ids).toEqual([]);
+    expect(normalized.executors[0].presence_status).toBe('unknown');
+    expect(normalized.executors[0].environment_status).toBe('unknown');
+    expect(normalized.executors[0].runtime_status).toBe('unknown');
+    expect(normalized.online_window_seconds).toBe(45);
+  });
+
+  it('keeps legacy executor presence compatible without inventing readiness', () => {
+    const value = {executors: [{status: 'online', capabilities: [], projects: []}], online_window_seconds: 120} as any;
+    const normalized = normalizeOperationsExecutorDirectory(value);
+
+    expect(normalized.executors[0].presence_status).toBe('online');
+    expect(normalized.executors[0].environment_status).toBe('unknown');
+    expect(normalized.executors[0].runtime_status).toBe('unknown');
   });
 
   it('normalizes nullable skill facts from the operations BFF', () => {

@@ -71,7 +71,7 @@ contentcloud-video-production/
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "contentcloud-video-production",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Governed local-first content production workflows.",
   "author": {"name": "GoodVision"},
   "license": "Apache-2.0",
@@ -94,7 +94,7 @@ contentcloud-video-production/
     "contentcloud-local": {
       "type": "stdio",
       "command": "npx",
-      "args": ["--yes", "@limecloud/contentcloud@0.25.0", "mcp", "serve"],
+      "args": ["--yes", "@limecloud/contentcloud@0.26.0", "mcp", "serve"],
       "cwd": "${PLUGIN_ROOT}"
     }
   }
@@ -103,7 +103,122 @@ contentcloud-video-production/
 
 标准 MCP 支持 `stdio`、`streamable-http` 和 `sse` 三种 transport。当前 ContentCloud 首发只允许本地 stdio；HTTP/SSE 条目可以被读取并标记为 `unsupported`，不能被宿主安装事务静默启用。`PLUGIN_ROOT` 和 `PLUGIN_DATA` 是标准变量，不能出现在 `env` 的键名中，路径必须是包内相对路径或以这两个变量为根。
 
-### 3.4 ContentCloud 扩展
+### 3.4 本地工作台运行模式
+
+本节描述当前已实现的本地工作台运行模式。Go Presenter、嵌入式 SPA、SSE、Range、Claim v2、Proposal/Apply 和本地 Browser Handoff 均已进入代码，真实 Chromium 交互与响应式 E2E 已通过；Codex 右侧内置 Browser 私有 `_meta` 导航与发行包端到端验收仍是发布门禁。
+
+Agent Plugins 1.0.0 的可移植执行组件是 Skill 和 MCP。Content Work OS 本地工作台据此拆成控制面与呈现面：
+
+- `Skills + stdio MCP` 是所有支持宿主都必须具备的可移植控制面。
+- 同一个 `contentcloud mcp serve` Go 进程可以按需启动短生命周期 loopback Presenter，服务嵌入式 Workbench SPA。
+- Presenter 是经过能力检测的宿主呈现适配器，不是第二个 MCP transport，也不是插件标准组件。
+- Browser 不可用时回到类型化 `structuredContent` 和 digest 固定 MCP Resource，不生成另一套简化工作台。
+- Hosted Studio 与本地 Workbench 对齐 View/Action/Handoff 语义，但认证、事实源和写入路径彼此分离；本地 Browser 当前没有云端 publish HTTP 路由。
+
+不启动长期 Node sidecar。TypeScript/Vite 只参与构建，静态资源通过 `go:embed` 进入 Go CLI；运行时的 listener、API、SSE、Range、TTL 和关闭都由 Go 进程管理。
+
+```mermaid
+flowchart LR
+    subgraph Plugin["可移植 Agent Plugin"]
+        Skill[Workspace Skill]
+        Config[mcp.json]
+    end
+
+    subgraph Host["Codex / Claude Host"]
+        Agent[Agent 会话]
+        Client[MCP Client]
+        Adapter[Workbench Host Adapter]
+        Browser[右侧 Browser]
+    end
+
+    subgraph Local["宿主管理的 Go MCP 子进程"]
+        Server[stdio MCP]
+        Session[Workbench Session Manager]
+        Presenter[127.0.0.1 随机端口 Presenter]
+        UI[go:embed Workbench SPA]
+        Kernel[Workspace Command Kernel]
+    end
+
+    Workspace[(客户 Workspace)]
+    Cloud[(ContentCloud Cloud)]
+
+    Skill --> Agent
+    Config --> Client
+    Agent --> Client
+    Client <-->|stdio JSON-RPC| Server
+    Server --> Kernel
+    Server --> Session
+    Session --> Presenter
+    Presenter --> UI
+    Presenter --> Kernel
+    Kernel <--> Workspace
+    Kernel -->|明确 publish| Cloud
+    Server -->|structuredContent / MCP Resource / browserHandoff| Client
+    Client --> Adapter
+    Adapter -. 宿主支持时 .-> Browser
+    Browser -. same-origin HTTP / SSE .-> Presenter
+```
+
+运行边界：
+
+- 宿主按 `mcp.json` 启动 `contentcloud mcp serve`，通过 stdin/stdout 交换 JSON-RPC，并在会话关闭时终止子进程。
+- stdout 只能输出 MCP 协议消息；脱敏日志写 stderr。Server 不 daemonize。
+- Skill 负责任务路由、工具选择、核对、确认和恢复规则；它不直接读写客户文件。
+- stdio MCP 是唯一 Agent 控制接口；Go Workspace Command Kernel 是 MCP 与 Presenter 共同依赖的唯一业务执行入口。
+- Presenter 只在 `workspace_open_workbench` 后绑定 `127.0.0.1:0`，与 MCP 进程同生共死，并受一次性 handoff、Origin/Host、CSP、30 分钟 capability TTL 和 4 小时绝对 TTL 约束；当前没有独立 idle TTL 或 capability 滚动续期。
+- local tokenized URL 只通过 Host 私有 Tool Result `_meta["run.zhongcao.contentcloud/browserHandoff"]` 交付；模型可见 `structuredContent` 只包含无 token descriptor 和完整 fallback View。宿主不消费私有元数据时使用 fallback，不生成替代 HTML。
+- 通用 API 使用页面内存 Bearer，mutation 再要求 CSRF；媒体资源另有 `HttpOnly; SameSite=Strict; Path=/api/v1/resources/` 的会话 Cookie。该 Cookie 使用独立 capability，只能读取 digest-bound Resource，不授权其他 API，也不进入 exchange JSON。
+- Browser 只接收 opaque resource ID；本地图片、PDF、音视频通过 digest 校验和 Range 流式读取，不暴露绝对路径。
+- stdio MCP 与 Browser API 共用同一个 `localworkspace.ProposalStore`、Claim v2、revision、digest、校验和原子替换实现，不存在第二套业务写路径。
+- 外部 Workspace 变化当前每 5 秒重建当前 View 并比较 revision key，再通过 SSE 发送 invalidation；不声明文件系统 watcher。
+- SSE invalidation/gap 始终按服务端 Session 当前 View 执行完整 Bootstrap；同 origin 新 handoff 通过 `hashchange` 重新 exchange，`session.closed` 后停止重连。
+- Workspace 是客户正文、素材、Run、Handoff 和正式本地产物的事实源，不能放进 `PLUGIN_DATA`。
+- `PLUGIN_ROOT` 只读；`PLUGIN_DATA` 只保存插件私有、可删除、非业务事实数据。
+
+Presenter 当前 HTTP 面固定为：
+
+| Method | Path | 作用 |
+| --- | --- | --- |
+| `POST` | `/api/v1/session/exchange` | 兑换 60 秒一次性 handoff |
+| `DELETE` | `/api/v1/session` | 关闭当前 Presenter |
+| `GET` | `/api/v1/bootstrap` | 读取初始 View、资源和 ownership |
+| `GET` | `/api/v1/views/{kind}` | 重新构建类型化 View |
+| `GET` | `/api/v1/resources/{id}` | 读取 digest 固定资源和 HTTP Range |
+| `GET` | `/api/v1/events` | 订阅 SSE invalidation |
+| `POST` | `/api/v1/ownership/claim` | 取得未占用或已过期 Claim |
+| `POST` | `/api/v1/ownership/takeover` | 按 owner/epoch/revision 精确接管 |
+| `POST` | `/api/v1/proposals` | 准备一次性 Proposal |
+| `POST` | `/api/v1/proposals/{id}/apply` | CAS 重验并应用本地修改 |
+
+没有 Browser publish 路由。云端提交继续通过 stdio MCP 的 `publish_preflight` 和 `publish_apply`，并要求独立准确确认。
+
+能力分层：
+
+| 层 | 保证 | 典型输出 |
+| --- | --- | --- |
+| 可移植控制面 | 所有支持 Agent Plugin/MCP 的宿主都可消费 | Skill、stdio Tool、`structuredContent`、digest 固定 Resource |
+| 本地呈现面 | Host Adapter 确认 Browser 安全能力后启用 | Go Presenter、Local SPA、SSE、Range、Proposal |
+| 云端呈现面 | 已发布对象和云端审核 | Remote MCP/API、Hosted Studio、Cloud handoff |
+
+```mermaid
+flowchart TD
+    A[用户请求查看本地 Workspace] --> B{宿主支持安全 Browser handoff?}
+    B -->|是| C[workspace_open_workbench]
+    C --> D[Go Presenter + Local SPA]
+    B -->|否| E[workspace_view + MCP Resource]
+    D --> F{请求写入?}
+    E --> F
+    F -->|否| G[继续只读]
+    F -->|是| H[Claim + owner epoch + Proposal]
+    H --> I[用户确认 + Kernel Apply]
+    I --> J{明确 publish?}
+    J -->|否| K[只保存 Workspace]
+    J -->|是| L[preflight + confirm + Cloud Revision]
+```
+
+完整的 handoff、Presenter API、SSE、Range、ownership、Proposal、安全、分发、时序和测试方案见[Content Work OS 本地工作台技术方案](../product/customer-creation-studio/05-local-workbench-browser.md)。
+
+### 3.5 ContentCloud 扩展
 
 标准协议不解释 `extensions` 的命名空间。ContentCloud 使用反向域名命名空间 `run.zhongcao.contentcloud`，仅声明一个包内 claims 路径。Claims 固定声明：插件身份、请求能力、权限、数据流、费用、宿主要求和支持 Runbook。它不能授权自己，也不能改变标准 Skill/MCP 位置。
 
@@ -276,7 +391,7 @@ Apply 失败时，只回滚本次 NativeChange；NativeChange 为空时不执行
 {
   "host": "codex",
   "plugin_id": "contentcloud-video-production",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "package_digest": "sha256:...",
   "state": "repair_required",
   "error_code": "CODEX_PLUGIN_VERIFY_FAILED",
@@ -320,6 +435,11 @@ build package -> validate standard schema -> validate claims -> digest
 | Claude NativeHost | `internal/integration/pluginhost/claude` |
 | Bootstrap CLI | `internal/cli/bootstrap_commands.go`、`internal/cli/plugin_host.go` |
 | Workspace Lock/Doctor | `internal/localworkspace` |
+| Workspace View/Resource | `internal/localworkspace/view.go` |
+| Claim v2/takeover | `internal/localworkspace/runcoordination.go` |
+| Proposal/Apply/rollback | `internal/localworkspace/proposal.go` |
+| Presenter/SSE/Range/嵌入式 SPA | `internal/workbench` |
+| Workbench 与 Proposal MCP Tool | `internal/cli/workspace_commands.go` |
 | Agent Session/Handoff | `internal/agentadapter` |
 | 标准 schema 固定副本 | `contracts/agent-plugins/1.0.0` |
 
@@ -341,10 +461,14 @@ Marketplace 只存在于宿主需要的本地投影中。任何仓库内 Marketp
 
 仓库没有既有插件用户，因此旧 Git Marketplace 安装器、旧 `.codex-plugin` 发布格式和旧兼容分支在标准链路稳定后直接清理。历史评测报告可以保留为审计数据，但不得继续作为运行时入口。
 
+### D5：本地控制面与 Browser 呈现面分离
+
+Skills + stdio MCP 保持可移植控制面。同一个 Go MCP 进程按需启动短生命周期 loopback Presenter，并通过私有 `browserHandoff` 交给 Host Adapter；Browser 不可用时降级为类型化 View 与 MCP Resource。MCP 与 Browser 的本地业务请求都进入同一个 Workspace Command Kernel，共享 Claim、owner epoch、revision、digest 和 Proposal；云端发布只保留 stdio MCP 既有门禁。不保留第二套 HTML 工作台或长期 sidecar。
+
 ## 16. 当前验收命令
 
 ```bash
-go test ./internal/integration/plugin ./internal/integration/pluginhost ./internal/cli ./internal/localworkspace
+go test ./internal/integration/plugin ./internal/integration/pluginbuiltin ./internal/integration/pluginhost ./internal/cli ./internal/localworkspace ./internal/workbench -count=1
 
 CONTENTCLOUD_CODEX_PLUGIN_SMOKE=1 \
   go test ./internal/integration/pluginhost/codex \
@@ -354,11 +478,22 @@ CONTENTCLOUD_CLAUDE_PLUGIN_SMOKE=1 \
   go test ./internal/integration/pluginhost/claude \
   -run TestRealClaudeAgentPluginLifecycle -count=1 -v
 
-go test ./...
-npm test
+go test ./... -count=1
+go test -race ./internal/localworkspace ./internal/workbench ./internal/cli -count=1
+node --check internal/workbench/ui/app.js
+node --check internal/workbench/ui/sw.js
+pnpm --dir web test
+pnpm --dir web typecheck
+pnpm --dir web build
+pnpm architecture
+pnpm check:plugin
+pnpm governance:content
+pnpm governance:v3
 ```
 
 真实宿主冒烟测试默认跳过，只有显式设置对应环境变量才会执行。冒烟测试必须使用临时 `CODEX_HOME`/`CLAUDE_CONFIG_DIR` 和临时 Store，不能碰开发者现有宿主配置。
+
+本地工作台已在隔离临时 Workspace 中完成真实 Chromium 验收：文件 View、claim/takeover、epoch fencing、Proposal/Apply、revision/digest 刷新、5 秒外部变化、WebP 解码、HTTP Range、`1440 x 1000`、`390 x 844`、`320 x 844`、关闭与重开均通过。该结果不替代 Codex 右侧内置 Browser 私有 `_meta` E2E。
 
 ## 17. 不支持的事情
 

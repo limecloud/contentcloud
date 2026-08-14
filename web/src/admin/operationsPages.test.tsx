@@ -10,7 +10,7 @@ vi.mock('./context',()=>({useAdmin:()=>adminState.value}));
 import { AdminShell } from './AdminShell';
 import { AdminCapabilityCatalogPage, AdminCapabilityDetailPage, AdminCustomerDetailPage, AdminCustomersPage, AdminExecutorDetailPage, AdminExecutorsPage, AdminOperationsOverview, AdminProductDetailPage, AdminProductReleasesPage, AdminProductsPage, AdminReleaseResultPage, AdminSkillDetailPage, AdminSkillsPage } from './views/AdminOperationsPages';
 
-const session:Session={user:{id:'user-1',email:'operator@example.com',display_name:'运营人员'},tenant:{id:'tenant-1',name:'平台运营',slug:'platform',status:'active',created_at:'2026-08-01T08:00:00Z'},role:'admin',is_platform_admin:true};
+const session:Session={user:{id:'user-1',email:'operator@example.com',display_name:'运营人员'},tenant:{id:'tenant-1',name:'平台运营',slug:'platform',status:'active',created_at:'2026-08-01T08:00:00Z'},role:'tenant_admin',is_platform_admin:true};
 const overview:PlatformOverview={counts:{tenants:1,active_tenants:1,users:1,projects:1,online_devices:1,active_runs:1},tenants:[],users:[],generated_at:'2026-08-08T02:30:00Z'};
 
 const workOS:AdminWorkOSView={
@@ -23,7 +23,7 @@ const workOS:AdminWorkOSView={
   generated_at:'2026-08-08T02:30:00Z'
 };
 
-const executorDirectory:OperationsExecutorDirectory={executors:[{id:'executor-1',tenant_id:'tenant-1',display_name:'分镜工作站',executor_type:'contentcloud_device',status:'online',status_reason:'heartbeat_recent',hostname:'storyboard.local',platform:'darwin',arch:'arm64',version:'0.21.0',capabilities:[{id:'inspiration_collection',version:'1.0.0',kind:'business_capability',input_schema:'contentcloud.inspiration-query/1.0',output_schema:'contentcloud.inspiration-result/1.0',presentation_profiles:['candidate-list'],local_only:true,digest:'capability-digest'}],projects:[{id:'project-1',brand_name:'果木食品',product_name:'品牌短片',status:'active'}],last_seen_at:'2026-08-08T02:29:00Z'}],generated_at:'2026-08-08T02:30:00Z',online_window_seconds:120};
+const executorDirectory:OperationsExecutorDirectory={executors:[{id:'executor-1',tenant_id:'tenant-1',display_name:'分镜工作站',executor_type:'contentcloud_device',status:'online',status_reason:'instance_connected',presence_status:'online',presence_reason:'instance_connected',environment_status:'repair_required',environment_reason:'plugin_drift',runtime_status:'throttled',runtime_reason:'capacity_limit',daemon_instance_id:'instance-1',connection_epoch:3,active_attempt_ids:['attempt-1'],runtimes:[{kind:'codex',version:'codex 1.2.3',status:'healthy',selected:true,capabilities:{events:true,resume:true,mcp_stdio:true,structured_output:true,max_parallel_sessions:8}},{kind:'claude',status:'unhealthy',error_code:'CLAUDE_AUTH_REQUIRED',selected:false,capabilities:{}}],workspaces:[{workspace_id:'workspace-1',project_id:'project-1',status:'repair_required',reason:'skill_drift',generation:'sha256:generation',plugin_receipt_digest:'sha256:plugin-receipt',observed_at:'2026-08-08T02:29:00Z'}],hostname:'storyboard.local',platform:'darwin',arch:'arm64',version:'0.21.0',capabilities:[{id:'inspiration_collection',version:'1.0.0',kind:'business_capability',input_schema:'contentcloud.inspiration-query/1.0',output_schema:'contentcloud.inspiration-result/1.0',presentation_profiles:['candidate-list'],local_only:true,digest:'capability-digest'}],projects:[{id:'project-1',brand_name:'果木食品',product_name:'品牌短片',status:'active'}],last_seen_at:'2026-08-08T02:29:00Z'}],generated_at:'2026-08-08T02:30:00Z',online_window_seconds:45};
 const skillDirectory:OperationsSkillDirectory={configured:true,source:'verified_plugin_registry',registry_schema_version:'1.0',generated_at:'2026-08-08T02:30:00Z',skills:[{id:'contentcloud-script-writing',version:'1.2.0',digest:'sha256:skill',kind:'skill_pack',lifecycle:'published',available_for_new_runs:true,source:{repository:'https://github.com/limecloud/contentcloud',ref:'v1.2.0',license:'Apache-2.0'},signature:{status:'verified',algorithm:'ed25519',key_id:'plugin-release'},compatible_profiles:['contentcloud.video-production'],permissions:['workspace:read'],data_flow:{local_by_default:true,cloud_actions:[]},cost:{model:'included',notice:'Included in subscription.'},output_schemas:['contracts/content-item-3.0.schema.json'],evaluation:{status:'passed',report:'.agents/plugins/evaluations/script.json',digest:'sha256:evaluation',evidence:['contract-tests']},revocation:{status:'active'}}]};
 
 function setAdminView(nextWorkOS:AdminWorkOSView=workOS,nextExecutors:OperationsExecutorDirectory=executorDirectory,nextSkills:OperationsSkillDirectory=skillDirectory){
@@ -110,6 +110,9 @@ describe('operations control plane pages',()=>{
     expect(markup).toContain('分镜工作站');
     expect(markup).toContain('0.21.0');
     expect(markup).toContain('在线');
+    expect(markup).toContain('需要修复');
+    expect(markup).toContain('受限');
+    expect(markup).toContain('1 个');
     expect(markup).toContain('href="/admin/executors/executor-1"');
     expect(markup).not.toContain('果木食品创作端');
     expect(markup).not.toContain('打开旧配置入口');
@@ -120,8 +123,23 @@ describe('operations control plane pages',()=>{
     expect(markup).toContain('storyboard.local');
     expect(markup).toContain('darwin / arm64');
     expect(markup).toContain('果木食品 / 品牌短片');
+    expect(markup).toContain('设备连接');
+    expect(markup).toContain('环境收敛');
+    expect(markup).toContain('任务运行');
+    expect(markup).toContain('instance-1');
+    expect(markup).toContain('attempt-1');
+    expect(markup).toContain('进入诊断');
+    expect(markup).toContain('轮换凭据');
+    expect(markup).toContain('撤销设备');
     expect(markup).toContain('href="/admin/capabilities/inspiration_collection/versions/1.0.0"');
-    expect(markup).toContain('24 小时失败率');
+    expect(markup).toContain('Runtime 探测只决定新 Attempt 是否可领取');
+    expect(markup).toContain('codex · 当前选用');
+    expect(markup).toContain('CLAUDE_AUTH_REQUIRED');
+    expect(markup).toContain('本地工作区');
+    expect(markup).toContain('workspace-1');
+    expect(markup).toContain('sha256:generation');
+    expect(markup).toContain('技能收敛结果发生漂移');
+    expect(markup).not.toContain('/Users/');
   });
 
   it('opens a product version workspace with real coverage and enrollment data',()=>{

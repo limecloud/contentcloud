@@ -1,31 +1,31 @@
-# Marketing Story Structures
+# 营销故事结构
 
-Choose one primary structure. Do not combine every pattern.
+选择一个主要结构。不得组合所有模式。
 
-## Demand-moment conversion
+## 需求时刻转化
 
 `hook -> lived context -> friction -> product solution -> visible proof -> payoff -> CTA`
 
-Use when the Brief starts from a concrete situation or unresolved tension. Show the trigger before naming the product.
+Brief 从具体情境或未解决张力出发时使用。先展示触发点，再说出产品。
 
-## Product proof
+## 产品证明
 
 `material hook -> product introduction -> process or demonstration -> proof detail -> usage context -> CTA`
 
-Use for tactile products, craftsmanship, food, beauty, home goods, and tools. Prefer physical evidence over adjectives.
+适用于强调触感的产品、工艺、食品、美妆、家居用品和工具。优先使用物理证据而不是形容词。
 
-## Brand and cultural story
+## 品牌与文化故事
 
 `present-day hook -> origin or practice -> meaningful detail -> present-day relevance -> product bridge -> CTA`
 
-Use for heritage and cultural subjects. Historical statements require citations. Avoid costume-drama imagery that implies unverified history.
+适用于传承和文化主题。历史表述必须引用证据。避免使用暗示未经核验历史的古装剧式画面。
 
-## Knowledge or education
+## 知识或教育
 
 `misconception hook -> precise distinction -> demonstration -> practical choice -> CTA`
 
-Use when the audience needs a category concept before considering the product. Keep educational claims within approved evidence.
+受众需要先理解品类概念再考虑产品时使用。教育性断言必须限制在已批准证据内。
 
-## Single-variable variant
+## 单变量变体
 
-Keep all `invariant_fields` unchanged. Modify only the declared `primary_test_variable`, such as hook, viewpoint, proof form, or CTA wording. Never change audience, selling point, proof, and CTA simultaneously while claiming a single-variable test.
+保持所有 `invariant_fields` 不变。只修改已声明的 `primary_test_variable`，例如钩子、视角、证明形式或 CTA 文案。不得在声称单变量测试时同时修改受众、卖点、证明和 CTA。
