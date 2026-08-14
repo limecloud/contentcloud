@@ -522,12 +522,12 @@ func (r *Root) localRunCommand() *cobra.Command {
 	}}
 	validate.Flags().StringVar(&validateDirectory, "directory", "", "工作区路径；默认为当前目录")
 
-	var claimDirectory, claimRunID, claimOwner string
+	var claimDirectory, claimRunID, claimOwnerKind, claimOwnerID string
 	var claimRevision uint64
 	var claimTTL time.Duration
 	var takeoverExpired bool
 	claim := &cobra.Command{Use: "claim", Args: cobra.NoArgs, Short: "取得本地运行版本的单写入者锁", RunE: func(cmd *cobra.Command, args []string) error {
-		value, err := localworkspace.ClaimRun(localworkspace.ClaimRunOptions{Root: claimDirectory, RunID: claimRunID, Owner: claimOwner, ExpectedRevision: claimRevision, TTL: claimTTL, TakeoverExpired: takeoverExpired, Now: time.Now()})
+		value, err := localworkspace.ClaimRun(localworkspace.ClaimRunOptions{Root: claimDirectory, RunID: claimRunID, OwnerKind: claimOwnerKind, OwnerID: claimOwnerID, ExpectedRevision: claimRevision, TTL: claimTTL, TakeoverExpired: takeoverExpired, Now: time.Now()})
 		if err != nil {
 			return err
 		}
@@ -535,10 +535,35 @@ func (r *Root) localRunCommand() *cobra.Command {
 	}}
 	claim.Flags().StringVar(&claimDirectory, "directory", "", "工作区路径；默认为当前目录")
 	claim.Flags().StringVar(&claimRunID, "run", "", "运行 ID")
-	claim.Flags().StringVar(&claimOwner, "owner", "", "对话或工作进程的持有者 ID")
+	claim.Flags().StringVar(&claimOwnerKind, "owner-kind", "agent", "持有者类型：agent 或 browser")
+	claim.Flags().StringVar(&claimOwnerID, "owner-id", "", "对话、工作进程或 Workbench 的稳定持有者 ID")
 	claim.Flags().Uint64Var(&claimRevision, "revision", 0, "预期的本地运行上下文版本")
 	claim.Flags().DurationVar(&claimTTL, "ttl", 30*time.Minute, "运行锁有效期；最长 4 小时")
 	claim.Flags().BoolVar(&takeoverExpired, "takeover-expired", false, "明确接管已经过期的运行锁")
+
+	var takeoverDirectory, takeoverRunID, takeoverOwnerKind, takeoverOwnerID, expectedOwnerKind, expectedOwnerID string
+	var takeoverRevision, expectedEpoch uint64
+	var takeoverTTL time.Duration
+	takeover := &cobra.Command{Use: "takeover", Args: cobra.NoArgs, Short: "按 owner 和 epoch 明确接管仍有效的运行锁", RunE: func(cmd *cobra.Command, args []string) error {
+		value, err := localworkspace.TakeoverRunClaim(localworkspace.TakeoverRunClaimOptions{
+			Root: takeoverDirectory, RunID: takeoverRunID, OwnerKind: takeoverOwnerKind, OwnerID: takeoverOwnerID,
+			ExpectedOwnerKind: expectedOwnerKind, ExpectedOwnerID: expectedOwnerID, ExpectedEpoch: expectedEpoch,
+			ExpectedRevision: takeoverRevision, TTL: takeoverTTL, Now: time.Now(),
+		})
+		if err != nil {
+			return err
+		}
+		return r.writeOK("local.run.takeover", value)
+	}}
+	takeover.Flags().StringVar(&takeoverDirectory, "directory", "", "工作区路径；默认为当前目录")
+	takeover.Flags().StringVar(&takeoverRunID, "run", "", "运行 ID")
+	takeover.Flags().StringVar(&takeoverOwnerKind, "owner-kind", "agent", "新持有者类型：agent 或 browser")
+	takeover.Flags().StringVar(&takeoverOwnerID, "owner-id", "", "新持有者 ID")
+	takeover.Flags().StringVar(&expectedOwnerKind, "expected-owner-kind", "", "当前持有者类型")
+	takeover.Flags().StringVar(&expectedOwnerID, "expected-owner-id", "", "当前持有者 ID")
+	takeover.Flags().Uint64Var(&expectedEpoch, "expected-epoch", 0, "当前运行锁 epoch")
+	takeover.Flags().Uint64Var(&takeoverRevision, "revision", 0, "预期的本地运行上下文版本")
+	takeover.Flags().DurationVar(&takeoverTTL, "ttl", 30*time.Minute, "新运行锁有效期；最长 4 小时")
 
 	var renewDirectory, renewRunID, renewToken string
 	var renewTTL time.Duration
@@ -576,7 +601,7 @@ func (r *Root) localRunCommand() *cobra.Command {
 	claimStatus.Flags().StringVar(&claimStatusDirectory, "directory", "", "工作区路径；默认为当前目录")
 	claimStatus.Flags().StringVar(&claimStatusRunID, "run", "", "运行 ID")
 
-	cmd.AddCommand(init, show, record, check, advance, resume, fail, validate, claim, renew, release, claimStatus)
+	cmd.AddCommand(init, show, record, check, advance, resume, fail, validate, claim, takeover, renew, release, claimStatus)
 	return cmd
 }
 
@@ -614,11 +639,11 @@ func (r *Root) localHandoffCommand() *cobra.Command {
 	}}
 	list.Flags().StringVar(&listDirectory, "directory", "", "工作区路径；默认为当前目录")
 
-	var acceptDirectory, acceptID, acceptOwner string
+	var acceptDirectory, acceptID, acceptOwnerKind, acceptOwnerID string
 	var acceptTTL time.Duration
 	var acceptTakeover bool
 	accept := &cobra.Command{Use: "accept", Args: cobra.NoArgs, Short: "原子校验待接手交接记录并锁定对应运行", RunE: func(cmd *cobra.Command, args []string) error {
-		handoff, claim, err := localworkspace.AcceptHandoff(localworkspace.AcceptHandoffOptions{Root: acceptDirectory, HandoffID: acceptID, Owner: acceptOwner, TTL: acceptTTL, TakeoverExpired: acceptTakeover, Now: time.Now()})
+		handoff, claim, err := localworkspace.AcceptHandoff(localworkspace.AcceptHandoffOptions{Root: acceptDirectory, HandoffID: acceptID, OwnerKind: acceptOwnerKind, OwnerID: acceptOwnerID, TTL: acceptTTL, TakeoverExpired: acceptTakeover, Now: time.Now()})
 		if err != nil {
 			return err
 		}
@@ -626,7 +651,8 @@ func (r *Root) localHandoffCommand() *cobra.Command {
 	}}
 	accept.Flags().StringVar(&acceptDirectory, "directory", "", "工作区路径；默认为当前目录")
 	accept.Flags().StringVar(&acceptID, "id", "", "待接手交接 ID")
-	accept.Flags().StringVar(&acceptOwner, "owner", "", "接手对话或工作进程的持有者 ID")
+	accept.Flags().StringVar(&acceptOwnerKind, "owner-kind", "agent", "接手者类型：agent 或 browser")
+	accept.Flags().StringVar(&acceptOwnerID, "owner-id", "", "接手对话、工作进程或 Workbench 的持有者 ID")
 	accept.Flags().DurationVar(&acceptTTL, "ttl", 30*time.Minute, "运行锁有效期；最长 4 小时")
 	accept.Flags().BoolVar(&acceptTakeover, "takeover-expired", false, "明确接管已经过期的运行锁")
 

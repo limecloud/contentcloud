@@ -2,6 +2,22 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.26.0] - 2026-08-14
+
+### Added
+
+- 增加 Agent Plugin 的本地 Workspace 工作台能力，通过 `Skills + stdio MCP` 提供类型化 View、digest 固定 Resource 与安全静态 HTML presentation。
+- 增加 Attempt 级 Runtime MCP Gateway、Daemon 绑定与运行诊断，使 Codex/Claude Harness 在受控工具边界内恢复本地与云端执行上下文。
+
+### Changed
+
+- 废弃本地 Node/HTTP localhost 工作台方案，宿主面板、Browser 与资源内嵌改为可检测增强，不再作为插件正确性依赖。
+- Server、Worker、Web、CLI、Plugin、MCP 和 Environment Profile 统一升级到 `0.26.0`。
+
+### Fixed
+
+- 修复 Codex Harness 在 Runtime Gateway 参数校验失败时创建未释放 context 的问题。
+
 ## [0.25.0] - 2026-08-12
 
 ### Added

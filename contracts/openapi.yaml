@@ -105,6 +105,39 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+  /v1/runtime/worker/control:
+    get:
+      tags: [CLI]
+      operationId: openRuntimeWorkerControl
+      summary: Upgrade to the device-authenticated Runtime WebSocket control channel
+      description: >-
+        The first client text frame must be RuntimeControlSyncFrame. The server
+        acknowledges it with control.ready, emits coalesced runtime.available
+        wakeups, and sends control.heartbeat requests. Runtime commands, leases,
+        events, finalization, and MCP calls remain on HTTPS.
+      security: [{bearerAuth: []}]
+      responses:
+        '101': {description: WebSocket protocol switched}
+        '401': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/runtime/mcp/call:
+    post:
+      tags: [CLI]
+      operationId: callRuntimeMCPGateway
+      summary: Call an Attempt-scoped Runtime MCP tool
+      description: >-
+        Accepts only a short-lived rtg_ credential. Tenant, Attempt, lease, fence,
+        ContextView, and tool allowlist are derived and revalidated server-side.
+      security: [{runtimeGatewayAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/RuntimeGatewayCallInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /v1/providers/{provider_id}/tenants/{tenant_id}/callbacks:
     parameters:
       - {name: provider_id, in: path, required: true, schema: {type: string}}
@@ -1671,6 +1704,7 @@ components:
   securitySchemes:
     cookieAuth: {type: apiKey, in: cookie, name: cc_session}
     bearerAuth: {type: http, scheme: bearer}
+    runtimeGatewayAuth: {type: http, scheme: bearer, bearerFormat: rtg_}
   parameters:
     ProjectID: {name: project_id, in: path, required: true, schema: {type: string, format: uuid}}
     ID: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
@@ -2610,32 +2644,19 @@ components:
     RuntimeWorkerPrepareInput:
       type: object
       additionalProperties: false
-      required: [harness_kind, capabilities, role, execution_profile_id, max_tokens, budget_minor, remaining_descendants]
+      required: [harness_kind, capabilities]
       properties:
         job_run_id: {type: string, format: uuid}
+        daemon_instance_id: {type: string, format: uuid}
         harness_kind: {type: string, minLength: 1}
         capabilities: {$ref: '#/components/schemas/RuntimeHarnessCapabilities'}
-        role: {type: string, minLength: 1}
-        execution_profile_id: {type: string, minLength: 1}
-        workspace: {type: string}
-        prompt: {type: string}
-        output_schema: {type: object, additionalProperties: true}
-        input_refs: {type: array, items: {type: string}}
-        state_refs: {type: array, items: {type: string}}
-        event_refs: {type: array, items: {type: string}}
-        allowed_tools: {type: array, items: {type: string}}
-        max_tokens: {type: integer, minimum: 1}
-        budget_minor: {type: integer, minimum: 0}
-        remaining_descendants: {type: integer, minimum: 0}
-        lease_for_seconds: {type: integer, minimum: 1}
-        context_ttl_seconds: {type: integer, minimum: 1}
-        resource_requests: {type: array, items: {type: object, additionalProperties: false}}
     RuntimeHarnessCapabilities:
       type: object
       additionalProperties: false
       required: [kind, events, resume, fork, mcp_stdio, mcp_http, structured_output, sandbox_profile, max_parallel_sessions, transcript_export]
       properties:
         kind: {type: string, minLength: 1}
+        version: {type: string}
         events: {type: boolean}
         resume: {type: boolean}
         fork: {type: boolean}
@@ -2650,29 +2671,32 @@ components:
       additionalProperties: false
       required: [harness_kind, session_id]
       properties:
-        tenant_id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid, readOnly: true, description: Server-derived tenant scope; clients must not choose it.}
         harness_kind: {type: string}
         session_id: {type: string, minLength: 1}
     RuntimeWorkerActivateInput:
       type: object
       additionalProperties: false
-      required: [attempt_id, fence_token, session]
+      required: [daemon_instance_id, attempt_id, fence_token, session]
       properties:
+        daemon_instance_id: {type: string, format: uuid}
         attempt_id: {type: string, format: uuid}
         fence_token: {type: string, minLength: 1}
         session: {$ref: '#/components/schemas/RuntimeWorkerSession'}
     RuntimeWorkerHeartbeatInput:
       type: object
       additionalProperties: false
-      required: [attempt_id, fence_token]
+      required: [daemon_instance_id, attempt_id, fence_token]
       properties:
+        daemon_instance_id: {type: string, format: uuid}
         attempt_id: {type: string, format: uuid}
         fence_token: {type: string, minLength: 1}
     RuntimeWorkerEventInput:
       type: object
       additionalProperties: false
-      required: [attempt_id, fence_token, event]
+      required: [daemon_instance_id, attempt_id, fence_token, event]
       properties:
+        daemon_instance_id: {type: string, format: uuid}
         attempt_id: {type: string, format: uuid}
         fence_token: {type: string, minLength: 1}
         event:
@@ -2682,14 +2706,15 @@ components:
           properties:
             type: {type: string, minLength: 1}
             session: {$ref: '#/components/schemas/RuntimeWorkerSession'}
-            data: {type: object, additionalProperties: true}
+            data: {description: Arbitrary JSON event payload; Runtime stores only a bounded canonical digest.}
             error_code: {type: string}
             occurred_at: {type: string, format: date-time}
     RuntimeWorkerFinalizeInput:
       type: object
       additionalProperties: false
-      required: [attempt_id, fence_token, state]
+      required: [daemon_instance_id, attempt_id, fence_token, state]
       properties:
+        daemon_instance_id: {type: string, format: uuid}
         attempt_id: {type: string, format: uuid}
         fence_token: {type: string, minLength: 1}
         state: {type: string, enum: [succeeded, retryable_failed, failed, cancelled]}
@@ -2700,6 +2725,29 @@ components:
         error_code: {type: string}
         used_cost_minor: {type: integer, minimum: 0}
         business_payload: {type: object, additionalProperties: true}
+    RuntimeGatewayCallInput:
+      type: object
+      additionalProperties: false
+      required: [tool_name, request_id, arguments]
+      properties:
+        tool_name: {type: string, minLength: 1}
+        request_id: {type: string, minLength: 1}
+        arguments: {type: object, additionalProperties: true}
+    RuntimeControlSyncFrame:
+      type: object
+      additionalProperties: false
+      required: [type, daemon_instance_id, connection_epoch, report_seq, pid, version, state, capabilities, active_attempts, started_at]
+      properties:
+        type: {const: control.sync_state}
+        daemon_instance_id: {type: string, format: uuid}
+        connection_epoch: {type: integer, minimum: 1}
+        report_seq: {type: integer, minimum: 1}
+        pid: {type: integer, minimum: 0}
+        version: {type: string, minLength: 1}
+        state: {type: string, enum: [connected, degraded]}
+        capabilities: {type: object, additionalProperties: true}
+        active_attempts: {type: array, maxItems: 32, uniqueItems: true, items: {type: string}}
+        started_at: {type: string, format: date-time}
     LineageNode:
       type: object
       additionalProperties: false
@@ -3150,6 +3198,7 @@ components:
       required: [kind, events, resume, fork, mcp_stdio, mcp_http, structured_output, sandbox_profile, max_parallel_sessions, transcript_export]
       properties:
         kind: {type: string, enum: [fake, codex, claude, remote-http, pi, agent-saas]}
+        version: {type: string}
         events: {type: boolean}
         resume: {type: boolean}
         fork: {type: boolean}

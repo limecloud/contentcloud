@@ -131,19 +131,61 @@ type Capability struct {
 }
 
 type Device struct {
-	ID           string       `json:"id"`
-	TenantID     string       `json:"tenant_id"`
-	OwnerUserID  string       `json:"owner_user_id"`
-	DisplayName  string       `json:"display_name"`
-	Hostname     string       `json:"hostname"`
-	Platform     string       `json:"platform"`
-	Arch         string       `json:"arch"`
-	Version      string       `json:"daemon_version"`
-	TokenHash    string       `json:"-"`
-	Capabilities []Capability `json:"capabilities"`
-	ProjectIDs   []string     `json:"project_ids"`
-	LastSeenAt   time.Time    `json:"last_seen_at"`
-	RevokedAt    *time.Time   `json:"revoked_at,omitempty"`
+	ID                  string       `json:"id"`
+	TenantID            string       `json:"tenant_id"`
+	OwnerUserID         string       `json:"owner_user_id"`
+	MachineID           string       `json:"machine_id"`
+	DisplayName         string       `json:"display_name"`
+	Hostname            string       `json:"hostname"`
+	Platform            string       `json:"platform"`
+	Arch                string       `json:"arch"`
+	Version             string       `json:"daemon_version"`
+	TokenHash           string       `json:"-"`
+	CredentialVersion   int          `json:"credential_version"`
+	CredentialRotatedAt time.Time    `json:"credential_rotated_at"`
+	Capabilities        []Capability `json:"capabilities"`
+	ProjectIDs          []string     `json:"project_ids"`
+	LastSeenAt          time.Time    `json:"last_seen_at"`
+	RevokedAt           *time.Time   `json:"revoked_at,omitempty"`
+}
+
+type DaemonInstance struct {
+	ID              string         `json:"id"`
+	TenantID        string         `json:"tenant_id"`
+	DeviceID        string         `json:"device_id"`
+	ConnectionEpoch int64          `json:"connection_epoch"`
+	ReportSequence  int64          `json:"report_sequence"`
+	PID             int            `json:"pid,omitempty"`
+	Version         string         `json:"version"`
+	State           string         `json:"state"`
+	Capabilities    map[string]any `json:"capabilities"`
+	ActiveAttempts  []string       `json:"active_attempts"`
+	StartedAt       time.Time      `json:"started_at"`
+	LastSeenAt      time.Time      `json:"last_seen_at"`
+	StoppedAt       *time.Time     `json:"stopped_at,omitempty"`
+}
+
+// DaemonWorkspaceObservation is a redacted, read-only view of one local
+// workspace. Absolute paths stay on the device; declaration identities and
+// local installation receipts remain separate facts.
+type DaemonWorkspaceObservation struct {
+	WorkspaceID               string    `json:"workspace_id"`
+	ProjectID                 string    `json:"project_id"`
+	Status                    string    `json:"status"`
+	Reason                    string    `json:"reason"`
+	ErrorCode                 string    `json:"error_code,omitempty"`
+	Generation                string    `json:"generation,omitempty"`
+	EnvironmentManifestDigest string    `json:"environment_manifest_digest,omitempty"`
+	EnvironmentDeclaration    string    `json:"environment_declaration_digest,omitempty"`
+	PluginDeclaration         string    `json:"plugin_declaration_digest,omitempty"`
+	SkillDeclaration          string    `json:"skill_declaration_digest,omitempty"`
+	MCPDeclaration            string    `json:"mcp_declaration_digest,omitempty"`
+	WorkspaceDeclaration      string    `json:"workspace_declaration_digest,omitempty"`
+	PluginHostReceiptDigest   string    `json:"plugin_host_receipt_digest,omitempty"`
+	ObservedSkillDigest       string    `json:"observed_skill_digest,omitempty"`
+	ObservedMCPDigest         string    `json:"observed_mcp_digest,omitempty"`
+	ObservedWorkspaceDigest   string    `json:"observed_workspace_digest,omitempty"`
+	ObservedAt                time.Time `json:"observed_at"`
 }
 
 type EvidenceRef struct {

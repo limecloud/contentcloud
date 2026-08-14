@@ -53,6 +53,8 @@ Codex、Claude Code 等智能体客户端只是 Runtime 可以选择的执行者
 | [02-customer-studio-requirements.md](./02-customer-studio-requirements.md) | 客户创作台的信息架构、交互状态、角色权限、首个场景和验收标准 |
 | [03-inspiration-collection-stage.md](./03-inspiration-collection-stage.md) | “灵感采集”阶段的客户体验、连接器抽象、统一输出、安全门禁和失败恢复 |
 | [04-execution-client-connection.md](./04-execution-client-connection.md) | 项目级执行客户端连接、当前 Codex 协议和多客户端发布门槛 |
+| [05-local-workbench-browser.md](./05-local-workbench-browser.md) | 本地工作台实现事实源：Skills、stdio MCP、Go loopback Presenter、Browser Handoff、SSE、Range、Claim v2、Proposal/Apply、分发与验收 |
+| [06-reference-workbench-analysis.md](./06-reference-workbench-analysis.md) | 三类公开参考实现的匿名化全维度分析、证据等级、安全审计、对比矩阵和采用/拒绝依据 |
 
 ## 3. 与现有文档的关系
 
@@ -111,3 +113,4 @@ V8 Runtime：系统怎样可靠执行
 | 2026-08-07 | 创作结果以五类生成结果为中心 | 输入和治理对象留在任务/运营面，结果类型与确认状态保持独立 |
 | 2026-08-07 | 客户资产入口组合我的资产与创作结果 | 客户需要管理上传/导入资料，但两个视图不能合并成超级 Asset 写模型 |
 | 2026-08-05 | 客户叙事图与平台架构图分离 | 先解释客户输入和结果，再按需要展开 Runtime 与执行者边界 |
+| 2026-08-14 | 本地控制面与 Browser 呈现面分离 | Skills + stdio MCP 保持可移植控制面；Go CLI 按需启动同进程 loopback Presenter，本地与云端共用 handoff，所有写入进入同一 Workspace Kernel |

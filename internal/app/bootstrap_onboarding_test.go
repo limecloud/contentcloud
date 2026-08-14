@@ -22,14 +22,14 @@ func TestBootstrapAuthorizationRequiresApprovalAndMatchingVerifier(t *testing.T)
 	if started.VerificationURL != "https://content.example.com/studio/connect?session="+connect.ID {
 		t.Fatalf("bootstrap verification URL did not use the customer connection route: %q", started.VerificationURL)
 	}
-	_, err = service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: verifier, Device: ConnectDeviceInput{Hostname: "test-mac"}})
+	_, err = service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: verifier, Device: ConnectDeviceInput{MachineID: bootstrapTestMachineID("test-mac"), Hostname: "test-mac"}})
 	assertBootstrapError(t, err, "BOOTSTRAP_AUTHORIZATION_PENDING")
 	if _, err := service.ApproveBootstrapAuthorization(t.Context(), actor, connect.ID, started.AttemptID, "approve"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: bootstrapTestVerifier("wrong-verifier"), Device: ConnectDeviceInput{Hostname: "test-mac"}})
+	_, err = service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: bootstrapTestVerifier("wrong-verifier"), Device: ConnectDeviceInput{MachineID: bootstrapTestMachineID("test-mac"), Hostname: "test-mac"}})
 	assertBootstrapError(t, err, "BOOTSTRAP_VERIFIER_INVALID")
-	connected, err := service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: verifier, Device: ConnectDeviceInput{Hostname: "test-mac", Platform: "darwin", Arch: "arm64"}})
+	connected, err := service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: verifier, Device: ConnectDeviceInput{MachineID: bootstrapTestMachineID("test-mac"), Hostname: "test-mac", Platform: "darwin", Arch: "arm64"}})
 	if err != nil || connected.ProjectID != connect.ProjectID || connected.WorkspaceToken == "" || connected.DeviceToken == "" {
 		t.Fatalf("complete authorization failed: result=%#v error=%v", connected, err)
 	}
@@ -91,7 +91,7 @@ func TestBootstrapAuthorizationDenialAndExpiryAreDistinct(t *testing.T) {
 	if err != nil || deniedStatus.State != "canceled" {
 		t.Fatalf("denied authorization did not cancel ConnectSession: status=%#v error=%v", deniedStatus, err)
 	}
-	_, err = service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: denied.AttemptToken, CodeVerifier: verifier, Device: ConnectDeviceInput{Hostname: "test-mac"}})
+	_, err = service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: denied.AttemptToken, CodeVerifier: verifier, Device: ConnectDeviceInput{MachineID: bootstrapTestMachineID("test-mac"), Hostname: "test-mac"}})
 	assertBootstrapError(t, err, "BOOTSTRAP_AUTHORIZATION_DENIED")
 
 	expiredConnect, err := service.CreateConnectSession(t.Context(), actor, deniedConnect.ProjectID, "expired-connect")
@@ -107,7 +107,7 @@ func TestBootstrapAuthorizationDenialAndExpiryAreDistinct(t *testing.T) {
 	if statusErr != nil || expiredStatus.State != "expired" || expiredStatus.Progress != nil {
 		t.Fatalf("expired ConnectSession was not projected: status=%#v error=%v", expiredStatus, statusErr)
 	}
-	_, err = service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: expired.AttemptToken, CodeVerifier: verifier, Device: ConnectDeviceInput{Hostname: "test-mac"}})
+	_, err = service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: expired.AttemptToken, CodeVerifier: verifier, Device: ConnectDeviceInput{MachineID: bootstrapTestMachineID("test-mac"), Hostname: "test-mac"}})
 	assertBootstrapError(t, err, "BOOTSTRAP_AUTHORIZATION_EXPIRED")
 }
 
@@ -155,7 +155,7 @@ func TestBootstrapAttemptCannotCompleteBeforeAuthorizationIsConsumed(t *testing.
 	}
 	_, err = service.CompleteBootstrapAttempt(t.Context(), started.AttemptToken, "completed")
 	assertBootstrapError(t, err, "BOOTSTRAP_ATTEMPT_STATE_INVALID")
-	if _, err := service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: verifier, Device: ConnectDeviceInput{Hostname: "test-mac"}}); err != nil {
+	if _, err := service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: verifier, Device: ConnectDeviceInput{MachineID: bootstrapTestMachineID("test-mac"), Hostname: "test-mac"}}); err != nil {
 		t.Fatal(err)
 	}
 	completed, err := service.CompleteBootstrapAttempt(t.Context(), started.AttemptToken, "completed")
@@ -170,6 +170,56 @@ func TestBootstrapAttemptCannotCompleteBeforeAuthorizationIsConsumed(t *testing.
 	assertBootstrapError(t, err, "BOOTSTRAP_ATTEMPT_STATE_INVALID")
 	_, err = service.AppendBootstrapProgress(t.Context(), started.AttemptToken, domain.BootstrapProgressEvent{SchemaVersion: domain.BootstrapSchemaVersion, Sequence: 2, OccurredAt: service.now().UTC(), Stage: "complete", Status: "failed", Facts: map[string]any{}})
 	assertBootstrapError(t, err, "BOOTSTRAP_PROGRESS_TERMINAL")
+}
+
+func TestBootstrapReconnectReusesStableDeviceAndRotatesCredential(t *testing.T) {
+	service, actor, firstConnect := bootstrapFixture(t)
+	machineID := bootstrapTestMachineID("stable-device")
+	firstVerifier := bootstrapTestVerifier("stable-device-first")
+	firstAuthorization, err := service.StartBootstrapAuthorization(t.Context(), "https://content.example.com", StartBootstrapAuthorizationInput{SessionID: firstConnect.ID, CodeChallenge: bootstrapCodeChallenge(firstVerifier)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ApproveBootstrapAuthorization(t.Context(), actor, firstConnect.ID, firstAuthorization.AttemptID, "approve-first"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: firstAuthorization.AttemptToken, CodeVerifier: firstVerifier, Device: ConnectDeviceInput{MachineID: machineID, Hostname: "old-host", Version: "1.0.0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondConnect, err := service.CreateConnectSession(t.Context(), actor, firstConnect.ProjectID, "stable-device-second-connect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondVerifier := bootstrapTestVerifier("stable-device-second")
+	secondAuthorization, err := service.StartBootstrapAuthorization(t.Context(), "https://content.example.com", StartBootstrapAuthorizationInput{SessionID: secondConnect.ID, CodeChallenge: bootstrapCodeChallenge(secondVerifier)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ApproveBootstrapAuthorization(t.Context(), actor, secondConnect.ID, secondAuthorization.AttemptID, "approve-second"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.CompleteBootstrapAuthorization(t.Context(), CompleteBootstrapAuthorizationInput{AttemptToken: secondAuthorization.AttemptToken, CodeVerifier: secondVerifier, Device: ConnectDeviceInput{MachineID: machineID, Hostname: "new-host", Version: "2.0.0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Device.ID != first.Device.ID || second.WorkspaceID != first.WorkspaceID {
+		t.Fatalf("stable machine reconnect created duplicate identity: first=%#v second=%#v", first, second)
+	}
+	if second.Device.CredentialVersion != first.Device.CredentialVersion+1 || second.Device.Hostname != "new-host" {
+		t.Fatalf("reconnect did not rotate credential and refresh metadata: %#v", second.Device)
+	}
+	if _, _, err := service.DeviceActor(t.Context(), first.DeviceToken); !hasAppDomainCode(err, "DEVICE_TOKEN_INVALID") {
+		t.Fatalf("old device token remained valid after reconnect rotation: %v", err)
+	}
+	if current, _, err := service.DeviceActor(t.Context(), second.DeviceToken); err != nil || current.DeviceID != first.Device.ID {
+		t.Fatalf("rotated device token is not bound to stable identity: actor=%#v err=%v", current, err)
+	}
+}
+
+func bootstrapTestMachineID(seed string) string {
+	sum := sha256.Sum256([]byte(seed))
+	return "mach_" + base64.RawURLEncoding.EncodeToString(sum[:24])
 }
 
 func bootstrapFixture(t *testing.T) (*Service, Actor, domain.ConnectSession) {

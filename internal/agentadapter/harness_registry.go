@@ -2,6 +2,7 @@ package agentadapter
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -10,10 +11,11 @@ import (
 )
 
 type harnessRegistryEntry struct {
-	adapter AgentHarnessAdapter
-	once    sync.Once
-	caps    HarnessCapabilities
-	err     error
+	adapter  AgentHarnessAdapter
+	mu       sync.Mutex
+	detected bool
+	caps     HarnessCapabilities
+	err      error
 }
 
 // HarnessRegistry caches capability detection and owns active adapters for one
@@ -71,6 +73,17 @@ func (r *HarnessRegistry) Register(kind string, adapter AgentHarnessAdapter) err
 }
 
 func (r *HarnessRegistry) Resolve(ctx context.Context, kind string) (AgentHarnessAdapter, HarnessCapabilities, error) {
+	return r.resolve(ctx, kind, false)
+}
+
+// Refresh repeats the host capability probe without replacing the adapter or
+// its active sessions. New Attempts see the refreshed result; existing
+// Attempts continue with their frozen capability snapshot.
+func (r *HarnessRegistry) Refresh(ctx context.Context, kind string) (AgentHarnessAdapter, HarnessCapabilities, error) {
+	return r.resolve(ctx, kind, true)
+}
+
+func (r *HarnessRegistry) resolve(ctx context.Context, kind string, refresh bool) (AgentHarnessAdapter, HarnessCapabilities, error) {
 	if r == nil {
 		return nil, HarnessCapabilities{}, domain.Policy("AGENT_HARNESS_REGISTRY_UNAVAILABLE", "智能体执行适配器注册表尚未配置", "联系平台运营人员检查 Runtime 配置")
 	}
@@ -81,19 +94,46 @@ func (r *HarnessRegistry) Resolve(ctx context.Context, kind string) (AgentHarnes
 	if entry == nil {
 		return nil, HarnessCapabilities{}, domain.Invalid("AGENT_HARNESS_INVALID", "未知的智能体执行适配器")
 	}
-	entry.once.Do(func() {
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if refresh || !entry.detected {
 		entry.caps, entry.err = entry.adapter.Detect(ctx)
+		entry.detected = !errors.Is(entry.err, context.Canceled) && !errors.Is(entry.err, context.DeadlineExceeded)
 		if entry.err == nil {
 			entry.caps.Kind = normalizeHarnessKind(entry.caps.Kind)
 			if entry.caps.Kind != normalized {
 				entry.err = domain.Invalid("AGENT_HARNESS_KIND_MISMATCH", "智能体执行适配器能力声明与注册类型不一致")
 			}
 		}
-	})
+	}
 	if entry.err != nil {
 		return nil, HarnessCapabilities{}, entry.err
 	}
 	return entry.adapter, entry.caps, nil
+}
+
+// Probe returns a redacted presence record suitable for Daemon current-state.
+// Raw command output and error text never cross the host boundary.
+func (r *HarnessRegistry) Probe(ctx context.Context, kind string, refresh bool) HarnessProbe {
+	var capabilities HarnessCapabilities
+	var err error
+	if refresh {
+		_, capabilities, err = r.Refresh(ctx, kind)
+	} else {
+		_, capabilities, err = r.Resolve(ctx, kind)
+	}
+	probe := HarnessProbe{Kind: normalizeHarnessKind(kind), Status: "healthy", Capabilities: capabilities, Version: capabilities.Version}
+	if err == nil {
+		return probe
+	}
+	probe.Status = "unhealthy"
+	probe.Capabilities = HarnessCapabilities{}
+	probe.ErrorCode = "AGENT_HARNESS_UNAVAILABLE"
+	var domainError *domain.Error
+	if errors.As(err, &domainError) && strings.TrimSpace(domainError.Code) != "" {
+		probe.ErrorCode = domainError.Code
+	}
+	return probe
 }
 
 func (r *HarnessRegistry) mustRegister(kind string, adapter AgentHarnessAdapter) {

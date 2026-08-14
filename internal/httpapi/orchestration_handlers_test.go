@@ -118,6 +118,10 @@ func TestOperationsExecutorBFFUsesRegisteredDevices(t *testing.T) {
 	if err := store.SaveDevice(t.Context(), device); err != nil {
 		t.Fatal(err)
 	}
+	instance := domain.DaemonInstance{ID: domain.NewID(), TenantID: actor.TenantID, DeviceID: device.ID, ConnectionEpoch: 1, ReportSequence: 1, Version: device.Version, State: "connected", Capabilities: map[string]any{"environment_status": "ready"}, StartedAt: now.Add(-time.Minute), LastSeenAt: now}
+	if err := store.SaveDaemonInstance(t.Context(), instance); err != nil {
+		t.Fatal(err)
+	}
 	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
 	defer server.Close()
 	jar, _ := cookiejar.New(nil)

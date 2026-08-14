@@ -1,6 +1,7 @@
 package agentadapter
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -72,6 +73,47 @@ func TestHarnessRegistryReusesAdapterAndSessionState(t *testing.T) {
 	if _, err := second.Resume(t.Context(), ResumeAgentRequest{Session: ref}); err != nil {
 		t.Fatalf("resolved adapter lost session state: %v", err)
 	}
+}
+
+func TestHarnessRegistryRefreshesCapabilitiesWithoutReplacingAdapter(t *testing.T) {
+	harness := &refreshableHarness{version: "v1"}
+	registry := NewHarnessRegistry()
+	if err := registry.Register("refreshable", harness); err != nil {
+		t.Fatal(err)
+	}
+	first, firstCapabilities, err := registry.Resolve(t.Context(), "refreshable")
+	if err != nil || firstCapabilities.Version != "v1" || harness.detectCalls != 1 {
+		t.Fatalf("initial detection = capabilities=%#v calls=%d err=%v", firstCapabilities, harness.detectCalls, err)
+	}
+	harness.version = "v2"
+	second, cached, err := registry.Resolve(t.Context(), "refreshable")
+	if err != nil || cached.Version != "v1" || harness.detectCalls != 1 || first != second {
+		t.Fatalf("cached resolution changed adapter or capabilities: capabilities=%#v calls=%d err=%v", cached, harness.detectCalls, err)
+	}
+	third, refreshed, err := registry.Refresh(t.Context(), "refreshable")
+	if err != nil || refreshed.Version != "v2" || harness.detectCalls != 2 || first != third {
+		t.Fatalf("refresh did not preserve adapter and update capabilities: capabilities=%#v calls=%d err=%v", refreshed, harness.detectCalls, err)
+	}
+}
+
+type refreshableHarness struct {
+	version     string
+	detectCalls int
+}
+
+func (h *refreshableHarness) Detect(context.Context) (HarnessCapabilities, error) {
+	h.detectCalls++
+	return HarnessCapabilities{Kind: "refreshable", Version: h.version, Events: true, StructuredOutput: true}, nil
+}
+func (h *refreshableHarness) Start(context.Context, StartAgentRequest) (AgentSessionRef, EventStream, error) {
+	return AgentSessionRef{}, nil, errors.New("not implemented")
+}
+func (h *refreshableHarness) Resume(context.Context, ResumeAgentRequest) (EventStream, error) {
+	return nil, errors.New("not implemented")
+}
+func (h *refreshableHarness) Interrupt(context.Context, AgentSessionRef) error { return nil }
+func (h *refreshableHarness) Inspect(context.Context, AgentSessionRef) (AgentSessionStatus, error) {
+	return AgentSessionStatus{}, errors.New("not implemented")
 }
 
 func TestFakeHarnessRunsQueuedScriptAndCloses(t *testing.T) {

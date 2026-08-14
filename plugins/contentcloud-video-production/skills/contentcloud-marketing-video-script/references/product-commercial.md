@@ -1,24 +1,24 @@
-# Product Commercial Direction
+# 产品广告方向
 
-Make the product legible as a real object before making it impressive.
+先让产品作为真实物体清晰可辨，再追求令人印象深刻。
 
-## Define first
+## 先定义
 
-- Material and surface behavior under light.
-- One hero interaction that demonstrates use or craft.
-- Real setting and supporting props.
-- Product-truth strategy for packaging, marks, labels, and text.
-- One sound event for each important physical action.
+- 材质及表面在光照下的表现。
+- 一个展示使用方式或工艺的核心交互。
+- 真实场景和辅助道具。
+- 包装、标记、标签和文字的产品事实策略。
+- 每个重要物理动作对应一个声音事件。
 
-## Build beats
+## 构建节拍
 
-Use two- to four-second beats. Each beat has one action, one camera intention, and one sound intention. A useful sequence is:
+使用 2 至 4 秒节拍。每个节拍包含一个动作、一个镜头意图和一个声音意图。可采用以下顺序：
 
-1. Establish a real setting and unresolved detail.
-2. Introduce a hand, tool, ingredient, or process interaction.
-3. Reveal material or functional proof in close detail.
-4. Return to a stable product-and-context payoff.
+1. 建立真实场景和一个未解决细节。
+2. 引入手、工具、原料或过程交互。
+3. 通过近景细节展示材质或功能证明。
+4. 回到稳定的产品与情境回报。
 
-Do not default to floating products, empty seamless backgrounds, uncontrolled logo generation, rotating hero shots, excessive flares, or abstract particles. Use real compositing when exact identity matters.
+不得默认使用悬浮产品、空白无缝背景、不可控标志生成、旋转主视觉镜头、过量炫光或抽象粒子。准确身份重要时使用真实合成。
 
-Camera and lens references are optional visual anchors. Select them only when their physical rendering behavior helps the intended proof. Describe light direction, surface response, focus behavior, and movement before naming equipment.
+相机和镜头参考是可选视觉锚点。只有其物理成像表现有助于预期证明时才选择。先描述光照方向、表面响应、对焦表现和运动，再指定设备。

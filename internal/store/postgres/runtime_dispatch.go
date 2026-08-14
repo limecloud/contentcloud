@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/domain"
 )
 
-const runtimeAttemptSelect = `SELECT tenant_id,id,job_run_id,node_run_id,agent_instance_id,context_view_id,attempt_no,harness_kind,capabilities,session_ref,state,lease_owner,fence_token,lease_expires_at,output_refs,result_digest,safe_summary,error_code,version,created_at,started_at,finished_at,updated_at FROM runtime_attempts`
+const runtimeAttemptSelect = `SELECT tenant_id,id,job_run_id,node_run_id,agent_instance_id,context_view_id,attempt_no,harness_kind,capabilities,session_ref,state,lease_owner,fence_token,gateway_token_hash,gateway_expires_at,lease_expires_at,output_refs,result_digest,safe_summary,error_code,version,created_at,started_at,finished_at,updated_at FROM runtime_attempts`
 
 func validateAttemptFenceTx(ctx context.Context, tx pgx.Tx, tenantID, attemptID, fenceToken string, now time.Time) error {
 	attempt, err := scanRuntimeAttempt(tx.QueryRow(ctx, runtimeAttemptSelect+` WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, attemptID))
@@ -27,7 +28,7 @@ func validateAttemptFenceTx(ctx context.Context, tx pgx.Tx, tenantID, attemptID,
 	return nil
 }
 
-func (s *Store) NextReadyNode(ctx context.Context, tenantID, jobID string) (domain.NodeRun, error) {
+func (s *Store) NextReadyNode(ctx context.Context, tenantID, jobID string, allowedProjectIDs []string) (domain.NodeRun, error) {
 	var result domain.NodeRun
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		query := runtimeNodeSelect + ` WHERE tenant_id=$1 AND state='ready'
@@ -39,6 +40,13 @@ func (s *Store) NextReadyNode(ctx context.Context, tenantID, jobID string) (doma
 		if strings.TrimSpace(jobID) != "" {
 			query += ` AND job_run_id=$2`
 			args = append(args, jobID)
+		}
+		if allowedProjectIDs != nil {
+			query += ` AND EXISTS (SELECT 1 FROM runtime_job_runs scoped_job
+				WHERE scoped_job.tenant_id=runtime_node_runs.tenant_id
+				  AND scoped_job.id=runtime_node_runs.job_run_id
+				  AND scoped_job.project_id = ANY($` + strconv.Itoa(len(args)+1) + `::uuid[]))`
+			args = append(args, allowedProjectIDs)
 		}
 		query += ` ORDER BY ((SELECT priority FROM runtime_job_runs j WHERE j.tenant_id=runtime_node_runs.tenant_id AND j.id=runtime_node_runs.job_run_id) + floor(EXTRACT(EPOCH FROM (now()-updated_at))/60)) DESC, updated_at,created_at,id LIMIT 1`
 		value, err := scanRuntimeNode(tx.QueryRow(ctx, query, args...))
@@ -67,7 +75,7 @@ func (s *Store) AgentInstanceForNode(ctx context.Context, tenantID, nodeID strin
 func scanRuntimeAttempt(row pgx.Row) (domain.RuntimeAttempt, error) {
 	var value domain.RuntimeAttempt
 	var capabilities, outputs, summary []byte
-	err := row.Scan(&value.TenantID, &value.ID, &value.JobRunID, &value.NodeRunID, &value.AgentInstanceID, &value.ContextViewID, &value.AttemptNo, &value.HarnessKind, &capabilities, &value.SessionRef, &value.State, &value.LeaseOwner, &value.FenceToken, &value.LeaseExpiresAt, &outputs, &value.ResultDigest, &summary, &value.ErrorCode, &value.Version, &value.CreatedAt, &value.StartedAt, &value.FinishedAt, &value.UpdatedAt)
+	err := row.Scan(&value.TenantID, &value.ID, &value.JobRunID, &value.NodeRunID, &value.AgentInstanceID, &value.ContextViewID, &value.AttemptNo, &value.HarnessKind, &capabilities, &value.SessionRef, &value.State, &value.LeaseOwner, &value.FenceToken, &value.GatewayTokenHash, &value.GatewayExpiresAt, &value.LeaseExpiresAt, &outputs, &value.ResultDigest, &summary, &value.ErrorCode, &value.Version, &value.CreatedAt, &value.StartedAt, &value.FinishedAt, &value.UpdatedAt)
 	if err == nil {
 		value.Capabilities, err = decodeJSON[map[string]any](capabilities)
 	}
@@ -100,6 +108,17 @@ func (s *Store) RuntimeAttempt(ctx context.Context, tenantID, id string) (domain
 		return err
 	})
 	return result, err
+}
+
+func (s *Store) RuntimeAttemptByGatewayTokenHash(ctx context.Context, tokenHash string) (domain.RuntimeAttempt, error) {
+	var tenantID, attemptID string
+	if err := s.pool.QueryRow(ctx, `SELECT tenant_id,attempt_id FROM contentcloud_lookup_runtime_gateway_token($1)`, tokenHash).Scan(&tenantID, &attemptID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.RuntimeAttempt{}, domain.NotFound("Runtime Gateway 凭据")
+		}
+		return domain.RuntimeAttempt{}, err
+	}
+	return s.RuntimeAttempt(ctx, tenantID, attemptID)
 }
 
 func (s *Store) RuntimeAttempts(ctx context.Context, tenantID, jobID string) ([]domain.RuntimeAttempt, error) {
@@ -135,6 +154,9 @@ func (s *Store) PrepareDispatch(ctx context.Context, node domain.NodeRun, expect
 	}
 	if err := attempt.Validate(); err != nil {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, err
+	}
+	if len(attempt.GatewayTokenHash) != 64 || attempt.GatewayExpiresAt == nil {
+		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, domain.Invalid("DISPATCH_GATEWAY_CREDENTIAL_INVALID", "RuntimeAttempt 必须持有哈希化的短期 Gateway 凭据")
 	}
 	if err := view.Validate(); err != nil {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, err
@@ -191,7 +213,7 @@ func (s *Store) PrepareDispatch(ctx context.Context, node domain.NodeRun, expect
 				return domain.Conflict("AGENT_INSTANCE_DISPATCH_CONFLICT", "节点 AgentInstance 已被更新")
 			}
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO runtime_attempts(tenant_id,id,job_run_id,node_run_id,agent_instance_id,context_view_id,attempt_no,harness_kind,capabilities,session_ref,state,lease_owner,fence_token,lease_expires_at,output_refs,result_digest,safe_summary,error_code,version,created_at,started_at,finished_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`, attempt.TenantID, attempt.ID, attempt.JobRunID, attempt.NodeRunID, attempt.AgentInstanceID, attempt.ContextViewID, attempt.AttemptNo, attempt.HarnessKind, jsonValue(attempt.Capabilities), attempt.SessionRef, attempt.State, attempt.LeaseOwner, attempt.FenceToken, attempt.LeaseExpiresAt, jsonArrayValue(attempt.OutputRefs), attempt.ResultDigest, jsonValue(attempt.SafeSummary), attempt.ErrorCode, attempt.Version, attempt.CreatedAt, attempt.StartedAt, attempt.FinishedAt, attempt.UpdatedAt); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO runtime_attempts(tenant_id,id,job_run_id,node_run_id,agent_instance_id,context_view_id,attempt_no,harness_kind,capabilities,session_ref,state,lease_owner,fence_token,gateway_token_hash,gateway_expires_at,lease_expires_at,output_refs,result_digest,safe_summary,error_code,version,created_at,started_at,finished_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`, attempt.TenantID, attempt.ID, attempt.JobRunID, attempt.NodeRunID, attempt.AgentInstanceID, attempt.ContextViewID, attempt.AttemptNo, attempt.HarnessKind, jsonValue(attempt.Capabilities), attempt.SessionRef, attempt.State, attempt.LeaseOwner, attempt.FenceToken, attempt.GatewayTokenHash, attempt.GatewayExpiresAt, attempt.LeaseExpiresAt, jsonArrayValue(attempt.OutputRefs), attempt.ResultDigest, jsonValue(attempt.SafeSummary), attempt.ErrorCode, attempt.Version, attempt.CreatedAt, attempt.StartedAt, attempt.FinishedAt, attempt.UpdatedAt); err != nil {
 			return dbError(err)
 		}
 		if err := reserveResourcesTx(ctx, tx, reservations); err != nil {

@@ -154,7 +154,7 @@ func (h *RemoteHTTPHarness) Start(ctx context.Context, request StartAgentRequest
 	payload := map[string]any{
 		"tenant_id": request.TenantID, "job_run_id": request.JobRunID, "node_run_id": request.NodeRunID, "attempt_id": request.AttemptID,
 		"context_digest": request.ContextDigest, "prompt": agentPrompt(contract, skill), "continuation_prompt": request.Prompt,
-		"output_schema": json.RawMessage(schema), "session_options": request.SessionOptions,
+		"output_schema": json.RawMessage(schema), "session_options": request.SessionOptions, "runtime_gateway": request.RuntimeGateway,
 	}
 	var response remoteSessionResponse
 	if err := h.request(ctx, http.MethodPost, "/v1/sessions", payload, &response); err != nil {
@@ -174,7 +174,7 @@ func (h *RemoteHTTPHarness) Resume(ctx context.Context, request ResumeAgentReque
 	if err != nil {
 		return nil, err
 	}
-	payload := map[string]any{"context_digest": request.ContextDigest, "prompt": agentPrompt(contract, skill), "continuation_prompt": request.Prompt, "output_schema": json.RawMessage(schema)}
+	payload := map[string]any{"context_digest": request.ContextDigest, "prompt": agentPrompt(contract, skill), "continuation_prompt": request.Prompt, "output_schema": json.RawMessage(schema), "runtime_gateway": request.RuntimeGateway}
 	var response remoteSessionResponse
 	path := "/v1/sessions/" + url.PathEscape(request.Session.SessionID) + "/resume"
 	if err := h.request(ctx, http.MethodPost, path, payload, &response); err != nil {

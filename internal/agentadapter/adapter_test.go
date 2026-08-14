@@ -1,6 +1,7 @@
 package agentadapter
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -10,6 +11,47 @@ import (
 
 	"github.com/limecloud/contentcloud/internal/domain"
 )
+
+func TestClassifyProcessErrorUsesStableCodeWithoutLeakingStderr(t *testing.T) {
+	tests := []struct {
+		name      string
+		kind      string
+		stderr    string
+		wantCode  string
+		retryable bool
+	}{
+		{name: "auth", kind: "codex", stderr: "Unauthorized: Bearer rtg_private-token", wantCode: "CODEX_AUTH_REQUIRED", retryable: false},
+		{name: "rate", kind: "claude", stderr: "HTTP 429 quota exceeded for sk-private", wantCode: "CLAUDE_RATE_LIMITED", retryable: true},
+		{name: "network", kind: "codex", stderr: "connection reset by peer", wantCode: "CODEX_NETWORK_UNAVAILABLE", retryable: true},
+		{name: "permission", kind: "claude", stderr: "permission denied: /Users/private/workspace", wantCode: "CLAUDE_PERMISSION_DENIED", retryable: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := classifyProcessError(test.kind, errors.New("process failed"), test.stderr)
+			var domainErr *domain.Error
+			if !errors.As(err, &domainErr) || domainErr.Code != test.wantCode || domainErr.Retryable != test.retryable {
+				t.Fatalf("classified error = %#v", err)
+			}
+			if strings.Contains(err.Error(), "rtg_") || strings.Contains(err.Error(), "sk-") || strings.Contains(strings.ToLower(err.Error()), "/users/") {
+				t.Fatalf("process stderr leaked through error: %v", err)
+			}
+		})
+	}
+	cancelled := classifyProcessError("codex", context.Canceled, "Bearer private")
+	var domainErr *domain.Error
+	if !errors.As(cancelled, &domainErr) || domainErr.Code != "AGENT_CANCELED" || !domainErr.Retryable {
+		t.Fatalf("cancel classification = %#v", cancelled)
+	}
+}
+
+func TestLimitedBufferTruncatesWithoutFailingChildProcessWrite(t *testing.T) {
+	var buffer limitedBuffer
+	body := []byte(strings.Repeat("x", maxAgentOutput+1024))
+	n, err := buffer.Write(body)
+	if err != nil || n != len(body) || !buffer.over || len(buffer.Bytes()) != maxAgentOutput {
+		t.Fatalf("limited buffer write: n=%d err=%v over=%t stored=%d", n, err, buffer.over, len(buffer.Bytes()))
+	}
+}
 
 func TestClientRegistryResolvesAliasesAndPlannedCapabilities(t *testing.T) {
 	claude, ok := Lookup(" Claude ")
@@ -83,6 +125,36 @@ func TestAgentEnvironmentDoesNotInheritUnrelatedSecret(t *testing.T) {
 	}
 	if !providerInherited {
 		t.Fatal("provider environment was not inherited by the automation agent")
+	}
+}
+
+func TestRuntimeGatewayEnvironmentExposesOnlyAttemptCredential(t *testing.T) {
+	t.Setenv("CONTENTCLOUD_DEVICE_TOKEN", "dt_must-not-leak")
+	t.Setenv("CONTENTCLOUD_WORKSPACE_TOKEN", "wt_must-not-leak")
+	t.Setenv("CONTENTCLOUD_RUN_TOKEN", "rt_must-not-leak")
+	base := agentEnvironment("codex")
+	gateway, err := runtimeGatewayEnvironment(RuntimeGatewayConfig{
+		URL:          "https://content.example/api/v1/runtime/mcp/call",
+		Token:        "rtg_attempt-only",
+		AllowedTools: []string{"runtime.state.query", "runtime.state.mutate"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := strings.Join(append(base, gateway...), "\n")
+	for _, forbidden := range []string{"dt_must-not-leak", "wt_must-not-leak", "rt_must-not-leak", "fence_token"} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("control-plane authority leaked to the Agent environment: %s", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"CONTENTCLOUD_RUNTIME_GATEWAY_URL=https://content.example/api/v1/runtime/mcp/call",
+		"CONTENTCLOUD_RUNTIME_GATEWAY_TOKEN=rtg_attempt-only",
+		`CONTENTCLOUD_RUNTIME_GATEWAY_TOOLS=["runtime.state.query","runtime.state.mutate"]`,
+	} {
+		if !strings.Contains(combined, required) {
+			t.Fatalf("Attempt Gateway environment missing %q: %s", required, combined)
+		}
 	}
 }
 

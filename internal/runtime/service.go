@@ -18,6 +18,7 @@ type Service struct {
 	harnesses      *agentadapter.HarnessRegistry
 	rollout        RolloutPolicy
 	rolloutTenants map[string]struct{}
+	available      func(string)
 }
 
 const DefaultNodeLeaseDuration = 5 * time.Minute
@@ -58,6 +59,21 @@ func (s *Service) SetRolloutPolicy(policy RolloutPolicy) {
 	}
 }
 
+// SetAvailableNotifier installs a best-effort hint for remote workers. Runtime
+// state remains authoritative in the repository; callers must still use the
+// fenced Prepare protocol after receiving a notification.
+func (s *Service) SetAvailableNotifier(notify func(tenantID string)) {
+	if s != nil {
+		s.available = notify
+	}
+}
+
+func (s *Service) notifyAvailable(tenantID string) {
+	if s.available != nil {
+		s.available(tenantID)
+	}
+}
+
 func (s *Service) rolloutTenantAllowed(tenantID string) bool {
 	if len(s.rolloutTenants) == 0 {
 		return true
@@ -92,15 +108,18 @@ type StartInput struct {
 	InputSnapshotID     string
 	BusinessOutputCount int
 	SOP                 domain.SOPVersion
-	BindingDigest       string
-	InputDigest         string
-	RuntimePolicyID     string
-	ContractMajor       int
-	ContractMinor       int
-	Priority            int
-	CreatedBy           string
-	IdempotencyKey      string
-	CorrelationID       string
+	ExecutionBinding    *domain.ExecutionBindingSnapshot
+	// BindingDigest is the compatibility input for callers that have not yet
+	// adopted a structured ExecutionBindingSnapshot.
+	BindingDigest   string
+	InputDigest     string
+	RuntimePolicyID string
+	ContractMajor   int
+	ContractMinor   int
+	Priority        int
+	CreatedBy       string
+	IdempotencyKey  string
+	CorrelationID   string
 }
 
 const (
@@ -127,12 +146,16 @@ func (s *Service) Start(ctx context.Context, input StartInput) (StartResult, err
 	if err != nil {
 		return StartResult{}, err
 	}
+	binding, err := resolveExecutionBinding(input, plan, now)
+	if err != nil {
+		return StartResult{}, err
+	}
 	jobID := domain.NewID()
 	businessType := strings.TrimSpace(input.BusinessType)
 	if businessType == "" {
 		businessType = "runtime.job"
 	}
-	job := domain.JobRun{ID: jobID, TenantID: input.TenantID, ProjectID: input.ProjectID, WorkTaskID: input.WorkTaskID, BusinessType: businessType, InputSnapshotID: strings.TrimSpace(input.InputSnapshotID), BusinessOutputCount: input.BusinessOutputCount, PlanRevisionID: plan.ID, PlanDigest: plan.Digest, BindingDigest: strings.TrimSpace(input.BindingDigest), InputDigest: strings.TrimSpace(input.InputDigest), RuntimePolicyID: strings.TrimSpace(input.RuntimePolicyID), ContractMajor: input.ContractMajor, ContractMinor: input.ContractMinor, RootJobRunID: jobID, IdempotencyKey: strings.TrimSpace(input.IdempotencyKey), State: domain.JobRunCreated, Priority: input.Priority, Version: 1, CreatedBy: input.CreatedBy, CreatedAt: now, UpdatedAt: now}
+	job := domain.JobRun{ID: jobID, TenantID: input.TenantID, ProjectID: input.ProjectID, WorkTaskID: input.WorkTaskID, BusinessType: businessType, InputSnapshotID: strings.TrimSpace(input.InputSnapshotID), BusinessOutputCount: input.BusinessOutputCount, PlanRevisionID: plan.ID, PlanDigest: plan.Digest, BindingDigest: binding.Digest, InputDigest: strings.TrimSpace(input.InputDigest), RuntimePolicyID: binding.RuntimePolicyID, ContractMajor: input.ContractMajor, ContractMinor: input.ContractMinor, RootJobRunID: jobID, IdempotencyKey: strings.TrimSpace(input.IdempotencyKey), State: domain.JobRunCreated, Priority: input.Priority, Version: 1, CreatedBy: input.CreatedBy, CreatedAt: now, UpdatedAt: now}
 	if err := job.Validate(); err != nil {
 		return StartResult{}, err
 	}
@@ -144,6 +167,9 @@ func (s *Service) Start(ctx context.Context, input StartInput) (StartResult, err
 		}
 	}
 	if err := s.requireAdmission(input.TenantID); err != nil {
+		return StartResult{}, err
+	}
+	if err := s.ensureExecutionBindingSnapshot(ctx, binding); err != nil {
 		return StartResult{}, err
 	}
 	if err := s.repo.CreatePlan(ctx, plan); err != nil {
@@ -190,6 +216,82 @@ func (s *Service) Start(ctx context.Context, input StartInput) (StartResult, err
 		return StartResult{}, err
 	}
 	return StartResult{Plan: plan, Job: job, Nodes: nodes}, nil
+}
+
+func resolveExecutionBinding(input StartInput, plan domain.JobPlanRevision, now time.Time) (domain.ExecutionBindingSnapshot, error) {
+	policyID := strings.TrimSpace(input.RuntimePolicyID)
+	if input.ExecutionBinding == nil {
+		binding := domain.ExecutionBindingSnapshot{
+			TenantID: input.TenantID, Digest: strings.TrimSpace(input.BindingDigest),
+			SchemaVersion: domain.ExecutionBindingSnapshotSchema,
+			ProfileID:     defaultExecutionBindingValue(policyID, "runtime.legacy"), ProfileVersion: "legacy",
+			RuntimePolicyID: defaultExecutionBindingValue(policyID, DefaultRuntimePolicyID),
+			HarnessKinds:    []string{}, AllowedTools: []string{ToolChildList, ToolEffectStatus, ToolStateGet, ToolStateQuery},
+			SandboxProfile: "legacy", IsolationProfile: "legacy", EgressPolicy: "legacy", DataClassification: "internal",
+			MaxTokens: 8192, MaxDurationSeconds: 3600, MaxCostMinor: plan.Limits.MaxCostMinor,
+			MaxDynamicDescendants: plan.Limits.MaxDynamicDescendants, FallbackPolicy: "none", Legacy: true, CreatedAt: now,
+		}
+		if err := binding.Validate(); err != nil {
+			return domain.ExecutionBindingSnapshot{}, err
+		}
+		return binding, nil
+	}
+	binding := *input.ExecutionBinding
+	if tenantID := strings.TrimSpace(binding.TenantID); tenantID != "" && tenantID != strings.TrimSpace(input.TenantID) {
+		return domain.ExecutionBindingSnapshot{}, domain.Invalid("EXECUTION_BINDING_TENANT_MISMATCH", "ExecutionBindingSnapshot 不属于当前租户")
+	}
+	binding.TenantID = strings.TrimSpace(input.TenantID)
+	if binding.SchemaVersion == "" {
+		binding.SchemaVersion = domain.ExecutionBindingSnapshotSchema
+	}
+	if binding.SchemaVersion != domain.ExecutionBindingSnapshotSchema {
+		return domain.ExecutionBindingSnapshot{}, domain.Invalid("EXECUTION_BINDING_SCHEMA_UNSUPPORTED", "ExecutionBindingSnapshot Schema 版本不受支持")
+	}
+	if policyID != "" && strings.TrimSpace(binding.RuntimePolicyID) != policyID {
+		return domain.ExecutionBindingSnapshot{}, domain.Invalid("EXECUTION_BINDING_POLICY_MISMATCH", "ExecutionBindingSnapshot 与 RuntimePolicy 不一致")
+	}
+	if binding.CreatedAt.IsZero() {
+		binding.CreatedAt = now
+	}
+	binding.CreatedAt = binding.CreatedAt.UTC()
+	binding.Legacy = false
+	binding.NormalizeCollections()
+	digest, err := binding.ContentDigest()
+	if err != nil {
+		return domain.ExecutionBindingSnapshot{}, err
+	}
+	if supplied := strings.TrimSpace(input.BindingDigest); supplied != "" && supplied != digest {
+		return domain.ExecutionBindingSnapshot{}, domain.Conflict("EXECUTION_BINDING_DIGEST_MISMATCH", "调用方摘要与结构化 ExecutionBindingSnapshot 不一致")
+	}
+	binding.Digest = digest
+	if err := binding.Validate(); err != nil {
+		return domain.ExecutionBindingSnapshot{}, err
+	}
+	return binding, nil
+}
+
+func defaultExecutionBindingValue(value, fallback string) string {
+	if value = strings.TrimSpace(value); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func (s *Service) ensureExecutionBindingSnapshot(ctx context.Context, binding domain.ExecutionBindingSnapshot) error {
+	if err := s.repo.CreateExecutionBindingSnapshot(ctx, binding); err == nil {
+		return nil
+	} else {
+		existing, lookupErr := s.repo.ExecutionBindingSnapshot(ctx, binding.TenantID, binding.Digest)
+		if lookupErr != nil {
+			return err
+		}
+		existingDigest, existingErr := existing.ContentDigest()
+		requestedDigest, requestedErr := binding.ContentDigest()
+		if existingErr != nil || requestedErr != nil || existingDigest != requestedDigest {
+			return domain.Conflict("EXECUTION_BINDING_SNAPSHOT_CONFLICT", "相同摘要已绑定不同的执行策略快照")
+		}
+		return nil
+	}
 }
 
 func (s *Service) loadIdempotentStart(ctx context.Context, existing, requested domain.JobRun) (StartResult, error) {
@@ -790,6 +892,9 @@ func (s *Service) refresh(ctx context.Context, job domain.JobRun) (domain.JobRun
 		if _, err := commands.ApplyJobTransition(ctx, job, job.Version-1, domain.JobEvent{ID: domain.NewID(), TenantID: job.TenantID, JobRunID: job.ID, Type: "job." + next, ActorType: "runtime", Payload: map[string]any{"ready": ready, "active": active, "waiting_human": waiting, "failed": failed}, OccurredAt: job.UpdatedAt}); err != nil {
 			return job, err
 		}
+	}
+	if ready > 0 {
+		s.notifyAvailable(job.TenantID)
 	}
 	return job, nil
 }

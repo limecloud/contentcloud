@@ -20,7 +20,7 @@ func validateAttemptFenceLocked(s *Store, tenantID, attemptID, fenceToken string
 	return nil
 }
 
-func (s *Store) NextReadyNode(_ context.Context, tenantID, jobID string) (domain.NodeRun, error) {
+func (s *Store) NextReadyNode(_ context.Context, tenantID, jobID string, allowedProjectIDs []string) (domain.NodeRun, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var selected domain.NodeRun
@@ -34,6 +34,9 @@ func (s *Store) NextReadyNode(_ context.Context, tenantID, jobID string) (domain
 		if !ok || job.State == domain.JobRunPaused || job.State == domain.JobRunCompleted || job.State == domain.JobRunFailed || job.State == domain.JobRunCancelled || job.State == domain.JobRunRejected {
 			continue
 		}
+		if allowedProjectIDs != nil && !containsString(allowedProjectIDs, job.ProjectID) {
+			continue
+		}
 		priority := int64(job.Priority)
 		score := priority + int64(now.Sub(candidate.UpdatedAt)/time.Minute)
 		if selected.ID == "" || score > selectedScore || (score == selectedScore && (candidate.UpdatedAt.Before(selected.UpdatedAt) || (candidate.UpdatedAt.Equal(selected.UpdatedAt) && candidate.ID < selected.ID))) {
@@ -45,6 +48,15 @@ func (s *Store) NextReadyNode(_ context.Context, tenantID, jobID string) (domain
 		return domain.NodeRun{}, domain.NotFound("可调度的执行节点")
 	}
 	return selected, nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) AgentInstanceForNode(_ context.Context, tenantID, nodeID string) (domain.AgentInstance, error) {
@@ -73,6 +85,17 @@ func (s *Store) RuntimeAttempt(_ context.Context, tenantID, id string) (domain.R
 		return domain.RuntimeAttempt{}, domain.NotFound("RuntimeAttempt")
 	}
 	return value, nil
+}
+
+func (s *Store) RuntimeAttemptByGatewayTokenHash(_ context.Context, tokenHash string) (domain.RuntimeAttempt, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, attempt := range s.runtimeAttempts {
+		if attempt.GatewayTokenHash == tokenHash {
+			return attempt, nil
+		}
+	}
+	return domain.RuntimeAttempt{}, domain.NotFound("Runtime Gateway 凭据")
 }
 
 func (s *Store) RuntimeAttempts(_ context.Context, tenantID, jobID string) ([]domain.RuntimeAttempt, error) {
@@ -118,6 +141,9 @@ func (s *Store) PrepareDispatch(_ context.Context, node domain.NodeRun, expected
 	}
 	if node.FenceToken == "" || attempt.FenceToken == "" || node.FenceToken != attempt.FenceToken {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, domain.Invalid("DISPATCH_FENCE_INVALID", "节点与 RuntimeAttempt 必须共享不可猜的围栏令牌")
+	}
+	if len(attempt.GatewayTokenHash) != 64 || attempt.GatewayExpiresAt == nil {
+		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, domain.Invalid("DISPATCH_GATEWAY_CREDENTIAL_INVALID", "RuntimeAttempt 必须持有哈希化的短期 Gateway 凭据")
 	}
 	if node.Version != expectedNodeVersion+1 || node.State != domain.NodeLeased || node.AttemptCount != currentNode.AttemptCount+1 || node.AttemptCount != attempt.AttemptNo || node.LeaseOwner != attempt.LeaseOwner || !sameTimePointer(node.LeaseExpiresAt, attempt.LeaseExpiresAt) {
 		return domain.NodeRun{}, domain.RuntimeAttempt{}, domain.AgentInstance{}, domain.Invalid("DISPATCH_PREPARE_INVALID", "待准备的节点与 RuntimeAttempt 租约不一致")

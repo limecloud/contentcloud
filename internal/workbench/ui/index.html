@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Content Work OS</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div id="app" class="app" aria-busy="true">
+    <header class="topbar">
+      <div class="brand" aria-label="Content Work OS">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+        <strong>Content Work OS</strong>
+      </div>
+      <div class="workspace-meta">
+        <span id="workspace-name">本地工作区</span>
+        <span id="revision" class="mono">revision --</span>
+        <span class="state state-local">Local</span>
+      </div>
+      <button id="close-session" class="button button-quiet" type="button">关闭</button>
+    </header>
+    <div class="workspace-grid">
+      <nav class="navigator" aria-label="工作区导航">
+        <p class="section-label">工作区</p>
+        <button class="nav-item is-active" type="button" data-view="workspace_summary">概览</button>
+        <button class="nav-item" type="button" data-view="file" data-ref="40-work">运行与交接</button>
+        <button class="nav-item" type="button" data-view="file" data-ref="50-production">生产</button>
+        <button class="nav-item" type="button" data-view="file" data-ref="60-delivery">交付</button>
+        <button class="nav-item" type="button" data-view="file" data-ref="70-results">结果</button>
+      </nav>
+      <main class="primary" tabindex="-1">
+        <div class="view-heading">
+          <div>
+            <p id="view-kind" class="eyebrow">WORKSPACE</p>
+            <h1 id="view-title">正在连接本地工作区</h1>
+            <p id="view-summary" class="summary">正在建立受限会话。</p>
+          </div>
+          <div class="view-actions">
+            <button id="edit-view" class="button button-primary" type="button" hidden>编辑草稿</button>
+            <button id="refresh-view" class="button button-quiet" type="button">刷新</button>
+          </div>
+        </div>
+        <section id="view-content" class="view-content" aria-live="polite"></section>
+      </main>
+      <aside class="inspector" aria-label="检查器">
+        <p class="section-label">检查器</p>
+        <dl id="facts" class="facts"></dl>
+        <div class="inspector-section">
+          <p class="section-label">所有权</p>
+          <p id="ownership-state" class="ownership-state">只读</p>
+        </div>
+        <div class="inspector-section">
+          <p class="section-label">检查</p>
+          <ul id="checks" class="checks"></ul>
+        </div>
+      </aside>
+    </div>
+    <footer class="activity" aria-live="polite">
+      <span id="activity-state" class="activity-dot"></span>
+      <span id="activity-text">正在连接</span>
+    </footer>
+  </div>
+  <dialog id="confirm-dialog" class="confirm-dialog">
+    <form method="dialog">
+      <p id="confirm-kind" class="eyebrow">CONFIRM</p>
+      <h2 id="confirm-title">确认操作</h2>
+      <p id="confirm-message" class="confirm-message"></p>
+      <dl id="confirm-effects" class="confirm-effects"></dl>
+      <div class="dialog-actions">
+        <button class="button button-quiet" value="cancel">取消</button>
+        <button id="confirm-accept" class="button button-primary" value="confirm">确认</button>
+      </div>
+    </form>
+  </dialog>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

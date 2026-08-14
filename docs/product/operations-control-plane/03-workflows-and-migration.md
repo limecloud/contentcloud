@@ -111,6 +111,8 @@ Canary 只使用指定租户、指定比例或内部样例。试跑报告至少�
 - 如果有预先批准且不扩大权限的回退方式，可以让新尝试使用回退；否则等待重新连接或人工处理。
 - 不能把一个正在运行的本地任务直接改成另一种执行方式。
 
+Daemon 的同步不依赖页面打开：启动/重连先建立 WSS 并发送完整 current-state；心跳或状态变化发送新的序列；收到 `runtime.available` 后本地 worker 再通过 HTTPS `prepare_next` 领取。HTTPS 的 `activate`、`heartbeat`、`event`、`finalize` 是唯一执行事实，MCP Gateway 只在 running Attempt 的同源短期 token 和 fence 有效时工作。Plugin、Skill、MCP 或 Environment generation 变化会冻结旧会话并要求新会话，不能在运行中静默切换。
+
 执行端接入和维护单独走“登记、客户确认、健康检查、暂停/恢复”流程。运营后台可以撤销平台侧允许，但不能替客户完成本地授权，也不能通过后台读取本地文件。客户侧只看到“创作工具已连接、需要重新连接或暂时离线”，不显示租约、心跳和工具白名单。
 
 ### 5.3 外部结果不明
@@ -183,7 +185,7 @@ Canary 只使用指定租户、指定比例或内部样例。试跑报告至少�
 
 ### O3：能力、执行方式和技能包目录
 
-产物：Capability、Executor、Skill 分开管理；技能包有版本和验证证据。当前已落地由真实 BFF 字段驱动的能力列表、能力版本详情、产品版本和客户环境反向引用；执行端已建立独立 Operations BFF，并落地列表/详情深链、两分钟心跳健康、设备版本、能力声明和项目授权；技能包已建立独立 Operations BFF，以服务端已验证插件 Registry 的 `skill_pack` 条目提供列表/版本深链、供应链摘要、签名状态、评测证据、权限、数据流、费用、输出契约和撤销事实。页面明确区分“已登记”“已批准”和“健康可用”，客户 Environment 不再代替执行端，Registry 发布也不代替业务审批。Connector、Provider 及完整 SkillManifest 字段仍等待独立事实契约，因此当前不注册对应页面。
+产物：Capability、Executor、Skill 分开管理；技能包有版本和验证证据。当前已落地由真实 BFF 字段驱动的能力列表、能力版本详情、产品版本和客户环境反向引用；执行端已建立独立 Operations BFF，并落地列表/详情深链、DaemonInstance 三轴健康、45 秒 freshness、设备版本、能力声明和项目授权；技能包已建立独立 Operations BFF，以服务端已验证插件 Registry 的 `skill_pack` 条目提供列表/版本深链、供应链摘要、签名状态、评测证据、权限、数据流、费用、输出契约和撤销事实。WSS/HTTPS/Attempt Gateway 的安全边界、旧连接 fencing 和 Agent 凭据隔离已进入当前实现。页面明确区分“已登记”“已批准”和“健康可用”，客户 Environment 不再代替执行端，Registry 发布也不代替业务审批。Connector、Provider 及完整 SkillManifest 字段仍等待独立事实契约，因此当前不注册对应页面。
 
 退出条件：一个客户产品只引用能力，不直接绑定 Codex、Claude Code 或供应商；历史绑定可追溯。
 

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -69,6 +70,26 @@ func TestRuntimeMCPGatewayBindsToolCallToFenceAndContext(t *testing.T) {
 	}
 	if _, err := gateway.Call(t.Context(), GatewayRequest{TenantID: request.TenantID, AttemptID: request.AttemptID, FenceToken: request.FenceToken, ToolName: "provider.submit", RequestID: "mcp-unauthorized", Arguments: map[string]any{}}); !hasDomainCode(err, "MCP_GATEWAY_TOOL_NOT_ALLOWED") {
 		t.Fatalf("unallowlisted MCP tool was accepted: %v", err)
+	}
+}
+
+func TestRuntimeMCPGatewayTokenIsAttemptScopedAndRevokedAtTerminal(t *testing.T) {
+	gateway, handle, collection := activeGatewayFixture(t)
+	if !strings.HasPrefix(handle.GatewayToken, "rtg_") || handle.Attempt.GatewayTokenHash != domain.TokenHash(handle.GatewayToken) {
+		t.Fatalf("prepare did not return the Attempt token matching the persisted hash")
+	}
+	response, err := gateway.CallWithToken(t.Context(), handle.GatewayToken, GatewayTokenRequest{ToolName: ToolStateQuery, RequestID: "rtg-query", Arguments: map[string]any{"collection": collection.ID}})
+	if err != nil || response.ToolCall.State != domain.ToolCallSucceeded {
+		t.Fatalf("valid Attempt token call failed: response=%#v err=%v", response, err)
+	}
+	if _, err := gateway.CallWithToken(t.Context(), "rtg_invalid", GatewayTokenRequest{ToolName: ToolStateQuery}); !hasDomainCode(err, "RUNTIME_GATEWAY_TOKEN_INVALID") {
+		t.Fatalf("invalid token was accepted: %v", err)
+	}
+	if _, err := gateway.service.FinalizeDispatch(t.Context(), handle, DispatchOutcome{State: domain.RuntimeAttemptFailed, ErrorCode: "TEST_TERMINAL"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gateway.CallWithToken(t.Context(), handle.GatewayToken, GatewayTokenRequest{ToolName: ToolStateQuery, RequestID: "rtg-after-terminal", Arguments: map[string]any{"collection": collection.ID}}); !hasDomainCode(err, "RUNTIME_GATEWAY_TOKEN_INVALID") {
+		t.Fatalf("terminal Attempt token remained usable: %v", err)
 	}
 }
 

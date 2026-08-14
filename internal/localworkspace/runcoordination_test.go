@@ -1,6 +1,7 @@
 package localworkspace
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -18,25 +19,80 @@ func TestRunClaimIsSingleWriterAndExpiredTakeoverIsExplicit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, Owner: "conversation-a", ExpectedRevision: run.ContextRevision, TTL: time.Minute, Now: now})
+	first, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-a", ExpectedRevision: run.ContextRevision, TTL: time.Minute, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.Token == "" || first.ContextRevision != run.ContextRevision {
 		t.Fatalf("unexpected first claim: %+v", first)
 	}
-	if _, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, Owner: "conversation-b", ExpectedRevision: run.ContextRevision, TTL: time.Minute, Now: now}); domainCode(err) != "RUN_ALREADY_CLAIMED" {
+	var persisted map[string]any
+	if err := readJSON(runClaimPath(root, run.RunID), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted["token"] != nil || persisted["token_hash"] != first.TokenHash || persisted["epoch"] != float64(first.Epoch) {
+		body, _ := json.Marshal(persisted)
+		t.Fatalf("claim persistence exposed plaintext token or lost fencing state: %s", body)
+	}
+	if _, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-b", ExpectedRevision: run.ContextRevision, TTL: time.Minute, Now: now}); domainCode(err) != "RUN_ALREADY_CLAIMED" {
 		t.Fatalf("expected active claim conflict, got %v", err)
 	}
-	if _, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, Owner: "conversation-b", ExpectedRevision: run.ContextRevision, TTL: time.Minute, Now: now.Add(2 * time.Minute)}); domainCode(err) != "RUN_CLAIM_TAKEOVER_CONFIRMATION_REQUIRED" {
+	if _, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-b", ExpectedRevision: run.ContextRevision, TTL: time.Minute, Now: now.Add(2 * time.Minute)}); domainCode(err) != "RUN_CLAIM_TAKEOVER_CONFIRMATION_REQUIRED" {
 		t.Fatalf("expected takeover confirmation, got %v", err)
 	}
-	second, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, Owner: "conversation-b", ExpectedRevision: run.ContextRevision, TTL: time.Minute, TakeoverExpired: true, Now: now.Add(2 * time.Minute)})
+	second, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-b", ExpectedRevision: run.ContextRevision, TTL: time.Minute, TakeoverExpired: true, Now: now.Add(2 * time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Token == first.Token || second.Owner != "conversation-b" {
+	if second.Token == first.Token || second.OwnerID != "conversation-b" || second.Epoch <= first.Epoch {
 		t.Fatalf("unexpected takeover claim: %+v", second)
+	}
+}
+
+func TestRunClaimActiveTakeoverFencesPreviousOwner(t *testing.T) {
+	root := newCoordinationWorkspace(t)
+	now := time.Date(2026, 8, 14, 7, 0, 0, 0, time.UTC)
+	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-fence", Intent: "intent:content", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-a", ExpectedRevision: run.ContextRevision, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	browser, err := TakeoverRunClaim(TakeoverRunClaimOptions{
+		Root: root, RunID: run.RunID, OwnerKind: "browser", OwnerID: "wbk-a",
+		ExpectedOwnerKind: agent.OwnerKind, ExpectedOwnerID: agent.OwnerID, ExpectedEpoch: agent.Epoch,
+		ExpectedRevision: run.ContextRevision, Now: now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if browser.OwnerKind != "browser" || browser.OwnerID != "wbk-a" || browser.Epoch <= agent.Epoch || browser.Token == "" {
+		t.Fatalf("unexpected browser takeover: %#v", browser)
+	}
+	if _, err := ValidateRunOwnership(root, run.RunID, agent.Token, agent.OwnerKind, agent.OwnerID, agent.Epoch, run.ContextRevision, now.Add(2*time.Minute)); domainCode(err) != "RUN_CLAIM_TOKEN_INVALID" {
+		t.Fatalf("previous owner token was not fenced: %v", err)
+	}
+	if _, err := ValidateRunOwnership(root, run.RunID, browser.Token, browser.OwnerKind, browser.OwnerID, browser.Epoch, run.ContextRevision, now.Add(2*time.Minute)); err != nil {
+		t.Fatalf("new browser owner could not validate its lease: %v", err)
+	}
+	if _, err := TakeoverRunClaim(TakeoverRunClaimOptions{
+		Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-b",
+		ExpectedOwnerKind: agent.OwnerKind, ExpectedOwnerID: agent.OwnerID, ExpectedEpoch: agent.Epoch,
+		ExpectedRevision: run.ContextRevision, Now: now.Add(2 * time.Minute),
+	}); domainCode(err) != "RUN_CLAIM_FENCE_CONFLICT" {
+		t.Fatalf("stale takeover was not fenced: %v", err)
+	}
+	if err := ReleaseRunClaim(root, run.RunID, browser.Token, now.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	next, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-c", ExpectedRevision: run.ContextRevision, Now: now.Add(4 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Epoch <= browser.Epoch {
+		t.Fatalf("epoch did not remain monotonic after release: browser=%d next=%d", browser.Epoch, next.Epoch)
 	}
 }
 
@@ -76,7 +132,7 @@ func TestClaimedLocalRunWriteRequiresTokenAndCurrentRevision(t *testing.T) {
 	if _, err := RecordClaimedLocalRun(RecordLocalRunOptions{Root: root, RunID: run.RunID, ExpectedRevision: run.ContextRevision, Findings: []string{"no token"}, Now: now}); domainCode(err) != "RUN_CLAIM_REQUIRED" {
 		t.Fatalf("expected claim requirement, got %v", err)
 	}
-	claim, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, Owner: "conversation-a", ExpectedRevision: run.ContextRevision, Now: now})
+	claim, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-a", ExpectedRevision: run.ContextRevision, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +155,61 @@ func TestClaimedLocalRunWriteRequiresTokenAndCurrentRevision(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSessionBindingBlocksComponentDrift(t *testing.T) {
+	root := newCoordinationWorkspace(t)
+	now := time.Date(2026, 7, 27, 4, 50, 0, 0, time.UTC)
+	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-session-drift", Intent: "intent:content", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-generation-a", ExpectedRevision: run.ContextRevision, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	templatePath := filepath.Join(root, ".contentcloud", "template.lock")
+	var lock TemplateLock
+	if err := readJSON(templatePath, &lock); err != nil {
+		t.Fatal(err)
+	}
+	lock.MCPServers = append(lock.MCPServers, InstalledComponent{Name: "new-runtime-tool", Version: "2"})
+	if err := replaceJSON(templatePath, lock, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = RecordClaimedLocalRun(RecordLocalRunOptions{Root: root, RunID: run.RunID, ClaimToken: claim.Token, ExpectedRevision: run.ContextRevision, Findings: []string{"must not persist"}, Now: now.Add(time.Second)})
+	if domainCode(err) != "WORKSPACE_SESSION_COMPONENTS_CHANGED" {
+		t.Fatalf("component drift was not blocked: %v", err)
+	}
+	persisted, showErr := ShowLocalRun(root, run.RunID)
+	if showErr != nil || len(persisted.Findings) != 0 {
+		t.Fatalf("drifted session changed local run: run=%+v err=%v", persisted, showErr)
+	}
+}
+
+func TestWorkspaceSessionBindingBlocksPluginHostReceiptDrift(t *testing.T) {
+	root := newCoordinationWorkspace(t)
+	now := time.Date(2026, 7, 27, 4, 55, 0, 0, time.UTC)
+	run, err := InitLocalRun(InitLocalRunOptions{Root: root, RunID: "run-plugin-receipt-drift", Intent: "intent:content", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-plugin-generation", ExpectedRevision: run.ContextRevision, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeRoot := os.Getenv("CONTENTCLOUD_PLUGIN_STORE")
+	receiptDirectory := filepath.Join(storeRoot, "receipts", "codex")
+	if err := os.MkdirAll(receiptDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(receiptDirectory, "contentcloud-video-production.json"), []byte("{\"release\":{\"digest\":\"sha256:changed\"}}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = RecordClaimedLocalRun(RecordLocalRunOptions{Root: root, RunID: run.RunID, ClaimToken: claim.Token, ExpectedRevision: run.ContextRevision, Findings: []string{"must not persist"}, Now: now.Add(time.Second)})
+	if domainCode(err) != "WORKSPACE_SESSION_COMPONENTS_CHANGED" {
+		t.Fatalf("Plugin Host receipt drift was not blocked: %v", err)
+	}
+}
+
 func TestHandoffAcceptIsAtomicAcrossConversations(t *testing.T) {
 	root := newCoordinationWorkspace(t)
 	now := time.Date(2026, 7, 27, 5, 0, 0, 0, time.UTC)
@@ -110,7 +221,7 @@ func TestHandoffAcceptIsAtomicAcrossConversations(t *testing.T) {
 	if err := os.WriteFile(inputPath, []byte("{\"version\":1}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	claim, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, Owner: "conversation-a", ExpectedRevision: run.ContextRevision, Now: now})
+	claim, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-a", ExpectedRevision: run.ContextRevision, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +256,7 @@ func TestHandoffAcceptIsAtomicAcrossConversations(t *testing.T) {
 		go func() {
 			defer wait.Done()
 			<-start
-			_, _, acceptErr := AcceptHandoff(AcceptHandoffOptions{Root: root, HandoffID: handoff.HandoffID, Owner: owner, Now: now.Add(2 * time.Minute)})
+			_, _, acceptErr := AcceptHandoff(AcceptHandoffOptions{Root: root, HandoffID: handoff.HandoffID, OwnerKind: "agent", OwnerID: owner, Now: now.Add(2 * time.Minute)})
 			results <- acceptErr
 		}()
 	}
@@ -181,7 +292,7 @@ func TestHandoffRejectsChangedInputDigest(t *testing.T) {
 	if err := os.WriteFile(inputPath, []byte("{\"version\":1}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	claim, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, Owner: "conversation-a", ExpectedRevision: run.ContextRevision, Now: now})
+	claim, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-a", ExpectedRevision: run.ContextRevision, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +303,7 @@ func TestHandoffRejectsChangedInputDigest(t *testing.T) {
 	if err := os.WriteFile(inputPath, []byte("{\"version\":2}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := AcceptHandoff(AcceptHandoffOptions{Root: root, HandoffID: handoff.HandoffID, Owner: "conversation-b", Now: now.Add(2 * time.Minute)}); domainCode(err) != "HANDOFF_INPUT_DIGEST_MISMATCH" {
+	if _, _, err := AcceptHandoff(AcceptHandoffOptions{Root: root, HandoffID: handoff.HandoffID, OwnerKind: "agent", OwnerID: "conversation-b", Now: now.Add(2 * time.Minute)}); domainCode(err) != "HANDOFF_INPUT_DIGEST_MISMATCH" {
 		t.Fatalf("expected digest mismatch, got %v", err)
 	}
 	status, err := RunClaimStatus(root, run.RunID, now.Add(2*time.Minute))
@@ -206,6 +317,7 @@ func TestHandoffRejectsChangedInputDigest(t *testing.T) {
 
 func newCoordinationWorkspace(t *testing.T) string {
 	t.Helper()
+	t.Setenv("CONTENTCLOUD_PLUGIN_STORE", t.TempDir())
 	root := filepath.Join(t.TempDir(), "workspace")
 	if _, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", WorkspaceID: "workspace-1", Target: "codex-plugin", CLIVersion: "test"}); err != nil {
 		t.Fatal(err)

@@ -34,7 +34,11 @@ func TestProcessRuntimeEventsReapsExpiredAttemptAndRecordsHealth(t *testing.T) {
 	}
 	workerActor := actor
 	workerActor.Type = "worker"
-	handle, err := service.PrepareRuntimeWorker(t.Context(), workerActor, app.RuntimeWorkerPrepareInput{JobRunID: started.Job.ID, HarnessKind: "fake", Capabilities: agentadapter.HarnessCapabilities{Kind: "fake", Events: true, StructuredOutput: true, Resume: true, MaxParallelSessions: 128}, Role: "worker", ExecutionProfileID: "profile-test", MaxTokens: 512, LeaseForSeconds: 1})
+	handle, err := service.Runtime().PrepareRemoteDispatch(t.Context(), contentruntime.DispatchInput{
+		TenantID: actor.TenantID, JobRunID: started.Job.ID, Owner: "worker:" + actor.UserID,
+		HarnessKind: "fake", Role: "node_executor", ExecutionProfileID: "runtime-policy/maintenance:fake:stage",
+		MaxTokens: 512, LeaseFor: time.Second,
+	}, agentadapter.HarnessCapabilities{Kind: "fake", Events: true, StructuredOutput: true, Resume: true, MaxParallelSessions: 128})
 	if err != nil {
 		t.Fatal(err)
 	}

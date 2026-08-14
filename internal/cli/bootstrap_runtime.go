@@ -73,6 +73,13 @@ func (r *Root) authorizeBootstrapDevice(ctx context.Context, sessionID, name str
 		return cfg, app.ConnectDeviceResult{}, nil, err
 	}
 	server := r.resolveServer(cfg)
+	machineID, err := cfg.EnsureMachineID()
+	if err != nil {
+		return cfg, app.ConnectDeviceResult{}, nil, err
+	}
+	if err := localconfig.Save(cfg); err != nil {
+		return cfg, app.ConnectDeviceResult{}, nil, err
+	}
 	if err := validateBootstrapServer(server); err != nil {
 		return cfg, app.ConnectDeviceResult{}, nil, err
 	}
@@ -95,7 +102,7 @@ func (r *Root) authorizeBootstrapDevice(ctx context.Context, sessionID, name str
 		_ = exec.Command("open", verificationURL).Start()
 	}
 	hostname, _ := os.Hostname()
-	device := app.ConnectDeviceInput{DisplayName: name, Hostname: hostname, Platform: runtime.GOOS, Arch: runtime.GOARCH, Version: Version, Capabilities: builtinCapabilities()}
+	device := app.ConnectDeviceInput{MachineID: machineID, DisplayName: name, Hostname: hostname, Platform: runtime.GOOS, Arch: runtime.GOARCH, Version: Version, Capabilities: builtinCapabilities()}
 	interval := time.Duration(authorization.IntervalSeconds) * time.Second
 	if interval < time.Second {
 		interval = 3 * time.Second

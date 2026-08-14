@@ -1,8 +1,8 @@
 # 09：Runtime Infra V2：可恢复执行内核升级
 
-状态：`I0 已冻结；I1～I5 核心切片、Attempt-scoped MCP Gateway、Runtime Schema Registry、Provider HTTP ingress、Runtime Effect 关联、流式媒体对象链和 Claude stream-json/session resume 已进入代码；专用 PostgreSQL 集成库已通过迁移、核心 RLS、事务回滚、outbox receipts、fenced replay、Provider ingress httptest 和 Harness helper-process 验证；真实 Provider 凭据/回调、真实提交后故障环境、生产告警和 Canary 未完成`。
+状态：`I0 已冻结；I1～I5 核心切片、DaemonInstance/WSS current-state、Attempt-scoped MCP Gateway、Runtime Schema Registry、Provider HTTP ingress、Runtime Effect 关联、流式媒体对象链、Claude stream-json/session resume、Harness 进程组回收/进展 watchdog、Daemon PID freshness、日志脱敏和本地诊断包已进入代码；专用 PostgreSQL 集成库已通过迁移、核心 RLS、事务回滚、outbox receipts、fenced replay、Provider ingress httptest 和 Harness helper-process 验证；本地独立 CLI MCP stdio -> HTTP Gateway 传输 smoke 已通过；真实 Provider 凭据/回调、在线 Codex/Claude 宿主注入与模型调用、真实提交后故障环境、生产告警、长期 Daemon 和 Canary 未完成`。
 
-更新时间：2026-08-11。
+更新时间：2026-08-13。
 
 本文不是另起一套 V9，也不是把 ContentCloud 改造成通用工作流平台。它是对 V8 的基础设施升级：把已经存在的 JobRun、NodeRun、RuntimeAttempt 和 Harness 闭环，收敛为一套可以长期运行、跨进程恢复、可对账、可重放、可逐步扩展的 Durable Runtime 内核。
 
@@ -25,16 +25,16 @@ V8 当前已经证明了“模型和数据库状态可以完成一次调度闭�
 | 层 | 当前已经存在 | 仍然不能宣称的能力 | 证据 |
 | --- | --- | --- | --- |
 | 领域内核 | JobPlan、JobRun、NodeRun、JobEvent、State/StateCollection/StateRecord、Checkpoint、Effect、ToolCall 的状态转移；主要写路径已切到 `RuntimeCommandStore` | 真实 PostgreSQL 进程/网络提交后故障环境、完整命令契约矩阵 | `internal/domain/runtime.go`、`internal/runtime/commands.go`、`internal/runtime/service.go` |
-| 持久化 | PostgreSQL 迁移 `00014`～`00029`、`00031`～`00035`、`00037`～`00043`、RLS、复合外键、JobRun 准入冻结字段、追加事实权限、Memory/PostgreSQL Store、不可变 outbox + subscriber receipts、资源账本、typed state、ToolCall（含安全结果重放）、Runtime Explorer 快照、关系化计划 revision、Fanout/Join、Provider inbox/账单、Yield、投影重建事实、异步 Provider 到期轮询和 Runtime Schema Registry；Session Mirror 创建/删除迁移已从首个用户基线移除；`00037` 已增加维护心跳，`00038` 收敛 Provider poll recovery，`00039` 阻止缺失 deadline 的 unknown 提交进入重试循环，`00040` 为媒体 Job/Attempt 增加显式 Runtime Effect 关联且历史行保持空关联，`00041` 增加 Schema draft/published/retired 与保留策略，`00042` 增加幂等/Explorer 索引，`00043` 增加 ToolCall safe_result；专用 PostgreSQL 集成库已通过迁移、核心 RLS（含投影重建和维护心跳越权负向）、事务回滚和 receipt 隔离 | 真实数据库提交后故障和迁移历史重建演练 | `migrations/00014_agentic_job_runtime.sql`～`00029_runtime_projection_rebuild.sql`、`migrations/00031_runtime_business_binding.sql`～`00035_runtime_outbox_subscribers.sql`、`migrations/00037_runtime_maintenance_health.sql`～`00043_runtime_tool_call_results.sql`、`internal/store/postgres/*_integration_test.go` |
+| 持久化 | PostgreSQL 迁移 `00014`～`00029`、`00031`～`00035`、`00037`～`00043`、`00049`～`00051`、RLS、复合外键、JobRun 准入冻结字段、Attempt 执行绑定快照、hash-only Gateway token、追加事实权限、Memory/PostgreSQL Store、不可变 outbox + subscriber receipts、资源账本、typed state、ToolCall（含安全结果重放）、Runtime Explorer 快照、关系化计划 revision、Fanout/Join、Provider inbox/账单、Yield、投影重建事实、异步 Provider 到期轮询和 Runtime Schema Registry；专用 PostgreSQL 集成库已通过迁移、核心 RLS（含投影重建和维护心跳越权负向）、事务回滚和 receipt 隔离 | 真实数据库提交后故障和迁移历史重建演练 | `migrations/00014_agentic_job_runtime.sql`～`00051_runtime_attempt_gateway_tokens.sql`、`internal/store/postgres/*_integration_test.go` |
 | 调度 | FakeHarness 的 Prepare/Start/Activate/Heartbeat/Finalize、owner/version/fence 围栏、资源预留与释放/消费/过期、优先级 aging 排序、租约回收；PostgreSQL 100 节点/20 worker 并发领取；Runtime FairnessReport 输出按租户资源利用率、过期 held 和 Jain 指数 | 生产公平性长时压测和提交后故障注入 | `internal/runtime/dispatch.go`、`internal/runtime/fairness.go`、`internal/store/postgres/runtime_dispatch.go`、`runtime_resources.go`、`runtime_capacity_integration_test.go` |
-| 宿主执行 | 结构化事件接口、FakeHarness、worker 侧能力探测与 Attempt capability snapshot、Codex CLI JSONL/thread ID、`exec resume`、Claude CLI stream-json/session ID/`--resume`、持续 heartbeat、fenced 脱敏事件和结构化终态 | 真实 Codex/Claude 在线模型 Start/中断/新进程 Resume、真实宿主故障演练 | `internal/agentadapter/harness.go`、`codex_harness.go`、`claude_harness.go`、`internal/cli/runtime_worker.go`、`internal/runtime/dispatch.go` |
-| 状态与上下文 | StateCollection（四种一致性策略）、StateRecord CAS、引用型 ContextView、父子预算/工具子集校验、Attempt-scoped MCP Gateway（state/child/effect 工具授权）和 Runtime Schema Registry（draft/published/retired） | 真实宿主 MCP stdio/HTTP smoke、Artifact 大值链路和 Schema JSON Schema 编译器 | `internal/runtime/mcp_gateway.go`、`internal/runtime/schema.go`、`internal/domain/runtime.go`、`internal/store/*/runtime_state_tools.go` |
+| 宿主执行 | 结构化事件接口、FakeHarness、完整 Runtime inventory、版本/认证健康探测与 5 分钟重探测、Workspace 启动观察与 30 秒刷新、五类声明摘要准入、Attempt 专属隔离工作区、worker 侧能力探测与 Attempt capability snapshot、Codex CLI JSONL/thread ID、`exec resume`、Claude CLI stream-json/session ID/`--resume`、进程组回收、有效进展 watchdog、稳定错误码、持续 heartbeat、WSS 断线重连、fenced 脱敏事件和结构化终态；强制断线集成测试验证 identity 保持、epoch 递增和完整 current-state 重发 | 真实 Codex/Claude 在线模型 Start/中断/新进程 Resume、真实宿主故障演练和长期 WSS soak | `internal/automationworkspace/workspace.go`、`internal/localworkspace/session.go`、`internal/agentadapter/harness.go`、`harness_registry.go`、`codex_harness.go`、`claude_harness.go`、`internal/agentadapter/process_unix.go`、`internal/cli/runtime_daemon.go`、`runtime_worker.go`、`runtime_wake_client.go`、`internal/runtime/dispatch.go` |
+| 状态与上下文 | StateCollection（四种一致性策略）、StateRecord CAS、引用型 ContextView、父子预算/工具子集校验、Attempt-scoped MCP Gateway（state/child/effect 工具授权）、同源 Gateway URL、prepared/running token 门禁、Runtime Schema Registry（draft/published/retired），以及独立 CLI 子进程 MCP stdio -> HTTP Gateway 真实传输 smoke | 在线 Codex/Claude 宿主 MCP 注入与模型调用、生产凭据/网络、Artifact 大值链路和 Schema JSON Schema 编译器 | `internal/runtime/mcp_gateway.go`、`internal/httpapi/runtime_gateway.go`、`internal/cli/runtime_mcp.go`、`internal/runtime/schema.go`、`internal/domain/runtime.go`、`internal/store/*/runtime_state_tools.go` |
 | 外部操作 | Effect 状态机（unknown/reconciling 禁止盲重试）、媒体 Job/Attempt 显式 Effect 关联、ToolCall 状态机、Effect 的 Attempt/Reservation 绑定、Provider inbox 去重、Provider reconciliation、账单匹配/差异/无匹配记录、签名/时间窗/租户绑定 ingress、资源账本 | 真实服务商端到端回调/账单和补偿演练 | `runtime_effects`、`runtime_provider_*`、`internal/runtime/provider.go`、`internal/httpapi/provider_ingress.go` |
-| 运营读取 | Durable outbox Projector、Runtime Explorer 持久化投影、投影延迟/积压指标、Job 与 nodes/effects/checkpoints 分页、事件单次上限、REST/SSE 读取、Replay 投影重建和 dry-run、Checkpoint Fork、Effect/Provider Attempt/账单/对账读模型、关系化计划边和脱敏 StateRecord 摘要 | 完整动态图操作、生产告警和支持案例 | `internal/runtime/projector.go`、`internal/store/*/runtime_projection*.go`、`internal/app/runtime_explorer.go` |
+| 运营读取 | Durable outbox Projector、Runtime Explorer 持久化投影、投影延迟/积压指标、Job 与 nodes/effects/checkpoints 分页、事件单次上限、REST/SSE 读取、Replay 投影重建和 dry-run、Checkpoint Fork、Effect/Provider Attempt/账单/对账读模型、关系化计划边和脱敏 StateRecord 摘要、Daemon PID freshness/日志轮转/本地脱敏诊断包 | 完整动态图操作、生产告警和支持案例 | `internal/runtime/projector.go`、`internal/store/*/runtime_projection*.go`、`internal/app/runtime_explorer.go`、`internal/cli/daemon_runtime_status.go`、`internal/cli/daemon_diagnostics.go` |
 
-本轮 `GOMAXPROCS=2 go test -mod=readonly -p 1 -count=1 ./...`、专用 PostgreSQL `go test -mod=readonly -race -p 1 -count=1 ./internal/store/postgres`、HTTP/localworkspace/Runtime/Memory/PostgreSQL 定向 Go race、Web typecheck/23 个文件 113 个测试、`npm run check:plugin`、`git diff --check` 和 `node scripts/check-architecture.mjs` 均已通过。以上仍不是提交后崩溃、生产容量公平性、真实 Provider、在线宿主或 Canary 验收。
+本轮 `go test -count=1 $(go list ./...)`、`go test -race ./internal/app ./internal/runtime ./internal/httpapi ./internal/cli ./internal/store/memory`、Web typecheck/23 个文件 114 个测试、Web build、`git diff --check` 和 `node scripts/check-architecture.mjs` 均已通过。以上仍不是提交后崩溃、生产容量公平性、真实 Provider、在线宿主或 Canary 验收。
 
-I1～I4 的核心切片已落地，I5 已补上文章复盘 50 节点并行分析及第二批超限保护测试：事务命令、不可变 outbox 与独立 subscriber `claim/ack/retry`、终态业务结果持久化消费、fence 与资源账本、typed state/ToolCall/Checkpoint/Fork/Replay、Provider inbox/账单、Yield/Resume、Codex JSONL/thread resume Harness、Claude stream-json/session resume Harness、Projector、关系化 GraphPatch、FanoutSet/Join 均有 Memory/PostgreSQL 实现或确定性协议测试。专用 PostgreSQL 集成库已验证迁移、核心 RLS（含投影重建和维护心跳越权负向）、事务失败回滚、fenced event replay、独立 subscriber receipt 和 100 节点/20 worker 并发领取；业务结果已覆盖“业务写成功但 ack 失败”、不同摘要拒绝、独立投影 ack、重复消费和新进程恢复；Codex/Claude helper-process 测试已覆盖真实会话标识和跨 Harness 实例 Resume，但没有调用在线模型。剩余退出条件集中在真实 Provider、在线 Codex/Claude smoke、提交后故障注入、多租户公平性、生产告警和 Canary。
+I1～I4 的核心切片已落地，I5 已补上文章复盘 50 节点并行分析及第二批超限保护测试：事务命令、不可变 outbox 与独立 subscriber `claim/ack/retry`、终态业务结果持久化消费、fence 与资源账本、typed state/ToolCall/Checkpoint/Fork/Replay、Provider inbox/账单、Yield/Resume、Codex JSONL/thread resume Harness、Claude stream-json/session resume Harness、Projector、关系化 GraphPatch、FanoutSet/Join 均有 Memory/PostgreSQL 实现或确定性协议测试。专用 PostgreSQL 集成库已验证迁移、核心 RLS（含投影重建和维护心跳越权负向）、事务失败回滚、fenced event replay、独立 subscriber receipt 和 100 节点/20 worker 并发领取；业务结果已覆盖“业务写成功但 ack 失败”、不同摘要拒绝、独立投影 ack、重复消费和新进程恢复；Codex/Claude helper-process 测试已覆盖真实会话标识和跨 Harness 实例 Resume，独立 CLI MCP stdio -> HTTP Gateway 传输 smoke 也已通过，但没有调用在线模型。剩余退出条件集中在真实 Provider、在线 Codex/Claude 宿主注入与模型调用、提交后故障注入、多租户公平性、生产告警和 Canary。
 
 ## 3. 目标架构
 
@@ -232,6 +232,28 @@ Finalize(tx) -> result refs + event/subscriber receipts + release resources
 ```
 
 `Yield` 的 Runtime 语义已实现：主控 Agent 在等待子节点、人工 Gate 或外部 Effect 时原子释放 Node/Attempt/Agent lease 与资源预留，Resume 前校验等待条件，成功后恢复 NodeReady 和 AgentRunnable。Codex Harness 直接保存 `thread.started` 返回的真实 thread ID，新 worker 进程通过 `codex exec resume <thread_id>` 恢复；Claude Harness 保存首个结构化事件中的真实 `session_id`，新 worker 进程通过 `--resume <session_id>` 恢复；两者都不复制 transcript，不依赖进程级 Registry 或 ContentCloud session 镜像。宿主声明 `resume=false` 或原会话不可恢复时，只能使用新 Attempt + 新 ContextView 恢复并记录降级原因。
+
+远程 Harness 的完整准入与执行顺序固定为：
+
+```text
+Daemon local observe
+  -> WSS full current-state accepted
+  -> HTTPS prepare_next
+  -> select exactly one Workspace for project
+  -> compare Environment / Plugin / Skill / MCP / Workspace declarations
+  -> create RuntimeAttempt + fence + Gateway token
+  -> create Attempt Workspace outside the interactive Workspace
+  -> freeze lease.json + contract.json + output.schema.json + SKILL.md
+  -> Harness Start/Resume
+  -> activate
+  -> heartbeat renews Runtime lease and local lease
+  -> event/finalize
+  -> terminal cleanup of Attempt Workspace and Gateway token
+```
+
+`prepare_next` 的 Workspace 校验发生在 RuntimeAttempt 创建前。缺少观察、项目无 Workspace、同项目有多个 Workspace、状态非 `ready`，或者 Environment、Plugin、Skill、MCP、Workspace 任一服务端声明摘要与本机观察不一致，都不得创建 Attempt。Plugin host receipt、Skill/MCP/Workspace 本地观察摘要只是收敛证据，不能替代服务端声明摘要。已运行 Attempt 固定原快照继续收敛；漂移只阻断新 Attempt，不原地热换 Skill、MCP 或 Harness 会话。
+
+Attempt Workspace 是执行隔离边界，不是新的业务事实源。`TaskContract`、完整 Skill、Output Schema 和可选执行包以只读文件注入；`lease.json` 使用 `0600` 并随 HTTPS heartbeat 续期，身份或到期时间被并发篡改时 Attempt 以稳定错误码可重试失败。Codex/Claude 只接收该目录和 Attempt-scoped Gateway 配置；本地交互式 Workspace 既不作为 Harness 当前目录，也不在终态清理。
 
 ### 6.3 Scheduler、Reaper、Reconciler 分工
 

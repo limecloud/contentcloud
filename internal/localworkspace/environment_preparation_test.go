@@ -15,7 +15,7 @@ func TestEnvironmentPreparationAndRunClaimAreMutuallyExclusive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, Owner: "conversation-a", ExpectedRevision: run.ContextRevision, Now: now})
+	claim, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-a", ExpectedRevision: run.ContextRevision, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,10 +29,10 @@ func TestEnvironmentPreparationAndRunClaimAreMutuallyExclusive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, Owner: "conversation-b", ExpectedRevision: run.ContextRevision, Now: now.Add(3 * time.Minute)}); domainCode(err) != "ENVIRONMENT_PREPARATION_IN_PROGRESS" {
+	if _, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-b", ExpectedRevision: run.ContextRevision, Now: now.Add(3 * time.Minute)}); domainCode(err) != "ENVIRONMENT_PREPARATION_IN_PROGRESS" {
 		t.Fatalf("claim during preparation error = %#v", err)
 	}
-	if _, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, Owner: "conversation-b", ExpectedRevision: run.ContextRevision, Now: now.Add(13 * time.Minute)}); domainCode(err) != "ENVIRONMENT_PREPARATION_IN_PROGRESS" {
+	if _, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-b", ExpectedRevision: run.ContextRevision, Now: now.Add(13 * time.Minute)}); domainCode(err) != "ENVIRONMENT_PREPARATION_IN_PROGRESS" {
 		t.Fatalf("claim after preparation lease expiry error = %#v", err)
 	}
 	if err := FinishEnvironmentPreparation(root, "wrong"); domainCode(err) != "ENVIRONMENT_PREPARATION_TOKEN_INVALID" {
@@ -41,7 +41,7 @@ func TestEnvironmentPreparationAndRunClaimAreMutuallyExclusive(t *testing.T) {
 	if err := FinishEnvironmentPreparation(root, lease.Token); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, Owner: "conversation-b", ExpectedRevision: run.ContextRevision, Now: now.Add(4 * time.Minute)}); err != nil {
+	if _, err := ClaimRun(ClaimRunOptions{Root: root, RunID: run.RunID, OwnerKind: "agent", OwnerID: "conversation-b", ExpectedRevision: run.ContextRevision, Now: now.Add(4 * time.Minute)}); err != nil {
 		t.Fatalf("claim after preparation: %v", err)
 	}
 }

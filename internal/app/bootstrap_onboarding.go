@@ -22,6 +22,7 @@ import (
 )
 
 var bootstrapChallengePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+var machineIDPattern = regexp.MustCompile(`^mach_[A-Za-z0-9_-]{32}$`)
 
 type StartBootstrapAuthorizationInput struct {
 	SessionID     string `json:"session_id"`
@@ -190,6 +191,10 @@ func (s *Service) CompleteBootstrapAuthorization(ctx context.Context, in Complet
 	if subtle.ConstantTimeCompare([]byte(challenge), []byte(attempt.CodeChallenge)) != 1 {
 		return ConnectDeviceResult{}, domain.E("authentication", "bootstrap", "BOOTSTRAP_VERIFIER_INVALID", "初始化授权校验值不匹配", 3)
 	}
+	in.Device.MachineID = strings.TrimSpace(in.Device.MachineID)
+	if !machineIDPattern.MatchString(in.Device.MachineID) {
+		return ConnectDeviceResult{}, domain.Invalid("DEVICE_MACHINE_ID_INVALID", "设备缺少本地生成的稳定 machine_id")
+	}
 	deviceToken, deviceTokenHash, err := domain.NewOpaqueToken("dt_", 32)
 	if err != nil {
 		return ConnectDeviceResult{}, err
@@ -211,13 +216,13 @@ func (s *Service) CompleteBootstrapAuthorization(ctx context.Context, in Complet
 		issuedManifest = &manifest
 	}
 	deviceInput := in.Device
-	device := domain.Device{ID: domain.NewID(), DisplayName: defaultString(deviceInput.DisplayName, deviceInput.Hostname), Hostname: deviceInput.Hostname, Platform: defaultString(deviceInput.Platform, runtime.GOOS), Arch: defaultString(deviceInput.Arch, runtime.GOARCH), Version: deviceInput.Version, TokenHash: deviceTokenHash, Capabilities: append([]domain.Capability{}, deviceInput.Capabilities...), LastSeenAt: now}
+	device := domain.Device{ID: domain.NewID(), MachineID: deviceInput.MachineID, DisplayName: defaultString(deviceInput.DisplayName, deviceInput.Hostname), Hostname: deviceInput.Hostname, Platform: defaultString(deviceInput.Platform, runtime.GOOS), Arch: defaultString(deviceInput.Arch, runtime.GOARCH), Version: deviceInput.Version, TokenHash: deviceTokenHash, CredentialVersion: 1, CredentialRotatedAt: now, Capabilities: append([]domain.Capability{}, deviceInput.Capabilities...), LastSeenAt: now}
 	workspace := domain.WorkspaceBinding{ID: domain.NewID(), TemplateID: localworkspace.TemplateID, TemplateVersion: localworkspace.TemplateVersion, Targets: []string{}, CredentialHash: workspaceTokenHash, Status: "active", InitializedAt: now, LastSeenAt: now}
-	session, consumed, err := s.store.ConsumeBootstrapAttempt(ctx, tokenHash, device, workspace, now)
+	session, consumed, device, workspace, err := s.store.ConsumeBootstrapAttempt(ctx, tokenHash, device, workspace, now)
 	if err != nil {
 		return ConnectDeviceResult{}, err
 	}
-	device.TenantID, device.OwnerUserID, device.ProjectIDs, device.TokenHash = session.TenantID, session.InviterUserID, []string{session.ProjectID}, ""
+	device.TokenHash = ""
 	s.audit(ctx, Actor{UserID: device.OwnerUserID, TenantID: device.TenantID, Type: "device", DeviceID: device.ID}, session.ProjectID, "device.connected", "device", device.ID, "", map[string]any{"platform": device.Platform, "bootstrap_attempt_id": consumed.ID})
 	result := ConnectDeviceResult{Device: device, DeviceToken: deviceToken, WorkspaceID: workspace.ID, WorkspaceToken: workspaceToken, ProjectID: session.ProjectID, BootstrapAttemptID: consumed.ID, EnvironmentManifest: issuedManifest}
 	return result, nil

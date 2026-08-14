@@ -19,6 +19,7 @@ type DispatchInput struct {
 	TenantID             string
 	JobRunID             string
 	Owner                string
+	AllowedProjectIDs    []string
 	HarnessKind          string
 	Role                 string
 	ExecutionProfileID   string
@@ -43,8 +44,63 @@ type DispatchHandle struct {
 	ContextView   domain.ContextView               `json:"context_view"`
 	Agent         domain.AgentInstance             `json:"agent"`
 	Capabilities  agentadapter.HarnessCapabilities `json:"capabilities"`
+	ExecutionSpec RemoteExecutionSpec              `json:"execution_spec"`
+	GatewayToken  string                           `json:"gateway_token,omitempty"`
+	GatewayURL    string                           `json:"gateway_url,omitempty"`
 	ResumeSession *agentadapter.AgentSessionRef    `json:"resume_session,omitempty"`
 	LeaseFor      time.Duration                    `json:"-"`
+}
+
+// RemoteExecutionSpec contains the server-owned instructions needed by a
+// remote Harness. Local paths remain device facts and are resolved by project.
+type RemoteExecutionSpec struct {
+	ProjectID            string              `json:"project_id"`
+	JobRunID             string              `json:"job_run_id"`
+	NodeKey              string              `json:"node_key"`
+	InputSnapshotID      string              `json:"input_snapshot_id,omitempty"`
+	Role                 string              `json:"role"`
+	ProfileID            string              `json:"execution_profile_id"`
+	ProfileVersion       string              `json:"execution_profile_version"`
+	BindingDigest        string              `json:"binding_digest"`
+	EnvironmentID        string              `json:"environment_id,omitempty"`
+	EnvironmentDigest    string              `json:"environment_digest,omitempty"`
+	PluginDigest         string              `json:"plugin_digest,omitempty"`
+	SkillDigest          string              `json:"skill_digest,omitempty"`
+	MCPDigest            string              `json:"mcp_digest,omitempty"`
+	WorkspaceTemplateID  string              `json:"workspace_template_id,omitempty"`
+	WorkspaceDigest      string              `json:"workspace_digest,omitempty"`
+	LocalWorkspaceID     string              `json:"local_workspace_id,omitempty"`
+	LocalGeneration      string              `json:"local_workspace_generation,omitempty"`
+	LocalPluginReceipt   string              `json:"local_plugin_receipt_digest,omitempty"`
+	LocalSkillDigest     string              `json:"local_skill_digest,omitempty"`
+	LocalMCPDigest       string              `json:"local_mcp_digest,omitempty"`
+	LocalWorkspaceDigest string              `json:"local_workspace_digest,omitempty"`
+	RequiredCapabilities []string            `json:"required_capabilities"`
+	SandboxProfile       string              `json:"sandbox_profile"`
+	IsolationProfile     string              `json:"isolation_profile"`
+	EgressPolicy         string              `json:"egress_policy"`
+	Region               string              `json:"region,omitempty"`
+	DataClassification   string              `json:"data_classification"`
+	Prompt               string              `json:"prompt"`
+	OutputSchemaRef      string              `json:"output_schema_ref"`
+	OutputSchemaDigest   string              `json:"output_schema_digest,omitempty"`
+	OutputSchema         json.RawMessage     `json:"output_schema,omitempty"`
+	TaskContract         domain.TaskContract `json:"task_contract"`
+	SkillID              string              `json:"skill_id,omitempty"`
+	SkillContentDigest   string              `json:"skill_content_digest,omitempty"`
+	Skill                string              `json:"skill,omitempty"`
+}
+
+// RemoteAdmissionInput is the untrusted part of remote worker admission.
+// Workers may report Harness capabilities, but never execution policy.
+type RemoteAdmissionInput struct {
+	TenantID            string
+	JobRunID            string
+	Owner               string
+	AllowedProjectIDs   []string
+	HarnessKind         string
+	Capabilities        agentadapter.HarnessCapabilities
+	EnrichExecutionSpec func(context.Context, RemoteExecutionSpec) (RemoteExecutionSpec, error)
 }
 
 type DispatchOutcome struct {
@@ -145,6 +201,186 @@ func (s *Service) PrepareRemoteDispatch(ctx context.Context, input DispatchInput
 	return s.prepareDispatchWithRetry(ctx, input, capabilities)
 }
 
+// PrepareAdmittedRemoteDispatch derives all execution policy from immutable
+// Runtime rows after selecting a concrete node. The remote worker controls
+// only its capability declaration and cannot expand ContextView permissions.
+func (s *Service) PrepareAdmittedRemoteDispatch(ctx context.Context, input RemoteAdmissionInput) (DispatchHandle, error) {
+	input.TenantID = strings.TrimSpace(input.TenantID)
+	input.JobRunID = strings.TrimSpace(input.JobRunID)
+	input.Owner = strings.TrimSpace(input.Owner)
+	input.HarnessKind = strings.ToLower(strings.TrimSpace(input.HarnessKind))
+	capabilities := input.Capabilities
+	capabilities.Kind = strings.ToLower(strings.TrimSpace(capabilities.Kind))
+	if input.TenantID == "" || input.Owner == "" || input.HarnessKind == "" {
+		return DispatchHandle{}, domain.Invalid("DISPATCH_INPUT_INVALID", "远程调度请求缺少租户、执行者或适配器")
+	}
+	if capabilities.Kind == "" || capabilities.Kind != input.HarnessKind {
+		return DispatchHandle{}, domain.Invalid("AGENT_HARNESS_KIND_MISMATCH", "远程 worker 的 Harness 能力声明与请求类型不一致")
+	}
+	if capabilities.MaxParallelSessions < 1 || capabilities.MaxParallelSessions > 1024 {
+		return DispatchHandle{}, domain.Invalid("AGENT_HARNESS_CAPACITY_INVALID", "远程 worker 的并发会话能力无效")
+	}
+	for {
+		node, job, err := s.remoteAdmissionCandidate(ctx, input)
+		if err != nil {
+			return DispatchHandle{}, err
+		}
+		dispatch, spec, err := s.remoteDispatchInput(ctx, input, job, node)
+		if err != nil {
+			return DispatchHandle{}, err
+		}
+		if input.EnrichExecutionSpec != nil {
+			spec, err = input.EnrichExecutionSpec(ctx, spec)
+			if err != nil {
+				return DispatchHandle{}, err
+			}
+		}
+		handle, err := s.prepareDispatch(ctx, dispatch, capabilities)
+		if err == nil {
+			handle.ExecutionSpec = spec
+			return handle, nil
+		}
+		if !hasDomainCode(err, "NODE_DISPATCH_CONFLICT") {
+			return DispatchHandle{}, err
+		}
+		if ctx.Err() != nil {
+			return DispatchHandle{}, ctx.Err()
+		}
+	}
+}
+
+func (s *Service) remoteAdmissionCandidate(ctx context.Context, input RemoteAdmissionInput) (domain.NodeRun, domain.JobRun, error) {
+	var job domain.JobRun
+	var node domain.NodeRun
+	var err error
+	if input.JobRunID == "" {
+		node, err = s.repo.NextReadyNode(ctx, input.TenantID, "", input.AllowedProjectIDs)
+		if err != nil {
+			return node, job, err
+		}
+		job, err = s.repo.JobRun(ctx, input.TenantID, node.JobRunID)
+	} else {
+		job, err = s.repo.JobRun(ctx, input.TenantID, input.JobRunID)
+		if err == nil && !dispatchProjectAllowed(job.ProjectID, input.AllowedProjectIDs) {
+			return node, job, domain.Policy("DISPATCH_PROJECT_SCOPE_DENIED", "执行设备未获授权处理该项目", "为设备授予项目执行权限后重试")
+		}
+		if err == nil {
+			node, err = s.repo.NextReadyNode(ctx, input.TenantID, input.JobRunID, input.AllowedProjectIDs)
+		}
+	}
+	if err != nil {
+		return node, job, err
+	}
+	if !dispatchProjectAllowed(job.ProjectID, input.AllowedProjectIDs) {
+		return node, job, domain.Policy("DISPATCH_PROJECT_SCOPE_DENIED", "执行设备未获授权处理该项目", "为设备授予项目执行权限后重试")
+	}
+	return node, job, nil
+}
+
+func (s *Service) remoteDispatchInput(ctx context.Context, admission RemoteAdmissionInput, job domain.JobRun, node domain.NodeRun) (DispatchInput, RemoteExecutionSpec, error) {
+	plan, err := s.repo.Plan(ctx, admission.TenantID, job.PlanRevisionID)
+	if err != nil {
+		return DispatchInput{}, RemoteExecutionSpec{}, err
+	}
+	var nodeSpec domain.JobPlanNode
+	found := false
+	for _, candidate := range plan.Nodes {
+		if candidate.Key == node.NodeKey {
+			nodeSpec, found = candidate, true
+			break
+		}
+	}
+	if !found {
+		return DispatchInput{}, RemoteExecutionSpec{}, domain.Conflict("DISPATCH_NODE_SPEC_MISSING", "执行节点在冻结计划中没有对应 NodeSpec")
+	}
+	binding, err := s.repo.ExecutionBindingSnapshot(ctx, admission.TenantID, job.BindingDigest)
+	if err != nil {
+		return DispatchInput{}, RemoteExecutionSpec{}, err
+	}
+	if !remoteHarnessAllowed(binding, nodeSpec, admission.HarnessKind) {
+		return DispatchInput{}, RemoteExecutionSpec{}, domain.Policy("DISPATCH_HARNESS_NOT_ALLOWED", "当前 Harness 不符合节点冻结的执行者约束", "使用节点允许的执行器重新领取")
+	}
+	if !remoteSandboxAllowed(binding, admission.Capabilities.SandboxProfile) {
+		return DispatchInput{}, RemoteExecutionSpec{}, domain.Policy("DISPATCH_SANDBOX_NOT_ALLOWED", "当前 Harness 的隔离配置不符合冻结执行绑定", "使用满足执行绑定隔离要求的 Harness")
+	}
+	outputSchema, err := json.Marshal(map[string]any{"$ref": nodeSpec.OutputSchema})
+	if err != nil {
+		return DispatchInput{}, RemoteExecutionSpec{}, err
+	}
+	role := remoteNodeRole(nodeSpec)
+	prompt := remoteNodePrompt(job, nodeSpec)
+	allowedTools := append([]string(nil), binding.AllowedTools...)
+	if nodeSpec.Kind == "gate" || nodeSpec.SideEffectClass == "human_decision" {
+		allowedTools = []string{}
+	}
+	leaseFor := DefaultNodeLeaseDuration
+	maxDuration := time.Duration(binding.MaxDurationSeconds) * time.Second
+	if maxDuration < leaseFor {
+		leaseFor = maxDuration
+	}
+	dispatch := DispatchInput{
+		TenantID: admission.TenantID, JobRunID: job.ID, Owner: admission.Owner,
+		AllowedProjectIDs: admission.AllowedProjectIDs, HarnessKind: admission.HarnessKind,
+		Role: role, ExecutionProfileID: binding.ProfileID, Prompt: prompt, OutputSchema: outputSchema,
+		InputRefs: append([]string(nil), nodeSpec.InputRefs...), AllowedTools: allowedTools,
+		MaxTokens: binding.MaxTokens, BudgetMinor: binding.MaxCostMinor, RemainingDescendants: binding.MaxDynamicDescendants,
+		LeaseFor: leaseFor, ContextTTL: maxDuration,
+	}
+	return dispatch, RemoteExecutionSpec{
+		ProjectID: job.ProjectID, JobRunID: job.ID, NodeKey: nodeSpec.Key, InputSnapshotID: job.InputSnapshotID,
+		Role: role, ProfileID: binding.ProfileID, ProfileVersion: binding.ProfileVersion, BindingDigest: binding.Digest,
+		EnvironmentID: binding.EnvironmentID, EnvironmentDigest: binding.EnvironmentDigest,
+		PluginDigest: binding.PluginDigest, SkillDigest: binding.SkillDigest, MCPDigest: binding.MCPDigest,
+		WorkspaceTemplateID: binding.WorkspaceTemplateID, WorkspaceDigest: binding.WorkspaceDigest,
+		RequiredCapabilities: append([]string(nil), nodeSpec.RequiredCapabilities...),
+		SandboxProfile:       binding.SandboxProfile, IsolationProfile: binding.IsolationProfile,
+		EgressPolicy: binding.EgressPolicy, Region: binding.Region, DataClassification: binding.DataClassification,
+		Prompt: prompt, OutputSchemaRef: nodeSpec.OutputSchema, OutputSchema: outputSchema,
+	}, nil
+}
+
+func remoteHarnessAllowed(binding domain.ExecutionBindingSnapshot, node domain.JobPlanNode, harnessKind string) bool {
+	if len(binding.HarnessKinds) > 0 && !containsDispatchValue(binding.HarnessKinds, harnessKind) {
+		return false
+	}
+	if len(node.ExecutionModes) > 0 && !containsDispatchValue(node.ExecutionModes, "agent") && !containsDispatchValue(node.ExecutionModes, "local") {
+		return false
+	}
+	// RequiredCapabilities are business capabilities. The worker handshake does
+	// not yet carry signed business capability digests, so it cannot authorize
+	// or reject them based on a self-declared Harness kind.
+	return true
+}
+
+func remoteSandboxAllowed(binding domain.ExecutionBindingSnapshot, observed string) bool {
+	required := strings.TrimSpace(binding.SandboxProfile)
+	if binding.Legacy || required == "" || required == "legacy" || required == "any" {
+		return true
+	}
+	return strings.EqualFold(required, strings.TrimSpace(observed))
+}
+
+func remoteNodeRole(node domain.JobPlanNode) string {
+	if node.Kind == "gate" {
+		return "gate_executor"
+	}
+	return "node_executor"
+}
+
+func remoteNodePrompt(job domain.JobRun, node domain.JobPlanNode) string {
+	return fmt.Sprintf("执行冻结节点 %s（%s）。只使用 ContextView 授权的引用和工具，并按输出 Schema %s 返回结构化结果。", node.Name, node.Key, node.OutputSchema)
+}
+
+func containsDispatchValue(values []string, wanted string) bool {
+	wanted = strings.ToLower(strings.TrimSpace(wanted))
+	for _, value := range values {
+		if strings.ToLower(strings.TrimSpace(value)) == wanted {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) prepareDispatchWithRetry(ctx context.Context, input DispatchInput, capabilities agentadapter.HarnessCapabilities) (DispatchHandle, error) {
 	for {
 		handle, err := s.prepareDispatch(ctx, input, capabilities)
@@ -186,7 +422,7 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 	var node domain.NodeRun
 	var err error
 	if input.JobRunID == "" {
-		node, err = s.repo.NextReadyNode(ctx, input.TenantID, "")
+		node, err = s.repo.NextReadyNode(ctx, input.TenantID, "", input.AllowedProjectIDs)
 		if err != nil {
 			return DispatchHandle{}, err
 		}
@@ -197,6 +433,9 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 	if err != nil {
 		return DispatchHandle{}, err
 	}
+	if !dispatchProjectAllowed(job.ProjectID, input.AllowedProjectIDs) {
+		return DispatchHandle{}, domain.Policy("DISPATCH_PROJECT_SCOPE_DENIED", "执行设备未获授权处理该项目", "为设备授予项目执行权限后重试")
+	}
 	if job.State == domain.JobRunPaused {
 		return DispatchHandle{}, domain.Conflict("JOB_RUN_PAUSED", "执行实例已暂停，不能领取新的执行节点")
 	}
@@ -204,7 +443,7 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 		return DispatchHandle{}, domain.Conflict("JOB_RUN_TERMINAL", "执行实例已经结束，不能领取新的执行节点")
 	}
 	if node.ID == "" {
-		node, err = s.repo.NextReadyNode(ctx, input.TenantID, input.JobRunID)
+		node, err = s.repo.NextReadyNode(ctx, input.TenantID, input.JobRunID, input.AllowedProjectIDs)
 		if err != nil {
 			return DispatchHandle{}, err
 		}
@@ -216,6 +455,10 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 	if tokenErr != nil {
 		return DispatchHandle{}, tokenErr
 	}
+	gatewayToken, gatewayTokenHash, tokenErr := domain.NewOpaqueToken("rtg_", 32)
+	if tokenErr != nil {
+		return DispatchHandle{}, tokenErr
+	}
 	view, err := BuildContextView(ContextViewInput{
 		TenantID: input.TenantID, JobRunID: node.JobRunID, NodeRunID: node.ID, AttemptID: attemptID,
 		InputRefs: input.InputRefs, StateRefs: input.StateRefs, EventRefs: input.EventRefs, AllowedTools: input.AllowedTools,
@@ -224,6 +467,7 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 	if err != nil {
 		return DispatchHandle{}, err
 	}
+	gatewayExpiresAt := view.ExpiresAt
 	agent, agentErr := s.repo.AgentInstanceForNode(ctx, input.TenantID, node.ID)
 	createAgent := domain.IsNotFound(agentErr)
 	if agentErr != nil && !createAgent {
@@ -262,7 +506,7 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 		ID: attemptID, TenantID: input.TenantID, JobRunID: node.JobRunID, NodeRunID: node.ID,
 		AgentInstanceID: agent.ID, ContextViewID: view.ID, AttemptNo: node.AttemptCount + 1,
 		HarnessKind: input.HarnessKind, Capabilities: capabilitySnapshot, State: domain.RuntimeAttemptPrepared,
-		LeaseOwner: input.Owner, FenceToken: fenceToken, LeaseExpiresAt: &expires, OutputRefs: []string{}, SafeSummary: map[string]any{},
+		LeaseOwner: input.Owner, FenceToken: fenceToken, GatewayTokenHash: gatewayTokenHash, GatewayExpiresAt: &gatewayExpiresAt, LeaseExpiresAt: &expires, OutputRefs: []string{}, SafeSummary: map[string]any{},
 		Version: 1, CreatedAt: now, UpdatedAt: now,
 	}
 	expectedNodeVersion := node.Version
@@ -297,7 +541,19 @@ func (s *Service) prepareDispatch(ctx context.Context, input DispatchInput, capa
 	if err != nil {
 		return DispatchHandle{}, err
 	}
-	return DispatchHandle{Node: node, Attempt: attempt, ContextView: view, Agent: agent, Capabilities: capabilities, ResumeSession: resumeSession, LeaseFor: input.LeaseFor}, nil
+	return DispatchHandle{Node: node, Attempt: attempt, ContextView: view, Agent: agent, Capabilities: capabilities, GatewayToken: gatewayToken, ResumeSession: resumeSession, LeaseFor: input.LeaseFor}, nil
+}
+
+func dispatchProjectAllowed(projectID string, allowed []string) bool {
+	if allowed == nil {
+		return true
+	}
+	for _, candidate := range allowed {
+		if strings.TrimSpace(candidate) == projectID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) ActivateDispatch(ctx context.Context, handle DispatchHandle, session agentadapter.AgentSessionRef) (DispatchHandle, error) {

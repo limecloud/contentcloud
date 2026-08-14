@@ -1,29 +1,29 @@
-# Environment Lifecycle
+# 环境生命周期
 
-## Inspect
+## 检查
 
-1. Resolve one bound workspace.
-2. Read the Environment Lock and offline doctor report.
-3. Compare installed Plugin, CLI, MCP, Skill, Schema, and routing digests with the signed desired state.
-4. Classify the environment as `ready`, `update_available`, `repair_required`, or `blocked`.
+1. 解析一个已绑定 Workspace。
+2. 读取 Environment Lock 和离线 doctor 报告。
+3. 将已安装 Plugin、CLI、MCP、Skill、Schema 和路由 digest 与签名目标状态比较。
+4. 将环境归类为 `ready`、`update_available`、`repair_required` 或 `blocked`。
 
-## Change
+## 变更
 
-1. Produce a dry-run plan without consuming a connect key or changing files.
-2. Show capability, version, permission, network, file, provider, and cost changes.
-3. Require explicit confirmation.
-4. Back up only the ContentCloud-owned configuration targets.
-5. Apply fixed versions and verified digests from the allowlist.
-6. Validate the resulting files and run offline doctor.
-7. Restore the previous target when validation fails.
-8. Report each target independently.
+1. 生成 dry-run 计划，不消耗 connect key，也不修改文件。
+2. 展示能力、版本、权限、网络、文件、供应商和费用变化。
+3. 要求明确确认。
+4. 只备份 ContentCloud 拥有的配置目标。
+5. 应用 allowlist 中的固定版本和已验证 digest。
+6. 校验生成文件并运行离线 doctor。
+7. 校验失败时恢复之前的目标。
+8. 分别报告每个目标。
 
-Never change another Marketplace, plugin, MCP server, Skill, user instruction, or unowned configuration block.
+不得修改其他 Marketplace、Plugin、MCP Server、Skill、用户指令或不归 ContentCloud 所有的配置块。
 
-## Reconnect
+## 重新连接
 
-Plugin, Skill, MCP, or project-routing changes require a new Codex chat or CLI session. Create a bootstrap handoff without secrets and open the verified Workspace Root. If opening fails, return the local path and recovery prompt.
+Plugin、Skill、MCP 或项目路由变化后，必须开启新的 Codex 对话或 CLI 会话。创建不含秘密的 bootstrap Handoff，并打开已验证 Workspace Root。打开失败时，返回本地路径和恢复提示。
 
-## Upgrade and Reset
+## 升级与重置
 
-Do not upgrade during an active interactive or Automation Run. A reset restores only ContentCloud-managed environment files and never removes source material, knowledge, briefs, scripts, media, submissions, approvals, or unrelated Agent configuration.
+不得在活动的交互式或 Automation Run 期间升级。重置只恢复 ContentCloud 管理的环境文件，不得删除来源材料、知识、Brief、脚本、媒体、Submission、Approval 或无关 Agent 配置。

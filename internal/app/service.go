@@ -26,6 +26,7 @@ import (
 
 type Service struct {
 	store               store.Store
+	deviceControl       deviceControlRepository
 	now                 func() time.Time
 	log                 *slog.Logger
 	blobs               blob.Store
@@ -45,6 +46,18 @@ type Service struct {
 	connectorRepository connector.Repository
 }
 
+type runtimeWakeBroker interface {
+	PublishRuntimeWake(context.Context, string) error
+	ListenRuntimeWakes(context.Context, func(string)) error
+}
+
+type deviceControlRepository interface {
+	RotateDeviceCredential(context.Context, string, string, string, time.Time) (domain.Device, error)
+	SaveDaemonInstance(context.Context, domain.DaemonInstance) error
+	DaemonInstance(context.Context, string, string) (domain.DaemonInstance, error)
+	DaemonInstances(context.Context, string, string) ([]domain.DaemonInstance, error)
+}
+
 type Actor struct {
 	UserID        string
 	TenantID      string
@@ -52,6 +65,7 @@ type Actor struct {
 	Type          string
 	DeviceID      string
 	WorkspaceID   string
+	ProjectIDs    []string
 	PlatformAdmin bool
 }
 
@@ -194,6 +208,9 @@ func NewWithBlob(st store.Store, logger *slog.Logger, blobs blob.Store, options 
 		blobs = blob.NewMemory()
 	}
 	service := &Service{store: st, now: time.Now, log: logger, blobs: blobs, platformAdminEmails: map[string]struct{}{}, automationPolicy: map[string]environment.CapabilityRequirement{}, automationPackIDs: map[string][]string{}, mediaAdapters: map[string]mediapipeline.Adapter{}, sourceSearch: sourceinfra.NewDefaultSearchProvider(), sourceFetcher: sourceinfra.NewDefaultFetcher(), runtimeHarnesses: agentadapter.NewDefaultHarnessRegistry(), runtimeRollout: contentruntime.DefaultRolloutPolicy(), channelAdapters: channeladapter.NewDefaultRegistry(), modelProviders: modelprovider.NewDefaultRegistry(), connectorAdapters: connector.NewDefaultRegistry()}
+	if repository, ok := st.(deviceControlRepository); ok {
+		service.deviceControl = repository
+	}
 	if repository, ok := st.(connector.Repository); ok {
 		service.connectorRepository = repository
 	}
@@ -215,6 +232,27 @@ func NewWithBlob(st store.Store, logger *slog.Logger, blobs blob.Store, options 
 // to customer task adapters. Business facts still belong to their owning app
 // services; this method only exposes execution metadata and commands.
 func (s *Service) Runtime() *contentruntime.Service { return s.runtimeService }
+
+func (s *Service) PublishRuntimeWake(ctx context.Context, tenantID string) error {
+	broker, ok := s.store.(runtimeWakeBroker)
+	if !ok {
+		return nil
+	}
+	return broker.PublishRuntimeWake(ctx, strings.TrimSpace(tenantID))
+}
+
+func (s *Service) ListenRuntimeWakes(ctx context.Context, notify func(string)) error {
+	broker, ok := s.store.(runtimeWakeBroker)
+	if !ok {
+		return nil
+	}
+	return broker.ListenRuntimeWakes(ctx, notify)
+}
+
+func (s *Service) HasRuntimeWakeBroker() bool {
+	_, ok := s.store.(runtimeWakeBroker)
+	return ok
+}
 
 // ProviderBinding exposes only the provider binding boundary needed by
 // authenticated callback ingress. CredentialRef remains hidden from callers.
@@ -452,6 +490,7 @@ func (s *Service) ConnectSession(ctx context.Context, actor Actor, id string) (d
 }
 
 type ConnectDeviceInput struct {
+	MachineID    string              `json:"machine_id"`
 	DisplayName  string              `json:"display_name"`
 	Hostname     string              `json:"hostname"`
 	Platform     string              `json:"platform"`
@@ -469,15 +508,23 @@ type ConnectDeviceResult struct {
 	BootstrapAttemptID  string                `json:"bootstrap_attempt_id,omitempty"`
 }
 
+type RotateDeviceCredentialResult struct {
+	Device      domain.Device `json:"device"`
+	DeviceToken string        `json:"device_token"`
+}
+
 func (s *Service) DeviceActor(ctx context.Context, token string) (Actor, domain.Device, error) {
 	if !strings.HasPrefix(token, "dt_") {
 		return Actor{}, domain.Device{}, domain.E("authentication", "device", "DEVICE_TOKEN_INVALID", "设备凭据无效", 3)
 	}
 	d, err := s.store.DeviceByTokenHash(ctx, domain.TokenHash(token))
 	if err != nil {
-		return Actor{}, d, domain.E("authentication", "device", "DEVICE_TOKEN_INVALID", "设备凭据无效", 3)
+		if domain.IsNotFound(err) {
+			return Actor{}, d, domain.E("authentication", "device", "DEVICE_TOKEN_INVALID", "设备凭据无效", 3)
+		}
+		return Actor{}, d, err
 	}
-	return Actor{UserID: d.OwnerUserID, TenantID: d.TenantID, Type: "device", DeviceID: d.ID}, d, nil
+	return Actor{UserID: d.OwnerUserID, TenantID: d.TenantID, Type: "device", DeviceID: d.ID, ProjectIDs: append([]string{}, d.ProjectIDs...)}, d, nil
 }
 
 func (s *Service) WorkspaceActor(ctx context.Context, token string) (Actor, domain.WorkspaceBinding, error) {

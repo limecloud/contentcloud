@@ -20,6 +20,16 @@ func (s *Server) revokeDevice(w http.ResponseWriter, r *http.Request) {
 	s.ok(w, r, "device.revoke", v)
 }
 
+func (s *Server) rotateDeviceCredential(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.RotateDeviceCredential(r.Context(), actor, chi.URLParam(r, "id"), middleware.GetReqID(r.Context()))
+	if err != nil {
+		s.fail(w, r, "device.credential.rotate", err)
+		return
+	}
+	s.ok(w, r, "device.credential.rotate", value)
+}
+
 func (s *Server) device(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	v, err := s.service.Device(r.Context(), actor, chi.URLParam(r, "id"))

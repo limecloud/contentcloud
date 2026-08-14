@@ -4,15 +4,15 @@
 
 ## 1. 当前基线对账
 
-截至 2026-08-11：
+截至 2026-08-13：
 
-- 当前版本为 `v0.25.0`。Runtime Infra V2 的 I1～I4 核心切片、I5 第二业务流容量边界和 provider-neutral HTTP/异步轮询恢复切片已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
+- 当前版本为 `v0.25.0`。Runtime Infra V2 的 I1～I4 核心切片、I5 第二业务流容量边界和 provider-neutral HTTP/异步轮询恢复切片已进入当前工作区；DaemonInstance/WSS current-state、Runtime worker 控制契约和 Attempt-scoped Gateway 安全边界也已进入当前工作区；每个工作包仍须独立运行完整验证，不能沿用历史结果。
 - V7 的类型化 Stage 输出、媒体领域、MediaReview、最终 Artifact、DeliveryPackage 和 Web 投影已在 `v0.16.0/v0.17.0` 落地；工作区资料文件夹、上传和资料引用已在 `v0.18.0` 首次落地。
 - V8 已落地 JobRun/NodeRun/JobEvent、独立 RuntimeAttempt、RuntimeCommandStore、事件/outbox 同事务、不可变 outbox + subscriber receipts、终态业务结果持久化消费、fence/资源预留账本、StateCollection/StateRecord CAS、ToolCall、Checkpoint watermark、Fork/Replay、ContextView/AgentInstance、FakeHarness 调度闭环、Codex CLI JSONL/thread resume Harness、Provider inbox/账单对账、Yield/Resume、Projector 和 Runtime Explorer 投影重建/dry-run；各文档必须继续区分已实现内核、离线协议测试与生产能力。
 - 内置 SOP Registry 只接受完整的平台身份（固定 ID、`template_key`、`built_in`、`source_ref`）；按名称/形状认领旧短视频 SOP 和修复旧内置元数据的运行时迁移已删除，发现冲突时重建开发数据，不新增兼容分支。
 - 根 `README.md`、平台基线、产品需求和 V8 路线图已互相指向；历史 V1-V7 路线图不再作为当前能力事实源。
 - provider-neutral HTTP 适配器、签名/超时/SSRF 防护、异步 submit/status/cancel、到期轮询恢复、有上限流式下载、Runtime Effect 关联和 Provider callback/bill HMAC ingress 已有确定性 `httptest` 契约；未知提交不会自动重试；真实媒体服务商凭据、账单补偿演练、完整的媒体租约恢复和确定性后期处理仍未完成。
-- Codex Runtime Harness 已使用官方 CLI JSONL 协议，保存 `thread.started` 的真实 thread ID，并通过 `codex exec resume <thread_id>` 在新的 Harness/worker 进程恢复；Claude Runtime Harness 已使用 `stream-json` 首事件 session ID 和 `--resume`，两者能力均在 worker 侧探测并固定到 Attempt，过程事件经 lease/fence/session 校验后只保存脱敏摘要。helper-process 测试不调用模型，真实在线 Codex/Claude smoke 尚未验收。
+- Codex Runtime Harness 已使用官方 CLI JSONL 协议，保存 `thread.started` 的真实 thread ID，并通过 `codex exec resume <thread_id>` 在新的 Harness/worker 进程恢复；Claude Runtime Harness 已使用 `stream-json` 首事件 session ID 和 `--resume`，两者能力均在 worker 侧探测并固定到 Attempt，过程事件经 lease/fence/session 校验后只保存脱敏摘要。Daemon WSS 首帧、心跳、断线 stopped、重复/乱序/旧实例 fencing 已有真实 `httptest` 覆盖；强制首连接断开后的集成测试已验证同一 DaemonInstance identity、递增 `connection_epoch`，以及每个 epoch 以 `report_seq=1` 重发完整 current-state。独立 CLI 子进程的 MCP stdio -> HTTP Runtime Gateway 真实传输 smoke 已完成，并验证 Attempt token 和工具 allowlist；这些 helper-process 测试不调用模型，在线 Codex/Claude 宿主注入、模型调用、生产凭据/网络和长期 WSS soak 仍未验收。
 
 基线事实主要来自 `CHANGELOG.md`、`internal/domain`、`internal/runtime`、`internal/agentadapter`、`internal/mediapipeline`、Memory/PostgreSQL Store 以及迁移 `00012_v7_media_pipeline.sql`、`00014_agentic_job_runtime.sql`～`00043_runtime_tool_call_results.sql`。历史路线图只能作为背景，不能代替当前代码和测试结果。
 
@@ -49,7 +49,7 @@ SOP Registry 同样只认显式身份：同名、同结构或只有平台 ID 的
 
 所有表都需要由 Memory Store 和 PostgreSQL Store 共同遵守同一份存储契约；迁移集成测试必须使用真实的行级安全策略（RLS）操作人上下文。
 
-当前物理落地：`00014_agentic_job_runtime.sql`～`00020_runtime_append_only_permissions.sql` 建立 Runtime 基础表、ContextView/AgentInstance、RuntimeAttempt、outbox 和追加事实权限；`00021`～`00029` 增加 fence、资源账本、类型化状态、Provider 对账、Yield/Resume 和投影重建；`00031`～`00033` 冻结 JobRun 业务类型、输入快照和输出上限；`00034_remove_v7_execution.sql` 解开 JobRun 对单一 WorkTask 的物理外键，并删除 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`；`00035_runtime_outbox_subscribers.sql` 将 outbox 收敛为不可变消息，并把投影与业务结果的投递状态迁到独立 subscriber receipts；Session Mirror 创建/删除迁移已从首个用户基线移除；`00037_runtime_maintenance_health.sql` 增加租户级 reaper/delivery 维护心跳及其 RLS；`00038_provider_poll_recovery.sql` 让异步 Provider 只按持久化 poll deadline 恢复，`00039_provider_poll_deadline.sql` 阻止缺失 deadline 的 unknown 提交进入重试循环；`00040_media_runtime_effect_links.sql` 为新媒体 Job/Attempt 增加可空 Runtime Job/Node/Attempt/Effect 关联，历史 V7 行保持未登记；`00041_runtime_schema_registry.sql` 增加租户隔离的 Schema draft/published/retired 生命周期和保留策略；`00042_runtime_read_pagination.sql` 增加 MCP 幂等唯一索引和 Runtime Explorer 读取索引；`00043_runtime_tool_call_results.sql` 为 ToolCall 增加受控 `safe_result`，保证成功幂等重放返回首次结果。迁移不使用 `CASCADE`，出现未识别依赖时整笔回滚。
+当前物理落地：`00014_agentic_job_runtime.sql`～`00020_runtime_append_only_permissions.sql` 建立 Runtime 基础表、ContextView/AgentInstance、RuntimeAttempt、outbox 和追加事实权限；`00021`～`00029` 增加 fence、资源账本、类型化状态、Provider 对账、Yield/Resume 和投影重建；`00031`～`00033` 冻结 JobRun 业务类型、输入快照和输出上限；`00034_remove_v7_execution.sql` 解开 JobRun 对单一 WorkTask 的物理外键，并删除 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`；`00035_runtime_outbox_subscribers.sql` 将 outbox 收敛为不可变消息，并把投影与业务结果的投递状态迁到独立 subscriber receipts；Session Mirror 创建/删除迁移已从首个用户基线移除；`00037_runtime_maintenance_health.sql` 增加租户级 reaper/delivery 维护心跳及其 RLS；`00038_provider_poll_recovery.sql` 让异步 Provider 只按持久化 poll deadline 恢复，`00039_provider_poll_deadline.sql` 阻止缺失 deadline 的 unknown 提交进入重试循环；`00040_media_runtime_effect_links.sql` 为新媒体 Job/Attempt 增加可空 Runtime Job/Node/Attempt/Effect 关联，历史 V7 行保持未登记；`00041_runtime_schema_registry.sql` 增加租户隔离的 Schema draft/published/retired 生命周期和保留策略；`00042_runtime_read_pagination.sql` 增加 MCP 幂等唯一索引和 Runtime Explorer 读取索引；`00043_runtime_tool_call_results.sql` 为 ToolCall 增加受控 `safe_result`，保证成功幂等重放返回首次结果；`00049_device_daemon_instances.sql` 增加设备身份、DaemonInstance 复合外键和 forced RLS；`00050_runtime_execution_binding_snapshots.sql` 固定 Attempt 执行绑定；`00051_runtime_attempt_gateway_tokens.sql` 增加 hash-only、短期、终态撤销的 Gateway token lookup。迁移不使用 `CASCADE`，出现未识别依赖时整笔回滚。
 
 ## 4. 运行读模型与业务投影
 
@@ -149,7 +149,7 @@ runtime_v8_explorer
 - 验证 FanoutSet 的成员集合封存和汇聚策略，覆盖零成员、部分失败、延迟上报和取消。
 - 验证比较并交换（CAS）、单写入者、只追加和指定汇总写入者约束。
 - 验证 ContextView 的选择、优先级、Token 预算和摘要稳定性。
-- 已覆盖 StateCollection/StateRecord CAS、ToolCall 终态保护、Attempt-scoped MCP fence/allowlist/幂等、Schema draft/published/retired、Effect unknown/reconciling 禁止盲重试、Checkpoint watermark、Fork/Replay 零外部调用、Codex helper-process 真实 thread ID/新 Harness 实例 Resume、Provider inbox 去重/摘要冲突/unknown Effect/账单匹配与差异、Yield/Resume 等待条件和幂等，以及 Memory/PostgreSQL Fanout/Join 原子写入、幂等快照、quorum 取消、PostgreSQL 100 节点/20 worker 唯一领取、FairnessReport 和 50 节点第二业务流边界；真实 Provider Reconciler、在线 Codex/Claude/MCP 宿主演练、真实数据库提交后故障矩阵和多租户生产公平性仍待补。
+- 已覆盖 StateCollection/StateRecord CAS、ToolCall 终态保护、Attempt-scoped MCP fence/allowlist/幂等、独立 CLI MCP stdio -> HTTP Gateway 传输、Schema draft/published/retired、Effect unknown/reconciling 禁止盲重试、Checkpoint watermark、Fork/Replay 零外部调用、Codex helper-process 真实 thread ID/新 Harness 实例 Resume、Provider inbox 去重/摘要冲突/unknown Effect/账单匹配与差异、Yield/Resume 等待条件和幂等，以及 Memory/PostgreSQL Fanout/Join 原子写入、幂等快照、quorum 取消、PostgreSQL 100 节点/20 worker 唯一领取、FairnessReport 和 50 节点第二业务流边界；真实 Provider Reconciler、在线 Codex/Claude 宿主注入与模型调用、真实数据库提交后故障矩阵、多租户生产公平性和长期 Daemon 运行仍待补。
 
 ### 8.2 存储与事务测试
 
@@ -176,7 +176,7 @@ Fake、Codex 和 Claude 适配器使用同一套黑盒场景：
 
 CI 默认运行 FakeHarness 和不调用模型的 Codex CLI helper-process 协议测试；真实 Codex/Claude 冒烟测试必须在明确授权、低预算、非客户数据环境中执行，不能默认使用消费级登录来测试平台服务。
 
-FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启动成功但返回空事件流、重复相同/不同终态、未知事件、事件流无终态关闭、延迟超过一次心跳周期，以及租约到期。Codex 协议测试还必须覆盖首事件校验、thread ID 固定、Resume ID 一致、不同 Harness 实例恢复、结果文件和脱敏事件投影；即使租约尚未执行批量回收，过期 owner 提交的迟到事件或终态也必须被拒绝。
+FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启动成功但返回空事件流、重复相同/不同终态、未知事件、事件流无终态关闭、延迟超过一次心跳周期，以及租约到期。Codex 协议测试还必须覆盖首事件校验、thread ID 固定、Resume ID 一致、不同 Harness 实例恢复、结果文件和脱敏事件投影；进程组取消必须回收子进程，超长 stderr 必须截断且不改变进程成功语义，认证/限流/权限/网络错误必须只输出稳定错误码；即使租约尚未执行批量回收，过期 owner 提交的迟到事件或终态也必须被拒绝。
 
 ### 8.4 故障注入
 
@@ -310,4 +310,5 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
 - 跨租户安全、提示词注入、密钥和 SSRF 检查全部通过。
 - Codex/Claude 至少有一个真实执行适配器通过一致性测试；另一个可以保持预览状态，不能虚报已经达到生产可用标准。
 - 运行诊断视图和运维手册支持定位问题、暂停、恢复、对账和创建执行分支。
+- Daemon 状态文件具备 PID freshness fencing，日志轮转和脱敏诊断包默认本地生成、不自动上传；诊断包不包含设备/Attempt 明文标识、凭据、用户路径、URL、邮箱或原始 Prompt/stderr。
 - 只有产品、工程、安全、内容运营和真实服务商/智能体执行器负责人共同签字，才能对外宣称运行时可以用于生产环境。

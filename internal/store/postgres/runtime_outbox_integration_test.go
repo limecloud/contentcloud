@@ -92,6 +92,16 @@ func TestRuntimeOutboxPostgresClaimAndCommandRollback(t *testing.T) {
 		RuntimePolicyID: "runtime-policy/postgres-test-v1", ContractMajor: 1, ContractMinor: 0, RootJobRunID: jobID,
 		State: domain.JobRunCreated, Version: 1, CreatedBy: "test", CreatedAt: now, UpdatedAt: now,
 	}
+	binding := domain.ExecutionBindingSnapshot{
+		TenantID: tenantID, Digest: job.BindingDigest, SchemaVersion: domain.ExecutionBindingSnapshotSchema,
+		ProfileID: job.RuntimePolicyID, ProfileVersion: "legacy", RuntimePolicyID: job.RuntimePolicyID,
+		HarnessKinds: []string{}, AllowedTools: []string{}, SandboxProfile: "legacy", IsolationProfile: "legacy",
+		EgressPolicy: "legacy", DataClassification: "internal", MaxTokens: 8192, MaxDurationSeconds: 3600,
+		MaxDynamicDescendants: plan.Limits.MaxDynamicDescendants, FallbackPolicy: "none", Legacy: true, CreatedAt: now,
+	}
+	if err := store.CreateExecutionBindingSnapshot(ctx, binding); err != nil {
+		t.Fatal(err)
+	}
 	node := domain.NodeRun{ID: nodeID, TenantID: tenantID, JobRunID: jobID, NodeKey: "stage:source", State: domain.NodePending, OutputRefs: []string{}, Version: 1, CreatedAt: now, UpdatedAt: now}
 	initialEvent := domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: jobID, Sequence: 1, Type: "job.created", ActorType: "test", Payload: map[string]any{}, OccurredAt: now}
 	if err := store.CreateJobBundle(ctx, job, []domain.NodeRun{node}, initialEvent); err != nil {

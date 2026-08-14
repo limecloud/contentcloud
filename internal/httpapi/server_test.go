@@ -170,6 +170,20 @@ func TestPlatformAdminOverviewAndTenantStatusEndpoint(t *testing.T) {
 	if !bootstrap.OK || bootstrap.Data.MarketingVideoFixture.Project.KnowledgeReady != 4 {
 		t.Fatalf("initial development bootstrap knowledge projection is incomplete: %#v", bootstrap)
 	}
+	executors := callBFF[app.OperationsExecutorDirectory](t, client, http.MethodGet, server.URL+"/api/bff/operations/executors", nil)
+	if len(executors.Executors) != 1 {
+		t.Fatalf("development bootstrap did not create an executor current-state fixture: %#v", executors)
+	}
+	executor := executors.Executors[0]
+	if executor.PresenceStatus != "online" || executor.EnvironmentStatus != "ready" || executor.EnvironmentReason != "development_fixture" || executor.RuntimeStatus != "healthy" || executor.RuntimeReason != "development_fixture" {
+		t.Fatalf("development executor health axes are incomplete: %#v", executor)
+	}
+	if executor.DaemonInstanceID == "" || executor.ConnectionEpoch != 1 || len(executor.Runtimes) != 2 || !executor.Runtimes[0].Selected || executor.Runtimes[0].Kind != "codex" || executor.Runtimes[0].Version != "codex fixture" || executor.Runtimes[1].Kind != "claude" || executor.Runtimes[1].ErrorCode != "CLAUDE_AUTH_REQUIRED" {
+		t.Fatalf("development executor Runtime inventory is incomplete: %#v", executor)
+	}
+	if len(executor.Workspaces) != 1 || executor.Workspaces[0].ProjectID != bootstrap.Data.MarketingVideoFixture.Project.ID || executor.Workspaces[0].WorkspaceID == "" || executor.Workspaces[0].Status != "ready" || executor.Workspaces[0].Generation != "sha256:development-workspace-generation" {
+		t.Fatalf("development executor Workspace inventory is incomplete: %#v", executor.Workspaces)
+	}
 	demoProjects := callBFF[[]domain.Project](t, client, http.MethodGet, server.URL+"/api/bff/projects", nil)
 	if len(demoProjects) != 1 || demoProjects[0].ContentType != domain.ContentTypeMarketingVideo || demoProjects[0].ConnectedDevices != 1 || demoProjects[0].KnowledgeReady != 4 {
 		t.Fatalf("development bootstrap did not create the marketing video project: %#v", demoProjects)
@@ -191,6 +205,10 @@ func TestPlatformAdminOverviewAndTenantStatusEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	response.Body.Close()
+	refreshedExecutors := callBFF[app.OperationsExecutorDirectory](t, client, http.MethodGet, server.URL+"/api/bff/operations/executors", nil)
+	if len(refreshedExecutors.Executors) != 1 || refreshedExecutors.Executors[0].DaemonInstanceID != executor.DaemonInstanceID || refreshedExecutors.Executors[0].PresenceStatus != "online" {
+		t.Fatalf("development executor current-state fixture is not idempotent: %#v", refreshedExecutors)
+	}
 	demoProjects = callBFF[[]domain.Project](t, client, http.MethodGet, server.URL+"/api/bff/projects", nil)
 	demoTasks = callBFF[[]domain.WorkTask](t, client, http.MethodGet, server.URL+"/api/bff/tasks?project_id="+demoProjects[0].ID, nil)
 	if len(demoProjects) != 1 || len(demoTasks) != 1 || demoTasks[0].ID != demoTask.Task.ID {

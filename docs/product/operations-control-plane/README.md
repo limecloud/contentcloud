@@ -132,17 +132,21 @@
 
 ## 8. 当前迁移进度
 
-截至 2026-08-08，前端已经完成 O1 的独立后台外壳和运营总览，并开始落地 O2、O3：
+截至 2026-08-13，前端和 Runtime 已完成 O1、O3 的当前首切片，并完成 O2、O5 的主要首切片；以下仍是产品化路线，不代表所有生产验收已完成：
 
 | 阶段 | 当前状态 | 已有产物 | 仍未完成 |
 | --- | --- | --- | --- |
 | O0 | 已落地 | 中文术语、产品面边界、旧入口退场清单 | 持续检查新需求归属 |
 | O1 | 已落地首切片 | `/admin` 独立 Shell、运营总览、待办摘要、数据更新时间 | 发布风险、运行异常和资产待办仍需接入独立队列 |
 | O2 | 进行中 | 创作产品列表、新建产品、产品/版本深链、草稿编辑、发布检查、发布预览、执行绑定预览、发布、版本比较、影响分析、回退、发布结果深链、客户开通列表/筛选/详情、四步开通向导和能力覆盖提示 | Canary |
-| O3 | 进行中 | 能力列表/版本深链和反向引用；独立执行端 BFF、列表/详情深链、心跳健康、版本、能力声明和项目授权；已验证插件 Registry 驱动的技能包版本列表/详情、供应链、评测、权限、数据流、成本和输出契约 | 执行端地区、资料范围、并发和失败趋势；完整 SkillManifest 的能力引用、输入契约、负责人、工具、Canary、绑定影响和审批命令；连接与生成服务目录 |
+| O3 | 已落地首切片 | 能力列表/版本深链和反向引用；独立执行端 BFF、列表/详情深链、DaemonInstance 三轴健康、45 秒 freshness、版本、能力声明和项目授权；已验证插件 Registry 驱动的技能包版本列表/详情、供应链、评测、权限、数据流、成本和输出契约 | 执行端地区、资料范围、并发和失败趋势；完整 SkillManifest 的能力引用、输入契约、负责人、工具、Canary、绑定影响和审批命令；连接与生成服务目录 |
 | O4 | 待建立契约 | 无事实契约的选择规则和模拟器不注册路由 | 绑定策略、确定性试算和审批事实 |
-| O5 | 已落地恢复首切片 | `/admin/jobs` 直接承载 Runtime Explorer；支持服务端授权动作、准入冻结身份、事件校验与投影重建、从安全检查点创建分支、`unknown` Effect 发起对账；重放与分支不调用外部服务 | 完整执行图、Attempt/租约详情、共享状态、费用和支持案例 |
+| O5 | 已落地恢复首切片 | `/admin/jobs` 直接承载 Runtime Explorer；支持服务端授权动作、准入冻结身份、事件校验与投影重建、从安全检查点创建分支、`unknown` Effect 发起对账；重放与分支不调用外部服务 | 完整执行图、Attempt/租约详情、共享状态、费用和支持案例；真实生产故障演练和告警 Canary 仍待验收 |
 | O6 | 待建立契约 | 无事实契约的结果治理工作面不暴露 | 创作结果目录、权利待办、重复候选和目录重建队列 |
 | O7 | 已完成当前清理 | 删除旧配置、旧 Runtime、兼容页和所有无契约占位路由；Runtime BFF 收敛到 `/api/bff/runtime` | 持续阻止兼容入口、占位路由和重复路径回流 |
 
 当前页面只使用已有 BFF 真实数据；执行端不再由客户 Environment 记录代替，技能包只投影服务端启动时已经完成签名校验的 `skill_pack` Registry 条目。Registry 未配置时返回明确的未配置状态和空数组；已发布的 Registry 条目也不自动等同于业务审批完成或已经被客户任务使用。没有后端契约的对象和指标不注册页面，不填充演示数量。
+
+执行端状态采用三轴投影：Presence（连接存在性）、Environment（环境就绪度）和 Runtime（执行可用性）。WSS 只负责低延迟 current-state、`runtime.available` 唤醒和断线重连；HTTPS 负责命令、租约、事件、终态提交和 Attempt-scoped MCP Gateway。Daemon 在启动及每 5 分钟探测完整 Runtime inventory，运营详情显示版本、健康、选中态和稳定错误码；选中 Runtime 不健康时只阻断新 Attempt。在线不等于环境 ready，环境/Plugin/Skill/MCP generation 漂移时必须新建 Agent 会话。
+
+当前协议安全边界：WSS 首帧为 `control.sync_state`，`control.ready` 之后才发送 `runtime.available`；同一 DaemonInstance 使用 `connection_epoch + report_seq` 做乱序和旧连接 fencing，45 秒 `last_seen_at` 之外视为 stale。新进程连接时旧 live 实例停止，旧实例不能再覆盖新实例的 Presence。Runtime Gateway 返回相对同源路径，Agent 只接收 Attempt 短期 `rtg_` token，不接触设备 `dt_`、Workspace 或 Run token；`prepared` token 只用于等待 activate，不能调用 MCP 工具。

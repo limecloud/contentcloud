@@ -218,7 +218,11 @@ BindingPolicy
 
 分页、筛选、排序和搜索条件必须可复现。敏感字段在 BFF 层就被裁剪，不依赖前端隐藏。
 
-当前执行端首切片已经使用独立 DTO 投影真实设备登记，列表和详情返回：执行端标识、当前租户、设备类型、心跳状态与依据、主机/平台/架构、运行版本、能力声明、项目授权、最近心跳和撤销时间。在线状态沿用平台现有的两分钟心跳窗口。地区、资料范围、并发占用和近 24 小时失败率尚无权威字段，BFF 不推算也不从 Environment 补齐。
+当前执行端首切片已经使用独立 DTO 投影真实设备登记，列表和详情返回：执行端标识、当前租户、设备类型、DaemonInstance 三轴健康与依据、主机/平台/架构、运行版本、Runtime inventory、脱敏 Workspace inventory、能力声明、项目授权、最近状态报告和撤销时间。Workspace inventory 只包含 `workspace_id/project_id`、状态、原因、generation、服务端声明摘要、本地 receipt/观察摘要和观察时间，不返回本地绝对路径。在线状态使用服务端 `last_seen_at` 的 45 秒 freshness；连接代际和报告序列用于同一 DaemonInstance 的乱序/旧报告围栏。地区、资料范围、并发占用和近 24 小时失败率尚无权威字段，BFF 不推算也不从 Environment 补齐。
+
+DaemonInstance 的状态报告是 current-state 快照，不是追加日志：首帧和每次变化都带实例 ID、epoch、序列、进程和能力。重复/倒序报告、同 epoch stopped 复活、旧实例在新实例接管后写入都会被拒绝；断开连接会报告 stopped，Presence 仍由服务端 45 秒 freshness 计算。执行端列表优先选择当前 live 实例，不能用设备 online 推导 Environment ready 或 Runtime 可用。
+
+Workspace 在 Daemon 启动时观察，之后每 30 秒刷新；Runtime inventory 在启动时探测，之后每 5 分钟刷新。两者变化都立即触发完整 current-state，但都只是执行端当前状态。新 Attempt 创建前，Runtime 必须按项目匹配唯一 Workspace，要求状态为 `ready`，并比对 `ExecutionBindingSnapshot` 冻结的 Environment、Plugin、Skill、MCP、Workspace 五类服务端声明摘要。Plugin receipt 和本地 Skill/MCP/Workspace 观察摘要是不同字段，不允许互相替代。漂移阻断新 Attempt，不改写已运行 Attempt 的快照。
 
 当前技能包首切片只投影服务端启动时已经完成签名校验、且 `kind=skill_pack` 的插件 Registry 条目。列表和详情返回：技能包标识、版本、摘要、生命周期、新任务候选资格、代码来源和不可变引用、许可证、签名状态和 key ID、兼容配置、权限、默认数据流、云端动作、费用声明、输出 Schema、评测报告/摘要/证据和撤销状态。BFF 不返回签名正文。Registry 未配置时返回 `configured=false` 和 `skills=[]`，不扫描本地 Skill 文件，也不读取测试夹具补数。
 
@@ -295,3 +299,5 @@ AuditEvent
 3. Executor 离线时新任务阻断或使用预先批准的安全回退。
 4. 外部结果 unknown 时只能对账，不能重复提交。
 5. 资产投影重建后目录摘要一致，且没有外部副作用。
+6. 执行端详情显示 Workspace 状态、reason、ID、generation 和 freshness，但响应与页面都不包含本地绝对路径。
+7. 同项目缺少 Workspace、多个 Workspace、非 ready 或任一声明摘要漂移时，`prepare_next` 在创建 RuntimeAttempt 前 fail-closed；修复后的新 current-state 才允许后续 Attempt。

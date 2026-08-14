@@ -2,9 +2,9 @@
 
 > 阅读对象：参与 V8 实施和评审的研发负责人。普通读者可先看 README；本文件只记录工作包、依赖、里程碑和风险。
 
-状态：`Runtime Infra V2 的 current 主链已收敛到 JobRun/NodeRun/RuntimeAttempt，公开读取已统一为 RuntimeRun/RuntimeRunEvent；V7 执行存储、旧 DTO、daemon 执行协议、写 API 和零消费者 session 镜像已删除。Attempt-scoped MCP Gateway、Runtime Schema Registry、提交后故障钩子和 FairnessReport 已进入代码；专用 PostgreSQL 集成库已通过迁移、核心 RLS、事务回滚、outbox receipts 和 fenced replay；真实 Provider、在线宿主 MCP/Start/Resume、真实提交后故障环境、告警/Canary 验证仍未完成，不能宣称生产就绪。V8.1 基础设施升级按 09-runtime-infra-v2.md 执行`。
+状态：`Runtime Infra V2 的 current 主链已收敛到 JobRun/NodeRun/RuntimeAttempt，公开读取已统一为 RuntimeRun/RuntimeRunEvent；V7 执行存储、旧 DTO、daemon 执行协议、写 API 和零消费者 session 镜像已删除。Attempt-scoped MCP Gateway、Runtime Schema Registry、提交后故障钩子和 FairnessReport 已进入代码，独立 CLI MCP stdio -> HTTP Gateway 本地传输 smoke 已通过；专用 PostgreSQL 集成库已通过迁移、核心 RLS、事务回滚、outbox receipts 和 fenced replay；真实 Provider、在线宿主 MCP/Start/Resume、真实提交后故障环境、告警/Canary 验证仍未完成，不能宣称生产就绪。V8.1 基础设施升级按 09-runtime-infra-v2.md 执行`。
 
-更新时间：2026-08-09。
+更新时间：2026-08-13。
 
 本台账按以下顺序实施：先验证 Codex、Claude Code 等智能体宿主的实际能力，并兼容现有线性流程；再建设共享状态和故障恢复；最后开放动态执行图。不能先演示大规模创建智能体，再补权限、费用和恢复机制。
 
@@ -25,11 +25,11 @@ V8 对客户工作区资料、任务输入、项目参考、生成结果和交�
 | ID | 工作包 | 主要产物 | 依赖 | 状态 |
 | --- | --- | --- | --- | --- |
 | W8-00 | 基线与契约冻结 | V7 对账、术语、状态机、Schema、错误码、功能开关 | - | 方案草案完成 |
-| W8-01 | 智能体执行适配层原型 | Codex/Claude/Fake 能力探测、MCP、恢复/分支/事件兼容性验证 | W8-00 | Fake、Codex CLI JSONL/thread resume、Claude stream-json/session resume 和 Attempt-scoped MCP Gateway 已实现，worker capability snapshot/fenced event 已接通；客户工作区 bootstrap 当前只发布 Codex，在线 Codex/Claude/MCP smoke 待补 |
+| W8-01 | 智能体执行适配层原型 | Codex/Claude/Fake 能力探测、MCP、恢复/分支/事件兼容性验证 | W8-00 | Fake、Codex CLI JSONL/thread resume、Claude stream-json/session resume 和 Attempt-scoped MCP Gateway 已实现，worker capability snapshot/fenced event 已接通，独立 CLI MCP stdio -> HTTP Gateway 本地传输 smoke 已通过；客户工作区 bootstrap 当前只发布 Codex，在线 Codex/Claude 宿主注入与模型调用待补 |
 | W8-02 | JobRun 与 JobEvent | 领域模型、迁移、存储、服务、RLS、API | W8-00 | 第一版已实现 |
 | W8-03 | SOP 执行图编译器 | JobPlanRevision、节点/边、静态校验、旁路差异报告 | W8-02 | 第一版已实现 |
 | W8-04 | 线性执行图调度器 | 就绪判断、独立 RuntimeAttempt、租约、公平调度 | W8-03 | Prepare/Activate/Heartbeat/Finalize、fence、过期回收、资源预留/释放、aging 排序和 FairnessReport 已实现；V7 执行表与领取链已删除；PostgreSQL 100 节点/20 worker 唯一领取已通过，生产公平容量压测待补 |
-| W8-05 | 类型化状态与上下文 | StateCollection/StateRecord、CAS、ContextView、运行时网关 | W8-04 | StateCollection/StateRecord CAS、四种一致性策略、写策略/单写入者、SchemaRevision、最大记录数、引用型 ContextView、Attempt-scoped MCP Gateway、Schema Registry 和 RLS 持久化已实现；真实宿主 MCP smoke 和 JSON Schema 编译器待补 |
+| W8-05 | 类型化状态与上下文 | StateCollection/StateRecord、CAS、ContextView、运行时网关 | W8-04 | StateCollection/StateRecord CAS、四种一致性策略、写策略/单写入者、SchemaRevision、最大记录数、引用型 ContextView、Attempt-scoped MCP Gateway、Schema Registry 和 RLS 持久化已实现，本地独立 CLI MCP stdio -> HTTP Gateway 传输已验证；在线宿主 MCP 注入、生产凭据/网络和 JSON Schema 编译器待补 |
 | W8-06 | AgentInstance 执行 | 父子身份、宿主会话、让出资源/恢复执行、权限交集 | W8-01、W8-05 | FakeHarness 事件闭环、Agent 跨 Attempt 复用、Codex thread ID/新进程 Resume、Claude stream-json/新进程 Resume、Yield/Resume 原子释放与恢复、RLS 及父子范围收敛已实现；session 镜像旁路已删除，在线 Codex/Claude 宿主演练待补 |
 | W8-07 | 资源与外部操作台账 | 资源预留、ToolCall、外部操作及结果不明/对账/补偿 | W8-02、W8-04 | ResourceQuota/Reservation、ToolCall 状态机、Effect unknown/reconciling、Provider inbox/回调去重、账单匹配/差异和命令事务已实现；真实服务商账单/补偿演练待补 |
 | W8-08 | 服务商生产闭环 | 真实适配器、异步轮询/回调、租约回收、流式下载、渲染 | W8-07 | provider-neutral HTTP 适配器、签名/超时/SSRF 防护、异步 submit/status/cancel、Runtime Effect 关联、HMAC callback/bill ingress、到期轮询恢复和有上限流式下载已实现；真实服务商凭据、账单补偿和确定性后处理演练待验收 |

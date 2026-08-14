@@ -197,10 +197,10 @@ func (s *Store) BootstrapProgressForSession(ctx context.Context, tenantID, sessi
 	return domain.BootstrapProgressFrom(attempt, latest), nil
 }
 
-func (s *Store) ConsumeBootstrapAttempt(ctx context.Context, tokenHash string, device domain.Device, workspace domain.WorkspaceBinding, now time.Time) (domain.ConnectSession, domain.BootstrapAttempt, error) {
+func (s *Store) ConsumeBootstrapAttempt(ctx context.Context, tokenHash string, device domain.Device, workspace domain.WorkspaceBinding, now time.Time) (domain.ConnectSession, domain.BootstrapAttempt, domain.Device, domain.WorkspaceBinding, error) {
 	var tenantID, attemptID string
 	if err := s.pool.QueryRow(ctx, `SELECT tenant_id,attempt_id FROM contentcloud_lookup_bootstrap_attempt($1)`, tokenHash).Scan(&tenantID, &attemptID); err != nil {
-		return domain.ConnectSession{}, domain.BootstrapAttempt{}, domain.Conflict("BOOTSTRAP_AUTHORIZATION_INVALID", "初始化授权无效、已使用或已过期")
+		return domain.ConnectSession{}, domain.BootstrapAttempt{}, domain.Device{}, domain.WorkspaceBinding{}, domain.Conflict("BOOTSTRAP_AUTHORIZATION_INVALID", "初始化授权无效、已使用或已过期")
 	}
 	var session domain.ConnectSession
 	var attempt domain.BootstrapAttempt
@@ -214,14 +214,44 @@ func (s *Store) ConsumeBootstrapAttempt(ctx context.Context, tokenHash string, d
 			return domain.Conflict("CONNECT_SESSION_UNAVAILABLE", "连接会话已过期、取消或被使用")
 		}
 		device.TenantID, device.OwnerUserID, device.ProjectIDs = v.TenantID, v.InviterUserID, []string{v.ProjectID}
-		if _, err := tx.Exec(ctx, `INSERT INTO devices(id,tenant_id,owner_user_id,display_name,hostname,platform,arch,daemon_version,token_hash,capability_manifests,last_seen_at,revoked_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, device.ID, device.TenantID, device.OwnerUserID, device.DisplayName, device.Hostname, device.Platform, device.Arch, device.Version, device.TokenHash, jsonArrayValue(device.Capabilities), device.LastSeenAt, device.RevokedAt); err != nil {
+		var existingID string
+		var existingProjects []byte
+		err = tx.QueryRow(ctx, `SELECT d.id,COALESCE((SELECT jsonb_agg(g.project_id::text) FROM project_device_grants g WHERE g.device_id=d.id AND g.revoked_at IS NULL),'[]'::jsonb) FROM devices d WHERE d.tenant_id=$1 AND d.machine_id=$2 AND d.revoked_at IS NULL FOR UPDATE`, v.TenantID, device.MachineID).Scan(&existingID, &existingProjects)
+		if err == nil {
+			device.ID = existingID
+			device.ProjectIDs, _ = decodeJSON[[]string](existingProjects)
+			if _, err := tx.Exec(ctx, `UPDATE devices SET owner_user_id=$3,display_name=$4,hostname=$5,platform=$6,arch=$7,daemon_version=$8,token_hash=$9,credential_version=credential_version+1,credential_rotated_at=$10,capability_manifests=$11,last_seen_at=$10 WHERE tenant_id=$1 AND id=$2`, device.TenantID, device.ID, device.OwnerUserID, device.DisplayName, device.Hostname, device.Platform, device.Arch, device.Version, device.TokenHash, now, jsonArrayValue(device.Capabilities)); err != nil {
+				return dbError(err)
+			}
+			if err := tx.QueryRow(ctx, `SELECT credential_version,credential_rotated_at FROM devices WHERE tenant_id=$1 AND id=$2`, device.TenantID, device.ID).Scan(&device.CredentialVersion, &device.CredentialRotatedAt); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		} else if _, err := tx.Exec(ctx, `INSERT INTO devices(id,tenant_id,owner_user_id,machine_id,display_name,hostname,platform,arch,daemon_version,token_hash,credential_version,credential_rotated_at,capability_manifests,last_seen_at,revoked_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, device.ID, device.TenantID, device.OwnerUserID, device.MachineID, device.DisplayName, device.Hostname, device.Platform, device.Arch, device.Version, device.TokenHash, device.CredentialVersion, device.CredentialRotatedAt, jsonArrayValue(device.Capabilities), device.LastSeenAt, device.RevokedAt); err != nil {
 			return dbError(err)
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO project_device_grants(tenant_id,project_id,device_id,granted_by,granted_at) VALUES($1,$2,$3,$4,$5)`, v.TenantID, v.ProjectID, device.ID, v.InviterUserID, now); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO project_device_grants(tenant_id,project_id,device_id,granted_by,granted_at,revoked_at) VALUES($1,$2,$3,$4,$5,NULL) ON CONFLICT (tenant_id,project_id,device_id) DO UPDATE SET granted_by=EXCLUDED.granted_by,granted_at=EXCLUDED.granted_at,revoked_at=NULL`, v.TenantID, v.ProjectID, device.ID, v.InviterUserID, now); err != nil {
 			return dbError(err)
+		}
+		foundProject := false
+		for _, projectID := range device.ProjectIDs {
+			foundProject = foundProject || projectID == v.ProjectID
+		}
+		if !foundProject {
+			device.ProjectIDs = append(device.ProjectIDs, v.ProjectID)
 		}
 		workspace.TenantID, workspace.ProjectID, workspace.DeviceID, workspace.OwnerUserID = v.TenantID, v.ProjectID, device.ID, v.InviterUserID
-		if _, err := tx.Exec(ctx, `INSERT INTO workspace_bindings(id,tenant_id,project_id,device_id,owner_user_id,template_id,template_version,targets,credential_hash,status,initialized_at,last_seen_at,revoked_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, workspace.ID, workspace.TenantID, workspace.ProjectID, workspace.DeviceID, workspace.OwnerUserID, workspace.TemplateID, workspace.TemplateVersion, jsonArrayValue(workspace.Targets), workspace.CredentialHash, workspace.Status, workspace.InitializedAt, workspace.LastSeenAt, workspace.RevokedAt); err != nil {
+		var existingWorkspaceID string
+		err = tx.QueryRow(ctx, `SELECT id FROM workspace_bindings WHERE tenant_id=$1 AND project_id=$2 AND device_id=$3 AND status='active' AND revoked_at IS NULL ORDER BY initialized_at LIMIT 1 FOR UPDATE`, workspace.TenantID, workspace.ProjectID, workspace.DeviceID).Scan(&existingWorkspaceID)
+		if err == nil {
+			workspace.ID = existingWorkspaceID
+			if _, err := tx.Exec(ctx, `UPDATE workspace_bindings SET owner_user_id=$4,template_id=$5,template_version=$6,targets=$7,credential_hash=$8,last_seen_at=$9 WHERE tenant_id=$1 AND id=$2 AND device_id=$3`, workspace.TenantID, workspace.ID, workspace.DeviceID, workspace.OwnerUserID, workspace.TemplateID, workspace.TemplateVersion, jsonArrayValue(workspace.Targets), workspace.CredentialHash, now); err != nil {
+				return dbError(err)
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		} else if _, err := tx.Exec(ctx, `INSERT INTO workspace_bindings(id,tenant_id,project_id,device_id,owner_user_id,template_id,template_version,targets,credential_hash,status,initialized_at,last_seen_at,revoked_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, workspace.ID, workspace.TenantID, workspace.ProjectID, workspace.DeviceID, workspace.OwnerUserID, workspace.TemplateID, workspace.TemplateVersion, jsonArrayValue(workspace.Targets), workspace.CredentialHash, workspace.Status, workspace.InitializedAt, workspace.LastSeenAt, workspace.RevokedAt); err != nil {
 			return dbError(err)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE connect_sessions SET state='verifying',consumed_at=$3,consumed_device_id=$4 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, now, device.ID); err != nil {
@@ -236,7 +266,7 @@ func (s *Store) ConsumeBootstrapAttempt(ctx context.Context, tokenHash string, d
 		return nil
 	})
 	attempt.AttemptTokenHash, attempt.CodeChallenge = "", ""
-	return session, attempt, err
+	return session, attempt, device, workspace, err
 }
 
 func (s *Store) CompleteBootstrapAttempt(ctx context.Context, tokenHash, state string, now time.Time) (domain.BootstrapAttempt, error) {

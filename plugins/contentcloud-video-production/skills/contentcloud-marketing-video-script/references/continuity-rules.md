@@ -1,23 +1,23 @@
-# Multi-shot Continuity
+# 多镜头连续性
 
-Lock reusable facts before writing the first shot.
+编写第一个镜头前锁定可复用事实。
 
-## Subject registry
+## 主体登记
 
-Give each recurring subject a stable ID, name, identity anchors, material or appearance anchors, wardrobe, and props. Use the same wording across shots. Do not silently renumber references.
+为每个重复出现的主体设置稳定 ID、名称、身份锚点、材质或外观锚点、服装和道具。跨镜头使用相同表述。不得静默重排引用编号。
 
-## Scene and style lock
+## 场景与风格锁定
 
-Fix location, time, light direction, color behavior, texture, and aspect ratio. A narrative transition may change one of these only when the outgoing and incoming states explicitly explain the change.
+固定地点、时间、光照方向、色彩表现、质感和画面比例。只有传出与传入状态明确解释变化时，叙事转场才能改变其中一项。
 
-## Shot handoff
+## 镜头交接
 
-For adjacent shots, verify:
+对相邻镜头核验：
 
-- Outgoing product, prop, and wardrobe state equals the next incoming state.
-- Exit and entry direction preserve the screen axis.
-- Gaze, hand position, smoke, fabric, liquid, and other moving details have a plausible handoff.
-- Lighting direction and product color remain stable.
-- A cut changes shot purpose or information, not merely decoration.
+- 传出的产品、道具和服装状态与下一镜头传入状态一致。
+- 离场和入场方向保持画面轴线。
+- 视线、手部位置、烟雾、布料、液体和其他运动细节具有合理交接。
+- 光照方向和产品颜色保持稳定。
+- 剪辑改变镜头目的或信息，而不只是装饰。
 
-Use a Plan B when a model is unlikely to preserve small typography, exact fingers, transparent materials, smoke topology, or complex continuous transformations.
+模型难以保留小字号文字、准确手指、透明材质、烟雾拓扑或复杂连续变形时，使用 Plan B。

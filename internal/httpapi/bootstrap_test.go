@@ -45,7 +45,7 @@ func TestBootstrapDocumentIsPublicAndAgentReady(t *testing.T) {
 		t.Fatalf("Cache-Control = %q", got)
 	}
 	document := string(body)
-	for _, required := range []string{"session-id", "浏览器设备授权", "@limecloud/contentcloud@0.25.0", "bootstrap preflight", "bootstrap plan", "bootstrap apply", "bootstrap resume", "plan_id", "--plan-id <plan_id-from-plan-json>", "新的 Codex 对话", "现有业务文件不会上传或替换"} {
+	for _, required := range []string{"session-id", "浏览器设备授权", "@limecloud/contentcloud@0.26.0", "bootstrap preflight", "bootstrap plan", "bootstrap apply", "bootstrap resume", "plan_id", "--plan-id <plan_id-from-plan-json>", "新的 Codex 对话", "现有业务文件不会上传或替换"} {
 		if !strings.Contains(document, required) {
 			t.Fatalf("bootstrap document is missing %q", required)
 		}
@@ -90,7 +90,7 @@ func TestConnectSessionHTTPStateTracksWorkspaceInitialization(t *testing.T) {
 	if authorized.Progress == nil || authorized.Progress.Status != "started" || authorized.Progress.UserCode != "" {
 		t.Fatalf("approved browser authorization was not projected: %#v", authorized.Progress)
 	}
-	device := callDispatch[app.ConnectDeviceResult](t, client, server.URL, "", "bootstrap.authorization.complete", app.CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: verifier, Device: app.ConnectDeviceInput{Hostname: "http-connect-mac", Platform: "darwin", Arch: "arm64", Version: "test"}})
+	device := callDispatch[app.ConnectDeviceResult](t, client, server.URL, "", "bootstrap.authorization.complete", app.CompleteBootstrapAuthorizationInput{AttemptToken: started.AttemptToken, CodeVerifier: verifier, Device: app.ConnectDeviceInput{MachineID: "mach_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", Hostname: "http-connect-mac", Platform: "darwin", Arch: "arm64", Version: "test"}})
 	status := callBFF[domain.ConnectSession](t, client, http.MethodGet, server.URL+"/api/bff/connect-sessions/"+connect.ID, nil)
 	if status.State != "verifying" {
 		t.Fatalf("HTTP state after device connection = %q, want verifying", status.State)

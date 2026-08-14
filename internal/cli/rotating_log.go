@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 )
 
@@ -33,6 +35,7 @@ func newRotatingLogWriter(path string) (*rotatingLogWriter, error) {
 }
 
 func (w *rotatingLogWriter) Write(body []byte) (int, error) {
+	body = []byte(sanitizeDaemonLog(string(body)))
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err := w.ensureFile(); err != nil {
@@ -44,6 +47,30 @@ func (w *rotatingLogWriter) Write(body []byte) (int, error) {
 		}
 	}
 	return w.file.Write(body)
+}
+
+var (
+	daemonBearerSecret = regexp.MustCompile(`(?i)(bearer\s+)[^\s,;]+`)
+	daemonOpaqueSecret = regexp.MustCompile(`\b(?:dt_|wt_|rtg_|cbt_|cck_)[A-Za-z0-9_-]+`)
+	daemonAPISecret    = regexp.MustCompile(`(?i)(\b(?:api[_-]?key|authorization|token|password|secret|credential)\s*[=:]\s*)[^\s,;]+`)
+	daemonUserPath     = regexp.MustCompile(`(?i)(?:/Users/[^\s,;]+|/home/[^\s,;]+|[A-Z]:\\Users\\[^\s,;]+)`)
+	daemonURL          = regexp.MustCompile(`(?i)\b(?:https?|wss?)://[^\s,;]+`)
+	daemonEmail        = regexp.MustCompile(`(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`)
+)
+
+func sanitizeDaemonLog(value string) string {
+	value = daemonBearerSecret.ReplaceAllString(value, `${1}[REDACTED]`)
+	value = daemonOpaqueSecret.ReplaceAllString(value, "[REDACTED]")
+	value = daemonAPISecret.ReplaceAllString(value, `${1}[REDACTED]`)
+	value = daemonUserPath.ReplaceAllString(value, "[PATH]")
+	value = daemonURL.ReplaceAllString(value, "[URL]")
+	value = daemonEmail.ReplaceAllString(value, "[EMAIL]")
+	return strings.TrimSpace(value) + func() string {
+		if strings.HasSuffix(value, "\n") {
+			return "\n"
+		}
+		return ""
+	}()
 }
 
 func (w *rotatingLogWriter) Close() error {

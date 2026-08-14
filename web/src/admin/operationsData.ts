@@ -56,10 +56,16 @@ export function normalizeOperationsExecutorDirectory(value: OperationsExecutorDi
     ...value,
     executors: list(value?.executors).map(executor => ({
       ...executor,
+	  presence_status: executor.presence_status || (executor.status === 'online' ? 'online' : executor.status === 'offline' || executor.status === 'revoked' ? 'offline' : 'unknown'),
+	  environment_status: executor.environment_status || 'unknown',
+	  runtime_status: executor.runtime_status || 'unknown',
+	  active_attempt_ids: list(executor.active_attempt_ids),
+	  runtimes: list(executor.runtimes),
+	  workspaces: list(executor.workspaces),
       capabilities: list(executor.capabilities).map(capability => ({...capability, presentation_profiles: list(capability.presentation_profiles)})),
       projects: list(executor.projects)
     })),
-    online_window_seconds: value?.online_window_seconds || 120
+    online_window_seconds: value?.online_window_seconds || 45
   };
 }
 

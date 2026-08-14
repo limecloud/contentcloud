@@ -38,13 +38,13 @@ export async function loadAdminSnapshot(isPlatformAdmin:boolean) {
   const workOS=normalizeAdminWorkOSView(workOSResponse);
   const executorDirectory=executorResult.ok
     ?normalizeOperationsExecutorDirectory(executorResult.value)
-    :{executors:[],generated_at:workOS.generated_at,online_window_seconds:120};
+    :{executors:[],generated_at:workOS.generated_at,online_window_seconds:45};
   const skillDirectory=isPlatformAdmin
     ?skillResult?.ok
       ?normalizeOperationsSkillDirectory(skillResult.value)
       :{configured:false,skills:[],generated_at:workOS.generated_at}
     :undefined;
-  const data:PlatformOverview={counts:{tenants:1,active_tenants:workOS.environments.filter(item=>item.status==='active').length,users:0,projects:0,online_devices:executorDirectory.executors.filter(item=>item.status==='online').length,active_runs:workOS.usage.running_count},tenants:[],users:[],generated_at:executorDirectory.generated_at||workOS.generated_at};
+  const data:PlatformOverview={counts:{tenants:1,active_tenants:workOS.environments.filter(item=>item.status==='active').length,users:0,projects:0,online_devices:executorDirectory.executors.filter(item=>item.presence_status==='online').length,active_runs:workOS.usage.running_count},tenants:[],users:[],generated_at:executorDirectory.generated_at||workOS.generated_at};
   return {
     data,
     workOS,

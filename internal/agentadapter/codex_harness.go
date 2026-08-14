@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,10 +20,11 @@ import (
 const maxCodexHarnessEventBytes = 1 << 20
 
 type codexExecHarness struct {
-	binary     string
-	prefixArgs []string
-	extraEnv   []string
-	detect     func(context.Context) error
+	binary           string
+	prefixArgs       []string
+	extraEnv         []string
+	detect           func(context.Context) (string, error)
+	handshakeTimeout time.Duration
 
 	mu       sync.Mutex
 	sessions map[string]*codexExecSession
@@ -36,6 +39,7 @@ type codexExecSession struct {
 type codexJSONEvent struct {
 	Type     string          `json:"type"`
 	ThreadID string          `json:"thread_id,omitempty"`
+	Error    json.RawMessage `json:"error,omitempty"`
 	Usage    *codexUsage     `json:"usage,omitempty"`
 	Item     json.RawMessage `json:"item,omitempty"`
 }
@@ -50,14 +54,34 @@ type codexUsage struct {
 
 func newCodexExecHarness() AgentHarnessAdapter {
 	harness := &codexExecHarness{binary: "codex", sessions: map[string]*codexExecSession{}}
-	harness.detect = func(ctx context.Context) error {
+	harness.detect = func(ctx context.Context) (string, error) {
 		path, err := exec.LookPath(harness.binary)
 		if err != nil {
-			return err
+			return "", err
 		}
-		cmd := exec.CommandContext(ctx, path, "exec", "resume", "--help")
+		cmd := exec.CommandContext(ctx, path, "exec", "--help")
 		cmd.Env = agentEnvironment("codex")
-		return cmd.Run()
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", err
+		}
+		help := string(output)
+		for _, required := range []string{"--config", "--json", "--output-schema", "--output-last-message", "resume"} {
+			if !strings.Contains(help, required) {
+				return "", domain.Policy("CODEX_CAPABILITY_UNAVAILABLE", "Codex CLI 缺少 Runtime 所需的结构化输出、会话恢复或 MCP 配置能力", "升级 Codex CLI 或切换到支持 Runtime 协议的 Harness")
+			}
+		}
+		auth := exec.CommandContext(ctx, path, "login", "status")
+		auth.Env = agentEnvironment("codex")
+		authOutput, authErr := auth.CombinedOutput()
+		if authErr != nil || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(string(authOutput))), "logged in") {
+			return "", domain.Policy("CODEX_AUTH_REQUIRED", "Codex CLI 尚未完成认证", "在本机完成 Codex 登录后等待 Daemon 重探测或重启 Daemon")
+		}
+		version, versionErr := exec.CommandContext(ctx, path, "--version").CombinedOutput()
+		if versionErr != nil {
+			return "", versionErr
+		}
+		return strings.TrimSpace(string(version)), nil
 	}
 	return harness
 }
@@ -66,11 +90,12 @@ func (h *codexExecHarness) Detect(ctx context.Context) (HarnessCapabilities, err
 	if h == nil || h.detect == nil {
 		return HarnessCapabilities{}, domain.Policy("CODEX_HARNESS_UNAVAILABLE", "Codex Harness 尚未配置", "检查 Runtime 的 Codex 执行适配器配置")
 	}
-	if err := h.detect(ctx); err != nil {
+	version, err := h.detect(ctx)
+	if err != nil {
 		return HarnessCapabilities{}, err
 	}
 	return HarnessCapabilities{
-		Kind: "codex", Events: true, Resume: true, Fork: false,
+		Kind: "codex", Version: version, Events: true, Resume: true, Fork: false, MCPStdio: true,
 		StructuredOutput: true, SandboxProfile: "workspace_write_auto_approval",
 		MaxParallelSessions: 8, TranscriptExport: false,
 	}, nil
@@ -85,7 +110,7 @@ func (h *codexExecHarness) Start(ctx context.Context, request StartAgentRequest)
 		return AgentSessionRef{}, nil, err
 	}
 	prompt := codexHarnessPrompt(agentPrompt(contract, skill), request.Prompt)
-	return h.launch(ctx, request.TenantID, dir, prompt, "")
+	return h.launch(ctx, request.TenantID, dir, prompt, "", request.RuntimeGateway)
 }
 
 func (h *codexExecHarness) Resume(ctx context.Context, request ResumeAgentRequest) (EventStream, error) {
@@ -104,7 +129,7 @@ func (h *codexExecHarness) Resume(ctx context.Context, request ResumeAgentReques
 		tenantID = request.Session.TenantID
 	}
 	prompt := codexHarnessPrompt(agentPrompt(contract, skill), request.Prompt)
-	ref, stream, err := h.launch(ctx, tenantID, dir, prompt, request.Session.SessionID)
+	ref, stream, err := h.launch(ctx, tenantID, dir, prompt, request.Session.SessionID, request.RuntimeGateway)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +174,7 @@ func (h *codexExecHarness) Inspect(_ context.Context, ref AgentSessionRef) (Agen
 	return session.status, nil
 }
 
-func (h *codexExecHarness) launch(ctx context.Context, tenantID, dir, prompt, resumeSessionID string) (AgentSessionRef, EventStream, error) {
+func (h *codexExecHarness) launch(ctx context.Context, tenantID, dir, prompt, resumeSessionID string, gateway RuntimeGatewayConfig) (AgentSessionRef, EventStream, error) {
 	resultPath, err := reserveCodexResultPath(dir)
 	if err != nil {
 		return AgentSessionRef{}, nil, err
@@ -161,12 +186,15 @@ func (h *codexExecHarness) launch(ctx context.Context, tenantID, dir, prompt, re
 		}
 	}()
 
+	args, gatewayEnv, err := codexHarnessArguments(dir, resultPath, resumeSessionID, gateway)
+	if err != nil {
+		return AgentSessionRef{}, nil, err
+	}
 	runCtx, cancel := context.WithCancel(ctx)
-	args := codexHarnessArguments(dir, resultPath, resumeSessionID)
 	cmd := exec.CommandContext(runCtx, h.binary, append(append([]string(nil), h.prefixArgs...), args...)...)
 	configureAgentProcess(cmd)
 	cmd.Dir = dir
-	cmd.Env = append(agentEnvironment("codex"), h.extraEnv...)
+	cmd.Env = append(append(agentEnvironment("codex"), gatewayEnv...), h.extraEnv...)
 	cmd.Stdin = strings.NewReader(prompt)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -177,15 +205,39 @@ func (h *codexExecHarness) launch(ctx context.Context, tenantID, dir, prompt, re
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		cancel()
-		return AgentSessionRef{}, nil, err
+		return AgentSessionRef{}, nil, classifyProcessError("codex", err, stderr.String())
 	}
 
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64<<10), maxCodexHarnessEventBytes)
-	first, err := scanCodexEvent(scanner)
-	if err != nil || first.Type != "thread.started" || !validCodexSessionID(first.ThreadID) {
+	type handshakeResult struct {
+		event codexJSONEvent
+		err   error
+	}
+	handshake := make(chan handshakeResult, 1)
+	go func() {
+		first, scanErr := scanCodexEvent(scanner)
+		handshake <- handshakeResult{event: first, err: scanErr}
+	}()
+	var first codexJSONEvent
+	select {
+	case result := <-handshake:
+		first, err = result.event, result.err
+	case <-time.After(resolvedHarnessHandshakeTimeout(h.handshakeTimeout)):
 		cancel()
 		_ = cmd.Wait()
+		<-handshake
+		return AgentSessionRef{}, nil, domain.Conflict("CODEX_HANDSHAKE_TIMEOUT", "Codex CLI 启动后未在期限内返回首个结构化事件")
+	}
+	if err != nil || first.Type != "thread.started" || !validCodexSessionID(first.ThreadID) {
+		cancel()
+		waitErr := cmd.Wait()
+		if waitErr != nil || processFailureCode("codex", err, stderr.String()) != "CODEX_PROCESS_FAILED" {
+			if waitErr == nil {
+				waitErr = err
+			}
+			return AgentSessionRef{}, nil, classifyProcessError("codex", waitErr, stderr.String())
+		}
 		if err == nil {
 			err = domain.Invalid("CODEX_EVENT_PROTOCOL_INVALID", "Codex JSONL 未以有效 thread.started 事件开始")
 		}
@@ -211,7 +263,7 @@ func (h *codexExecHarness) launch(ctx context.Context, tenantID, dir, prompt, re
 	}
 	stream.emit(AgentEvent{Type: eventType, Session: ref, OccurredAt: session.status.LastEventAt})
 	cleanupResult = false
-	go h.consume(session, scanner, cmd, resultPath)
+	go h.consume(session, scanner, cmd, &stderr, resultPath)
 	return ref, stream, nil
 }
 
@@ -230,7 +282,7 @@ func (h *codexExecHarness) registerSession(session *codexExecSession) error {
 	return nil
 }
 
-func (h *codexExecHarness) consume(session *codexExecSession, scanner *bufio.Scanner, cmd *exec.Cmd, resultPath string) {
+func (h *codexExecHarness) consume(session *codexExecSession, scanner *bufio.Scanner, cmd *exec.Cmd, stderr *limitedBuffer, resultPath string) {
 	defer os.Remove(resultPath)
 	cancel := session.cancel
 	failed := false
@@ -252,7 +304,7 @@ func (h *codexExecHarness) consume(session *codexExecSession, scanner *bufio.Sca
 			continue
 		}
 		if event.Type == "turn.failed" || event.Type == "error" {
-			h.failSession(session, codexFailureCode(event.Type))
+			h.failSession(session, codexFailureCode(event))
 			cancel()
 			failed = true
 			break
@@ -267,6 +319,9 @@ func (h *codexExecHarness) consume(session *codexExecSession, scanner *bufio.Sca
 		}
 	}
 	scanErr := scanner.Err()
+	if scanErr != nil {
+		cancel()
+	}
 	waitErr := cmd.Wait()
 	if failed {
 		return
@@ -276,7 +331,7 @@ func (h *codexExecHarness) consume(session *codexExecSession, scanner *bufio.Sca
 		return
 	}
 	if waitErr != nil {
-		h.failSession(session, "CODEX_PROCESS_FAILED")
+		h.failSession(session, processFailureCode("codex", waitErr, stderr.String()))
 		return
 	}
 	body, err := os.ReadFile(resultPath)
@@ -347,16 +402,31 @@ func reserveCodexResultPath(dir string) (string, error) {
 	return path, nil
 }
 
-func codexHarnessArguments(dir, outputPath, resumeSessionID string) []string {
+func codexHarnessArguments(dir, outputPath, resumeSessionID string, gateway RuntimeGatewayConfig) ([]string, []string, error) {
 	args := []string{
 		"exec", "--json", "--sandbox", "workspace-write", "--approve-for-me",
 		"--skip-git-repo-check", "--output-schema", filepath.Join(dir, "output.schema.json"),
 		"--output-last-message", outputPath, "--cd", dir,
 	}
+	gatewayEnv, err := runtimeGatewayEnvironment(gateway)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(gatewayEnv) > 0 {
+		executable, err := contentcloudExecutable()
+		if err != nil {
+			return nil, nil, err
+		}
+		args = append(args,
+			"-c", "mcp_servers.contentcloud-runtime.command="+strconv.Quote(executable),
+			"-c", `mcp_servers.contentcloud-runtime.args=["mcp","runtime-serve"]`,
+			"-c", `mcp_servers.contentcloud-runtime.env_vars=["CONTENTCLOUD_RUNTIME_GATEWAY_URL","CONTENTCLOUD_RUNTIME_GATEWAY_TOKEN","CONTENTCLOUD_RUNTIME_GATEWAY_TOOLS"]`,
+		)
+	}
 	if resumeSessionID != "" {
 		args = append(args, "resume", resumeSessionID)
 	}
-	return args
+	return args, gatewayEnv, nil
 }
 
 func codexHarnessPrompt(base, supplemental string) string {
@@ -411,11 +481,23 @@ func projectCodexEvent(ref AgentSessionRef, event codexJSONEvent) (AgentEvent, b
 	}
 }
 
-func codexFailureCode(eventType string) string {
-	if eventType == "turn.failed" {
+func codexFailureCode(event codexJSONEvent) string {
+	message := string(event.Error)
+	if code := structuredFailureCode("codex", message); code != "" {
+		return code
+	}
+	if event.Type == "turn.failed" {
 		return "CODEX_TURN_FAILED"
 	}
 	return "CODEX_EVENT_STREAM_FAILED"
+}
+
+func structuredFailureCode(kind, message string) string {
+	code := processFailureCode(kind, errors.New("structured failure"), message)
+	if strings.HasSuffix(code, "_PROCESS_FAILED") {
+		return ""
+	}
+	return code
 }
 
 func validCodexSessionID(value string) bool {

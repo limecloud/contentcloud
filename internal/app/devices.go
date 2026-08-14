@@ -61,3 +61,24 @@ func (s *Service) RevokeDevice(ctx context.Context, actor Actor, id, requestID s
 	}
 	return device, nil
 }
+
+func (s *Service) RotateDeviceCredential(ctx context.Context, actor Actor, id, requestID string) (RotateDeviceCredentialResult, error) {
+	if actor.Role != "tenant_admin" && actor.Role != "project_manager" {
+		return RotateDeviceCredentialResult{}, domain.Policy("ROLE_DENIED", "当前角色不能轮换设备凭据", "联系租户管理员")
+	}
+	deviceToken, tokenHash, err := domain.NewOpaqueToken("dt_", 32)
+	if err != nil {
+		return RotateDeviceCredentialResult{}, err
+	}
+	if s.deviceControl == nil {
+		return RotateDeviceCredentialResult{}, domain.Policy("DEVICE_CONTROL_STORE_UNAVAILABLE", "设备控制持久层未配置", "检查服务端设备控制存储配置")
+	}
+	device, err := s.deviceControl.RotateDeviceCredential(ctx, actor.TenantID, id, tokenHash, s.now().UTC())
+	if err != nil {
+		return RotateDeviceCredentialResult{}, err
+	}
+	for _, projectID := range device.ProjectIDs {
+		s.audit(ctx, actor, projectID, "device.credential_rotated", "device", device.ID, requestID, map[string]any{"credential_version": device.CredentialVersion})
+	}
+	return RotateDeviceCredentialResult{Device: device, DeviceToken: deviceToken}, nil
+}

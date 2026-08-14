@@ -53,7 +53,7 @@ type Store interface {
 	DenyBootstrapAttempt(context.Context, string, string, string, string, time.Time) (domain.BootstrapAttempt, error)
 	AppendBootstrapProgress(context.Context, string, domain.BootstrapProgressEvent, time.Time) (domain.BootstrapProgressEvent, error)
 	BootstrapProgressForSession(context.Context, string, string) (*domain.BootstrapProgress, error)
-	ConsumeBootstrapAttempt(context.Context, string, domain.Device, domain.WorkspaceBinding, time.Time) (domain.ConnectSession, domain.BootstrapAttempt, error)
+	ConsumeBootstrapAttempt(context.Context, string, domain.Device, domain.WorkspaceBinding, time.Time) (domain.ConnectSession, domain.BootstrapAttempt, domain.Device, domain.WorkspaceBinding, error)
 	CompleteBootstrapAttempt(context.Context, string, string, time.Time) (domain.BootstrapAttempt, error)
 	CreateBootstrapDiagnostic(context.Context, domain.BootstrapDiagnostic) (domain.BootstrapDiagnostic, error)
 	SaveDevice(context.Context, domain.Device) error

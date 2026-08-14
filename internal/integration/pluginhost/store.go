@@ -1,12 +1,15 @@
 package pluginhost
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -16,6 +19,22 @@ import (
 
 type Store struct {
 	Root string
+}
+
+// DefaultStoreRoot returns the client-owned Plugin Host store location without
+// creating directories or changing local state.
+func DefaultStoreRoot() (string, error) {
+	if configured := strings.TrimSpace(os.Getenv("CONTENTCLOUD_PLUGIN_STORE")); configured != "" {
+		return filepath.Abs(configured)
+	}
+	if configPath := os.Getenv("CONTENTCLOUD_CONFIG_PATH"); configPath != "" {
+		return filepath.Join(filepath.Dir(configPath), "plugins"), nil
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "contentcloud", "plugins"), nil
 }
 
 func NewStore(root string) (*Store, error) {
@@ -45,6 +64,43 @@ func (s *Store) DataPath(host HostID, ref ReleaseRef) string {
 
 func (s *Store) HostPath(host HostID) string {
 	return filepath.Join(s.Root, "hosts", safeID(string(host)))
+}
+
+// ReceiptDigest hashes the actual on-disk installation receipts for a host.
+// It intentionally reads raw bytes so malformed receipts also cause a
+// session-generation change and are handled by the Plugin Host doctor.
+func (s *Store) ReceiptDigest(host HostID) (string, error) {
+	directory := filepath.Join(s.Root, "receipts", safeID(string(host)))
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	sort.Strings(names)
+	hash := sha256.New()
+	for _, name := range names {
+		body, readErr := os.ReadFile(filepath.Join(directory, name))
+		if readErr != nil {
+			return "", readErr
+		}
+		_, _ = hash.Write([]byte(name))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write(body)
+		_, _ = hash.Write([]byte{0})
+	}
+	if len(names) == 0 {
+		return "", nil
+	}
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (s *Store) LoadReceipt(host HostID, pluginID string) (*Receipt, error) {

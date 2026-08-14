@@ -146,7 +146,7 @@ func (s *Store) BootstrapProgressForSession(_ context.Context, tenantID, session
 	return domain.BootstrapProgressFrom(attempt, latest), nil
 }
 
-func (s *Store) ConsumeBootstrapAttempt(_ context.Context, tokenHash string, device domain.Device, workspace domain.WorkspaceBinding, now time.Time) (domain.ConnectSession, domain.BootstrapAttempt, error) {
+func (s *Store) ConsumeBootstrapAttempt(_ context.Context, tokenHash string, device domain.Device, workspace domain.WorkspaceBinding, now time.Time) (domain.ConnectSession, domain.BootstrapAttempt, domain.Device, domain.WorkspaceBinding, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var attempt domain.BootstrapAttempt
@@ -157,20 +157,41 @@ func (s *Store) ConsumeBootstrapAttempt(_ context.Context, tokenHash string, dev
 		}
 	}
 	if attempt.ID == "" || attempt.State != "approved" || attempt.ConsumedAt != nil || now.After(attempt.ExpiresAt) {
-		return domain.ConnectSession{}, attempt, domain.Conflict("BOOTSTRAP_AUTHORIZATION_INVALID", "初始化授权无效、已使用或已过期")
+		return domain.ConnectSession{}, attempt, domain.Device{}, domain.WorkspaceBinding{}, domain.Conflict("BOOTSTRAP_AUTHORIZATION_INVALID", "初始化授权无效、已使用或已过期")
 	}
 	session, ok := s.connects[attempt.ConnectSessionID]
 	if !ok || session.State != "waiting_for_computer" || now.After(session.ExpiresAt) {
-		return session, attempt, domain.Conflict("CONNECT_SESSION_UNAVAILABLE", "连接会话已过期、取消或被使用")
+		return session, attempt, domain.Device{}, domain.WorkspaceBinding{}, domain.Conflict("CONNECT_SESSION_UNAVAILABLE", "连接会话已过期、取消或被使用")
 	}
+	for _, existing := range s.devices {
+		if existing.TenantID == session.TenantID && existing.MachineID == device.MachineID && existing.RevokedAt == nil {
+			device.ID = existing.ID
+			device.ProjectIDs = append([]string(nil), existing.ProjectIDs...)
+			device.CredentialVersion = existing.CredentialVersion + 1
+			break
+		}
+	}
+	if device.CredentialVersion < 1 {
+		device.CredentialVersion = 1
+	}
+	device.CredentialRotatedAt = now
 	session.State = "verifying"
 	session.ConsumedAt = &now
 	session.ConsumedDeviceID = device.ID
 	s.connects[session.ID] = session
 	device.TenantID = session.TenantID
 	device.OwnerUserID = session.InviterUserID
-	device.ProjectIDs = []string{session.ProjectID}
+	if !contains(device.ProjectIDs, session.ProjectID) {
+		device.ProjectIDs = append(device.ProjectIDs, session.ProjectID)
+	}
 	s.devices[device.ID] = device
+	for _, existing := range s.workspaceBindings {
+		if existing.TenantID == session.TenantID && existing.ProjectID == session.ProjectID && existing.DeviceID == device.ID && existing.Status == "active" && existing.RevokedAt == nil {
+			workspace.ID = existing.ID
+			workspace.InitializedAt = existing.InitializedAt
+			break
+		}
+	}
 	workspace.TenantID = session.TenantID
 	workspace.ProjectID = session.ProjectID
 	workspace.DeviceID = device.ID
@@ -180,7 +201,7 @@ func (s *Store) ConsumeBootstrapAttempt(_ context.Context, tokenHash string, dev
 	attempt.ConsumedAt = &now
 	attempt.UpdatedAt = now
 	s.bootstrapAttempts[attempt.ID] = attempt
-	return session, sanitizedAttempt(attempt), nil
+	return session, sanitizedAttempt(attempt), device, workspace, nil
 }
 
 func (s *Store) CompleteBootstrapAttempt(_ context.Context, tokenHash, state string, now time.Time) (domain.BootstrapAttempt, error) {

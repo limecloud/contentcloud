@@ -17,7 +17,7 @@ func TestCodexHarnessStreamsSafeEventsAndStructuredResult(t *testing.T) {
 	argsPath := filepath.Join(t.TempDir(), "args.jsonl")
 	harness := testCodexExecHarness(threadID, "success", argsPath)
 	capabilities, err := harness.Detect(t.Context())
-	if err != nil || !capabilities.Resume || !capabilities.Events || capabilities.Kind != "codex" {
+	if err != nil || !capabilities.Resume || !capabilities.Events || !capabilities.MCPStdio || capabilities.Kind != "codex" {
 		t.Fatalf("unexpected Codex capabilities: %#v err=%v", capabilities, err)
 	}
 
@@ -81,6 +81,47 @@ func TestCodexHarnessResumesThreadAcrossAdapterInstances(t *testing.T) {
 	}
 }
 
+func TestCodexHarnessRegistersAttemptScopedRuntimeMCPBeforeResume(t *testing.T) {
+	threadID := "019c-test-runtime-gateway-thread"
+	argsPath := filepath.Join(t.TempDir(), "args.jsonl")
+	workspace := writeCodexHarnessWorkspace(t)
+	gateway := RuntimeGatewayConfig{URL: "https://content.example/api/v1/runtime/mcp/call", Token: "rtg_codex", AllowedTools: []string{"runtime.state.query"}}
+	harness := testCodexExecHarness(threadID, "success", argsPath)
+	ref, stream, err := harness.Start(t.Context(), StartAgentRequest{TenantID: "tenant-1", NodeRunID: "node-1", AttemptID: "attempt-1", Workspace: workspace, RuntimeGateway: gateway})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = collectHarnessEvents(t, stream)
+	harness = testCodexExecHarness(threadID, "success", argsPath)
+	resumed, err := harness.Resume(t.Context(), ResumeAgentRequest{TenantID: "tenant-1", Session: ref, Workspace: workspace, RuntimeGateway: gateway})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = collectHarnessEvents(t, resumed)
+	invocations := readCodexHarnessInvocations(t, argsPath)
+	if len(invocations) != 2 {
+		t.Fatalf("Codex invocation count = %d", len(invocations))
+	}
+	for _, args := range invocations {
+		joined := strings.Join(args, "\n")
+		for _, required := range []string{"mcp_servers.contentcloud-runtime.command=", `mcp_servers.contentcloud-runtime.args=["mcp","runtime-serve"]`, "CONTENTCLOUD_RUNTIME_GATEWAY_TOKEN"} {
+			if !strings.Contains(joined, required) {
+				t.Fatalf("Codex Runtime MCP argument missing %q: %#v", required, args)
+			}
+		}
+	}
+	resumeIndex := indexOfArg(invocations[1], "resume")
+	lastConfigIndex := -1
+	for index, arg := range invocations[1] {
+		if arg == "-c" {
+			lastConfigIndex = index
+		}
+	}
+	if resumeIndex < 0 || lastConfigIndex < 0 || lastConfigIndex > resumeIndex || !adjacentArgs(invocations[1], "resume", threadID) {
+		t.Fatalf("Codex resume must receive Runtime MCP config as exec-level flags: %#v", invocations[1])
+	}
+}
+
 func TestCodexHarnessFailsClosedOnTenantMismatchAndHostFailure(t *testing.T) {
 	workspace := writeCodexHarnessWorkspace(t)
 	threadID := "019c-test-failed-thread"
@@ -103,11 +144,38 @@ func TestCodexHarnessFailsClosedOnTenantMismatchAndHostFailure(t *testing.T) {
 	}
 }
 
+func TestCodexStructuredFailureClassifiesAuthAndRateLimitWithoutMessage(t *testing.T) {
+	for _, test := range []struct {
+		message string
+		want    string
+	}{
+		{message: `{"message":"HTTP 429 quota exceeded"}`, want: "CODEX_RATE_LIMITED"},
+		{message: `{"message":"authentication failed"}`, want: "CODEX_AUTH_REQUIRED"},
+	} {
+		if got := codexFailureCode(codexJSONEvent{Type: "turn.failed", Error: json.RawMessage(test.message)}); got != test.want {
+			t.Fatalf("codex structured failure %q = %q, want %q", test.message, got, test.want)
+		}
+	}
+}
+
+func TestCodexHarnessBoundsFirstStructuredEventHandshake(t *testing.T) {
+	harness := testCodexExecHarness("019c-test-timeout-thread", "handshake_hang", filepath.Join(t.TempDir(), "args.jsonl"))
+	harness.handshakeTimeout = 50 * time.Millisecond
+	started := time.Now()
+	_, _, err := harness.Start(t.Context(), StartAgentRequest{TenantID: "tenant-1", NodeRunID: "node-1", AttemptID: "attempt-1", Workspace: writeCodexHarnessWorkspace(t)})
+	if !containsDomainCode(err, "CODEX_HANDSHAKE_TIMEOUT") {
+		t.Fatalf("Codex handshake timeout = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("Codex handshake cleanup took %s", elapsed)
+	}
+}
+
 func testCodexExecHarness(threadID, mode, argsPath string) *codexExecHarness {
 	return &codexExecHarness{
 		binary: os.Args[0], prefixArgs: []string{"-test.run=TestCodexHarnessHelperProcess", "--"},
 		extraEnv: []string{"CODEX_HARNESS_HELPER=1", "CODEX_HARNESS_THREAD_ID=" + threadID, "CODEX_HARNESS_MODE=" + mode, "CODEX_HARNESS_ARGS_PATH=" + argsPath},
-		detect:   func(context.Context) error { return nil }, sessions: map[string]*codexExecSession{},
+		detect:   func(context.Context) (string, error) { return "test", nil }, sessions: map[string]*codexExecSession{},
 	}
 }
 
@@ -204,6 +272,10 @@ func TestCodexHarnessHelperProcess(t *testing.T) {
 		_ = file.Close()
 	}
 	threadID := os.Getenv("CODEX_HARNESS_THREAD_ID")
+	if os.Getenv("CODEX_HARNESS_MODE") == "handshake_hang" {
+		time.Sleep(30 * time.Second)
+		os.Exit(22)
+	}
 	_, _ = os.Stdout.WriteString(`{"type":"thread.started","thread_id":"` + threadID + `"}` + "\n")
 	_, _ = os.Stdout.WriteString(`{"type":"turn.started"}` + "\n")
 	if os.Getenv("CODEX_HARNESS_MODE") == "turn_failed" {

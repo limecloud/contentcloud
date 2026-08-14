@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -16,7 +15,6 @@ import (
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost/claude"
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost/codex"
 	"github.com/limecloud/contentcloud/internal/integration/pluginidentity"
-	"github.com/limecloud/contentcloud/internal/localconfig"
 )
 
 type hostPluginRuntime struct {
@@ -83,14 +81,7 @@ func parsePluginHost(value string) (pluginhost.HostID, error) {
 }
 
 func pluginStoreRoot() (string, error) {
-	if configured := strings.TrimSpace(os.Getenv("CONTENTCLOUD_PLUGIN_STORE")); configured != "" {
-		return filepath.Abs(configured)
-	}
-	configPath, err := localconfig.Path()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(filepath.Dir(configPath), "plugins"), nil
+	return pluginhost.DefaultStoreRoot()
 }
 
 func recoveryPrompt(pluginID string) string {

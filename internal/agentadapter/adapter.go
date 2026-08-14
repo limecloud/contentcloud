@@ -5,11 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/limecloud/contentcloud/internal/domain"
@@ -81,6 +80,32 @@ func agentEnvironment(_ string) []string {
 	return env
 }
 
+func runtimeGatewayEnvironment(config RuntimeGatewayConfig) ([]string, error) {
+	if strings.TrimSpace(config.URL) == "" && strings.TrimSpace(config.Token) == "" {
+		return nil, nil
+	}
+	if strings.TrimSpace(config.URL) == "" || !strings.HasPrefix(strings.TrimSpace(config.Token), "rtg_") {
+		return nil, domain.Invalid("RUNTIME_GATEWAY_CONFIG_INVALID", "Runtime Agent 缺少完整的 Attempt Gateway 配置")
+	}
+	allowed, err := json.Marshal(config.AllowedTools)
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		"CONTENTCLOUD_RUNTIME_GATEWAY_URL=" + strings.TrimSpace(config.URL),
+		"CONTENTCLOUD_RUNTIME_GATEWAY_TOKEN=" + strings.TrimSpace(config.Token),
+		"CONTENTCLOUD_RUNTIME_GATEWAY_TOOLS=" + string(allowed),
+	}, nil
+}
+
+func contentcloudExecutable() (string, error) {
+	path, err := os.Executable()
+	if err != nil || strings.TrimSpace(path) == "" {
+		return "", domain.Policy("CONTENTCLOUD_EXECUTABLE_UNAVAILABLE", "无法定位 Runtime MCP shim 可执行文件", "重新安装 ContentCloud CLI")
+	}
+	return path, nil
+}
+
 func decodeOutput(body []byte) (json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(body)
 	var value map[string]any
@@ -94,16 +119,66 @@ func classifyProcessError(kind string, err error, stderr string) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return &domain.Error{Type: "runtime", Subtype: "timeout", Code: "AGENT_CANCELED", Message: "本地 Agent 已取消或超时", Retryable: true, ExitCode: 5}
 	}
-	message := strings.TrimSpace(stderr)
-	if len(message) > 600 {
-		message = message[:600]
-	}
 	details := map[string]any{}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		details["process_exit_code"] = exitErr.ExitCode()
 	}
-	return &domain.Error{Type: "runtime", Subtype: kind, Code: "AGENT_PROCESS_FAILED", Message: fmt.Sprintf("%s 本地进程执行失败: %s", kind, message), Retryable: true, Details: details, ExitCode: 5}
+	code := processFailureCode(kind, err, stderr)
+	return &domain.Error{Type: "runtime", Subtype: normalizeHarnessKind(kind), Code: code, Message: processFailureMessage(code), Retryable: processFailureRetryable(code), Details: details, ExitCode: 5}
+}
+
+var processFailureCodeToken = regexp.MustCompile(`[^A-Z0-9]+`)
+
+func processFailureCode(kind string, err error, stderr string) string {
+	prefix := processFailureCodeToken.ReplaceAllString(strings.ToUpper(normalizeHarnessKind(kind)), "_")
+	if prefix == "" {
+		prefix = "AGENT"
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "AGENT_CANCELED"
+	}
+	message := strings.ToLower(stderr)
+	switch {
+	case containsAny(message, "not logged in", "login required", "authentication required", "authentication failed", "unauthorized", "invalid api key", "invalid_api_key", "status 401", "http 401"):
+		return prefix + "_AUTH_REQUIRED"
+	case containsAny(message, "rate limit", "rate_limit", "too many requests", "quota exceeded", "status 429", "http 429"):
+		return prefix + "_RATE_LIMITED"
+	case containsAny(message, "permission denied", "operation not permitted", "sandbox denied", "access denied"):
+		return prefix + "_PERMISSION_DENIED"
+	case containsAny(message, "connection refused", "connection reset", "network is unreachable", "temporary failure in name resolution", "no such host", "service unavailable", "timed out", "timeout", "status 502", "status 503", "status 504", "http 502", "http 503", "http 504"):
+		return prefix + "_NETWORK_UNAVAILABLE"
+	default:
+		return prefix + "_PROCESS_FAILED"
+	}
+}
+
+func processFailureMessage(code string) string {
+	switch {
+	case strings.HasSuffix(code, "_AUTH_REQUIRED"):
+		return "本地 Agent 认证不可用"
+	case strings.HasSuffix(code, "_RATE_LIMITED"):
+		return "本地 Agent 服务达到限流或配额门槛"
+	case strings.HasSuffix(code, "_PERMISSION_DENIED"):
+		return "本地 Agent 缺少执行权限"
+	case strings.HasSuffix(code, "_NETWORK_UNAVAILABLE"):
+		return "本地 Agent 无法连接上游服务"
+	default:
+		return "本地 Agent 进程执行失败"
+	}
+}
+
+func processFailureRetryable(code string) bool {
+	return strings.HasSuffix(code, "_RATE_LIMITED") || strings.HasSuffix(code, "_NETWORK_UNAVAILABLE") || strings.HasSuffix(code, "_PROCESS_FAILED") || code == "AGENT_CANCELED"
+}
+
+func containsAny(value string, candidates ...string) bool {
+	for _, candidate := range candidates {
+		if strings.Contains(value, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 type limitedBuffer struct {
@@ -118,7 +193,7 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 			_, _ = b.buffer.Write(p[:remaining])
 		}
 		b.over = true
-		return len(p), io.ErrShortBuffer
+		return len(p), nil
 	}
 	return b.buffer.Write(p)
 }

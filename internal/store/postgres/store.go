@@ -744,10 +744,25 @@ func (s *Store) SaveDevice(ctx context.Context, v domain.Device) error {
 	})
 }
 
+func (s *Store) RotateDeviceCredential(ctx context.Context, tenantID, deviceID, tokenHash string, now time.Time) (domain.Device, error) {
+	var result domain.Device
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		row := tx.QueryRow(ctx, `UPDATE devices SET token_hash=$3,credential_version=credential_version+1,credential_rotated_at=$4 WHERE tenant_id=$1 AND id=$2 AND revoked_at IS NULL RETURNING id,tenant_id,owner_user_id,machine_id,display_name,hostname,platform,arch,daemon_version,token_hash,credential_version,credential_rotated_at,capability_manifests,'[]'::jsonb,last_seen_at,revoked_at`, tenantID, deviceID, tokenHash, now)
+		value, err := scanDevice(row)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.NotFound("设备")
+		}
+		result = value
+		return err
+	})
+	result.TokenHash = ""
+	return result, err
+}
+
 func scanDevice(row pgx.Row) (domain.Device, error) {
 	var v domain.Device
 	var capabilities, projectIDs []byte
-	err := row.Scan(&v.ID, &v.TenantID, &v.OwnerUserID, &v.DisplayName, &v.Hostname, &v.Platform, &v.Arch, &v.Version, &v.TokenHash, &capabilities, &projectIDs, &v.LastSeenAt, &v.RevokedAt)
+	err := row.Scan(&v.ID, &v.TenantID, &v.OwnerUserID, &v.MachineID, &v.DisplayName, &v.Hostname, &v.Platform, &v.Arch, &v.Version, &v.TokenHash, &v.CredentialVersion, &v.CredentialRotatedAt, &capabilities, &projectIDs, &v.LastSeenAt, &v.RevokedAt)
 	if err == nil {
 		v.Capabilities, err = decodeJSON[[]domain.Capability](capabilities)
 	}
@@ -757,13 +772,16 @@ func scanDevice(row pgx.Row) (domain.Device, error) {
 	return v, err
 }
 
-const deviceSelect = `SELECT d.id,d.tenant_id,d.owner_user_id,d.display_name,d.hostname,d.platform,d.arch,d.daemon_version,d.token_hash,d.capability_manifests,
+const deviceSelect = `SELECT d.id,d.tenant_id,d.owner_user_id,d.machine_id,d.display_name,d.hostname,d.platform,d.arch,d.daemon_version,d.token_hash,d.credential_version,d.credential_rotated_at,d.capability_manifests,
   COALESCE((SELECT jsonb_agg(g.project_id::text) FROM project_device_grants g WHERE g.device_id=d.id AND g.revoked_at IS NULL),'[]'::jsonb),d.last_seen_at,d.revoked_at FROM devices d`
 
 func (s *Store) DeviceByTokenHash(ctx context.Context, hash string) (domain.Device, error) {
 	var tenantID, deviceID string
 	if err := s.pool.QueryRow(ctx, `SELECT tenant_id,device_id FROM contentcloud_lookup_device_token($1)`, hash).Scan(&tenantID, &deviceID); err != nil {
-		return domain.Device{}, domain.NotFound("设备")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Device{}, domain.NotFound("设备")
+		}
+		return domain.Device{}, err
 	}
 	var result domain.Device
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
