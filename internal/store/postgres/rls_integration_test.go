@@ -120,8 +120,17 @@ func TestRuntimeRoleEnforcesTenantRLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sop := domain.SOPVersion{ID: "rls-runtime-sop-v1", TenantID: a.TenantID, SOPID: "rls-runtime-sop", Version: 1, SchemaVersion: domain.SOPSchemaVersion, Name: "RLS Runtime", Status: "published", DefaultExecutionMode: "agent", Stages: []domain.StageDefinition{{ID: "execute", Name: "执行", Order: 10, OutputSchema: "contentcloud.rls/1.0", ExecutionModes: []string{"agent"}}}}
-	started, err := service.Runtime().Start(ctx, contentruntime.StartInput{TenantID: a.TenantID, ProjectID: project.ID, WorkTaskID: "rls-runtime-" + suffix, BusinessType: "rls.test", InputSnapshotID: "rls-input-" + suffix, SOP: sop, BindingDigest: "sha256:" + strings.Repeat("a", 64), InputDigest: "sha256:" + strings.Repeat("b", 64), RuntimePolicyID: "runtime-policy/rls", ContractMajor: 1, CreatedBy: a.UserID, IdempotencyKey: "rls-runtime-" + suffix})
+	manifestHash := domain.TokenHash("rls-input-" + suffix)
+	inputSnapshot := domain.ContextSnapshot{
+		ID: domain.NewID(), TenantID: a.TenantID, ProjectID: project.ID, BuilderVersion: "rls-test/1.0",
+		SchemaVersion: domain.TaskContractSchema, Sources: []domain.ContractSource{}, InputVersions: map[string]string{},
+		ManifestHash: manifestHash, CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSnapshot(ctx, inputSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	sop := domain.SOPVersion{ID: "rls-runtime-sop-v1", TenantID: a.TenantID, SOPID: "rls-runtime-sop", Version: 1, SchemaVersion: domain.SOPSchemaVersion, Name: "RLS Runtime", Status: "published", DefaultExecutionMode: "agent", Stages: []domain.StageDefinition{{ID: "execute", Name: "执行", Order: 10, OutputSchema: domain.KnowledgeCandidatesSchema, RequiredCapabilities: []string{domain.KnowledgeExtractCapability}, ExecutionModes: []string{"agent"}}}}
+	started, err := service.Runtime().Start(ctx, contentruntime.StartInput{TenantID: a.TenantID, ProjectID: project.ID, WorkTaskID: "rls-runtime-" + suffix, BusinessType: "rls.test", InputSnapshotID: inputSnapshot.ID, SOP: sop, BindingDigest: "sha256:" + strings.Repeat("a", 64), InputDigest: "sha256:" + manifestHash, RuntimePolicyID: "runtime-policy/rls", ContractMajor: 1, CreatedBy: a.UserID, IdempotencyKey: "rls-runtime-" + suffix})
 	if err != nil {
 		t.Fatal(err)
 	}
