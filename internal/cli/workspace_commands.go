@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -456,8 +458,17 @@ func (r *Root) mcpCommand() *cobra.Command {
 type mcpRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method"`
+	Method  string          `json:"method,omitempty"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *mcpError       `json:"error,omitempty"`
+}
+
+type mcpServerRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Method  string          `json:"method"`
+	Params  map[string]any  `json:"params,omitempty"`
 }
 
 type mcpResponse struct {
@@ -467,9 +478,23 @@ type mcpResponse struct {
 	Error   *mcpError       `json:"error,omitempty"`
 }
 
+const (
+	mcpAppsExtensionID = "io.modelcontextprotocol/ui"
+	mcpAppsResourceURI = "ui://contentcloud/workbench"
+	mcpAppsMIMEType    = "text/html;profile=mcp-app"
+)
+
+const contentCloudWorkspaceRootEnvironment = "CONTENTCLOUD_WORKSPACE_ROOT"
+
 type mcpError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+}
+
+type mcpRoot struct {
+	URI  string
+	Name string
+	Root string
 }
 
 type mcpProjectViewFocus struct {
@@ -544,18 +569,25 @@ type mcpWorkspaceProposalApplyArguments struct {
 }
 
 func (r *Root) serveMCP(ctx context.Context, input io.Reader) error {
+	r.setMCPAppsSupported(false)
+	r.resetMCPRoots()
 	if strings.TrimSpace(r.mcpCWD) == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return err
+		r.mcpCWD = strings.TrimSpace(os.Getenv(contentCloudWorkspaceRootEnvironment))
+		if r.mcpCWD == "" {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			r.mcpCWD = cwd
 		}
-		r.mcpCWD = cwd
 	}
 	manager := r.localWorkbenchManager()
 	defer manager.Close()
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
 	encoder := json.NewEncoder(r.stdout)
+	rootRequests := map[string]bool{}
+	clientSupportsRoots := false
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
@@ -569,21 +601,131 @@ func (r *Root) serveMCP(ctx context.Context, input io.Reader) error {
 			}
 			continue
 		}
+		if request.Method == "" {
+			if len(request.ID) > 0 && rootRequests[mcpID(request.ID)] && len(request.Result) > 0 {
+				r.applyMCPRoots(request.Result)
+				delete(rootRequests, mcpID(request.ID))
+			}
+			continue
+		}
 		if request.Method == "notifications/initialized" {
+			if clientSupportsRoots {
+				if rootsRequestID := r.requestMCPRoots(encoder); rootsRequestID != "" {
+					rootRequests[rootsRequestID] = true
+				}
+			}
+			continue
+		}
+		if request.Method == "notifications/roots/list_changed" {
+			if clientSupportsRoots {
+				if rootsRequestID := r.requestMCPRoots(encoder); rootsRequestID != "" {
+					rootRequests[rootsRequestID] = true
+				}
+			}
 			continue
 		}
 		response := r.handleMCPRequest(ctx, request)
 		if err := encoder.Encode(response); err != nil {
 			return err
 		}
+		if request.Method == "initialize" {
+			clientSupportsRoots = mcpRootsCapabilitySupported(request.Params)
+		}
 	}
 	return scanner.Err()
+}
+
+func mcpID(raw json.RawMessage) string {
+	return string(bytes.TrimSpace(raw))
+}
+
+func mcpRootsCapabilitySupported(raw json.RawMessage) bool {
+	var params struct {
+		Capabilities struct {
+			Roots json.RawMessage `json:"roots"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(raw, &params); err != nil || len(params.Capabilities.Roots) == 0 || string(params.Capabilities.Roots) == "null" {
+		return false
+	}
+	var roots map[string]json.RawMessage
+	return json.Unmarshal(params.Capabilities.Roots, &roots) == nil
+}
+
+func (r *Root) resetMCPRoots() {
+	r.mcpRootsMu.Lock()
+	r.mcpRoots = nil
+	r.mcpRootsError = ""
+	r.mcpRootsMu.Unlock()
+}
+
+func (r *Root) applyMCPRoots(raw json.RawMessage) {
+	var payload struct {
+		Roots []struct {
+			URI  string `json:"uri"`
+			Name string `json:"name,omitempty"`
+		} `json:"roots"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		r.mcpRootsMu.Lock()
+		r.mcpRoots = nil
+		r.mcpRootsError = "roots/list 响应无效"
+		r.mcpRootsMu.Unlock()
+		return
+	}
+	valid := make([]mcpRoot, 0, len(payload.Roots))
+	for _, candidate := range payload.Roots {
+		parsed, err := url.Parse(strings.TrimSpace(candidate.URI))
+		if err != nil || parsed.Scheme != "file" || (parsed.Host != "" && parsed.Host != "localhost") {
+			continue
+		}
+		path := parsed.Path
+		if path == "" || !filepath.IsAbs(path) {
+			continue
+		}
+		root, err := localworkspace.FindRoot(filepath.FromSlash(path))
+		if err != nil {
+			continue
+		}
+		if canonical, evalErr := filepath.EvalSymlinks(root); evalErr == nil {
+			root = canonical
+		}
+		duplicate := false
+		for _, existing := range valid {
+			if existing.Root == root {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			valid = append(valid, mcpRoot{URI: candidate.URI, Name: candidate.Name, Root: root})
+		}
+	}
+	r.mcpRootsMu.Lock()
+	r.mcpRoots = valid
+	r.mcpRootsError = ""
+	r.mcpRootsMu.Unlock()
+}
+
+func (r *Root) mcpRootsSnapshot() ([]mcpRoot, string) {
+	r.mcpRootsMu.RLock()
+	defer r.mcpRootsMu.RUnlock()
+	return append([]mcpRoot(nil), r.mcpRoots...), r.mcpRootsError
+}
+
+func (r *Root) requestMCPRoots(encoder *json.Encoder) string {
+	id := "contentcloud-roots-" + domain.NewID()
+	if err := encoder.Encode(mcpServerRequest{JSONRPC: "2.0", ID: json.RawMessage(strconv.Quote(id)), Method: "roots/list"}); err != nil {
+		return ""
+	}
+	return strconv.Quote(id)
 }
 
 func (r *Root) handleMCPRequest(ctx context.Context, request mcpRequest) mcpResponse {
 	response := mcpResponse{JSONRPC: "2.0", ID: request.ID}
 	switch request.Method {
 	case "initialize":
+		r.setMCPAppsSupported(mcpAppsCapabilitySupported(request.Params))
 		response.Result = map[string]any{
 			"protocolVersion": requestedMCPProtocolVersion(request.Params),
 			"capabilities": map[string]any{
@@ -596,7 +738,7 @@ func (r *Root) handleMCPRequest(ctx context.Context, request mcpRequest) mcpResp
 	case "ping":
 		response.Result = map[string]any{}
 	case "tools/list":
-		response.Result = map[string]any{"tools": mcpTools()}
+		response.Result = map[string]any{"tools": mcpToolsWithApps(r.mcpAppsEnabled())}
 	case "tools/call":
 		result, err := r.callLocalMCPTool(ctx, request.Params)
 		if err != nil {
@@ -605,7 +747,7 @@ func (r *Root) handleMCPRequest(ctx context.Context, request mcpRequest) mcpResp
 			response.Result = result
 		}
 	case "resources/list":
-		response.Result = map[string]any{"resources": contentCloudMCPResources()}
+		response.Result = map[string]any{"resources": contentCloudMCPResourcesWithApps(r.mcpAppsEnabled())}
 	case "resources/templates/list":
 		response.Result = map[string]any{"resourceTemplates": contentCloudMCPResourceTemplates()}
 	case "resources/read":
@@ -621,7 +763,50 @@ func (r *Root) handleMCPRequest(ctx context.Context, request mcpRequest) mcpResp
 	return response
 }
 
+func (r *Root) setMCPAppsSupported(supported bool) {
+	r.mcpCapabilityMu.Lock()
+	r.mcpAppsSupported = supported
+	r.mcpCapabilityMu.Unlock()
+}
+
+func (r *Root) mcpAppsEnabled() bool {
+	r.mcpCapabilityMu.RLock()
+	defer r.mcpCapabilityMu.RUnlock()
+	return r.mcpAppsSupported
+}
+
+func mcpAppsCapabilitySupported(raw json.RawMessage) bool {
+	var params struct {
+		Capabilities struct {
+			Extensions map[string]json.RawMessage `json:"extensions"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return false
+	}
+	capability, ok := params.Capabilities.Extensions[mcpAppsExtensionID]
+	if !ok || len(capability) == 0 || string(capability) == "null" {
+		return false
+	}
+	var settings struct {
+		MIMETypes []string `json:"mimeTypes"`
+	}
+	if err := json.Unmarshal(capability, &settings); err != nil {
+		return false
+	}
+	for _, mimeType := range settings.MIMETypes {
+		if mimeType == mcpAppsMIMEType {
+			return true
+		}
+	}
+	return false
+}
+
 func mcpTools() []map[string]any {
+	return mcpToolsWithApps(false)
+}
+
+func mcpToolsWithApps(appsSupported bool) []map[string]any {
 	directory := map[string]any{
 		"type":                 "object",
 		"properties":           map[string]any{"directory": map[string]any{"type": "string", "description": "工作区路径；默认使用当前目录"}},
@@ -905,6 +1090,79 @@ func mcpTools() []map[string]any {
 		},
 		"additionalProperties": false,
 	}
+	localRunRecord := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":         map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
+			"run_id":            map[string]any{"type": "string"},
+			"claim_token":       map[string]any{"type": "string"},
+			"expected_revision": map[string]any{"type": "integer", "minimum": 1},
+			"input_ids":         map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
+			"changed_ids":       map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
+			"eligible_ids":      map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
+			"blocked_ids":       map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
+			"findings":          map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
+			"output_paths":      map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
+		},
+		"required":             []string{"run_id", "claim_token", "expected_revision"},
+		"additionalProperties": false,
+	}
+	localRunCheck := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":         map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
+			"run_id":            map[string]any{"type": "string"},
+			"claim_token":       map[string]any{"type": "string"},
+			"expected_revision": map[string]any{"type": "integer", "minimum": 1},
+			"name":              map[string]any{"type": "string"},
+			"status":            map[string]any{"type": "string", "enum": []string{"passed", "failed"}},
+			"command":           map[string]any{"type": "string"},
+			"detail":            map[string]any{"type": "string"},
+		},
+		"required":             []string{"run_id", "claim_token", "expected_revision", "name", "status"},
+		"additionalProperties": false,
+	}
+	localRunAdvance := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":         map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
+			"run_id":            map[string]any{"type": "string"},
+			"claim_token":       map[string]any{"type": "string"},
+			"expected_revision": map[string]any{"type": "integer", "minimum": 1},
+			"stage":             map[string]any{"type": "string", "enum": []string{"knowledge-lint", "query", "compile", "output-lint", "done"}},
+			"input_ids":         map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
+			"changed_ids":       map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
+			"eligible_ids":      map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
+			"blocked_ids":       map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
+			"findings":          map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
+			"output_paths":      map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
+		},
+		"required":             []string{"run_id", "claim_token", "expected_revision", "stage"},
+		"additionalProperties": false,
+	}
+	localRunFail := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":         map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
+			"run_id":            map[string]any{"type": "string"},
+			"claim_token":       map[string]any{"type": "string"},
+			"expected_revision": map[string]any{"type": "integer", "minimum": 1},
+			"findings":          map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string"}},
+		},
+		"required":             []string{"run_id", "claim_token", "expected_revision", "findings"},
+		"additionalProperties": false,
+	}
+	localRunResume := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"directory":         map[string]any{"type": "string", "description": "工作区路径；默认使用 MCP 进程当前目录"},
+			"run_id":            map[string]any{"type": "string"},
+			"claim_token":       map[string]any{"type": "string"},
+			"expected_revision": map[string]any{"type": "integer", "minimum": 1},
+		},
+		"required":             []string{"run_id", "claim_token", "expected_revision"},
+		"additionalProperties": false,
+	}
 	localRunClaim := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -1149,7 +1407,7 @@ func mcpTools() []map[string]any {
 		"required":             []string{"proposal_id", "claim_token", "owner_kind", "owner_id", "owner_epoch", "expected_context_revision", "idempotency_key", "confirm"},
 		"additionalProperties": false,
 	}
-	return []map[string]any{
+	tools := []map[string]any{
 		{
 			"name":        "contentcloud_open_studio_view",
 			"description": "为当前项目生成可信的 Content Work OS Studio 页面链接，不打开浏览器，也不修改本地或云端状态",
@@ -1195,6 +1453,11 @@ func mcpTools() []map[string]any {
 		{"name": "source_verify", "description": "校验本地来源摘要和 MIME 类型", "inputSchema": directory},
 		{"name": "local_run_init", "description": "初始化可恢复的本地导入、查询或内容工作流", "inputSchema": localRunInit},
 		{"name": "local_run_show", "description": "读取本地运行上下文，不访问云端", "inputSchema": localRunShow},
+		{"name": "local_run_record", "description": "在当前运行中记录不可变输入、变更、结果和阻断引用", "inputSchema": localRunRecord, "annotations": workspaceWriteAnnotations},
+		{"name": "local_run_check", "description": "在当前运行中记录一项确定性阶段检查", "inputSchema": localRunCheck, "annotations": workspaceWriteAnnotations},
+		{"name": "local_run_advance", "description": "在检查通过后按受治理状态机推进当前运行", "inputSchema": localRunAdvance, "annotations": workspaceWriteAnnotations},
+		{"name": "local_run_fail", "description": "保留 finding 并将当前运行标记为失败", "inputSchema": localRunFail, "annotations": workspaceWriteAnnotations},
+		{"name": "local_run_resume", "description": "在修复失败原因后恢复原运行，不创建第二个状态源", "inputSchema": localRunResume, "annotations": workspaceWriteAnnotations},
 		{"name": "knowledge_import", "description": "把有证据依据的候选导入作为事实源的 Markdown 知识页", "inputSchema": knowledgeImport},
 		{"name": "knowledge_lint", "description": "运行确定性的本地知识治理检查", "inputSchema": directory},
 		{"name": "knowledge_query", "description": "把知识查询结果分为可用、已阻断和仅供参考", "inputSchema": knowledgeQuery},
@@ -1226,6 +1489,15 @@ func mcpTools() []map[string]any {
 		{"name": "approved_snapshot_inbox", "description": "列出经过校验的本地缓存批准快照，不访问云端", "inputSchema": snapshots, "annotations": readOnlyAnnotations},
 		{"name": "approved_snapshot_show", "description": "读取一份经过校验的本地批准快照，不访问云端", "inputSchema": snapshotShow, "annotations": readOnlyAnnotations},
 	}
+	if appsSupported {
+		for _, tool := range tools {
+			if tool["name"] == "workspace_open_workbench" {
+				tool["_meta"] = map[string]any{"ui": map[string]any{"resourceUri": mcpAppsResourceURI}}
+				break
+			}
+		}
+	}
+	return tools
 }
 
 func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[string]any, error) {
@@ -1249,6 +1521,10 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			StorageMode          string               `json:"storage_mode"`
 			SourceID             string               `json:"source_id"`
 			RunID                string               `json:"run_id"`
+			Stage                string               `json:"stage"`
+			Status               string               `json:"status"`
+			Command              string               `json:"command"`
+			Detail               string               `json:"detail"`
 			OwnerKind            string               `json:"owner_kind"`
 			OwnerID              string               `json:"owner_id"`
 			OwnerEpoch           uint64               `json:"owner_epoch"`
@@ -1270,6 +1546,11 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			PendingDecisions     []string             `json:"pending_decisions"`
 			Intent               string               `json:"intent"`
 			InputIDs             []string             `json:"input_ids"`
+			ChangedIDs           []string             `json:"changed_ids"`
+			EligibleIDs          []string             `json:"eligible_ids"`
+			BlockedIDs           []string             `json:"blocked_ids"`
+			Findings             []string             `json:"findings"`
+			OutputPaths          []string             `json:"output_paths"`
 			WithIngest           bool                 `json:"with_ingest"`
 			OriginRun            string               `json:"origin_run"`
 			Channel              string               `json:"channel"`
@@ -1576,27 +1857,92 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		if strings.TrimSpace(params.Arguments.File) == "" {
 			return nil, domain.Invalid("LOCAL_SOURCE_FILE_REQUIRED", "file 参数必填")
 		}
-		value, err = localworkspace.RegisterLocalSource(localworkspace.RegisterLocalSourceOptions{Root: params.Arguments.Directory, File: params.Arguments.File, ID: params.Arguments.ID, Title: params.Arguments.Title, SourceKind: params.Arguments.SourceKind, StorageMode: params.Arguments.StorageMode, Now: time.Now()})
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.RegisterLocalSource(localworkspace.RegisterLocalSourceOptions{Root: root, File: params.Arguments.File, ID: params.Arguments.ID, Title: params.Arguments.Title, SourceKind: params.Arguments.SourceKind, StorageMode: params.Arguments.StorageMode, Now: r.currentTime()})
 	case "source_list":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
 		var sources []localworkspace.LocalSource
-		sources, err = localworkspace.LocalSources(params.Arguments.Directory)
+		sources, err = localworkspace.LocalSources(root)
 		value = map[string]any{"count": len(sources), "sources": sources}
 	case "source_ingest":
 		if strings.TrimSpace(params.Arguments.SourceID) == "" {
 			return nil, domain.Invalid("LOCAL_SOURCE_ID_REQUIRED", "source_id 参数必填")
 		}
-		value, err = localworkspace.IngestLocalSource(params.Arguments.Directory, params.Arguments.SourceID, time.Now())
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.IngestLocalSource(root, params.Arguments.SourceID, r.currentTime())
 	case "source_verify":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
 		var report localworkspace.SourceVerification
-		report, err = localworkspace.VerifyLocalSources(params.Arguments.Directory)
+		report, err = localworkspace.VerifyLocalSources(root)
 		value = report
 		if err == nil && !report.Valid {
 			err = domain.Invalid("LOCAL_SOURCE_VERIFY_FAILED", "本地来源完整性校验失败")
 		}
 	case "local_run_init":
-		value, err = localworkspace.InitLocalRun(localworkspace.InitLocalRunOptions{Root: params.Arguments.Directory, RunID: params.Arguments.RunID, Intent: params.Arguments.Intent, InputIDs: params.Arguments.InputIDs, WithIngest: params.Arguments.WithIngest, Now: time.Now()})
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.InitLocalRun(localworkspace.InitLocalRunOptions{Root: root, RunID: params.Arguments.RunID, Intent: params.Arguments.Intent, InputIDs: params.Arguments.InputIDs, WithIngest: params.Arguments.WithIngest, Now: r.currentTime()})
 	case "local_run_show":
-		value, err = localworkspace.ShowLocalRun(params.Arguments.Directory, params.Arguments.RunID)
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.ShowLocalRun(root, params.Arguments.RunID)
+	case "local_run_record":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.RecordClaimedLocalRun(localworkspace.RecordLocalRunOptions{
+			Root: root, RunID: params.Arguments.RunID, ClaimToken: params.Arguments.ClaimToken, ExpectedRevision: params.Arguments.ExpectedRevision,
+			InputIDs: params.Arguments.InputIDs, ChangedIDs: params.Arguments.ChangedIDs, EligibleIDs: params.Arguments.EligibleIDs,
+			BlockedIDs: params.Arguments.BlockedIDs, Findings: params.Arguments.Findings, OutputPaths: params.Arguments.OutputPaths, Now: r.currentTime(),
+		})
+	case "local_run_check":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.CheckClaimedLocalRun(localworkspace.CheckLocalRunOptions{
+			Root: root, RunID: params.Arguments.RunID, ClaimToken: params.Arguments.ClaimToken, ExpectedRevision: params.Arguments.ExpectedRevision,
+			Name: params.Arguments.Name, Status: params.Arguments.Status, Command: params.Arguments.Command, Detail: params.Arguments.Detail, Now: r.currentTime(),
+		})
+	case "local_run_advance":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.AdvanceClaimedLocalRun(root, params.Arguments.RunID, params.Arguments.Stage, localworkspace.RecordLocalRunOptions{
+			ClaimToken: params.Arguments.ClaimToken, ExpectedRevision: params.Arguments.ExpectedRevision,
+			InputIDs: params.Arguments.InputIDs, ChangedIDs: params.Arguments.ChangedIDs, EligibleIDs: params.Arguments.EligibleIDs,
+			BlockedIDs: params.Arguments.BlockedIDs, Findings: params.Arguments.Findings, OutputPaths: params.Arguments.OutputPaths,
+		}, r.currentTime())
+	case "local_run_fail":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.FailClaimedLocalRun(root, params.Arguments.RunID, params.Arguments.Findings, params.Arguments.ClaimToken, params.Arguments.ExpectedRevision, r.currentTime())
+	case "local_run_resume":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.ResumeClaimedLocalRun(root, params.Arguments.RunID, params.Arguments.ClaimToken, params.Arguments.ExpectedRevision, r.currentTime())
 	case "local_run_claim":
 		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
 		if resolveErr != nil {
@@ -1666,10 +2012,18 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		if strings.TrimSpace(params.Arguments.File) == "" {
 			return nil, domain.Invalid("LOCAL_FILE_REQUIRED", "file 参数必填")
 		}
-		value, err = localworkspace.ImportKnowledgeCandidates(localworkspace.ImportKnowledgeOptions{Root: params.Arguments.Directory, PackageFile: params.Arguments.File, OriginRunID: params.Arguments.OriginRun, Now: time.Now()})
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.ImportKnowledgeCandidates(localworkspace.ImportKnowledgeOptions{Root: root, PackageFile: params.Arguments.File, OriginRunID: params.Arguments.OriginRun, Now: r.currentTime()})
 	case "knowledge_lint":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
 		var report localworkspace.KnowledgeLintReport
-		report, err = localworkspace.LintKnowledge(params.Arguments.Directory)
+		report, err = localworkspace.LintKnowledge(root)
 		value = report
 		if err == nil && !report.Valid {
 			lintErr := domain.Invalid("KNOWLEDGE_LINT_FAILED", "知识库确定性校验失败")
@@ -1682,17 +2036,29 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		if err != nil {
 			break
 		}
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
 		if params.Name == "knowledge_query" {
-			value, err = localworkspace.QueryKnowledge(localworkspace.QueryKnowledgeOptions{Root: params.Arguments.Directory, Channel: params.Arguments.Channel, At: at})
+			value, err = localworkspace.QueryKnowledge(localworkspace.QueryKnowledgeOptions{Root: root, Channel: params.Arguments.Channel, At: at})
 		} else {
-			value, err = localworkspace.DiagnoseKnowledge(params.Arguments.Directory, params.Arguments.Channel, at)
+			value, err = localworkspace.DiagnoseKnowledge(root, params.Arguments.Channel, at)
 		}
 	case "knowledge_pack":
-		value, err = localworkspace.PackKnowledge(localworkspace.PackKnowledgeOptions{Root: params.Arguments.Directory, PackID: params.Arguments.PackID, Name: params.Arguments.Name, Now: time.Now()})
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.PackKnowledge(localworkspace.PackKnowledgeOptions{Root: root, PackID: params.Arguments.PackID, Name: params.Arguments.Name, Now: r.currentTime()})
 	case "brief_lint":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
 		var report localworkspace.KnowledgeLintReport
 		var brief localworkspace.LocalBrief
-		report, brief, err = localworkspace.LintBrief(params.Arguments.Directory, params.Arguments.File)
+		report, brief, err = localworkspace.LintBrief(root, params.Arguments.File)
 		value = map[string]any{"brief": brief, "report": report}
 		if err == nil && !report.Valid {
 			lintErr := domain.Invalid("BRIEF_LINT_FAILED", "V3 创作简报确定性校验失败")
@@ -1700,10 +2066,18 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			err = lintErr
 		}
 	case "content_batch_init":
-		value, err = localworkspace.CreateContentBatch(localworkspace.CreateContentBatchOptions{Root: params.Arguments.Directory, BriefID: params.Arguments.BriefID, DirectionsFile: params.Arguments.DirectionsFile, RequestedCount: params.Arguments.RequestedCount, VariantDimension: params.Arguments.VariantDimension, ControlledDimensions: params.Arguments.ControlledDimensions, BatchID: params.Arguments.BatchID, Now: time.Now()})
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.CreateContentBatch(localworkspace.CreateContentBatchOptions{Root: root, BriefID: params.Arguments.BriefID, DirectionsFile: params.Arguments.DirectionsFile, RequestedCount: params.Arguments.RequestedCount, VariantDimension: params.Arguments.VariantDimension, ControlledDimensions: params.Arguments.ControlledDimensions, BatchID: params.Arguments.BatchID, Now: r.currentTime()})
 	case "content_item_lint":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
 		var report localworkspace.ContentItemLintReport
-		report, _, err = localworkspace.LintContentItem(params.Arguments.Directory, params.Arguments.File, params.Arguments.BatchFile)
+		report, _, err = localworkspace.LintContentItem(root, params.Arguments.File, params.Arguments.BatchFile)
 		value = report
 		if err == nil && !report.Valid {
 			lintErr := domain.Invalid("CONTENT_ITEM_LINT_FAILED", "内容项确定性校验失败")
@@ -1711,8 +2085,12 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			err = lintErr
 		}
 	case "content_batch_lint":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
 		var report localworkspace.ContentBatchLintReport
-		report, err = localworkspace.LintContentBatch(params.Arguments.Directory, params.Arguments.BatchFile, params.Arguments.ContentFiles)
+		report, err = localworkspace.LintContentBatch(root, params.Arguments.BatchFile, params.Arguments.ContentFiles)
 		value = report
 		if err == nil && !report.Valid {
 			lintErr := domain.Invalid("CONTENT_BATCH_LINT_FAILED", "内容批次确定性校验失败")
@@ -1720,10 +2098,18 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			err = lintErr
 		}
 	case "content_batch_finalize":
-		value, err = localworkspace.FinalizeContentBatch(params.Arguments.Directory, params.Arguments.BatchFile, params.Arguments.ContentFiles, time.Now())
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.FinalizeContentBatch(root, params.Arguments.BatchFile, params.Arguments.ContentFiles, r.currentTime())
 	case "content_item_diff":
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
 		var diff localworkspace.ContentItemDiff
-		diff, err = localworkspace.DiffContentItems(params.Arguments.Directory, params.Arguments.BaselineFile, params.Arguments.CandidateFile, params.Arguments.AllowedPaths)
+		diff, err = localworkspace.DiffContentItems(root, params.Arguments.BaselineFile, params.Arguments.CandidateFile, params.Arguments.AllowedPaths)
 		value = diff
 		if err == nil && !diff.Valid {
 			diffErr := domain.Invalid("CONTENT_ITEM_REVISION_DRIFT", "内容项修订包含未声明字段变化")
@@ -1731,7 +2117,11 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 			err = diffErr
 		}
 	case "delivery_export":
-		value, err = localworkspace.ExportApprovedContentItem(params.Arguments.Directory, params.Arguments.ContentItemID, params.Arguments.OutputDirectory, time.Now())
+		root, resolveErr := r.resolveMCPWorkspace(params.Arguments.Directory)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		value, err = localworkspace.ExportApprovedContentItem(root, params.Arguments.ContentItemID, params.Arguments.OutputDirectory, r.currentTime())
 	case "article_brief_lint":
 		var root string
 		root, err = r.requireMCPContentType(params.Arguments.Directory, domain.ContentTypeWeChatArticle)
@@ -2270,10 +2660,24 @@ func requestedMCPProtocolVersion(raw json.RawMessage) string {
 }
 
 func contentCloudMCPResources() []map[string]any {
-	return []map[string]any{
+	return contentCloudMCPResourcesWithApps(false)
+}
+
+func contentCloudMCPResourcesWithApps(appsSupported bool) []map[string]any {
+	resources := []map[string]any{
 		{"uri": "contentcloud://workspace/conversation-context", "name": "Content Work OS 工作区对话上下文", "description": "用于开始或继续对话的离线持久化状态", "mimeType": "application/json"},
 		{"uri": "contentcloud://workspace/status", "name": "Content Work OS 工作区状态", "description": "离线工作区绑定、环境和同步状态", "mimeType": "application/json"},
 	}
+	if appsSupported {
+		resources = append(resources, map[string]any{
+			"uri":         mcpAppsResourceURI,
+			"name":        "Content Work OS 本地工作台",
+			"description": "在支持 MCP Apps 的宿主沙箱中呈现本地工作区工具结果",
+			"mimeType":    mcpAppsMIMEType,
+			"_meta":       map[string]any{"ui": map[string]any{"prefersBorder": true}},
+		})
+	}
+	return resources
 }
 
 func contentCloudMCPResourceTemplates() []map[string]any {
@@ -2288,6 +2692,21 @@ func (r *Root) readContentCloudMCPResource(raw json.RawMessage) (map[string]any,
 	}
 	if err := json.Unmarshal(raw, &params); err != nil {
 		return nil, domain.Invalid("MCP_RESOURCE_PARAMS_INVALID", "MCP 资源参数无效")
+	}
+	if params.URI == mcpAppsResourceURI {
+		if !r.mcpAppsEnabled() {
+			return nil, domain.E("not_found", "mcp_app", "MCP_APP_RESOURCE_UNAVAILABLE", "当前 MCP 会话未协商 MCP Apps，不能读取本地工作台 App Resource", 4)
+		}
+		html, err := workbench.MCPAppHTML()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"contents": []map[string]any{{
+			"uri":      params.URI,
+			"mimeType": mcpAppsMIMEType,
+			"text":     html,
+			"_meta":    map[string]any{"ui": map[string]any{"prefersBorder": true}},
+		}}}, nil
 	}
 	var value any
 	var err error
@@ -2574,7 +2993,7 @@ func (r *Root) applyEnvironmentPreparation(ctx context.Context, input environmen
 		return environmentPreparationApplyResult{}, rollback(err)
 	}
 	for _, action := range preparation.Actions {
-		pluginRuntime, adapterErr := r.pluginRuntime(string(hostID))
+		pluginRuntime, adapterErr := r.bundledPluginRuntime(string(hostID), action.Plugin.ID, action.Plugin.Version)
 		if adapterErr != nil {
 			return environmentPreparationApplyResult{}, rollback(adapterErr)
 		}
@@ -2676,9 +3095,37 @@ func (r *Root) resolveMCPWorkspace(directory string) (string, error) {
 	if strings.TrimSpace(requested) == "" && r.mcpWorkspaceRoot != "" {
 		requested = r.mcpWorkspaceRoot
 	}
+	roots, _ := r.mcpRootsSnapshot()
+	if strings.TrimSpace(requested) == "" {
+		switch len(roots) {
+		case 1:
+			requested = roots[0].Root
+		default:
+			if len(roots) < 2 {
+				break
+			}
+			conflict := domain.Conflict("MCP_ROOT_SELECTION_REQUIRED", "MCP 客户端提供了多个工作区根，请通过 directory 明确选择一个")
+			conflict.Hint = "不能根据多个 roots 猜测客户工作区；请在工具参数中传入对应目录"
+			return "", conflict
+		}
+	}
 	resolution, err := localworkspace.ResolveWorkspaceRoot(requested, r.mcpCWD)
 	if err != nil {
 		return "", err
+	}
+	if len(roots) > 0 {
+		selected := false
+		for _, root := range roots {
+			if root.Root == resolution.Root {
+				selected = true
+				break
+			}
+		}
+		if !selected {
+			conflict := domain.Conflict("MCP_ROOT_OUTSIDE_DECLARED_ROOTS", "工作区不在 MCP 客户端声明的 roots 内")
+			conflict.Hint = "请使用 roots/list 返回的工作区目录，或在宿主中重新打开正确项目"
+			return "", conflict
+		}
 	}
 	if r.mcpWorkspaceRoot == "" {
 		r.mcpWorkspaceRoot = resolution.Root

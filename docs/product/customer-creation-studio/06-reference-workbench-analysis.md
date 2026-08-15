@@ -2,7 +2,7 @@
 
 状态：`架构证据附录；Content Work OS 当前实现状态以 05 技术方案和代码为准`。
 
-更新时间：2026-08-14。
+更新时间：2026-08-15。
 
 当前方案见[Content Work OS 本地工作台技术方案](./05-local-workbench-browser.md)。本文匿名记录公开参考实现的可复核机制、风险和取舍，不复制第三方代码、Schema、提示词或产品素材。
 
@@ -70,8 +70,12 @@ flowchart LR
     Install --> Guide[领域 Skill]
     Guide --> Control[MCP 控制面]
     Control --> Facts[(本地或云端事实)]
-    Control --> Handoff[Browser Handoff]
-    Handoff --> Workbench[富工作台]
+    Control --> Negotiate{呈现能力协商}
+    Negotiate --> Apps[MCP Apps]
+    Negotiate --> Handoff[Direct Browser Handoff]
+    Negotiate --> Headless[Headless Tool / Resource]
+    Apps --> Workbench[富工作台]
+    Handoff --> Workbench
     LocalBytes[本地文件与媒体] --> Ingress[受控字节入口]
     Ingress --> Facts
     Workbench <--> Facts
@@ -86,7 +90,7 @@ flowchart LR
 3. 领域 Skill 如何跨宿主复用。
 4. MCP 如何鉴权、绑定项目和暴露工具。
 5. 富 UI 在本地还是云端运行。
-6. Browser 如何获得安全、可恢复的 handoff。
+6. 宿主如何在 MCP Apps、Direct Browser 和 Headless 之间安全协商与降级。
 7. 本地大文件如何进入 UI 或云端。
 8. Browser 与 Agent 如何避免双写。
 9. Draft、Proposal、Apply、发布如何分层。
@@ -426,6 +430,19 @@ Vite watcher 经 debounce 重建 Vault index，再通过 SSE 只刷新受影响�
 
 固定提交有 23 个 Node test 文件，覆盖安全、Vault、路由、job、同步和 UI 数据模型。根目录许可与 Workbench README 提示存在不一致，本调研不作法律判断，也不复制实现。
 
+### 5.4 标准 MCP Apps 与多宿主证据
+
+三个参考实现主要采用 Hosted SPA、Electron/Vite 或本地 Workbench，不能代表当前 MCP 标准 UI 能力。补充官方规范后，必须把以下事实加入目标设计：
+
+- MCP Apps 通过 `io.modelcontextprotocol/ui` 协商，Tool 用 `_meta.ui.resourceUri` 关联 `ui://` Resource，HTML MIME 为 `text/html;profile=mcp-app`。
+- UI 运行在宿主沙箱 iframe 中，经 App Bridge、`tools/call` 和 `resources/read` 与同一 MCP Server 通信；它不是静态 HTML Tool Result。
+- 不支持 MCP Apps 的客户端仍必须获得普通 Tool、`structuredContent` 和 Resource。
+- MCP Roots 允许 Server 请求 `roots/list` 获得 `file://` 工作区根；Plugin Root 或进程 cwd 不能替代这项绑定证据。
+- MCP Apps 官方矩阵与 Agent Plugins 官方兼容目录是两个独立集合。Claude Code CLI 有自己的 Plugin/Skills/MCP 生命周期，但没有已证明的内联 MCP Apps；Claude Desktop/Web 则是另一种 Surface。
+- Codex Desktop、Claude Desktop、Cursor、VS Code GitHub Copilot 等即使具备上游 MCP Apps 能力，仍需 ContentCloud 自己的 Resource/Bridge、Workspace 绑定和真实 E2E 才能准入。
+
+因此目标呈现顺序是 MCP Apps、Direct Browser、Headless，而不是把某个私有 Browser handoff 当成所有宿主的唯一方案。
+
 ## 6. 四方全维度对比
 
 | 维度 | 参考 A | 参考 B | 参考 C | Content Work OS 当前实现 |
@@ -433,16 +450,16 @@ Vite watcher 经 debounce 重建 Vault index，再通过 SSE 只刷新受影响�
 | 产品本体 | 云端专业视频编辑器 | 本地专业视频编辑器 | 本地知识工作台 | 本地 Workspace + 云端治理 |
 | Plugin 角色 | 安装、Skill、Remote MCP | 外部 Skill + 本地 MCP | 无 Plugin | 标准 Agent Plugin |
 | 控制 transport | OAuth Remote HTTP | Loopback Streamable HTTP | Vite REST | Local stdio MCP |
-| 富 UI | Hosted SPA | Electron/Vite SPA | Vite/React SPA | Embedded Local SPA + Hosted Studio |
-| 右侧打开 | browser handoff | editor URL | 手工打开 | 统一 local/cloud handoff |
+| 富 UI | Hosted SPA | Electron/Vite SPA | Vite/React SPA | Direct Browser 已实现；MCP Apps 最小协议闭环已实现；Hosted Studio 独立 |
+| 右侧打开 | browser handoff | editor URL | 手工打开 | MCP Apps 优先，private handoff 次之，Headless 保底 |
 | 本地 UI Server | 无 | 产品本体 Embedded Server | Vite dev/product Server | MCP 进程内 Go Presenter |
 | Server 生命周期 | 云端持续 | Editor 持续 | Workbench 持续 | 会话级、TTL、父进程绑定 |
 | Node 运行时 | helper 脚本 | 产品主运行时 | 产品主运行时 | 仅构建与 npm launcher，不做 Server |
-| 项目绑定 | OAuth + project ID | transport 固定 project | 单 Vault root | workspace/project/generation |
+| 项目绑定 | OAuth + project ID | transport 固定 project | 单 Vault root | Workspace/project/generation；Claude 项目根注入和 MCP Roots Server 请求已实现，宿主响应待验证 |
 | 本地文件入口 | upload helper / 临时 bridge | project store / blob / relink | Vault API | opaque Resource + Range |
 | 大媒体 | 上传到云端或 Browser 导入 | 本地媒体管线 | 非核心 | digest + single Range + bounded memory |
 | 实时更新 | 云端同步 | broker + project store | watcher + SSE | 命令事件 + 5 秒 View 轮询 + SSE |
-| Browser/Agent broker | Host adapter | 显式 broker | 无 | Host adapter + shared Kernel |
+| Browser/Agent broker | Host adapter | 显式 broker | 无 | MCP Apps/Direct Browser/Headless + shared Kernel |
 | Offline | 有限本地 helper | server-direct runtime | 完全本地 | Workspace 读写可离线 |
 | 状态权威 | DB/Object Storage | local project store | Vault | Workspace / Cloud Revision 分治 |
 | 写所有权 | 公开包未披露 | browser/offline lease + epoch | job 级确认 | agent/browser lease + epoch |
@@ -452,7 +469,7 @@ Vite watcher 经 debounce 重建 Vault index，再通过 SSE 只刷新受影响�
 | stale | Skill 要求刷新 | revision/generation/metadata/owner | content hash | generation/revision/digest/epoch |
 | 发布 | 云端即核心 | 可选云端 | 无 | 独立 preflight/apply |
 | 审核 | Hosted Editor | Editor review | 本地 confirm | 本地确认 + 云端审核分离 |
-| Host Adapter | Codex/Claude 两套投影 | Browser/offline 两平面 | 无 | 私有 handoff 契约已接线；真实宿主待验收 |
+| Host Adapter | Codex/Claude 两套投影 | Browser/offline 两平面 | 无 | Codex/Claude Plugin Adapter 已实现；UI Adapter 与其他宿主待验收 |
 | Tool 渐进披露 | Skill 路由 | Search + list changed | 无 | 首版 Skill 路由，后续验证动态列表 |
 | UI 与模型共享 | 云端内部 | 本地产品内部 | 本地产品内部 | Local 共享 View/Proposal Kernel；Cloud 保持独立事实源 |
 | token | OAuth/import/URL token | session/editor auth | same-origin guard | one-time fragment + memory capability |
@@ -465,15 +482,15 @@ Vite watcher 经 debounce 重建 Vault index，再通过 SSE 只刷新受影响�
 
 ## 7. 可直接采用的思想
 
-1. **控制面与呈现面分离**：MCP 返回业务事实，handoff 打开富 UI。
+1. **控制面与呈现面分离**：MCP 返回业务事实，MCP Apps 或安全 handoff 打开富 UI，Headless 保留完整流程。
 2. **Canonical Skill + Host Adapter**：领域工作流不复制，宿主差异有窄边界。
-3. **Browser handoff 一等化**：tokenized URL、clean URL、mode、revision、TTL 和 capability 分开建模。
+3. **呈现协商一等化**：MCP Apps、private handoff、Headless 的 capability、失败和降级分别建模。
 4. **项目固定绑定**：每个 session 绑定一个 Workspace/Project/generation，禁止隐式切换。
 5. **单写者租约**：Browser 与 Agent 使用 owner + epoch + lease 围栏。
 6. **Draft -> Proposal -> Apply**：用户看到准确影响，Apply 时再次 CAS。
 7. **Placeholder/readiness 分离**：媒体登记、预览、转录、云端字节和导出独立。
 8. **SSE 作为失效通知**：事件不取代 revision/digest 快照。
-9. **降级不是伪 UI**：无 Browser 时返回类型化内容与原始 Resource。
+9. **降级不是伪 UI**：无 MCP Apps/Browser 时返回类型化内容与 digest Resource。
 10. **跨进程协议需要高密度测试**：ownership、恢复和故障注入必须是一等测试。
 
 ## 8. 改造后采用
@@ -488,6 +505,9 @@ Vite watcher 经 debounce 重建 Vault index，再通过 SSE 只刷新受影响�
 | Offline Runtime | 单独执行业务 Tool | MCP/Browser 共用同一个 Workspace Kernel |
 | Vite watcher | dev/product Server 内 watch | 当前采用 5 秒 View reconciliation 轮询 + SSE，后续有证据再引入 watcher |
 | Hosted handoff | 只面向云端项目 | local/cloud 共用 Schema，认证实现分离 |
+| MCP Apps | 参考实现没有统一采用 | `ui://` + App Bridge 作为标准首选呈现通道 |
+| Workspace cwd | 参考实现各自固定目录 | MCP Roots -> 宿主稳定项目根 -> 显式 directory -> 拒绝 |
+| 大媒体 App 读取 | upload、blob 或本地管线 | 小资源 `resources/read`，大资源短期 opaque ticket + Range |
 
 ## 9. 明确拒绝
 
@@ -511,14 +531,17 @@ flowchart LR
     EvidenceA[参考 A: Hosted handoff] --> Handoff[统一 browserHandoff]
     EvidenceB[参考 B: broker/lease/proposal] --> Kernel[共享 Kernel + epoch + Proposal]
     EvidenceC[参考 C: watch/SSE/safe writer] --> Presenter[Go Presenter + SSE]
+    Standards[MCP Apps + Roots] --> Negotiation[Capability Negotiation]
     Handoff --> Target[Content Work OS Local/Cloud Workbench]
     Kernel --> Target
     Presenter --> Target
+    Negotiation --> Target
 ```
 
 | 决策 | 理由 |
 | --- | --- |
 | stdio MCP 保持控制面 | 它是本地 Agent 最小、可移植、宿主管理的协议 |
+| MCP Apps 成为标准首选呈现 | 减少对宿主私有 `_meta` 导航的依赖，并保留 Headless fallback |
 | 增加 Go loopback Presenter | Browser 需要 HTTP，且 Presenter 可与 MCP 同生共死 |
 | Workbench SPA 编译进 Go | 保留富交互，不增加运行时 Server 依赖和供应链面 |
 | 统一 local/cloud handoff | Host Adapter 不需要知道业务工具细节 |
@@ -527,12 +550,17 @@ flowchart LR
 | SSE 只通知 invalidation | 防止事件流成为第二事实源 |
 | 媒体用 opaque ID + Range | 避免路径泄露、整文件内存和 digest 漂移 |
 | Hosted Studio 复用 Schema/组件 | 保持一个产品体验，同时维持本地/云端事实分治 |
+| Workspace 绑定不依赖 cwd | Plugin Root 不是用户项目；Roots、受控注入和显式 directory 才是证据 |
 
 ## 11. 当前实现与发布缺口
 
 | 能力 | 当前事实 | 剩余门禁 | 状态 |
 | --- | --- | --- | --- |
 | stdio MCP | 唯一 Agent 控制面 | 保持协议回归测试 | 已实现 |
+| Claude Workspace 注入 | `${CLAUDE_PROJECT_DIR}` 注入 `CONTENTCLOUD_WORKSPACE_ROOT` | 真实 Claude 模型会话内调用 `workspace_context` | 已实现、单测和 Plugin lifecycle 已通过 |
+| MCP Roots | 已请求 `roots/list` 并校验 file URI | 唯一/多 root、变更通知、单 Workspace 锁定 | Server 闭环已实现，宿主响应和 E2E 待验证 |
+| MCP Apps | 已有 `ui://` Resource、App metadata、最小 App 生命周期页面 | 多宿主真实 UI、Bridge、fallback 和 app-only Tool 门禁 | 协议闭环已实现，宿主 E2E 待验收 |
+| MCP Apps 大媒体 | 可复用现有 digest/Range Kernel | iframe CSP、ticket TTL/audience/撤销、无 transcript 泄漏 | 未实现 |
 | Workspace Kernel | View、Claim v2、Proposal/Apply 均在 `localworkspace` | 继续阻止 Presenter 复制业务逻辑 | 已实现 |
 | View + digest Resource | 类型化 View、MCP Resource、opaque Browser Resource | 扩展业务 View 时保持同一事实模型 | 已实现 |
 | 旧 HTML renderer | 公共 Tool、Resource/cache 和 Skill 入口已删除 | 治理扫描持续阻止回归 | 已清理 |
@@ -542,10 +570,11 @@ flowchart LR
 | SSE | 有界事件环、gap、慢订阅者断开、5 秒外部变更轮询 | race/leak/长时运行验证 | 已实现 |
 | Range | digest 固定 opaque resource + `ServeContent` | Chromium 已验证 `206`、Content-Range 和真实图片解码 | 已通过 |
 | Workbench SPA | 本地 View、媒体、ownership、草稿、Proposal/Apply | Chromium 桌面、390px、320px 与控制台验收已通过；正式宿主键盘专项仍待验收 | 浏览器闭环已通过 |
-| Codex Host Adapter | 私有 handoff metadata 契约已接线 | 真实右侧 Browser E2E | 待宿主验收 |
+| Direct Browser Host Adapter | 私有 handoff metadata 契约已接线 | 每个声明支持宿主的真实 Browser/WebView E2E | 待宿主验收 |
 | Proposal/Apply | Browser/MCP 共用 `ProposalStore` 与原子替换 | 故障、race 和重放回归 | 已实现 |
 | Hosted Studio | 云端页面和 handoff 已存在 | 继续对齐语义，不合并本地/云端写状态 | 独立演进 |
-| Claude Host Adapter | Agent harness 已存在 | 真实宿主验证后接入 | 后续范围 |
+| Claude Plugin Host Adapter | Marketplace、Plugin、Skills、MCP 投影和项目根注入已实现 | 隔离配置真实 lifecycle + Headless 会话 | 控制面已实现 |
+| 其他宿主 | 上游存在部分 Agent Plugins/MCP Apps/Skill 能力 | NativeHost、Workspace、生命周期、UI/Headless E2E | 候选或计划 |
 
 ## 12. 验证矩阵
 
@@ -570,13 +599,18 @@ CONTENT WORK OS CURRENT
   [x] owner epoch / Browser takeover
   [x] shared ProposalStore / Proposal / Apply / rollback
   [x] 真实 Chromium Browser E2E
-  [ ] Codex 右侧内置 Browser 私有 `_meta` E2E
+  [x] Claude Plugin 项目根注入单测
+  [x] MCP roots/list / 多 root 选择 / 变更通知 Server 闭环
+  [x] MCP Apps ui:// / lifecycle / fallback 协议闭环
+  [ ] 正式宿主 private `_meta` E2E
 
 TARGET RELEASE GATE
   [x] local contract and loopback security tests
   [x] Range / SSE / ownership / Proposal integration tests
   [x] Chromium interaction and responsive E2E
-  [ ] 真实 Codex 宿主 E2E
+  [ ] Codex Desktop、Claude Desktop、Cursor、VS Code MCP Apps E2E
+  [ ] 声明支持 private handoff 的正式宿主 E2E
+  [ ] Claude Code 隔离 Plugin + MCP + Workspace smoke
   [ ] distribution and upgrade E2E
   [ ] race / leak / performance / fault injection
 ```
@@ -585,12 +619,12 @@ TARGET RELEASE GATE
 
 最有价值的不是某种前端框架，而是四个结构性机制：
 
-1. MCP 控制与 Browser 呈现分离，通过 handoff 连接。
-2. Browser 与无 UI 执行共享业务内核，但通过 ownership epoch 避免双写。
+1. MCP 控制与呈现分离；优先 MCP Apps，Direct Browser 是宿主适配，Headless 是正式降级。
+2. MCP App、Browser 与无 UI 执行共享业务内核，并通过 ownership epoch 避免双写。
 3. Draft、Proposal、Apply、发布和批准是不同事务与事实。
 4. 本地大文件、实时事件、恢复和供应链必须按生产系统测试，不能以静态页面 smoke 代替。
 
-Content Work OS 已保留 Go CLI、stdio MCP、Workspace 事实和发布门禁，并完成呈现层重构：同进程 Go Presenter、嵌入式 Workbench SPA、私有 local handoff、SSE、Range、Claim v2 和共享 Proposal/Apply 已落地；旧通用 HTML renderer 已删除。真实 Chromium 已跑通文件、媒体、所有权、编辑、外部刷新、响应式、关闭与重开。正式发布仍以 Codex 右侧内置 Browser 私有交接、分发升级、race/leak/性能和故障注入验收为准。
+Content Work OS 已保留 Go CLI、stdio MCP、Workspace 事实和发布门禁，并完成 Direct Browser 呈现层重构：同进程 Go Presenter、嵌入式 Workbench SPA、私有 local handoff、SSE、Range、Claim v2 和共享 Proposal/Apply 已落地；旧通用 HTML renderer 已删除。Claude Code 项目根注入已有自动测试，真实 Chromium 已跑通文件、媒体、所有权、编辑、外部刷新、响应式、关闭与重开。MCP Apps 和 MCP Roots Server 最小协议闭环已完成并有自动测试，但各宿主 Roots 响应、正式宿主 App/Bridge UI 和逐宿主 E2E 仍未完成，不能把当前结果标记为全渠道完成。
 
 ## 14. 公开规范
 
@@ -598,5 +632,10 @@ Content Work OS 已保留 Go CLI、stdio MCP、Workspace 事实和发布门禁�
 - Agent Plugins 1.0.0 规范：<https://agent-plugins.org/specification>
 - Agent Plugins 中文社区译文：<https://agent-plugin.org/zh>
 - MCP Transport：<https://modelcontextprotocol.io/specification/2025-06-18/basic/transports>
+- MCP Roots：<https://modelcontextprotocol.io/specification/2025-11-25/client/roots>
+- MCP Apps：<https://modelcontextprotocol.io/extensions/apps/overview>
+- MCP Apps 客户端矩阵：<https://modelcontextprotocol.io/extensions/client-matrix>
+- Claude Code Plugins：<https://code.claude.com/docs/en/plugins>
+- Claude Code MCP：<https://code.claude.com/docs/en/mcp>
 - OpenAI Plugin 概念：<https://developers.openai.com/plugins/concepts/plugins>
 - OpenAI Plugin 构建：<https://developers.openai.com/plugins/build/plugins>

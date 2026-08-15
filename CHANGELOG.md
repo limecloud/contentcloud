@@ -2,11 +2,29 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.27.0] - 2026-08-15
+
+### Added
+
+- 增加 Seedance 2.5 Provider 适配、PromptPackage 校验、文本生视频输入和媒体任务取消/提交对账能力。
+- 增加 ContentCloud Marketing Skill Pack，串联知识摄取、治理、意图内容、编译和客户交付流程。
+- 增加 Workbench MCP App、媒体输出清理、Provider 费用估算和 Runtime MCP 网关回归测试。
+
+### Changed
+
+- 扩展视频生产插件的 Seedance 执行 Skill、内容治理规则、MCP 与工作区交接文档。
+- Web、Server、Worker、CLI、Plugin、MCP 和 Environment Profile 统一升级到 `0.27.0`。
+
+### Fixed
+
+- 修复外部媒体提交、取消和输出入库失败时的状态一致性、重试与临时 Blob 清理问题。
+- 修复 Workbench handoff、Workspace 视图和微信文章 Skill 边界校验的回归问题。
+
 ## [0.26.0] - 2026-08-14
 
 ### Added
 
-- 增加 Agent Plugin 的本地 Workspace 工作台能力，通过 `Skills + stdio MCP` 提供类型化 View、digest 固定 Resource 与安全静态 HTML presentation。
+- 增加 Agent Plugin 的本地 Workspace 工作台能力，通过 `Skills + stdio MCP` 提供类型化 View、digest 固定 Resource、同进程 Go Presenter 和嵌入式 SPA。
 - 增加 Attempt 级 Runtime MCP Gateway、Daemon 绑定与运行诊断，使 Codex/Claude Harness 在受控工具边界内恢复本地与云端执行上下文。
 
 ### Changed
@@ -17,6 +35,8 @@ ContentCloud 的重要变更记录在此文件中。
 ### Fixed
 
 - 修复 Codex Harness 在 Runtime Gateway 参数校验失败时创建未释放 context 的问题。
+- 修复本地 Workbench 清除一次性 handoff 后刷新无法恢复的问题，并让 Browser Claim 在同一标签页刷新后继续受 owner/epoch 围栏保护。
+- 修复 Workspace JSON 被降级为纯文本的问题，并从模型可见 `workspace_context` 中移除本地绝对 Root。
 
 ## [0.25.0] - 2026-08-12
 

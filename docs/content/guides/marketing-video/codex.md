@@ -66,4 +66,39 @@ workspace_context
 4. 核对素材、权利、镜头连续性、提示词和文件摘要。
 5. 将“交付包已生成”和“外部平台已发布”分别记录。
 
+## 8. 使用 Seedance 2.5 服务端执行
+
+当租户已经配置并批准 `modelark-seedance25` Provider Profile 和 Binding 时，优先通过 ContentCloud Media Job 执行单镜头生成：
+
+1. 确认当前分镜是已批准快照，且 `SeedancePromptPackage` 的锁定摘要、Profile 版本和输入 Artifact 没有漂移。
+2. 创建 `MediaGenerationJob`，只填写快照、模式、画幅、时长和 Artifact ID；不要填写本地绝对路径或长期视频 URL。
+3. 等待费用审批。估算费用来自 Provider Profile 的时长价格，未配置价格的 Provider 会被阻断。
+4. 由 Media Worker 提交、轮询、取消和下载。服务商超时或状态不明时不要重新创建任务，等待对账。
+5. 生成 MP4 通过技术校验后会产生候选 Artifact 和待处理的内容审核；它不能直接作为最终成片或交付包。
+
+第一阶段仅支持 `text_to_video` 与 `image_to_video` 单镜头。多镜头、续写、编辑、音频驱动和超长视频继续使用手动导出或保持未启用状态。
+
+### HTTP 操作契约
+
+服务端执行使用当前登录会话的 BFF API。上传提示包使用 `multipart/form-data`，字段为 `snapshot_id` 和 `file`；`file` 必须是已经校验过的 JSON `SeedancePromptPackage`：
+
+```text
+POST /api/bff/tasks/{taskID}/seedance-prompt-package
+```
+
+上传成功返回 `Artifact`，后续创建 Media Job 时将其 `id` 作为 `prompt_package_artifact_id`。不要把提示词正文、绝对路径或长期 URL 放进 Media Job。
+
+提交超时或结果不明时，先通过状态对账确认外部任务 ID，再使用：
+
+```json
+POST /api/bff/media-jobs/{id}/reconcile-submit
+{"expected_version": 3, "external_job_id": "外部任务标识"}
+```
+
+该接口只接受 `awaiting_external_result` 任务，不能覆盖已经绑定的外部 ID，也不会重新提交生成请求。`expected_version` 必须来自最新的 Media Job 投影。
+
+部署方通过受控 BFF 配置 Provider，不要直接写数据库：平台管理员先 `POST /api/bff/admin/provider-profiles` 创建 `draft` Profile，再调用 `/api/bff/admin/provider-profiles/{providerID}/{version}/publish` 发布；租户管理员随后 `PUT /api/bff/provider-bindings/{providerID}` 配置 Binding。Binding 的 `profile_version` 必须与已发布 Profile 精确一致，active 非 fake Provider 的 `credential_ref` 只能是 `secret://`、`vault://` 或 `env://` 引用，不能提交 API Key。响应不会返回凭据字段。
+
+Worker 只有在设置 `CONTENTCLOUD_SEEDANCE25_API_KEY` 和 `CONTENTCLOUD_SEEDANCE25_ALLOWED_HOSTS` 后才注册 Provider；这里的环境变量是 Worker 进程从受控 SecretRef 解析后的运行时注入，不应写入 Provider Profile 或 Binding。真实凭据、费用和输出域名必须在沙箱环境完成受控验收。
+
 遇到连接或恢复问题时，查看[本地工作区与任务交接故障排查](../../troubleshooting/workspace-and-handoff.md)。

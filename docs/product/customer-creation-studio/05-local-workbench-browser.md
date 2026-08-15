@@ -1,60 +1,71 @@
 # Content Work OS 本地工作台技术方案
 
-状态：`本地查看与受治理编辑闭环、真实 Chromium E2E 已通过；Codex 右侧 Browser 私有交接与发布分发仍待宿主验收`。
+状态：`可移植控制面、Direct Browser Presenter、Claude Code 工作区注入、MCP Apps 最小协议闭环和 MCP Roots 请求/绑定闭环已实现；各正式宿主 UI/Roots 仍待真实验收`。
 
-更新时间：2026-08-14。
+更新时间：2026-08-15。
 
 上位规范：[ContentCloud 平台基线](../../foundation/README.md)、[客户创作台产品层](./README.md)、[项目级执行客户端连接](./04-execution-client-connection.md)、[Agent Plugin 架构](../../plugin/README.md)、[Runtime 运行手册](../../roadmap/v8/10-runtime-operations-runbook.md)。调研证据见[参考工作台实现分析](./06-reference-workbench-analysis.md)。
 
-本文是本地 Workbench 的唯一技术事实源。它同时说明当前实现、可验证边界和发布门禁；不再保留旧静态 HTML renderer、presentation Resource/cache 或长期 Node sidecar 的兼容方案。
+本文是本地 Workbench 的唯一技术事实源。它同时说明当前实现、目标架构、宿主差异和发布门禁；不再保留旧静态 HTML renderer、presentation Resource/cache 或长期 Node sidecar 的兼容方案。MCP Apps 是 MCP 扩展，不是 Agent Plugins 1.0.0 核心字段，两者必须独立协商和测试。
 
 ## 1. 结论
 
-本地工程采用唯一运行链路：
+本地工程采用一个可移植核心、三种呈现通道：
 
 ```text
-Canonical Skill
+中文 Canonical Skills
   -> stdio MCP
   -> Workspace Kernel
-  -> 同进程 Go Presenter
-  -> go:embed Workbench SPA
-  -> Codex Browser
+  -> Host Capability Negotiation
+       |-> MCP Apps: ui:// Resource + App Bridge
+       |-> Direct Browser: Go Presenter + private handoff
+       `-> Headless: structuredContent + MCP Resource
 ```
 
 核心决策：
 
-1. Agent Plugin 只发布 Canonical Skills 和 stdio MCP 声明。
-2. `contentcloud mcp serve` 是 Agent 的唯一可移植本地控制面，也是 Presenter 的父进程。
-3. `workspace_open_workbench` 按需创建 `127.0.0.1:0` loopback listener，服务嵌入 Go 二进制的 SPA 和版本化 `/api/v1/*`。
-4. Browser handoff 的 tokenized URL 只进入 Host 私有 Tool Result `_meta`，模型可见结果只包含无秘密 descriptor 和类型化 fallback View。
-5. stdio MCP 与 Browser API 共用 `localworkspace.ProposalStore`、Claim v2、revision、digest 和原子写入实现，不存在第二套业务写路径。
-6. Workspace 是未发布本地事实源；Cloud Revision 是已提交云端事实源。二者只通过明确 pull/publish 交换。
-7. Browser 不可用时降级到 `workspace_view`、`structuredContent` 和 digest 固定 MCP Resource，不生成另一套 HTML 页面。
-8. 云端发布当前仍只通过 stdio MCP 的 `publish_preflight`/`publish_apply`，Browser API 不越过现有云端确认边界。
+1. 标准 Agent Plugin 只发布中文 Skills 和 stdio MCP 声明；`ui://`、`_meta.ui.resourceUri` 与 `text/html;profile=mcp-app` 属于 MCP Apps 扩展。
+2. `contentcloud mcp serve` 是唯一可移植本地控制面。任何 UI 都只能调用同一 Workspace Kernel，不能拥有第二套 Claim、Proposal、Apply 或 publish 实现。
+3. 支持 MCP Apps 的宿主优先使用标准 App 通道；不支持 App 但支持安全私有导航的宿主可使用 Direct Browser；两者都不支持时必须退化为完整的 Headless Tool/Resource 工作流。
+4. Direct Browser 继续由同一个 Go MCP 进程按需创建 `127.0.0.1:0` Presenter，不启动长期 Node 服务。
+5. Workspace 是未发布本地事实源；Cloud Revision 是已提交云端事实源。两者只通过明确 pull/publish 交换。
+6. 云端发布仍只通过 `publish_preflight`/`publish_apply`，任何本地 UI 都不能越过现有确认边界。
+7. “官方兼容目录存在”只证明某项协议能力候选，不等于 ContentCloud 已完成安装投影、工作区绑定、生命周期、UI 和安全验收。
 
 ## 2. 当前能力边界
 
 ### 2.1 已实现
 
 - stdio MCP：`workspace_view`、`workspace_open_workbench`、`workspace_workbench_status`、`workspace_close_workbench`。
-- 同进程 Go Presenter：随机 loopback 端口、嵌入式 SPA、一次性交接、内存 capability、CSRF、资源专用会话 Cookie、CSP、安全响应头和绝对 TTL。
+- 同进程 Go Presenter：随机 loopback 端口、嵌入式 SPA、一次性交接、服务端内存 capability、标签页刷新恢复、CSRF、资源专用会话 Cookie、CSP、安全响应头和绝对 TTL；同一 Session 的多个 capability 保留各自打开时的 View。
 - 类型化 View：Workspace summary、文件/目录、Run、Handoff、内容、render、diff、delivery 视图入口。
 - digest Resource：opaque Browser resource ID、MCP Resource fallback、图片/PDF/音视频 HTTP Range 和 stale digest 阻断。
 - SSE：单调事件 ID、`Last-Event-ID`、有界 ring buffer、gap 恢复、慢订阅者断开。
 - Claim v2：`owner_kind`、`owner_id`、单调 `epoch`、持久化 `token_hash`、主动 takeover 和旧 owner fencing。
 - Draft -> Proposal -> Apply：精确影响、10 分钟 TTL、一次性消费、CAS 重验、幂等重放、原子替换、LocalRun revision 推进和失败回滚。
 - Workbench UI：目录导航、类型化文档、图片/PDF/音视频、所有权、草稿编辑、takeover、Proposal 确认、Apply 后刷新。
+- Claude Code 私有投影：保留 `${CLAUDE_PLUGIN_ROOT}`/`${CLAUDE_PLUGIN_DATA}`，并通过 `${CLAUDE_PROJECT_DIR}` 注入 `CONTENTCLOUD_WORKSPACE_ROOT`；`workspace_context` 无需显式 `directory` 即可绑定当前项目。
 
 ### 2.2 当前发布边界
 
 - Presenter 只支持本地查看与本地 Proposal/Apply；云端 publish 没有 Browser HTTP 路由。
 - 事件外部变更检测当前为 5 秒受限轮询，不声明 `fsnotify`。
-- Workbench session 使用 4 小时绝对 TTL，handoff 为 60 秒，Browser capability 为 30 分钟；当前没有独立 idle TTL 或 capability 滚动续期。
+- Workbench session 使用 4 小时绝对 TTL，handoff 为 60 秒，Browser capability 为 30 分钟；当前没有独立 idle TTL 或 capability 滚动续期。普通刷新从当前标签页 `history.state` 恢复 capability、CSRF 和 Claim token；新的 handoff exchange 会重新返回该 Workbench 仍持有的 Browser Claim token。Session 关闭会主动释放这些 Claim。
 - SSE ring buffer 当前为 128 条，单订阅者队列为 16 条。
 - Workspace 单个可展示资源上限为 512 MiB；MCP 内联读取上限为 2 MiB，大文件必须走 Browser Resource。
-- Chromium Browser 的导航、桌面/移动交互、媒体 Range、受治理编辑和关闭恢复已通过。Codex 右侧内置 Browser 自动消费私有 `_meta` 仍待真实宿主验收；在此之前不能宣称正式宿主交付完成。
+- Chromium Browser 的导航、桌面/移动交互、媒体 Range、受治理编辑和关闭恢复已通过。仓库仅生成私有 `_meta` handoff，不包含 Codex 右侧 Browser Host Adapter；因此仍不能宣称正式宿主交付完成。
+- 当前已提供会话协商、`ui://` MCP App Resource、`_meta.ui.resourceUri`、`text/html;profile=mcp-app` 和最小 App 生命周期页面；没有注册 app-only Tool。正式宿主沙箱、Bridge 代理和宿主 E2E 尚未完成，不能把协议闭环写成全渠道 UI 已交付。
+- MCP Server 已在宿主声明 `capabilities.roots` 后主动请求 `roots/list`，支持单 root 自动绑定、多 root 要求显式 `directory` 和 `notifications/roots/list_changed` 重取；未声明或不响应 Roots 的宿主仍需显式 `directory` 或经验证的宿主注入，禁止把 Plugin Root 误认成 Workspace Root。
 
-### 2.3 非目标
+### 2.3 目标发布能力
+
+- MCP Apps：同一个 stdio Server 返回 `ui://` Resource，由支持 `io.modelcontextprotocol/ui` 的宿主在沙箱 iframe 中呈现。
+- Direct Browser：保留现有 Go Presenter，承担无 MCP Apps 宿主的安全导航以及大媒体 Range 通道。
+- Headless：所有宿主始终可以通过 Tool、`structuredContent` 和 digest-bound Resource 完成同一业务流程。
+- Host Capability Probe：会话初始化时记录 Plugin、Skills、stdio MCP、Roots、MCP Apps、private handoff、loopback/iframe/CSP/Range 能力，不根据客户端名称猜测。
+- UI 共用同一展示组件与类型化 View 契约；MCP App 与 Direct Browser 不能分叉业务逻辑。
+
+### 2.4 非目标
 
 - 不建设通用文件管理器、IDE、任意代码编辑器或多人实时协作。
 - 不允许 Browser 访问 `file://`、绝对路径、任意目录或任意外部 URL。
@@ -70,10 +81,13 @@ flowchart TB
     User[用户]
 
     subgraph Host[Agent Host]
-        Agent[Codex / Claude Agent]
-        Skill[Canonical Workspace Skill]
-        Adapter[Host Browser Adapter]
-        Browser[Browser]
+        Agent[Agent 会话]
+        Skill[中文 Workspace Skill]
+        Probe[Capability Probe]
+        AppHost[MCP Apps Host\n沙箱 iframe]
+        Adapter[Direct Browser Adapter]
+        Browser[Browser / WebView]
+        Headless[Headless Tool UI]
     end
 
     subgraph Plugin[Agent Plugin]
@@ -84,6 +98,7 @@ flowchart TB
 
     subgraph Process[contentcloud mcp serve 进程]
         MCP[stdio MCP]
+        AppResource[ui:// App Resource\n协议闭环已实现]
         Manager[Workbench Manager]
         Presenter[Go Loopback Presenter]
         UI[go:embed SPA]
@@ -101,9 +116,16 @@ flowchart TB
     Skills --> Skill
     MCPConfig --> MCP
     Agent <-->|stdio JSON-RPC| MCP
+    Agent --> Probe
+    Probe --> AppHost
+    Probe --> Adapter
+    Probe --> Headless
     MCP --> View
     MCP --> Proposal
     MCP --> Manager
+    MCP -.->|_meta.ui.resourceUri| AppResource
+    AppResource -.-> AppHost
+    AppHost -.->|ui bridge / tools/call / resources/read| MCP
     Manager --> Presenter
     Presenter --> UI
     Presenter --> View
@@ -112,26 +134,30 @@ flowchart TB
     View <--> Workspace
     Proposal <--> Workspace
     MCP -->|明确 publish| Cloud
-    MCP -->|私有 browserHandoff| Adapter
-    Adapter --> Browser
+    MCP -.->|私有 browserHandoff| Adapter
+    Adapter -.-> Browser
     Browser -->|same-origin HTTP / SSE| Presenter
+    MCP -->|structuredContent / Resource| Headless
 ```
 
 架构不变量：
 
 - `MCP -> localworkspace` 与 `Presenter -> localworkspace` 进入相同 Kernel primitive。
+- `MCP App -> tools/call -> MCP -> localworkspace` 也必须进入相同 Kernel primitive。
 - Presenter 不通过回调 MCP Tool 执行业务操作，避免循环依赖、重复序列化和取消丢失。
 - Browser 只拿 opaque resource ID；本机路径不进入 HTML、API、日志或 Tool descriptor。
 - Local/Cloud 可以共享 View/Action 语义，但不共享隐式可写状态。
-- Host Adapter 只负责安全导航，不拥有业务事实或授权。
+- MCP App Host 与 Direct Browser Adapter 只负责呈现和传输，不拥有业务事实或授权。
 
 ## 4. 组件职责
 
 | 组件 | 唯一职责 | 不拥有 |
 | --- | --- | --- |
 | Workspace Skill | 路由、确认、恢复、降级和下一步规则 | 文件 I/O、token、宿主 DOM |
-| stdio MCP | Tool/Resource 协议、单 Workspace 绑定、Host 私有 metadata | 富 UI、长期 HTTP、业务状态副本 |
-| Workbench Manager | 每 Workspace 一个进程内 Session、listener、handoff、关闭 | 正式文件校验与写入 |
+| Host Capability Probe | 协商 Roots、MCP Apps、private handoff、loopback 和 Resource 能力 | 根据产品名推断能力 |
+| stdio MCP | Tool/Resource、MCP Apps Resource、单 Workspace 绑定、Host 私有 metadata | 业务状态副本 |
+| MCP App UI | 在宿主沙箱中展示 View，经 Bridge 调用 Tool/Resource | 直接文件系统、秘密 token、第二套写路径 |
+| Workbench Manager | 每 Workspace 一个进程内 Session、listener、handoff、关闭；为每个 exchanged capability 保存独立 View | 正式文件校验与写入 |
 | Go Presenter | SPA、HTTP 认证、SSE、Range、传输映射 | Claim/Proposal 的第二实现 |
 | Workbench SPA | 展示 View、收集草稿、展示精确 Proposal、触发确认 | 直接文件系统、云端权限 |
 | `localworkspace` | View、Resource、Claim v2、CAS、Proposal、原子替换、revision | Browser 导航和视觉布局 |
@@ -171,26 +197,80 @@ local_viewed != local_proposed != local_applied != cloud_submitted != cloud_appr
 | Browser tab、Host 能力 | Host |
 | 发布、审核、批准 | Cloud |
 
-## 6. 打开与降级流程
+## 6. 工作区绑定、打开与降级
+
+### 6.1 工作区绑定优先级
+
+目标顺序固定为：
+
+```text
+MCP roots/list 中唯一且通过 Workspace 校验的 file:// root
+  -> Host 私有投影注入的稳定项目根
+  -> Tool 显式 directory
+  -> WORKSPACE_NOT_BOUND
+```
+
+约束：
+
+- 多个 Roots 都包含有效 Workspace 时必须要求用户选择，不能扫描后猜测。
+- 第一次成功解析后，MCP 子进程锁定单一 canonical Workspace；后续不同 root 返回 `MCP_WORKSPACE_SESSION_CONFLICT`。
+- Plugin Root、Plugin Data、进程启动目录本身都不是 Workspace 证据。
+- Claude Code 当前通过 `${CLAUDE_PROJECT_DIR}` 注入稳定项目根，已具备第二级绑定。
+- MCP Roots Server 请求与绑定校验已实现；跨宿主缺口变为宿主是否声明并正确响应 `roots/list`、多 root 选择和重启恢复。宿主尚未通过验证前，Codex 等客户端必须显式传 `directory` 或提供已验证的受控注入。
+
+### 6.2 宿主准入流程
 
 ```mermaid
 flowchart TD
-    A[用户请求打开本地工程] --> B[workspace_context]
-    B --> C{Workspace ready?}
-    C -->|否| D[workspace_doctor / repair]
-    C -->|是| E[workspace_open_workbench]
-    E --> F[Build WorkspaceView + ObserveSessionBinding]
-    F --> G[启动或复用 127.0.0.1:0 Presenter]
-    G --> H[生成 60 秒一次性 fragment handoff]
-    H --> I{Host 可消费私有 metadata?}
-    I -->|是| J[Host Adapter 导航 Browser]
-    I -->|否| K[使用 descriptor.fallback + MCP Resource]
-    J --> L{导航与 exchange 成功?}
-    L -->|是| M[Workbench 可用]
-    L -->|否| K
+    A[解析并锁定 Workspace] --> B{Workspace ready?}
+    B -->|否| C[workspace_doctor / repair]
+    B -->|是| D[Capability Probe]
+    D --> E{支持 io.modelcontextprotocol/ui?}
+    E -->|是| F[MCP Apps: ui://]
+    E -->|否| G{支持私有 handoff + loopback?}
+    G -->|是| H[Direct Browser: Go Presenter]
+    G -->|否| I[Headless: Tool + Resource]
+    F --> J{App 初始化成功?}
+    H --> K{导航与 exchange 成功?}
+    J -->|否| G
+    K -->|否| I
+    J -->|是| L[交互式 Workbench]
+    K -->|是| L
 ```
 
-### 6.1 MCP 打开结果
+### 6.3 MCP Apps 时序（协议闭环已实现，宿主 E2E 待验收）
+
+```mermaid
+sequenceDiagram
+    actor User as 用户
+    participant Host as MCP Apps Host
+    participant MCP as contentcloud stdio MCP
+    participant App as 沙箱 MCP App
+    participant Kernel as Workspace Kernel
+
+    Host->>MCP: initialize + io.modelcontextprotocol/ui capability
+    MCP-->>Host: Tool 定义 + _meta.ui.resourceUri=ui://contentcloud/workbench
+    User->>Host: 打开本地工程
+    Host->>MCP: tools/call workspace_view/open
+    MCP->>Kernel: BuildWorkspaceView
+    Kernel-->>MCP: typed View + digest + revision
+    MCP-->>Host: structuredContent + app metadata
+    Host->>MCP: resources/read ui://contentcloud/workbench
+    MCP-->>Host: text/html;profile=mcp-app
+    Host->>App: 在沙箱 iframe 初始化 Tool Result
+    App->>MCP: ui bridge tools/call 或 resources/read
+    MCP->>Kernel: Claim / Proposal / Apply
+    Kernel-->>App: 类型化结果，不返回本机路径或秘密
+```
+
+MCP App 必须满足：
+
+- Tool 通过 `_meta.ui.resourceUri` 关联 `ui://` Resource；不支持该扩展的宿主仍获得完整 `structuredContent`。
+- UI 只经宿主 Bridge 调用同一 MCP Server；不把 iframe 消息、DOM 状态或按钮状态当作授权。
+- 当前不注册仅供 App 使用的辅助 Tool，因此不会扩大模型 Tool 列表；后续若增加 app-only Tool，必须对模型隐藏，并由 Server 复核 Workspace、Claim、revision 和 digest。
+- UI bundle 与 Direct Browser 尽量复用展示组件和 View schema，但传输适配器分离。
+
+### 6.4 Direct Browser 打开结果
 
 模型可见 descriptor 使用 `contentcloud.workbench-handoff/1.0`，包含：
 
@@ -207,7 +287,7 @@ _meta["run.zhongcao.contentcloud/browserHandoff"]
 
 其中包含 `workbench_id`、实际 origin 和 `/#handoff=<one-time-token>`。这些字段不得出现在 `structuredContent`、模型文本、日志、持久化 Handoff 或错误。
 
-### 6.2 打开时序
+### 6.5 Direct Browser 时序（当前已实现 Presenter）
 
 ```mermaid
 sequenceDiagram
@@ -241,6 +321,48 @@ sequenceDiagram
 
 Tool 成功只证明 Presenter 已就绪。只有 Host 实际导航并验证页面后，才能报告“已在 Browser 打开”。
 
+### 6.6 Headless 降级
+
+Headless 不是错误页，而是正式、可完成业务的最低能力面：
+
+```mermaid
+flowchart LR
+    A[workspace_context] --> B[workspace_view]
+    B --> C[structuredContent]
+    B --> D[digest-bound MCP Resource]
+    C --> E{需要修改?}
+    D --> E
+    E -->|否| F[继续只读]
+    E -->|是| G[Claim]
+    G --> H[Proposal prepare]
+    H --> I[用户确认]
+    I --> J[Apply]
+```
+
+### 6.7 宿主能力矩阵
+
+状态语义：`已验证` 表示本仓库有实现和对应测试；`官方能力` 只表示上游文档声明；`候选` 表示协议可行但缺 ContentCloud Adapter/E2E；`计划` 表示证据或实现均不足。
+
+| 宿主/Surface | Plugin/Skill | stdio MCP | 工作区绑定 | 富 UI | ContentCloud 状态 |
+| --- | --- | --- | --- | --- | --- |
+| Codex CLI | Agent Plugins 已验证 | 已验证 | 显式 `directory`；Server Roots 已实现，客户端响应未验证 | 无内联 UI，Headless | 控制面已验证 |
+| Codex Desktop | Agent Plugins 已验证 | 已验证 | 显式 `directory`；Server Roots 已实现，宿主响应未验证 | 上游源码具备 MCP Apps 管道；本项目 E2E 未完成 | UI 候选 |
+| Claude Code CLI | Claude 私有 Plugin/Skills 已验证 | 自动生命周期已验证 | `${CLAUDE_PROJECT_DIR}` 注入已实现 | 无 MCP Apps 内联证据 | 控制面已验证 |
+| Claude Code + Chrome/Edge | 同上 | 同上 | 同上 | 可操作 localhost，但不是私有 handoff | 实验候选 |
+| Claude Desktop / Web | 非本仓库 Plugin 投影 | 官方 MCP 能力 | 本地绑定未实现 | 官方 MCP Apps 支持 | 候选，未准入 |
+| Cursor | Agent Plugins 官方兼容 | 官方 MCP 能力 | NativeHost/Roots 未实现 | 官方 MCP Apps 支持 | 候选，未准入 |
+| VS Code GitHub Copilot | Agent Plugins 官方兼容 | 官方 MCP 能力 | NativeHost/Roots 未实现 | 官方 MCP Apps 支持 | 候选，未准入 |
+| GitHub Copilot CLI/App | Agent Plugins 官方兼容 | 依具体 Surface | 未实现 | 依具体 Surface，不能合并推断 | 计划 |
+| Kiro | Agent Plugins 官方兼容 | 官方 MCP 候选 | 未实现 | 无本项目证据 | 计划 |
+| Gemini CLI | Agent Skills 候选 | MCP 候选 | 未实现 | 无本项目证据 | Headless 候选 |
+| Cline / Windsurf / Continue | 各自具备部分 Skill 或 MCP 能力 | MCP 候选 | 未实现 | 无统一 MCP Apps 证据 | 计划 |
+| Hermes / OpenClaw | Agent Plugins 官方兼容 | Skill/MCP 候选 | 未实现 | 无本项目证据 | 计划 |
+| WorkBuddy | 无足够稳定官方证据 | 未验证 | 未实现 | 未验证 | 计划 |
+| Grok Bot / NanoClaw | Agent Plugins 官方兼容目录存在 | 未验证 | 未实现 | 未验证 | 非首发 |
+| 通用 MCP Client | 不要求 Plugin | 按能力协商 | Roots 或显式 `directory` | MCP Apps 可选 | Headless 基线 |
+
+Claude Code 不在 Agent Plugins 官方兼容客户端目录中；ContentCloud 的支持来自 Claude 自己的 Plugin/Marketplace 格式和本仓库私有投影。反过来，进入 Agent Plugins 或 MCP Apps 官方矩阵也不能自动升级为 ContentCloud 正式支持。
+
 ## 7. Presenter HTTP 契约
 
 ### 7.1 当前路由
@@ -259,14 +381,14 @@ Tool 成功只证明 Presenter 已就绪。只有 Host 实际导航并验证页�
 | `POST` | `/api/v1/proposals` | 生成一次性 Proposal | 仅进程内 Proposal |
 | `POST` | `/api/v1/proposals/{id}/apply` | CAS 重验并写入 | 本地正式写入 |
 
-没有 Browser publish 路由。任何云端写入继续通过 stdio MCP。
+没有 Browser publish 路由。任何云端写入继续通过 stdio MCP。Host Adapter 不在本仓库内实现，`_meta` 的生成不能替代宿主消费、导航、页面断言和 token 不入模型上下文的真实验收。
 
 ### 7.2 传输边界
 
 - Listener 固定 `tcp4 127.0.0.1:0`，每个 session 记录实际 Host。
 - 最外层 handler 对每个请求执行 exact Host 校验。
 - exchange 和所有 mutation 要求 exact Origin、`Sec-Fetch-Site: same-origin`、JSON Content-Type 和 body 上限。
-- Bootstrap、View、SSE 和 mutation API 使用只保存在页面内存中的 `Authorization: Bearer <memory-capability>`；mutation 再要求 `X-Workbench-CSRF`。
+- Bootstrap、View、SSE 和 mutation API 使用标签页会话 capability；mutation 再要求 `X-Workbench-CSRF`。前端只把 capability、CSRF、expiry 和当前标签页持有的 Claim token 保存到该标签页的 `history.state`，用于同页刷新恢复；不写入 URL、`localStorage`、`sessionStorage`、Cookie、日志或模型内容，关闭 Session 或收到 `session.closed` 时立即清除。
 - exchange 同时设置独立的资源专用会话 Cookie：`HttpOnly; SameSite=Strict; Path=/api/v1/resources/`，不设置持久化 expiry。Cookie 使用独立 capability，只能授权 digest-bound Resource GET，不能调用 Bootstrap、View、SSE、exchange 或 mutation。
 - 资源 Cookie 的明文值不进入 exchange JSON、页面 JavaScript、模型内容或日志；session 关闭时显式清除，服务端有效期不超过 Browser capability 和 Presenter TTL。
 - mutation 需要 8-128 字符 `Idempotency-Key`，相同 key 不同操作/参数返回冲突。
@@ -278,8 +400,8 @@ Tool 成功只证明 Presenter 已就绪。只有 Host 实际导航并验证页�
 
 ```mermaid
 flowchart LR
-    Exchange[一次性 handoff exchange] --> API[页面内存 API capability]
-    Exchange --> CSRF[页面内存 CSRF]
+    Exchange[一次性 handoff exchange] --> API[标签页会话 API capability]
+    Exchange --> CSRF[标签页会话 CSRF]
     Exchange --> Cookie[HttpOnly 资源 capability Cookie]
     API --> Read[Bootstrap / View / SSE]
     API --> Mutation[Claim / Takeover / Proposal / Apply / Close]
@@ -305,7 +427,7 @@ Cross-Origin-Resource-Policy: same-origin
 Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
 ```
 
-当前页面要求由 Host Browser 直接导航，不允许第三方 iframe 嵌入。
+这些响应头只适用于 Direct Browser Presenter 页面，它要求 Host Browser 直接导航且不允许第三方 iframe 嵌入。MCP App 是独立的 `ui://` Resource，由宿主自己的沙箱策略承载，不能复用这里的 `X-Frame-Options: DENY` 响应。
 
 ## 8. View 与资源
 
@@ -318,7 +440,7 @@ Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
 50-production/  60-delivery/  70-results/  90-archive/
 ```
 
-每次读取都执行 Workspace-relative 规范化、root containment、allowlist、普通文件、大小、MIME 和 digest 校验。绝对路径、隐藏路径、越界路径、symlink 逃逸、设备文件和非普通文件拒绝。
+每次读取都执行 Workspace-relative 规范化、root containment、allowlist、普通文件、大小、MIME 和 digest 校验。绝对路径、隐藏路径、越界路径、symlink 逃逸、设备文件和非普通文件拒绝。`workspace_context` 的内部 Root 只用于 CLI 解析和环境检查，序列化给模型的 ContextView 与 MCP Resource 会省略该字段，不暴露本地绝对路径。
 
 ### 8.2 Resource
 
@@ -344,6 +466,30 @@ sequenceDiagram
 ```
 
 Browser resource ID 只映射到进程内 digest-bound URI。页面永远看不到本机路径。MCP Resource 超过 2 MiB 时返回明确错误并引导使用 Workbench；Presenter 通过 seekable reader 交给 Go `ServeContent` 处理 HTTP Range。
+
+### 8.3 MCP Apps 大媒体通道（目标）
+
+小型文本和结构化数据直接使用 `resources/read`。图片、PDF、音频、视频或接近 2 MiB 上限的对象不能整体 base64 编码进 stdio；目标方案复用 Go Presenter 的资源内核，增加短生命周期 Media Gateway：
+
+```mermaid
+sequenceDiagram
+    participant App as MCP App
+    participant MCP
+    participant Gateway as Loopback Media Gateway
+    participant Kernel
+
+    App->>MCP: app-only Tool 请求 resource_id + digest
+    MCP->>Kernel: 校验 Workspace、View、digest、MIME 和大小
+    Kernel-->>MCP: 允许读取
+    MCP->>Gateway: 创建 app-scoped opaque ticket
+    Gateway-->>MCP: 短期媒体引用，不含本机路径
+    MCP-->>App: 仅经 App Bridge 返回引用
+    App->>Gateway: GET + Range + ticket
+    Gateway->>Kernel: 再校验 digest
+    Kernel-->>App: 200/206 或 WORKSPACE_VIEW_STALE
+```
+
+发布前必须验证 iframe CSP、宿主允许的连接目标、CORS/Fetch Metadata、Range、ticket audience、绝对 TTL、单次/有限次消费和页面销毁后的撤销。ticket 不得进入模型可见 Tool Result、日志、持久化 Workspace 或普通 MCP Resource；宿主不允许该 Gateway 时回退为小资源内联和 Headless 元数据，不绕过大小限制。
 
 ## 9. SSE 与恢复
 
@@ -374,6 +520,8 @@ SSE 只通知快照可能失效，不携带新的权威正文。
 
 同一个 origin 收到新的 `/#handoff=...` 时只会产生 hash 导航。SPA 监听 `hashchange`，重新 exchange、清除 fragment 并按服务端 Session 当前 View Bootstrap，避免同源重开停留在旧 capability 或旧视图。
 
+普通页面刷新从当前标签页的 `history.state` 恢复原 capability、CSRF 和该标签页持有的 Claim token，再按 capability 固定的 View 重新 Bootstrap；其他标签页无法通过共享 Web Storage 取得这些凭据。
+
 ## 10. Claim v2 与接管
 
 持久 Claim Schema：
@@ -389,7 +537,7 @@ context_revision
 claimed_at / expires_at
 ```
 
-明文 token 只在成功 claim/takeover 的当次结果中返回。每次新 claim 或 takeover 使用持久化 epoch 计数器递增；旧 token 即使尚未过期，也会因 owner/epoch fencing 失败。
+明文 token 在成功 claim/takeover 的结果中返回；同一 Workbench Session 后续 exchange 只向该已认证 Session 恢复它自己持有的 Run token，其他 Session 不可读取。每次新 claim 或 takeover 使用持久化 epoch 计数器递增；旧 token 即使尚未过期，也会因 owner/epoch fencing 失败。
 
 ```mermaid
 stateDiagram-v2
@@ -484,9 +632,9 @@ sequenceDiagram
     UI-->>User: 展示精确影响
     User->>UI: 确认同一 proposal_id
     UI->>Store: Apply(separate idempotency key, confirm=true)
-    Store->>Kernel: consume once + revalidate all fences
+    Store->>Kernel: acquire Run mutation lock + revalidate all fences
     Kernel->>WS: temp write + file fsync + rename + directory fsync
-    Kernel->>Kernel: RecordClaimedLocalRun(revision+1)
+    Kernel->>Kernel: RecordClaimedLocalRun(revision+1) under same lock
     alt revision update succeeds
         Kernel-->>UI: output digest + new revision
     else revision update fails
@@ -495,7 +643,7 @@ sequenceDiagram
     end
 ```
 
-相同幂等 key 和相同参数重放返回原结果；相同 key 不同参数返回冲突。Proposal 在首次非幂等 Apply 时被消费，后续 Apply 返回 not found。
+相同幂等 key 和相同参数重放返回原结果；相同 key 不同参数返回冲突。Proposal 只有在 Apply 成功推进文件和 LocalRun revision 后才被消费；失败会保留 Proposal 以便诊断或按新 fence 重试，成功后的后续 Apply 返回 not found。
 
 ## 12. Workbench UI
 
@@ -659,7 +807,10 @@ Browser 本地保存不能自动触发 publish。Cloud 提交也不能反向覆�
 
 ```mermaid
 flowchart LR
-    UI[internal/workbench/ui] --> Embed[go:embed]
+    Shared[共享 View schema / UI components] --> Direct[Direct Browser bundle]
+    Shared -. 目标 .-> App[MCP App bundle]
+    Direct --> Embed[go:embed]
+    App -. ui:// Resource .-> Embed
     Go[Go CLI Source] --> Build[Go build]
     Embed --> Build
     Build --> Binaries[darwin/linux/windows amd64/arm64]
@@ -669,7 +820,7 @@ flowchart LR
     Launcher --> MCP[contentcloud mcp serve]
 ```
 
-当前 UI 是无远程依赖的嵌入式 HTML/CSS/JS，运行时不需要 Vite、Node server、Electron 或 CDN。Agent Plugin 仍只声明固定版本 npm launcher 和 stdio MCP。
+当前 Direct Browser UI 是无远程依赖的嵌入式 HTML/CSS/JS，运行时不需要 Vite、Node server、Electron 或 CDN。目标 MCP App 也必须随同一 Go 二进制嵌入并通过 `ui://` Resource 返回，不能在运行时依赖 CDN 或长期 Node 服务。Agent Plugin 仍只声明固定版本 npm launcher 和 stdio MCP。
 
 发布门禁：
 
@@ -690,6 +841,8 @@ flowchart LR
 | Presenter/session/security/SSE/Range | `internal/workbench/manager.go` |
 | Embedded SPA | `internal/workbench/ui/` |
 | stdio MCP Tool/私有 handoff envelope | `internal/cli/workspace_commands.go` |
+| Claude Code 稳定项目根注入 | `internal/integration/pluginhost/claude/projection.go`、`internal/cli/workspace_commands.go` |
+| MCP Apps Resource/metadata/App lifecycle | 已实现最小协议闭环；正式宿主 Bridge/沙箱 E2E 待验收 |
 | MCP 生命周期接线 | `internal/cli/root.go`、`internal/cli/local_commands.go` |
 | Canonical workflow | `plugins/contentcloud-video-production/skills/contentcloud-workspace/SKILL.md` |
 
@@ -697,7 +850,14 @@ flowchart LR
 
 ```text
 workspace_open_workbench
-  +-- Workspace binding/generation --------- localworkspace + CLI integration
+  +-- Workspace binding
+  |   +-- Claude project-root injection -------- Claude projection + CLI
+  |   +-- explicit directory/session lock ------ CLI integration
+  |   `-- MCP roots/list ----------------------- CLI protocol/selection tests; host E2E pending
+  +-- presentation negotiation
+  |   +-- MCP Apps ui:// + lifecycle ----------- CLI contract tests; host E2E pending
+  |   +-- private Direct Browser handoff ------- MCP contract
+  |   `-- structuredContent fallback ----------- MCP contract
   +-- start/reuse/close/reopen -------------- workbench integration
   +-- private handoff/public fallback ------- MCP contract
   +-- exchange TTL/replay ------------------- HTTP security
@@ -728,6 +888,9 @@ workspace_open_workbench
 - `TestWorkbenchServiceWorkerInjectsOnlyResourceCapability`
 - `TestWorkbenchUIKeepsTheBootstrappedViewCurrent`
 - `TestWorkbenchBrowserClaimProposalApplyEndToEnd`
+- `TestWorkbenchCapabilitiesKeepIndependentViews`
+- `TestWorkspaceViewParsesJSONAsStructuredData`
+- `TestConversationContextReadsPersistedOfflineState`
 - `TestRunClaimActiveTakeoverFencesPreviousOwner`
 - `TestWorkspaceProposalAppliesWithOwnershipRevisionAndDigestCAS`
 - `TestWorkspaceProposalRejectsStaleDigestFenceAndExpiry`
@@ -740,41 +903,68 @@ workspace_open_workbench
 
 | 场景 | 实测结果 |
 | --- | --- |
-| 私有 handoff | 一次性 token 完成 exchange 后立即从 fragment 清除，不落盘、不进入模型可见结果 |
-| View 稳定性 | 打开文件、Apply 和 SSE 刷新后保持服务端当前文件，不回退到 Workspace 概览 |
+| 私有 handoff | 一次性 token 完成 exchange 后立即从 fragment 清除；MCP `structuredContent` 只有无 token descriptor，正式宿主是否私下消费 `_meta` 仍是独立门禁 |
+| 刷新恢复 | handoff 从 fragment 清除后刷新页面，仍从当前标签页 `history.state` 恢复同一 capability、View 和 Claim owner/epoch |
+| View 稳定性 | 打开文件、Apply、刷新和 SSE invalidation 后保持 capability 固定的当前文件，不回退到 Workspace 概览 |
+| JSON 结构化展示 | `.json` 识别为 `application/json`，MCP 与 Bootstrap 返回 `view.data`，Workbench 使用结构化事实表而非原始文本块 |
 | 所有权 | claim、显式 takeover 和旧 owner epoch fencing 均生效 |
-| Proposal/Apply | prepare 不修改文件；两次 Apply 令 revision `1 -> 2 -> 3`，正文和 digest 同步刷新 |
+| Proposal/Apply | prepare 不修改文件；确认 Apply 后 revision `1 -> 2`，正文和 digest 同步刷新 |
 | 外部变化 | Workspace 外部修改在 5 秒受限轮询后通过 SSE 自动刷新 |
 | 图片 | WebP 在 Browser 中实际解码为 `1536 x 864` |
 | Range | `bytes=0-31` 返回 `206`、`Content-Range: bytes 0-31/85024` 和 32 字节正文 |
 | 响应式 | `1440 x 1000`、`390 x 844`、`320 x 844` 均无横向滚动、遮挡或重叠 |
-| 关闭与重开 | 关闭后显示“会话已关闭”、无控制台错误且不再重连；status 返回不存在；重开产生新的 `workbench_id` 和 origin |
+| 安全边界 | 无凭据 Bootstrap/Resource 返回 `401`，错误 Host 返回 `403`，handoff 重放返回 `410`，CSP 与 scoped HttpOnly Resource Cookie 均存在 |
+| 模型可见上下文 | `workspace_context` 与 conversation-context Resource 不再序列化本地绝对 Root |
+| 关闭与重开 | 关闭后显示“会话已关闭”、释放 Browser Claim、无控制台错误且不再重连；status 返回不存在；重开产生新的 `workbench_id` 和 origin |
 
 这组结果证明 Presenter、SPA、资源认证、Range、SSE、Claim 和 Proposal/Apply 在真实浏览器内闭环可用。它不等于 Codex 右侧内置 Browser 宿主验收；后者还必须证明宿主能私下消费 `_meta`，且不会把 token 暴露给模型。
+
+### 19.2 发布级实现矩阵
+
+| 能力 | 本地代码状态 | 自动验证 | 仍缺少的外部证据 |
+| --- | --- | --- | --- |
+| Skills + stdio MCP 控制面 | 已实现 | Go MCP/CLI 契约测试、Plugin 治理 | 无 |
+| Claude Code 稳定 Workspace 注入 | 已实现 | 私有投影 JSON、真实 Plugin lifecycle、`workspace_context` 无目录测试 | 真实 Claude 模型会话内的 Tool 调用 smoke |
+| MCP Roots 绑定 | Server 请求、单/多 root 选择、变更通知已实现 | Roots transport/selection tests | 各宿主 Roots 响应、重启恢复和真实 E2E |
+| MCP Apps Tool/Resource/App lifecycle | 已实现最小闭环 | 协商、metadata、Resource MIME、fallback、自包含 HTML | Codex Desktop、Claude Desktop、Cursor、VS Code 的真实 App/Bridge E2E |
+| MCP Apps 大媒体 Gateway | 未实现 | 现有 Direct Browser Range 可复用内核 | iframe CSP、ticket、Range、TTL、撤销和无 transcript 泄漏 |
+| Go Presenter + 嵌入式 SPA | 已实现 | Workbench 集成测试、真实 Chromium | 正式宿主的启动方式约束 |
+| 多 capability 独立 View | 已实现 | `TestWorkbenchCapabilitiesKeepIndependentViews` | 多宿主并行标签压力测试 |
+| Claim 刷新恢复与关闭释放 | 已实现 | Browser claim/apply/close 集成测试 | 正式宿主刷新和崩溃恢复 |
+| digest Resource 与 Range | 已实现 | stale、Range、媒体解码测试 | 512 MiB 大媒体长时吞吐基线 |
+| Markdown/JSON/结构化 View | 已实现基础渲染 | MIME 单测、MCP/HTTP 黑盒、UI/Chromium 视觉检查 | diff、时间线、领域动作等深层 View |
+| Proposal 串行化与失败保留 | 已实现 | Proposal Store 幂等/回滚测试 | 跨独立 CLI 进程的故障注入压测 |
+| Direct Browser Host Adapter | 未实现于本仓库 | 仅验证 `_meta` 生成和私有字段边界 | 各宿主消费、导航、页面断言、token 不入模型上下文 |
+
+因此当前发布结论必须写成：**本地控制面、Direct Browser 基础闭环、MCP Apps 最小协议闭环和 MCP Roots Server 请求/绑定闭环已实现，Claude Code 项目根注入已实现；各宿主 Roots 响应、正式宿主 App/Bridge UI 接入和逐宿主 E2E 仍未完成，不能把整体标记为“全部完成”。**
 
 ## 20. 完成定义
 
 本次本地 Workbench 重构只有在以下条件全部满足后完成：
 
 1. 标准 Plugin 仍为 Skills + stdio MCP，不引入运行时 Node server。
-2. Workbench 只由同一 MCP 进程内的 `127.0.0.1:0` Presenter 提供。
-3. private handoff 不进入模型可见内容，fallback View 始终可用。
-4. 旧 renderer、presentation Resource/cache 和兼容入口在运行时与 Skill 中全部删除。
-5. Browser 与 MCP 共享 Claim v2、epoch、revision、digest 和 `ProposalStore`。
+2. MCP Apps、Direct Browser、Headless 三条通道共用同一 Workspace Kernel、Claim、ProposalStore、revision 和 digest。
+3. MCP Apps 使用标准 `ui://`/Bridge；Direct Browser 只由同一 MCP 进程内的 `127.0.0.1:0` Presenter 提供。
+4. App ticket、private handoff 和 Browser capability 不进入模型可见内容，fallback View 始终可用。
+5. 旧 renderer、presentation Resource/cache 和兼容入口在运行时与 Skill 中全部删除。
 6. Proposal prepare 不写正式文件；Apply 只消费明确确认的同一 Proposal。
 7. 本地保存与云端 publish/approve 在契约和 UI 中完全分离。
-8. Host、Origin、capability、CSRF、CSP、path、digest、Range 和重放测试通过。
-9. close/reopen、MCP 退出、handoff replay、resource stale 和 ownership conflict 可恢复。
-10. Workbench 通过 `1440 x 1000`、`390 x 844`、最低 320px、控制台和真实媒体解码验收；键盘专项验收仍需在正式宿主完成。
-11. Plugin digest/signature、全量 Go/Web/治理测试、race 和跨平台构建通过。
-12. Codex 右侧内置 Browser 能私下消费 `_meta`，并完成打开、查看、claim/takeover、编辑、确认、apply、刷新和关闭；token 全程不得进入模型上下文。
+8. Workspace 按 Roots、受控宿主注入、显式 directory 的顺序绑定，并锁定单一 canonical root。
+9. Host、Origin、capability、CSRF、CSP、path、digest、Range、ticket 和重放测试通过。
+10. close/reopen、MCP 退出、handoff replay、resource stale 和 ownership conflict 可恢复。
+11. Direct Browser 与 MCP App 分别通过桌面、移动、键盘、控制台和真实媒体解码验收。
+12. Plugin digest/signature、全量 Go/Web/治理测试、race 和跨平台构建通过。
+13. 每个正式宿主分别具备代码 Adapter、安装投影、Workspace 绑定、生命周期 smoke、真实 UI E2E 和秘密不入 transcript 证据。
 
-## 21. 验收命令
+## 21. 分层验收手册
+
+### 21.1 自动门禁
 
 ```bash
 go test ./internal/localworkspace ./internal/workbench ./internal/cli -count=1
 go test ./... -count=1
-go test -race ./internal/localworkspace ./internal/workbench ./internal/cli -count=1
+go test -race ./internal/localworkspace ./internal/workbench ./internal/cli ./internal/runtime -count=1
+go vet ./...
 node --check internal/workbench/ui/app.js
 node --check internal/workbench/ui/sw.js
 pnpm --dir web test
@@ -784,9 +974,70 @@ pnpm architecture
 pnpm check:plugin
 pnpm governance:content
 pnpm governance:v3
+pnpm test:plugin-signing
 ```
 
-真实 Chromium 验收已使用临时 Workspace、随机端口和无生产凭据环境通过。Codex 右侧内置 Browser 验收仍必须使用隔离宿主配置；不得修改开发者现有 `CODEX_HOME`、Plugin Store 或生产账号。
+CLI 目标平台编译门禁：
+
+```bash
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -o /tmp/contentcloud-darwin-amd64 ./cmd/contentcloud
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -o /tmp/contentcloud-darwin-arm64 ./cmd/contentcloud
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/contentcloud-linux-amd64 ./cmd/contentcloud
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o /tmp/contentcloud-linux-arm64 ./cmd/contentcloud
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o /tmp/contentcloud-windows-amd64.exe ./cmd/contentcloud
+```
+
+### 21.2 MCP 与 Presenter 黑盒
+
+在临时 Workspace 中启动 `contentcloud mcp serve`，按顺序验收：
+
+1. `initialize` 返回 MCP `2025-06-18`、Tool 和 Resource capability。
+2. `workspace_context` 是离线只读结果，不包含 token、URL 或绝对 Root。
+3. `workspace_view` 对 Markdown 返回 `text`，对 JSON/YAML 返回 `data`，对媒体返回 digest-bound Resource。
+4. `workspace_open_workbench` 的模型可见结果只有 descriptor/fallback；tokenized URL 只存在于私有 `_meta`。
+5. 立即 exchange 返回 `200`；同一 handoff 重放返回 `410`；超过 60 秒也返回 `410`。
+6. 无 Bearer 的 Bootstrap/Resource 返回 `401`，错误 Host 或 Origin 返回 `403`，mutation 缺 CSRF 或确认被拒绝。
+7. Range `bytes=0-31` 返回 `206`、32 字节正文和正确 `Content-Range`；同尺寸文件替换后旧 Resource 返回 `409 WORKSPACE_VIEW_STALE`。
+8. `resources/read` 能读取小型 digest Resource；超过 MCP 内联上限时明确引导到 Workbench。
+
+### 21.3 真实 Browser 操作
+
+使用隔离临时 Workspace、随机端口和无生产凭据环境：
+
+1. 打开 handoff，确认 fragment 被清除，URL、Cookie、`localStorage`、`sessionStorage` 中没有通用 API capability 或 Claim token。
+2. 导航目录、Markdown、结构化 JSON、图片、PDF、音频和视频；视频必须实际解码，不能只断言元素存在。
+3. 在 `1440 x 1000`、`390 x 844` 和 `320 x 844` 检查无横向滚动、文字裁切、遮挡和控制台错误。
+4. 刷新页面，确认仍是同一 View；已 claim 时 owner/epoch 不变，编辑与 Apply 仍可继续。
+5. 执行 Claim、Proposal prepare、取消、再次确认 Apply；核对文件 digest 和 LocalRun revision 只在 Apply 成功后变化。
+6. 模拟外部文件变化，确认 SSE invalidation 后重读；用同尺寸替换验证 stale digest 不能绕过。
+7. 关闭 Session，确认 Claim 释放、凭据从 `history.state` 清除、SSE 不重连，旧 capability 不再可用。
+
+### 21.4 MCP Apps 宿主门禁
+
+对 Codex Desktop、Claude Desktop、Cursor 和 VS Code GitHub Copilot 分别执行，不能用一个宿主结果替代另一个：
+
+1. 初始化明确协商 `io.modelcontextprotocol/ui`，Tool 关联 `ui://` Resource，MIME 为 `text/html;profile=mcp-app`。
+2. 不支持扩展时 Tool 仍返回相同业务 `structuredContent`，不得失败或丢失 Headless 流程。
+3. App 在宿主沙箱中接收初始 Tool Result，并通过 Bridge 调用 View、Claim、Proposal、Apply；模型不可见 app-only Tool。
+4. 验证 iframe CSP、外部连接限制、页面销毁、重新打开、宿主重启和 Server 退出。
+5. 小资源经 `resources/read`；大媒体经短期 ticket/Range，并验证 stale digest、TTL、撤销和 ticket 不进入 transcript。
+6. 抓取宿主 transcript，确认无本机路径、handoff、ticket、capability、CSRF、Cookie 或 Claim token。
+
+### 21.5 Direct Browser 宿主门禁
+
+该门禁不能由仓库测试替代，必须在声明支持 private handoff 的正式宿主逐一完成：
+
+1. 从已安装 Plugin 的中文 Workspace Skill 发起“打开本地工作台”。
+2. 抓取宿主可见的 Tool transcript，确认其中没有 `_meta` token、capability、CSRF、Cookie 或本地绝对路径。
+3. 确认 Browser/WebView 由宿主私下导航，而不是模型复制 URL 或启动独立 Node 服务。
+4. 在右侧 Browser 重复 21.3 的刷新、Claim、编辑、确认、Apply 和关闭流程。
+5. 关闭宿主会话，确认 stdio MCP 子进程和 loopback listener 一起退出。
+
+### 21.6 多宿主准入门禁
+
+每个宿主必须独立保存一份版本化证据：版本、安装/升级/删除、Skill 发现、MCP 自动启停、Workspace 绑定、会话恢复、可用呈现通道、无 UI 降级、安全 transcript 和真实截图。缺任一项只能标记为候选或计划，不能进入客户连接选择器。
+
+当前 21.1 至 21.3 的仓库可控部分、Claude Code 注入单测以及 Codex/Claude 隔离 Plugin lifecycle smoke 已通过；21.4 至 21.6 的 UI 与模型会话部分仍需实现或正式宿主验收。不得为验收修改开发者现有 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、Plugin Store 或生产账号。
 
 ## 22. 参考规范
 
@@ -794,6 +1045,14 @@ pnpm governance:v3
 - Agent Plugins 1.0.0 规范：<https://agent-plugins.org/specification>
 - Agent Plugins 中文社区译文：<https://agent-plugin.org/zh>
 - MCP Transport：<https://modelcontextprotocol.io/specification/2025-06-18/basic/transports>
+- MCP Roots：<https://modelcontextprotocol.io/specification/2025-11-25/client/roots>
+- MCP Apps 概览：<https://modelcontextprotocol.io/extensions/apps/overview>
+- MCP Apps 客户端矩阵：<https://modelcontextprotocol.io/extensions/client-matrix>
+- MCP Apps 构建规范：<https://modelcontextprotocol.io/extensions/apps/build>
 - OpenAI Plugin 概念：<https://developers.openai.com/plugins/concepts/plugins>
 - OpenAI Plugin 构建：<https://developers.openai.com/plugins/build/plugins>
+- OpenAI ChatGPT UI：<https://developers.openai.com/plugins/build/chatgpt-ui>
+- Claude Code Plugins：<https://code.claude.com/docs/en/plugins>
+- Claude Code MCP：<https://code.claude.com/docs/en/mcp>
+- Claude Code Chrome：<https://code.claude.com/docs/en/chrome>
 - 本仓库 Agent Plugin 架构：[docs/plugin/README.md](../../plugin/README.md)

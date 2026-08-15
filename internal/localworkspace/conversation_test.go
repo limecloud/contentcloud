@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,6 +102,13 @@ func TestConversationContextReadsPersistedOfflineState(t *testing.T) {
 	}
 	if context.LastCloudPullAt == nil || !context.LastCloudPullAt.Equal(now.Add(3*time.Minute)) {
 		t.Fatalf("unexpected last pull time: %v", context.LastCloudPullAt)
+	}
+	encoded, err := json.Marshal(context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"root"`) || strings.Contains(string(encoded), root) {
+		t.Fatalf("conversation context must not expose the local absolute root: %s", encoded)
 	}
 }
 

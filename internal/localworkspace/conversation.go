@@ -59,7 +59,7 @@ type WorkspaceConversationContext struct {
 	WorkspaceID           string                    `json:"workspace_id"`
 	ProjectID             string                    `json:"project_id"`
 	ProfileID             string                    `json:"profile_id"`
-	Root                  string                    `json:"root"`
+	Root                  string                    `json:"-"`
 	ResolutionSource      string                    `json:"resolution_source"`
 	EnvironmentHealth     string                    `json:"environment_health"`
 	ContentTypes          []string                  `json:"content_types"`

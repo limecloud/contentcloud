@@ -35,6 +35,11 @@ type MediaJobDecisionInput struct {
 	ExpectedVersion int `json:"expected_version"`
 }
 
+type MediaJobSubmitReconciliationInput struct {
+	ExpectedVersion int    `json:"expected_version"`
+	ExternalJobID   string `json:"external_job_id"`
+}
+
 type MediaReviewDecisionInput struct {
 	ExpectedVersion int            `json:"expected_version"`
 	Decision        string         `json:"decision"`
@@ -79,27 +84,54 @@ func (s *Service) CreateMediaGenerationJob(ctx context.Context, actor Actor, tas
 	if storyboard.ProjectID != task.ProjectID {
 		return domain.MediaGenerationJob{}, domain.Policy("MEDIA_JOB_STORYBOARD_SCOPE_INVALID", "分镜快照不属于当前项目", "选择当前任务项目内已批准的分镜")
 	}
-	verifiedInputRefs, err := s.verifiedStoryboardInputArtifacts(ctx, actor.TenantID, storyboard)
-	if err != nil {
-		return domain.MediaGenerationJob{}, err
+	mode := defaultString(strings.TrimSpace(input.Mode), "image_to_video")
+	verifiedInputRefs := []string{}
+	if mode != "text_to_video" {
+		verifiedInputRefs, err = s.verifiedStoryboardInputArtifacts(ctx, actor.TenantID, storyboard)
+		if err != nil {
+			return domain.MediaGenerationJob{}, err
+		}
+		if len(input.InputArtifactRefs) > 0 && !sameStringSet(input.InputArtifactRefs, verifiedInputRefs) {
+			return domain.MediaGenerationJob{}, domain.Conflict("MEDIA_JOB_INPUT_ARTIFACTS_MISMATCH", "视频生成任务的输入与服务端核验的锁定分镜素材不一致")
+		}
 	}
-	if len(input.InputArtifactRefs) > 0 && !sameStringSet(input.InputArtifactRefs, verifiedInputRefs) {
-		return domain.MediaGenerationJob{}, domain.Conflict("MEDIA_JOB_INPUT_ARTIFACTS_MISMATCH", "视频生成任务的输入与服务端核验的锁定分镜素材不一致")
+	if mode == "text_to_video" {
+		input.InputArtifactRefs = []string{}
+	} else {
+		input.InputArtifactRefs = verifiedInputRefs
 	}
-	input.InputArtifactRefs = verifiedInputRefs
 	providerID := defaultString(strings.TrimSpace(input.ProviderID), "fake")
 	profileVersion := defaultString(strings.TrimSpace(input.ProfileVersion), "1.0.0")
 	profile, err := s.ensureProviderProfile(ctx, providerID, profileVersion)
 	if err != nil {
 		return domain.MediaGenerationJob{}, err
 	}
+	if providerID == Seedance25ProviderID {
+		promptPackageID := strings.TrimSpace(input.PromptPackageArtifactID)
+		if promptPackageID == "" {
+			return domain.MediaGenerationJob{}, domain.Invalid("SEEDANCE_PROMPT_PACKAGE_REQUIRED", "Seedance 2.5 任务必须绑定已校验的 PromptPackage Artifact")
+		}
+		promptArtifact, artifactErr := s.store.Artifact(ctx, actor.TenantID, promptPackageID)
+		if artifactErr != nil {
+			return domain.MediaGenerationJob{}, artifactErr
+		}
+		if promptArtifact.ProjectID != task.ProjectID || promptArtifact.ApprovedSnapshotID != storyboard.ID || promptArtifact.Kind != "prompt_package" || promptArtifact.MediaType != "application/json" {
+			return domain.MediaGenerationJob{}, domain.Conflict("SEEDANCE_PROMPT_PACKAGE_SCOPE_INVALID", "Seedance PromptPackage Artifact 与当前项目或批准快照不一致")
+		}
+		if version := metadataString(promptArtifact.Metadata, "provider_profile_version"); version != "" && version != profile.Version {
+			return domain.MediaGenerationJob{}, domain.Conflict("SEEDANCE_PROMPT_PACKAGE_STALE", "Seedance PromptPackage Artifact 与当前 Provider Profile 版本不一致")
+		}
+	}
 	now := s.now().UTC()
 	if profile.Status != "published" || !profile.ExpiresAt.After(now) {
 		return domain.MediaGenerationJob{}, domain.Policy("PROVIDER_PROFILE_UNAVAILABLE", "服务商配置版本未发布或已过期", "选择有效的服务商配置版本")
 	}
-	mode := defaultString(strings.TrimSpace(input.Mode), "image_to_video")
 	if !containsString(profile.Modes, mode) {
 		return domain.MediaGenerationJob{}, domain.Invalid("PROVIDER_MODE_UNSUPPORTED", "服务商配置版本不支持当前生成模式")
+	}
+	adapter, adapterErr := s.mediaAdapter(providerID)
+	if adapterErr != nil {
+		return domain.MediaGenerationJob{}, domain.Policy("PROVIDER_ADAPTER_UNAVAILABLE", "服务商适配器未配置", "配置已发布 Provider Adapter 后重试")
 	}
 	duration := input.DurationSeconds
 	if duration < 1 {
@@ -112,13 +144,28 @@ func (s *Service) CreateMediaGenerationJob(ctx context.Context, actor Actor, tas
 		if bindingErr != nil {
 			return domain.MediaGenerationJob{}, domain.Policy("PROVIDER_NOT_CONFIGURED", "当前租户尚未配置该服务商", "由租户管理员配置服务商绑定")
 		}
-		if binding.State != "active" || binding.ProfileVersion != profile.Version {
-			return domain.MediaGenerationJob{}, domain.Policy("PROVIDER_BINDING_UNAVAILABLE", "服务商绑定未启用或配置版本不一致", "检查服务商配置")
+		if binding.State != "active" || binding.ProfileVersion != profile.Version || !validProviderCredentialRef(binding.CredentialRef) {
+			return domain.MediaGenerationJob{}, domain.Policy("PROVIDER_BINDING_UNAVAILABLE", "服务商绑定未启用、配置版本不一致或缺少受控凭据引用", "检查服务商配置")
 		}
 		maxAttempts = binding.MaxRetries + 1
 		maxJobCost = binding.MaxJobCostMinor
 	}
-	estimatedCost := profileCostMinor(profile)
+	estimateRequest := mediapipeline.Request{TenantID: task.TenantID, ProjectID: task.ProjectID, JobID: "estimate:" + task.ID, IdempotencyKey: "estimate:" + task.ID + ":" + providerID, StoryboardSnapshotID: storyboard.ID, PromptPackageArtifactID: strings.TrimSpace(input.PromptPackageArtifactID), ProfileVersion: profile.Version, Mode: mode, AspectRatio: defaultString(strings.TrimSpace(input.AspectRatio), "9:16"), DurationSeconds: duration, InputArtifactRefs: input.InputArtifactRefs}
+	if err := adapter.Validate(estimateRequest, profile); err != nil {
+		return domain.MediaGenerationJob{}, err
+	}
+	estimate, err := adapter.Estimate(estimateRequest, profile)
+	if err != nil {
+		return domain.MediaGenerationJob{}, err
+	}
+	estimatedCost := estimate.CostMinor
+	if estimatedCost < 0 {
+		return domain.MediaGenerationJob{}, domain.Invalid("PROVIDER_ESTIMATE_INVALID", "服务商返回了负数费用估算")
+	}
+	currency := strings.ToUpper(strings.TrimSpace(estimate.Currency))
+	if len(currency) != 3 {
+		currency = profileCurrency(profile)
+	}
 	if maxJobCost > 0 && estimatedCost > maxJobCost {
 		return domain.MediaGenerationJob{}, domain.Policy("MEDIA_JOB_COST_LIMIT_EXCEEDED", "视频生成任务的估算费用超过单次任务上限", "降低生成规格或调整预算")
 	}
@@ -149,7 +196,7 @@ func (s *Service) CreateMediaGenerationJob(ctx context.Context, actor Actor, tas
 		State:                   state,
 		IdempotencyKey:          idempotencyKey,
 		EstimatedCostMinor:      estimatedCost,
-		Currency:                profileCurrency(profile),
+		Currency:                currency,
 		MaxAttempts:             maxAttempts,
 		RowVersion:              1,
 		CreatedBy:               actor.UserID,
@@ -234,6 +281,64 @@ func (s *Service) CancelMediaGenerationJob(ctx context.Context, actor Actor, id 
 	if !domain.CanTransitionMediaJob(job.State, domain.MediaJobCancelled) {
 		return domain.MediaGenerationJob{}, domain.Conflict("MEDIA_JOB_NOT_CANCELLABLE", "当前视频生成任务不能取消")
 	}
+	var attempt domain.ProviderAttempt
+	var hasExternalJob bool
+	if attempts, attemptsErr := s.store.ProviderAttempts(ctx, actor.TenantID, job.ID); attemptsErr != nil {
+		return domain.MediaGenerationJob{}, attemptsErr
+	} else if len(attempts) > 0 {
+		attempt = attempts[len(attempts)-1]
+		hasExternalJob = strings.TrimSpace(attempt.ExternalJobID) != ""
+	}
+	if hasExternalJob {
+		profile, profileErr := s.ensureProviderProfile(ctx, job.ProviderID, job.ProfileVersion)
+		if profileErr != nil {
+			return domain.MediaGenerationJob{}, domain.Policy("PROVIDER_CANCEL_UNKNOWN", "取消前无法读取原服务商配置，外部任务状态不明", "恢复服务商配置后进行对账")
+		}
+		adapter, adapterErr := s.mediaAdapter(job.ProviderID)
+		if adapterErr != nil {
+			return domain.MediaGenerationJob{}, domain.Policy("PROVIDER_CANCEL_UNKNOWN", "取消前无法读取服务商适配器，外部任务状态不明", "恢复服务商适配器后进行对账")
+		}
+		if cancelErr := adapter.Cancel(ctx, attempt.ExternalJobID, profile); cancelErr != nil {
+			now := s.now().UTC()
+			nextPoll := now.Add(10 * time.Second)
+			job.CancelRequestedAt = &now
+			job.ErrorCode = "PROVIDER_CANCEL_UNKNOWN"
+			job.ErrorDetailSafe = "服务商取消结果不明，等待对账"
+			job.UpdatedAt = now
+			job.State = domain.MediaJobAwaitingExternal
+			job.LeaseOwner = ""
+			job.LeaseExpiresAt = nil
+			if saveErr := s.store.SaveMediaGenerationJob(ctx, job, input.ExpectedVersion); saveErr != nil {
+				return domain.MediaGenerationJob{}, saveErr
+			}
+			job.RowVersion = input.ExpectedVersion + 1
+			attempt.ErrorCode = "PROVIDER_CANCEL_UNKNOWN"
+			attempt.ErrorDetailSafe = "服务商取消结果不明，等待对账"
+			attempt.ProviderState = "cancel_requested"
+			attempt.NextPollAt = &nextPoll
+			attempt.UpdatedAt = now
+			if saveErr := s.store.SaveProviderAttempt(ctx, attempt); saveErr != nil {
+				return domain.MediaGenerationJob{}, saveErr
+			}
+			if job.RuntimeEffectID != "" {
+				if effectErr := s.transitionMediaEffect(ctx, job, domain.EffectUnknown, attempt.ExternalJobID, "", "PROVIDER_CANCEL_UNKNOWN"); effectErr != nil {
+					return domain.MediaGenerationJob{}, effectErr
+				}
+			}
+			s.audit(ctx, actor, job.ProjectID, "media.job_cancel_unknown", "media_generation_job", job.ID, requestID, map[string]any{"external_job_id": attempt.ExternalJobID})
+			return job, domain.Policy("PROVIDER_CANCEL_UNKNOWN", "服务商取消结果不明，已进入外部任务对账状态", "查询服务商状态并完成外部操作对账")
+		}
+		attempt.ProviderState = "cancelled"
+		attempt.UpdatedAt = s.now().UTC()
+		if saveErr := s.store.SaveProviderAttempt(ctx, attempt); saveErr != nil {
+			return domain.MediaGenerationJob{}, saveErr
+		}
+		if job.RuntimeEffectID != "" {
+			if effectErr := s.transitionMediaEffect(ctx, job, domain.EffectFailed, attempt.ExternalJobID, "", "PROVIDER_JOB_CANCELLED"); effectErr != nil {
+				return domain.MediaGenerationJob{}, effectErr
+			}
+		}
+	}
 	now := s.now().UTC()
 	job.State = domain.MediaJobCancelled
 	job.CancelRequestedAt = &now
@@ -248,6 +353,67 @@ func (s *Service) CancelMediaGenerationJob(ctx context.Context, actor Actor, id 
 
 func (s *Service) PendingMediaGenerationJobs(ctx context.Context, limit int) ([]domain.MediaGenerationJob, error) {
 	return s.store.PendingMediaGenerationJobs(ctx, limit)
+}
+
+// ReconcileMediaGenerationSubmit binds an operator-confirmed external task ID
+// to an unknown submission. It is the only path that can recover a timed-out
+// submit without issuing a second request with the same billable intent.
+func (s *Service) ReconcileMediaGenerationSubmit(ctx context.Context, actor Actor, id string, input MediaJobSubmitReconciliationInput, requestID string) (domain.MediaGenerationJob, error) {
+	if err := requireRole(actor, "tenant_admin", "project_manager", "editor"); err != nil {
+		return domain.MediaGenerationJob{}, err
+	}
+	job, err := s.store.MediaGenerationJob(ctx, actor.TenantID, id)
+	if err != nil {
+		return domain.MediaGenerationJob{}, err
+	}
+	if input.ExpectedVersion != job.RowVersion {
+		return domain.MediaGenerationJob{}, domain.Conflict("MEDIA_JOB_STALE", "视频生成任务已被其他操作更新")
+	}
+	if job.State != domain.MediaJobAwaitingExternal {
+		return domain.MediaGenerationJob{}, domain.Conflict("MEDIA_JOB_RECONCILIATION_INVALID", "只有等待外部对账的媒体任务可以补录外部任务标识")
+	}
+	externalID := strings.TrimSpace(input.ExternalJobID)
+	if externalID == "" || strings.ContainsAny(externalID, "/?#") || len(externalID) > 256 {
+		return domain.MediaGenerationJob{}, domain.Invalid("PROVIDER_EXTERNAL_ID_INVALID", "服务商外部任务标识无效")
+	}
+	attempts, err := s.store.ProviderAttempts(ctx, actor.TenantID, job.ID)
+	if err != nil || len(attempts) == 0 {
+		if err != nil {
+			return domain.MediaGenerationJob{}, err
+		}
+		return domain.MediaGenerationJob{}, domain.NotFound("服务商调用尝试")
+	}
+	attempt := attempts[len(attempts)-1]
+	if strings.TrimSpace(attempt.ExternalJobID) != "" {
+		if attempt.ExternalJobID != externalID {
+			return domain.MediaGenerationJob{}, domain.Conflict("PROVIDER_EXTERNAL_ID_CONFLICT", "服务商外部任务标识已经绑定且不能覆盖")
+		}
+		return job, nil
+	}
+	now := s.now().UTC()
+	attempt.ExternalJobID = externalID
+	attempt.ProviderState = "reconciliation_pending"
+	attempt.ErrorCode = ""
+	attempt.ErrorDetailSafe = "已补录外部任务标识，等待服务商状态对账"
+	attempt.NextPollAt = &now
+	attempt.UpdatedAt = now
+	if err := s.store.SaveProviderAttempt(ctx, attempt); err != nil {
+		return domain.MediaGenerationJob{}, err
+	}
+	job.ErrorCode = ""
+	job.ErrorDetailSafe = ""
+	job.UpdatedAt = now
+	if err := s.store.SaveMediaGenerationJob(ctx, job, input.ExpectedVersion); err != nil {
+		return domain.MediaGenerationJob{}, err
+	}
+	job.RowVersion = input.ExpectedVersion + 1
+	if job.RuntimeEffectID != "" {
+		if err := s.transitionMediaEffect(ctx, job, domain.EffectReconciling, externalID, "", ""); err != nil {
+			return domain.MediaGenerationJob{}, err
+		}
+	}
+	s.audit(ctx, actor, job.ProjectID, "media.job_submit_reconciled", "media_generation_job", job.ID, requestID, map[string]any{"external_job_id": externalID})
+	return job, nil
 }
 
 func (s *Service) ProcessMediaGenerationJob(ctx context.Context, tenantID, id string) error {
@@ -273,7 +439,7 @@ func (s *Service) ProcessMediaGenerationJob(ctx context.Context, tenantID, id st
 	if err != nil {
 		return s.failMediaJob(ctx, job, "PROVIDER_ADAPTER_UNAVAILABLE", "服务商适配器未配置")
 	}
-	request := mediapipeline.Request{JobID: job.ID, IdempotencyKey: job.IdempotencyKey, StoryboardSnapshotID: job.StoryboardSnapshotID, Mode: job.Mode, AspectRatio: job.AspectRatio, DurationSeconds: job.DurationSeconds, InputArtifactRefs: job.InputArtifactRefs}
+	request := mediapipeline.Request{TenantID: job.TenantID, ProjectID: job.ProjectID, JobID: job.ID, IdempotencyKey: job.IdempotencyKey, StoryboardSnapshotID: job.StoryboardSnapshotID, PromptPackageArtifactID: job.PromptPackageArtifactID, ProfileVersion: job.ProfileVersion, Mode: job.Mode, AspectRatio: job.AspectRatio, DurationSeconds: job.DurationSeconds, InputArtifactRefs: job.InputArtifactRefs}
 	if err := adapter.Validate(request, profile); err != nil {
 		return s.failMediaJob(ctx, job, "PROVIDER_REQUEST_INVALID", "服务商请求校验失败")
 	}
@@ -338,16 +504,22 @@ func (s *Service) ProcessMediaGenerationJob(ctx context.Context, tenantID, id st
 				attempt.ErrorCode = "PROVIDER_SUBMIT_FAILED"
 				attempt.ErrorDetailSafe = "服务商拒绝提交请求"
 				attempt.UpdatedAt = s.now().UTC()
-				_ = s.store.SaveProviderAttempt(ctx, attempt)
+				if saveErr := s.store.SaveProviderAttempt(ctx, attempt); saveErr != nil {
+					return saveErr
+				}
 				return s.failMediaJob(ctx, job, attempt.ErrorCode, attempt.ErrorDetailSafe)
 			}
 			attempt.ProviderState = "unknown"
 			attempt.ErrorCode = "PROVIDER_SUBMIT_UNKNOWN"
 			attempt.ErrorDetailSafe = "服务商提交结果未知，等待对账"
 			attempt.UpdatedAt = s.now().UTC()
-			_ = s.store.SaveProviderAttempt(ctx, attempt)
+			if saveErr := s.store.SaveProviderAttempt(ctx, attempt); saveErr != nil {
+				return saveErr
+			}
 			if job.RuntimeEffectID != "" {
-				_ = s.transitionMediaEffect(ctx, job, domain.EffectUnknown, "", "", attempt.ErrorCode)
+				if effectErr := s.transitionMediaEffect(ctx, job, domain.EffectUnknown, "", "", attempt.ErrorCode); effectErr != nil {
+					return effectErr
+				}
 			}
 			_, transitionErr := s.transitionMediaJob(ctx, job, domain.MediaJobAwaitingExternal, func(value *domain.MediaGenerationJob) {
 				value.LeaseOwner = ""
@@ -393,9 +565,13 @@ func (s *Service) ProcessMediaGenerationJob(ctx context.Context, tenantID, id st
 		nextPoll := now.Add(10 * time.Second)
 		attempt.NextPollAt = &nextPoll
 		attempt.UpdatedAt = now
-		_ = s.store.SaveProviderAttempt(ctx, attempt)
+		if saveErr := s.store.SaveProviderAttempt(ctx, attempt); saveErr != nil {
+			return saveErr
+		}
 		if job.RuntimeEffectID != "" {
-			_ = s.transitionMediaEffect(ctx, job, domain.EffectUnknown, externalJobID, "", attempt.ErrorCode)
+			if effectErr := s.transitionMediaEffect(ctx, job, domain.EffectUnknown, externalJobID, "", attempt.ErrorCode); effectErr != nil {
+				return effectErr
+			}
 		}
 		_, transitionErr := s.transitionMediaJob(ctx, job, domain.MediaJobAwaitingExternal, func(value *domain.MediaGenerationJob) {
 			value.LeaseOwner = ""
@@ -428,14 +604,38 @@ func (s *Service) ProcessMediaGenerationJob(ctx context.Context, tenantID, id st
 		})
 		return err
 	}
+	if (providerState == "cancelled" || providerState == "canceled") && job.CancelRequestedAt != nil {
+		now = s.now().UTC()
+		attempt.ProviderState = providerState
+		attempt.ErrorCode = ""
+		attempt.ErrorDetailSafe = "服务商已确认取消"
+		attempt.LastPolledAt = &now
+		attempt.NextPollAt = nil
+		attempt.CompletedAt = &now
+		attempt.UpdatedAt = now
+		if err := s.store.SaveProviderAttempt(ctx, attempt); err != nil {
+			return err
+		}
+		_, err = s.transitionMediaJob(ctx, job, domain.MediaJobCancelled, func(value *domain.MediaGenerationJob) {
+			value.ErrorCode = ""
+			value.ErrorDetailSafe = ""
+			value.LeaseOwner = ""
+			value.LeaseExpiresAt = nil
+		})
+		return err
+	}
 	if providerState == "failed" || providerState == "cancelled" || providerState == "canceled" {
 		attempt.ProviderState = providerState
 		attempt.ErrorCode = "PROVIDER_JOB_FAILED"
 		attempt.ErrorDetailSafe = "服务商任务未生成成功"
 		attempt.UpdatedAt = s.now().UTC()
-		_ = s.store.SaveProviderAttempt(ctx, attempt)
+		if err := s.store.SaveProviderAttempt(ctx, attempt); err != nil {
+			return err
+		}
 		if job.RuntimeEffectID != "" {
-			_ = s.transitionMediaEffect(ctx, job, domain.EffectFailed, externalJobID, "", attempt.ErrorCode)
+			if effectErr := s.transitionMediaEffect(ctx, job, domain.EffectFailed, externalJobID, "", attempt.ErrorCode); effectErr != nil {
+				return effectErr
+			}
 		}
 		return s.failMediaJob(ctx, job, "PROVIDER_JOB_FAILED", "服务商任务未生成成功")
 	}
@@ -465,6 +665,11 @@ func (s *Service) ProcessMediaGenerationJob(ctx context.Context, tenantID, id st
 	now = s.now().UTC()
 	artifact := domain.Artifact{ID: domain.NewID(), TenantID: job.TenantID, ProjectID: job.ProjectID, ApprovedSnapshotID: job.StoryboardSnapshotID, Kind: "generated_video", CapabilityID: "contentcloud.media.generate", CapabilityVersion: "1.0.0", CapabilityDigest: job.ProfileDigest, SchemaID: "contentcloud.generated-video/1.0", MediaType: output.MediaType, FileName: output.FileName, SHA256: output.SHA256, ByteSize: output.ByteSize, ObjectKey: output.ObjectKey, Visibility: "client", RetentionClass: "audit", Purpose: "generated_take", Metadata: map[string]any{"task_id": job.TaskID, "generation_job_id": job.ID, "aspect_ratio": job.AspectRatio, "duration_seconds": job.DurationSeconds, "technical": output.Technical, "quarantined": false}, CreatedAt: now}
 	if err := s.store.CreateArtifact(ctx, artifact); err != nil {
+		if deleter, ok := s.blobs.(blob.DeleteStore); ok {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			_ = deleter.Delete(cleanupCtx, output.ObjectKey)
+			cancel()
+		}
 		return s.failMediaJob(ctx, job, "MEDIA_ARTIFACT_CREATE_FAILED", "媒体成果文件保存失败")
 	}
 	technicalReview := domain.MediaReview{ID: domain.NewID(), TenantID: job.TenantID, ProjectID: job.ProjectID, TaskID: job.TaskID, GenerationJobID: job.ID, SubjectArtifactID: artifact.ID, SubjectDigest: normalizedSHA256(artifact.SHA256), ReviewKind: domain.MediaReviewTechnical, Status: domain.MediaReviewApproved, Checks: output.Technical, RowVersion: 1, CreatedBy: "media-worker", DecidedBy: "media-worker", DecidedAt: &now, CreatedAt: now, UpdatedAt: now}
@@ -531,6 +736,11 @@ func (s *Service) transitionMediaEffect(ctx context.Context, job domain.MediaGen
 	if effect.State == next && effect.ExternalID == externalID && effect.ResponseDigest == responseDigest {
 		return nil
 	}
+	if (next == domain.EffectSucceeded || next == domain.EffectFailed) && effect.State == domain.EffectUnknown {
+		if effect, err = s.runtimeService.ReconcileEffect(ctx, job.TenantID, effect.ID, domain.EffectReconciling, externalID, responseDigest, errorCode, effect.Version); err != nil {
+			return err
+		}
+	}
 	if next == domain.EffectSucceeded && effect.State == domain.EffectSubmitted {
 		if effect, err = s.runtimeService.ReconcileEffect(ctx, job.TenantID, effect.ID, domain.EffectAcknowledged, externalID, responseDigest, errorCode, effect.Version); err != nil {
 			return err
@@ -549,8 +759,17 @@ type persistedMediaOutput struct {
 	ObjectKey string
 }
 
-func (s *Service) persistMediaOutput(ctx context.Context, adapter mediapipeline.Adapter, outputRef string, profile domain.ProviderProfile, objectKeyPrefix string) (persistedMediaOutput, error) {
+func (s *Service) persistMediaOutput(ctx context.Context, adapter mediapipeline.Adapter, outputRef string, profile domain.ProviderProfile, objectKeyPrefix string) (result persistedMediaOutput, err error) {
 	const maxBytes int64 = 10 << 20
+	var writtenObjectKey string
+	defer func() {
+		if writtenObjectKey == "" || result.ObjectKey != "" {
+			return
+		}
+		if deleter, ok := s.blobs.(blob.DeleteStore); ok {
+			_ = deleter.Delete(context.WithoutCancel(ctx), writtenObjectKey)
+		}
+	}()
 	streaming, supportsStreaming := adapter.(mediapipeline.StreamingDownloader)
 	if !supportsStreaming {
 		download, err := adapter.Download(ctx, outputRef, profile)
@@ -565,6 +784,9 @@ func (s *Service) persistMediaOutput(ctx context.Context, adapter mediapipeline.
 			return persistedMediaOutput{}, err
 		}
 		objectKey := objectKeyPrefix + download.FileName
+		// Mark the key before the write so a store that reports an error after
+		// partially persisting the object can still be cleaned up by the defer.
+		writtenObjectKey = objectKey
 		if err := s.blobs.Put(ctx, objectKey, download.Body); err != nil {
 			return persistedMediaOutput{}, err
 		}
@@ -617,6 +839,7 @@ func (s *Service) persistMediaOutput(ctx context.Context, adapter mediapipeline.
 		return persistedMediaOutput{}, err
 	}
 	objectKey := objectKeyPrefix + stream.FileName
+	writtenObjectKey = objectKey
 	if readerStore, ok := s.blobs.(blob.ReaderStore); ok {
 		err = readerStore.PutReader(ctx, objectKey, input, validated.ByteSize)
 	} else {
@@ -798,19 +1021,6 @@ func (s *Service) mediaAdapter(providerID string) (mediapipeline.Adapter, error)
 		return mediapipeline.FakeProvider{}, nil
 	}
 	return nil, domain.NotFound("服务商适配器")
-}
-
-func profileCostMinor(profile domain.ProviderProfile) int64 {
-	switch value := profile.Pricing["per_job_minor"].(type) {
-	case int:
-		return int64(value)
-	case int64:
-		return value
-	case float64:
-		return int64(value)
-	default:
-		return 0
-	}
 }
 
 func profileCurrency(profile domain.ProviderProfile) string {

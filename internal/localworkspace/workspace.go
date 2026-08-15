@@ -519,7 +519,7 @@ func replaceFile(path string, body []byte, mode fs.FileMode) error {
 	return directory.Sync()
 }
 
-const defaultMCPCLIVersion = "0.26.0"
+const defaultMCPCLIVersion = "0.27.0"
 
 func template(targets []string) ([]templateFile, []string, error) {
 	return templateWithCLIVersion(targets, defaultMCPCLIVersion)

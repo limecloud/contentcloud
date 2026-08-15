@@ -40,6 +40,16 @@ const (
 //go:embed ui/*
 var embeddedUI embed.FS
 
+// MCPAppHTML returns the self-contained MCP Apps resource embedded in the CLI.
+// It deliberately does not expose the Direct Browser Presenter routes.
+func MCPAppHTML() (string, error) {
+	body, err := fs.ReadFile(embeddedUI, "ui/mcp-app.html")
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
 type OpenOptions struct {
 	Root                    string
 	View                    string
@@ -227,11 +237,12 @@ type Session struct {
 	expiresAt            time.Time
 	now                  func() time.Time
 	view                 OpenOptions
-	handoffs             map[string]time.Time
+	handoffs             map[string]handoffRecord
 	capabilities         map[string]clientCapability
 	resourceCapabilities map[string]time.Time
 	resources            map[string]string
 	proposalStore        *localworkspace.ProposalStore
+	claims               map[string]string
 	idempotency          map[string]idempotencyRecord
 	events               []Event
 	nextEventID          uint64
@@ -246,6 +257,12 @@ type Session struct {
 type clientCapability struct {
 	CSRF      string
 	ExpiresAt time.Time
+	View      OpenOptions
+}
+
+type handoffRecord struct {
+	ExpiresAt time.Time
+	View      OpenOptions
 }
 
 type idempotencyRecord struct {
@@ -296,7 +313,7 @@ func newSession(ctx context.Context, options OpenOptions, view localworkspace.Wo
 		id: "wbk_" + randomID(18), root: options.Root, origin: "http://" + listener.Addr().String(),
 		workspaceID: view.WorkspaceID, projectID: view.ProjectID, generation: generation,
 		startedAt: startedAt, expiresAt: startedAt.Add(absoluteTTL), now: now, view: options,
-		handoffs: map[string]time.Time{}, capabilities: map[string]clientCapability{}, resourceCapabilities: map[string]time.Time{}, resources: map[string]string{},
+		handoffs: map[string]handoffRecord{}, capabilities: map[string]clientCapability{}, resourceCapabilities: map[string]time.Time{}, resources: map[string]string{}, claims: map[string]string{},
 		proposalStore: proposals, idempotency: map[string]idempotencyRecord{},
 		subscribers: map[uint64]chan Event{}, listener: listener, closed: make(chan struct{}),
 	}
@@ -338,6 +355,13 @@ func (s *Session) Closed() bool {
 func (s *Session) SetView(options OpenOptions) {
 	s.mu.Lock()
 	s.view = options
+	// Handoffs that have not been exchanged yet belong to the current open
+	// request. Keeping them aligned preserves the CLI's reusable session
+	// behavior, while exchanged capabilities retain their own immutable view.
+	for key, handoff := range s.handoffs {
+		handoff.View = options
+		s.handoffs[key] = handoff
+	}
 	s.mu.Unlock()
 }
 
@@ -351,7 +375,7 @@ func (s *Session) IssueHandoff(now time.Time) (string, error) {
 	if !now.Before(s.expiresAt) {
 		return "", domain.Conflict("WORKBENCH_SESSION_EXPIRED", "本地 Workbench 会话已到期")
 	}
-	s.handoffs[tokenHash(token)] = now.Add(handoffTTL)
+	s.handoffs[tokenHash(token)] = handoffRecord{ExpiresAt: now.Add(handoffTTL), View: s.view}
 	return token, nil
 }
 
@@ -359,6 +383,15 @@ func (s *Session) Close() error {
 	var closeErr error
 	s.closeOnce.Do(func() {
 		s.publish("session.closed", 0, nil)
+		s.mu.Lock()
+		claims := make(map[string]string, len(s.claims))
+		for runID, token := range s.claims {
+			claims[runID] = token
+		}
+		s.mu.Unlock()
+		for runID, token := range claims {
+			_ = localworkspace.ReleaseRunClaim(s.root, runID, token, s.now())
+		}
 		close(s.closed)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -450,12 +483,12 @@ func (s *Session) exchange(response http.ResponseWriter, request *http.Request) 
 	}
 	now := s.now()
 	s.mu.Lock()
-	expiresAt, ok := s.handoffs[tokenHash(input.Token)]
+	handoff, ok := s.handoffs[tokenHash(input.Token)]
 	if ok {
 		delete(s.handoffs, tokenHash(input.Token))
 	}
 	s.mu.Unlock()
-	if !ok || !now.Before(expiresAt) {
+	if !ok || !now.Before(handoff.ExpiresAt) {
 		writeHTTPError(response, domain.Conflict("WORKBENCH_HANDOFF_EXPIRED", "Workbench handoff 已失效或已使用"), http.StatusGone)
 		return
 	}
@@ -479,20 +512,29 @@ func (s *Session) exchange(response http.ResponseWriter, request *http.Request) 
 	if clientExpiry.After(s.expiresAt) {
 		clientExpiry = s.expiresAt
 	}
-	s.capabilities[tokenHash(capability)] = clientCapability{CSRF: csrf, ExpiresAt: clientExpiry}
+	handoff.View.Root = s.root
+	s.capabilities[tokenHash(capability)] = clientCapability{CSRF: csrf, ExpiresAt: clientExpiry, View: handoff.View}
 	s.resourceCapabilities[tokenHash(resourceCapability)] = clientExpiry
+	claims := make(map[string]string, len(s.claims))
+	for runID, claimToken := range s.claims {
+		claims[runID] = claimToken
+	}
 	s.mu.Unlock()
 	http.SetCookie(response, &http.Cookie{
 		Name: resourceCookieName, Value: resourceCapability, Path: "/api/v1/resources/",
 		HttpOnly: true, SameSite: http.SameSiteStrictMode,
 	})
-	writeJSON(response, http.StatusOK, map[string]any{"capability": capability, "csrf": csrf, "expires_at": clientExpiry, "workbench_id": s.id})
+	writeJSON(response, http.StatusOK, map[string]any{"capability": capability, "csrf": csrf, "expires_at": clientExpiry, "workbench_id": s.id, "claims": claims})
 }
 
 func (s *Session) bootstrap(response http.ResponseWriter, request *http.Request) {
-	s.mu.Lock()
-	options := s.view
-	s.mu.Unlock()
+	value := strings.TrimSpace(strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer "))
+	client, ok := s.lookupClientCapability(value)
+	if !ok {
+		writeHTTPError(response, domain.Policy("WORKBENCH_CAPABILITY_INVALID", "Workbench capability 无效或已过期", "从 MCP 重新打开本地 Workbench"), http.StatusUnauthorized)
+		return
+	}
+	options := client.View
 	snapshot, err := s.buildSnapshot(options)
 	if err != nil {
 		writeHTTPError(response, err, httpStatus(err))
@@ -522,7 +564,13 @@ func (s *Session) viewHTTP(response http.ResponseWriter, request *http.Request) 
 		writeHTTPError(response, err, httpStatus(err))
 		return
 	}
-	s.SetView(options)
+	value := strings.TrimSpace(strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer "))
+	s.mu.Lock()
+	if client, ok := s.capabilities[tokenHash(value)]; ok {
+		client.View = options
+		s.capabilities[tokenHash(value)] = client
+	}
+	s.mu.Unlock()
 	writeJSON(response, http.StatusOK, snapshot)
 }
 
@@ -603,7 +651,21 @@ func (s *Session) eventsHTTP(response http.ResponseWriter, request *http.Request
 		case <-request.Context().Done():
 			return
 		case <-s.closed:
-			return
+			// Close publishes session.closed before signalling the lifecycle
+			// channel. Drain the subscriber queue once so that event is not lost
+			// to select's ready-case choice during shutdown.
+			for {
+				select {
+				case event, open := <-events:
+					if !open {
+						return
+					}
+					writeSSE(response, event)
+					flusher.Flush()
+				default:
+					return
+				}
+			}
 		}
 	}
 }
@@ -658,6 +720,9 @@ func (s *Session) claimOwnershipHTTP(response http.ResponseWriter, request *http
 		return
 	}
 	s.storeIdempotentResult(key, "ownership.claim", fingerprint, claim)
+	s.mu.Lock()
+	s.claims[claim.RunID] = claim.Token
+	s.mu.Unlock()
 	s.publish("claim.changed", claim.ContextRevision, nil)
 	writeJSON(response, http.StatusOK, claim)
 }
@@ -695,6 +760,9 @@ func (s *Session) takeoverOwnershipHTTP(response http.ResponseWriter, request *h
 		return
 	}
 	s.storeIdempotentResult(key, "ownership.takeover", fingerprint, claim)
+	s.mu.Lock()
+	s.claims[claim.RunID] = claim.Token
+	s.mu.Unlock()
 	s.publish("claim.changed", claim.ContextRevision, nil)
 	writeJSON(response, http.StatusOK, claim)
 }
@@ -868,6 +936,7 @@ func (s *Session) withResourceCapability(next http.HandlerFunc) http.HandlerFunc
 func (s *Session) lookupClientCapability(value string) (clientCapability, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pruneLocked(s.now())
 	client, ok := s.capabilities[tokenHash(value)]
 	if ok && !s.now().Before(client.ExpiresAt) {
 		delete(s.capabilities, tokenHash(value))
@@ -913,6 +982,7 @@ func (s *Session) watch(ctx context.Context) {
 				return
 			}
 			s.mu.Lock()
+			s.pruneLocked(s.now())
 			options := s.view
 			s.mu.Unlock()
 			view, err := localworkspace.BuildWorkspaceView(workspaceViewOptions(options, s.now()))
@@ -925,6 +995,30 @@ func (s *Session) watch(ctx context.Context) {
 			}
 			last = key
 		}
+	}
+}
+
+func (s *Session) pruneLocked(now time.Time) {
+	for key, handoff := range s.handoffs {
+		if !now.Before(handoff.ExpiresAt) {
+			delete(s.handoffs, key)
+		}
+	}
+	for key, capability := range s.capabilities {
+		if !now.Before(capability.ExpiresAt) {
+			delete(s.capabilities, key)
+		}
+	}
+	for key, expiresAt := range s.resourceCapabilities {
+		if !now.Before(expiresAt) {
+			delete(s.resourceCapabilities, key)
+		}
+	}
+	if len(s.resources) > 2048 {
+		s.resources = map[string]string{}
+	}
+	if len(s.idempotency) > 2048 {
+		s.idempotency = map[string]idempotencyRecord{}
 	}
 }
 

@@ -34,7 +34,7 @@ import (
 	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
-const Version = "0.26.0"
+const Version = "0.27.0"
 
 type Root struct {
 	json                   bool
@@ -45,11 +45,16 @@ type Root struct {
 	mcpCWD                 string
 	mcpWorkspaceMu         sync.Mutex
 	mcpWorkspaceRoot       string
+	mcpCapabilityMu        sync.RWMutex
+	mcpAppsSupported       bool
+	mcpRootsMu             sync.RWMutex
+	mcpRoots               []mcpRoot
+	mcpRootsError          string
 	workbenchManager       *workbench.Manager
 	proposalStore          *localworkspace.ProposalStore
 	now                    func() time.Time
 	pluginRunner           pluginhost.CommandRunner
-	pluginRuntimeHook      func(string) (*hostPluginRuntime, error)
+	pluginRuntimeHook      func(string, string, string) (*hostPluginRuntime, error)
 	bootstrapCheckHook     func(context.Context, bootstrapcheck.Options) bootstrapcheck.Report
 	bootstrapAuthorizeHook func(context.Context, string, string) (localconfig.Config, app.ConnectDeviceResult, *bootstrapProgressReporter, error)
 	manifestVerifierHook   func() (*environment.Verifier, error)

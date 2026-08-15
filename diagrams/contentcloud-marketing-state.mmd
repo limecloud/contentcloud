@@ -1,0 +1,18 @@
+stateDiagram-v2
+    [*] --> planned
+    planned --> claimed: local_run_claim
+    claimed --> ingest: with_ingest
+    claimed --> knowledge_lint: no new source
+    ingest --> knowledge_lint: source_ingest complete
+    knowledge_lint --> query: kb-lint passed
+    knowledge_lint --> failed: kb-lint failed
+    query --> compile: intent=content
+    query --> done: intent=query
+    compile --> output_lint: content candidates ready
+    output_lint --> done: content-lint passed
+    output_lint --> failed: content-lint failed
+    failed --> claimed: local_run_resume
+    done --> released: local_run_release
+    done --> handoff: handoff_create_ready
+    released --> [*]
+    handoff --> [*]

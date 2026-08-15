@@ -279,7 +279,13 @@ func ReleaseRunClaim(root, runID, token string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	if _, err := validateRunClaim(resolved, runID, token, localNow(now)); err != nil {
+	at := localNow(now)
+	releaseCoordination, err := acquireEnvironmentCoordinationLock(resolved, at)
+	if err != nil {
+		return err
+	}
+	defer releaseCoordination()
+	if _, err := validateRunClaim(resolved, runID, token, at); err != nil {
 		return err
 	}
 	return os.Remove(runClaimPath(resolved, runID))

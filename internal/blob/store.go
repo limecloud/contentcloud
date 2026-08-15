@@ -18,6 +18,12 @@ type Store interface {
 	Get(context.Context, string) ([]byte, error)
 }
 
+// DeleteStore is implemented by stores that can remove an object which was
+// written speculatively but never attached to a durable domain result.
+type DeleteStore interface {
+	Delete(context.Context, string) error
+}
+
 // ReaderStore is an optional large-object path. Callers must still enforce
 // their domain-specific size and content checks before publishing metadata.
 type ReaderStore interface {
@@ -62,6 +68,16 @@ func (s *MemoryStore) Get(_ context.Context, key string) ([]byte, error) {
 		return nil, ErrNotFound
 	}
 	return append([]byte(nil), value...), nil
+}
+
+func (s *MemoryStore) Delete(_ context.Context, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.items[key]; !ok {
+		return ErrNotFound
+	}
+	delete(s.items, key)
+	return nil
 }
 
 type LocalStore struct {
@@ -172,4 +188,16 @@ func (s *LocalStore) Get(_ context.Context, key string) ([]byte, error) {
 		return nil, ErrNotFound
 	}
 	return value, err
+}
+
+func (s *LocalStore) Delete(_ context.Context, key string) error {
+	path, err := s.path(key)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); errors.Is(err, os.ErrNotExist) {
+		return ErrNotFound
+	} else {
+		return err
+	}
 }

@@ -73,6 +73,53 @@ func TestRuntimeMCPGatewayBindsToolCallToFenceAndContext(t *testing.T) {
 	}
 }
 
+func TestRuntimeMCPGatewayDoesNotReexecutePersistedRunningCall(t *testing.T) {
+	gateway, handle, collection := activeGatewayFixture(t)
+	request := GatewayRequest{TenantID: handle.Attempt.TenantID, AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, ToolName: ToolStateQuery, RequestID: "mcp-running", Arguments: map[string]any{"collection": collection.ID}}
+	idempotencyKey, err := gatewayIdempotencyKey(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestDigest, err := domain.CanonicalHash(struct {
+		ToolName       string         `json:"tool_name"`
+		Arguments      map[string]any `json:"arguments"`
+		IdempotencyKey string         `json:"idempotency_key"`
+	}{request.ToolName, request.Arguments, idempotencyKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := gateway.service.now().UTC()
+	call := domain.ToolCall{
+		ID: domain.NewID(), TenantID: request.TenantID, JobRunID: handle.Attempt.JobRunID,
+		NodeRunID: handle.Attempt.NodeRunID, AttemptID: handle.Attempt.ID, AgentInstanceID: handle.Attempt.AgentInstanceID,
+		ToolName: request.ToolName, SchemaVersion: gatewayToolSchema(request.ToolName), RequestDigest: "sha256:" + requestDigest,
+		SafeRequest: gatewaySafeRequest(request.ToolName, request.Arguments, idempotencyKey), State: domain.ToolCallProposed,
+		Version: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := gateway.service.CreateFencedToolCall(t.Context(), call, request.FenceToken); err != nil {
+		t.Fatal(err)
+	}
+	authorized := call
+	authorized.State = domain.ToolCallAuthorized
+	authorized.Version++
+	call, err = gateway.service.TransitionFencedToolCall(t.Context(), authorized, call.Version, request.FenceToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := call
+	running.State = domain.ToolCallRunning
+	running.StartedAt = &now
+	running.Version++
+	call, err = gateway.service.TransitionFencedToolCall(t.Context(), running, call.Version, request.FenceToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := gateway.Call(t.Context(), request)
+	if !hasDomainCode(err, "MCP_GATEWAY_TOOL_CALL_IN_PROGRESS") || response.ToolCall.ID != call.ID || response.ToolCall.State != domain.ToolCallRunning {
+		t.Fatalf("persisted running ToolCall was not fenced: response=%#v err=%v", response, err)
+	}
+}
+
 func TestRuntimeMCPGatewayTokenIsAttemptScopedAndRevokedAtTerminal(t *testing.T) {
 	gateway, handle, collection := activeGatewayFixture(t)
 	if !strings.HasPrefix(handle.GatewayToken, "rtg_") || handle.Attempt.GatewayTokenHash != domain.TokenHash(handle.GatewayToken) {

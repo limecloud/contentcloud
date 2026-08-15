@@ -1,0 +1,47 @@
+sequenceDiagram
+    actor User as 用户
+    participant Host as Codex / Claude
+    participant Core as Core Scene Plugin / stdio MCP
+    participant Env as Environment Resolver
+    participant Store as Registry / Lock / Bundled Package
+    participant Adapter as Native Host Adapter
+    participant Skill as 营销 Skill Pack
+    participant WS as Customer Workspace
+    participant Cloud as Cloud Control Plane
+
+    User->>Host: 提出客户营销任务
+    Host->>Core: workspace_context + environment_execution_plan
+    Core->>WS: 读取唯一 Workspace 绑定
+    Core->>Env: 解析 required_capabilities
+    Env->>Store: 校验 Manifest / Registry / Lock
+    Store-->>Env: exact PluginRef(id, version, digest)
+    alt 缺少营销任务 Pack
+        Env-->>Core: environment_prepare
+        Core-->>Host: preparation_id、权限、数据流、费用、新会话影响
+        User->>Host: 确认同一 preparation_id
+        Host->>Core: environment_prepare_apply(accept=true)
+        Core->>Store: 加载 CLI 内嵌 exact bundle
+        Core->>Adapter: Plan + Apply
+        Adapter-->>Core: 安装回执或可回滚错误
+        Core->>Store: CAS 更新 Lock 并重新解析
+        Core-->>Host: ready + requires_new_chat
+        User->>Host: 新建绑定同一 Workspace 的会话
+    end
+    Host->>Skill: 发现并选择中文营销 Skill
+    Skill->>Core: local_run_init/resume + local_run_claim
+    Core->>WS: 创建或恢复同一个 Run 与 Claim
+    Skill->>Core: source_verify / knowledge_lint / knowledge_query
+    Core->>WS: 写入 finding、eligible、blocked
+    Skill->>Core: content_batch_lint / finalize
+    Core->>WS: 保存候选产物与 output_refs
+    alt 需要云端同步
+        Skill->>Core: publish_preflight
+        Core-->>Host: plan_id、范围、摘要、费用
+        User->>Host: 确认准确 plan_id
+        Skill->>Core: publish_apply(plan_id)
+        Core->>Cloud: 明确云端写入
+        Cloud-->>Core: revision / audit receipt
+    end
+    Skill->>Core: local_run_record + release 或 handoff
+    Core->>WS: 保存最终状态
+    Host-->>User: 产物、阻断项、Run 与下一步

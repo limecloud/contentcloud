@@ -425,10 +425,10 @@ func (v SeedancePromptPackage) Validate() error {
 	if err := v.AdapterCapability.Validate(); err != nil {
 		return err
 	}
-	if v.Mode != "first_last_frame" && v.Mode != "all_reference" && v.Mode != "extend" {
+	if v.Mode != "text_to_video" && v.Mode != "image_to_video" && v.Mode != "first_last_frame" && v.Mode != "all_reference" && v.Mode != "extend" {
 		return Invalid("SEEDANCE_MODE_INVALID", "Seedance 模式无效")
 	}
-	if !validAspect(v.Settings.AspectRatio) || v.Settings.DurationSeconds < 1 || len(v.UploadManifest) == 0 || len(v.Segments) == 0 {
+	if !validAspect(v.Settings.AspectRatio) || v.Settings.DurationSeconds < 1 || (v.Mode != "text_to_video" && len(v.UploadManifest) == 0) || len(v.Segments) == 0 {
 		return Invalid("SEEDANCE_PACKAGE_CONTENT_INVALID", "Seedance 设置、上传清单或分段缺失")
 	}
 	references := map[string]bool{}
@@ -445,7 +445,7 @@ func (v SeedancePromptPackage) Validate() error {
 			return Invalid("SEEDANCE_SEGMENT_INVALID", "Seedance 分段顺序、时间或提示词无效")
 		}
 		used := seedanceReferencePattern.FindAllString(segment.PromptZH, -1)
-		if len(used) == 0 {
+		if v.Mode != "text_to_video" && len(used) == 0 {
 			return Invalid("SEEDANCE_SEGMENT_REFERENCE_REQUIRED", "每个 Seedance 分段必须引用至少一个已上传素材")
 		}
 		for _, reference := range used {

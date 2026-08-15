@@ -78,7 +78,7 @@ func TestMaterializePackageGeneratesOnlyClaudePrivateProjection(t *testing.T) {
 	var nativeMCP claudeMCPManifest
 	readJSONFile(t, filepath.Join(projectedRoot, ".mcp.json"), &nativeMCP)
 	server := nativeMCP.Servers["example-mcp"]
-	if server.Command != "node" || !reflect.DeepEqual(server.Args, []string{"${CLAUDE_PLUGIN_ROOT}/bin/server"}) || server.CWD != "${CLAUDE_PLUGIN_ROOT}" || server.Env["DATA"] != "${CLAUDE_PLUGIN_DATA}/state" {
+	if server.Command != "node" || !reflect.DeepEqual(server.Args, []string{"${CLAUDE_PLUGIN_ROOT}/bin/server"}) || server.CWD != "${CLAUDE_PLUGIN_ROOT}" || server.Env["DATA"] != "${CLAUDE_PLUGIN_DATA}/state" || server.Env[workspaceRootEnvironment] != "${CLAUDE_PROJECT_DIR}" {
 		t.Fatalf("Agent Plugins variables were not translated for Claude: %#v", server)
 	}
 	marker, err := readProjectionMarker(projectedRoot)
@@ -208,7 +208,11 @@ func TestRealClaudeAgentPluginLifecycle(t *testing.T) {
 		t.Fatal("resolve test source path")
 	}
 	repositoryRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", "..", ".."))
-	pkg, err := plugin.Load(filepath.Join(repositoryRoot, "plugins", "contentcloud-video-production"))
+	pluginName := os.Getenv("CONTENTCLOUD_PLUGIN_SMOKE_PACKAGE")
+	if pluginName == "" {
+		pluginName = "contentcloud-video-production"
+	}
+	pkg, err := plugin.Load(filepath.Join(repositoryRoot, "plugins", pluginName))
 	if err != nil {
 		t.Fatal(err)
 	}

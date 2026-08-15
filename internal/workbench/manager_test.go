@@ -191,6 +191,14 @@ func TestWorkbenchUIKeepsTheBootstrappedViewCurrent(t *testing.T) {
 		"await acceptBrowserHandoff()",
 		"await reloadServerView()",
 		"await reloadServerView();",
+		"state.pendingClaims = body.claims || {}",
+		"history.state?.[historyStateKey]",
+		"state.pendingClaims[state.runID] = state.claim.token",
+		"persistSession();",
+		"clearPersistedSession();",
+		"response.status === 401",
+		"renderMarkdown(view.text)",
+		"renderStructured(view.data)",
 		"navigator.serviceWorker.addEventListener('message'",
 		"workbench-capability-response",
 		"event.topic === 'session.closed'",
@@ -311,6 +319,64 @@ func TestWorkbenchBrowserClaimProposalApplyEndToEnd(t *testing.T) {
 	})
 	assertStatus(t, consumed, http.StatusNotFound)
 	closeBody(consumed)
+
+	closed := fixture.request(t, http.MethodDelete, "/api/v1/session", strings.NewReader(`{}`), requestOptions{origin: fixture.origin, capability: credentials.Capability, csrf: credentials.CSRF, idempotencyKey: "close-after-claim"})
+	assertStatus(t, closed, http.StatusOK)
+	closeBody(closed)
+	waitForClosedSession(t, fixture.manager, fixture.root)
+	ownership, err := localworkspace.RunClaimStatus(fixture.root, run.RunID, fixture.clock.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownership.Claimed {
+		t.Fatalf("closing a Workbench left its browser claim active: %#v", ownership)
+	}
+}
+
+func TestWorkbenchCapabilitiesKeepIndependentViews(t *testing.T) {
+	fixture := newWorkbenchFixture(t, "50-production/first.md", []byte("first\n"))
+	if err := os.WriteFile(filepath.Join(fixture.root, "50-production", "second.md"), []byte("second\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	firstCredentials, firstExchange := fixture.exchangeCredentials(t)
+	assertStatus(t, firstExchange, http.StatusOK)
+	closeBody(firstExchange)
+	second, err := fixture.manager.Open(context.Background(), OpenOptions{Root: fixture.root, View: "file", Ref: "50-production/second.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondURL, err := url.Parse(second.Private.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fragment, err := url.ParseQuery(secondURL.Fragment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondResponse := fixture.exchange(t, fragment.Get("handoff"), fixture.origin)
+	assertStatus(t, secondResponse, http.StatusOK)
+	var secondCredentials browserCredentials
+	if err := json.NewDecoder(secondResponse.Body).Decode(&secondCredentials); err != nil {
+		t.Fatal(err)
+	}
+	closeBody(secondResponse)
+	for _, test := range []struct {
+		name, capability, want string
+	}{
+		{name: "first", capability: firstCredentials.Capability, want: "first.md"},
+		{name: "second", capability: secondCredentials.Capability, want: "second.md"},
+	} {
+		response := fixture.request(t, http.MethodGet, "/api/v1/bootstrap", nil, requestOptions{origin: fixture.origin, capability: test.capability})
+		assertStatus(t, response, http.StatusOK)
+		var snapshot Snapshot
+		if err := json.NewDecoder(response.Body).Decode(&snapshot); err != nil {
+			t.Fatal(err)
+		}
+		closeBody(response)
+		if snapshot.View.View.Ref != "50-production/"+test.want {
+			t.Fatalf("%s capability view was overwritten: got %q", test.name, snapshot.View.View.Ref)
+		}
+	}
 }
 
 type workbenchFixture struct {

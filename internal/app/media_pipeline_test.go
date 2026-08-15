@@ -122,7 +122,34 @@ func TestMarketingVideoGoldenJourney(t *testing.T) {
 	}
 
 	task = startTaskStage(t, service, actor, task)
-	job, err := service.CreateMediaGenerationJob(ctx, actor, task.Task.ID, app.CreateMediaGenerationJobInput{StageRunID: currentRun(t, task).ID, StoryboardSnapshotID: storyboardSnapshot.ID, ProviderID: "fake", ProfileVersion: "1.0.0", Mode: "image_to_video", AspectRatio: "9:16", DurationSeconds: 15, IdempotencyKey: "golden-media-job"}, "")
+	var storyboardEnvelope struct {
+		Objects []json.RawMessage `json:"objects"`
+	}
+	if err := json.Unmarshal(storyboardSnapshot.CanonicalContent, &storyboardEnvelope); err != nil || len(storyboardEnvelope.Objects) != 1 {
+		t.Fatalf("storyboard package missing from approved snapshot: %v", err)
+	}
+	var lockedStoryboard domain.StoryboardPackage
+	if err := json.Unmarshal(storyboardEnvelope.Objects[0], &lockedStoryboard); err != nil {
+		t.Fatal(err)
+	}
+	promptPackage := domain.SeedancePromptPackage{
+		ID: "prompt-package:" + task.Task.ID, Type: "seedance_prompt_package", SchemaVersion: domain.SeedancePromptPackageSchema,
+		StoryboardSnapshotID: storyboardSnapshot.ID, StoryboardPackageID: lockedStoryboard.ID, StoryboardLockedDigest: lockedStoryboard.LockedDigest,
+		Provider: "seedance", ProviderProfileVersion: "1.0.0", AdapterCapability: domain.CapabilityRef{ID: "contentcloud.seedance-execution", Version: "1.0.0", Digest: "sha256:" + strings.Repeat("c", 64)},
+		Mode: "all_reference", Settings: domain.SeedanceSettings{AspectRatio: "9:16", DurationSeconds: 15, Sound: "environment_only"},
+		UploadManifest: []domain.SeedanceUpload{{Reference: "@图片1", ArtifactID: "asset-first-frame", File: "first-frame.png", Purpose: "first_frame", SHA256: mediapipeline.SHA256(png)}},
+		Segments:       []domain.SeedanceSegment{{ID: "segment-1", Order: 1, StartMS: 0, EndMS: 4000, PromptZH: "@图片1 镜头向前推进", AcceptanceCriteria: []string{"首帧稳定"}}},
+		Validation:     domain.SeedanceValidation{ReferencesChecked: true, LimitsChecked: true, RightsChecked: true, OfferChecked: true, DigestChecked: true}, Status: "validated",
+	}
+	promptBody, err := json.Marshal(promptPackage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	promptArtifact, err := service.UploadSeedancePromptPackage(ctx, actor, task.Task.ID, app.UploadSeedancePromptPackageInput{SnapshotID: storyboardSnapshot.ID, FileName: "package.json", Body: promptBody}, "golden-seedance-prompt")
+	if err != nil || promptArtifact.Kind != "prompt_package" || promptArtifact.MediaType != "application/json" {
+		t.Fatalf("prompt package Artifact was not registered: %#v err=%v", promptArtifact, err)
+	}
+	job, err := service.CreateMediaGenerationJob(ctx, actor, task.Task.ID, app.CreateMediaGenerationJobInput{StageRunID: currentRun(t, task).ID, StoryboardSnapshotID: storyboardSnapshot.ID, PromptPackageArtifactID: promptArtifact.ID, ProviderID: "fake", ProfileVersion: "1.0.0", Mode: "image_to_video", AspectRatio: "9:16", DurationSeconds: 15, IdempotencyKey: "golden-media-job"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +157,7 @@ func TestMarketingVideoGoldenJourney(t *testing.T) {
 		t.Fatal(err)
 	}
 	task, err = service.WorkTask(ctx, actor, task.Task.ID)
-	if err != nil || len(task.Artifacts) != 2 || len(task.MediaReviews) != 2 || task.MediaJobs[0].State != domain.MediaJobSucceeded {
+	if err != nil || len(task.MediaReviews) != 2 || task.MediaJobs[0].State != domain.MediaJobSucceeded {
 		t.Fatalf("media worker did not create canonical outputs: view=%#v err=%v", task, err)
 	}
 	artifact := findArtifact(t, task.Artifacts, "generated_video")

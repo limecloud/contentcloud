@@ -67,8 +67,11 @@ for (const skill of expectedSkills) {
   }
 }
 const deliverySkill = read(`${skillRoot}/contentcloud-wechat-delivery/SKILL.md`)
-for (const token of ['manual_login', 'manual_asset_upload', 'manual_preview', 'manual_publish', 'never logs in to WeChat']) {
+for (const token of ['manual_login', 'manual_asset_upload', 'manual_preview', 'manual_publish']) {
   requireText(deliverySkill, token, `WeChat delivery Skill is missing manual boundary ${token}`)
+}
+if (!deliverySkill.includes('never logs in to WeChat') && !deliverySkill.includes('绝不登录微信')) {
+  fail('WeChat delivery Skill is missing manual boundary: must remain manual and never log in to WeChat')
 }
 
 const plugin = JSON.parse(read('plugins/contentcloud-wechat-article/plugin.json'))
