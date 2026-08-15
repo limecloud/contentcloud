@@ -1,13 +1,14 @@
 {
   "name": "@limecloud/contentcloud-workspace",
   "private": true,
-  "version": "0.26.0",
+  "version": "0.27.0",
   "packageManager": "pnpm@10.8.1",
   "scripts": {
     "dev:web": "pnpm --dir web dev",
     "build:web": "pnpm --dir web build",
     "architecture": "node scripts/check-architecture.mjs",
     "check:plugin": "node scripts/validate-plugin-release.mjs",
+    "check:marketing-plugin": "node scripts/check-marketing-plugin.mjs",
     "evaluate:plugin": "node scripts/evaluate-plugin.mjs",
     "governance:content": "node scripts/check-content-governance.mjs",
     "governance:v3": "node scripts/check-v3-legacy.mjs",

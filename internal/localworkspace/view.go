@@ -277,6 +277,23 @@ func OpenWorkspaceResource(root, uri string) (WorkspaceResourceStream, error) {
 		reader.Close()
 		return WorkspaceResourceStream{}, domain.Conflict("WORKSPACE_VIEW_STALE", "资源在打开过程中发生变化")
 	}
+	// Hash the descriptor's already-open file descriptor. A path-only size
+	// check is insufficient when a file is atomically replaced with content of
+	// the same length between descriptor creation and resource serving.
+	hash := sha256.New()
+	if _, err := io.Copy(hash, reader); err != nil {
+		reader.Close()
+		return WorkspaceResourceStream{}, err
+	}
+	actual := "sha256:" + hex.EncodeToString(hash.Sum(nil))
+	if actual != metadata.Digest {
+		reader.Close()
+		return WorkspaceResourceStream{}, domain.Conflict("WORKSPACE_VIEW_STALE", "资源在打开过程中发生变化")
+	}
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		reader.Close()
+		return WorkspaceResourceStream{}, err
+	}
 	return WorkspaceResourceStream{URI: uri, Ref: metadata.Ref, MIMEType: metadata.MIMEType, Digest: metadata.Digest, ByteSize: metadata.Size, Reader: reader}, nil
 }
 
@@ -478,7 +495,7 @@ func detectWorkspaceMIME(ref string, body []byte) string {
 	}
 	if value := mime.TypeByExtension(extension); value != "" {
 		value = strings.Split(value, ";")[0]
-		if strings.HasPrefix(value, "text/") || streamableWorkspaceMIME(value) {
+		if strings.HasPrefix(value, "text/") || value == "application/json" || streamableWorkspaceMIME(value) {
 			return value
 		}
 	}

@@ -62,6 +62,38 @@ func TestWorkspaceProposalAppliesWithOwnershipRevisionAndDigestCAS(t *testing.T)
 	}
 }
 
+func TestProposalStoreKeepsProposalAfterFailedApply(t *testing.T) {
+	root, run, claim, now := newProposalFixture(t)
+	ref := "50-production/retry.md"
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(ref)), []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	view, err := BuildWorkspaceView(WorkspaceViewOptions{Root: root, View: "file", Ref: ref, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewProposalStore()
+	proposal, err := store.Prepare(PrepareWorkspaceProposalOptions{
+		Root: root, RunID: run.RunID, ClaimToken: claim.Token, OwnerKind: claim.OwnerKind, OwnerID: claim.OwnerID, OwnerEpoch: claim.Epoch,
+		ExpectedContextRevision: run.ContextRevision, TypedAction: "workspace_file.replace", Ref: ref,
+		ExpectedDigest: view.ObservedDigest, Content: "after\n", Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := ApplyWorkspaceProposalOptions{
+		Root: root, ClaimToken: "invalid-token", OwnerKind: claim.OwnerKind, OwnerID: claim.OwnerID,
+		OwnerEpoch: claim.Epoch, ExpectedContextRevision: run.ContextRevision, Now: now.Add(time.Minute),
+	}
+	if _, err := store.Apply(proposal.ProposalID, options); domainCode(err) != "WORKSPACE_PROPOSAL_STALE" {
+		t.Fatalf("invalid Apply did not fail at the ownership fence: %v", err)
+	}
+	options.ClaimToken = claim.Token
+	if _, err := store.Apply(proposal.ProposalID, options); err != nil {
+		t.Fatalf("failed Apply consumed the Proposal: %v", err)
+	}
+}
+
 func TestWorkspaceProposalRejectsStaleDigestFenceAndExpiry(t *testing.T) {
 	root, run, claim, now := newProposalFixture(t)
 	ref := "40-work/draft.json"

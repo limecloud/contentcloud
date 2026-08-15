@@ -1,7 +1,8 @@
 (() => {
   'use strict';
 
-  const state = { capability: '', csrf: '', snapshot: null, query: {view: 'workspace_summary'}, claim: null, proposal: null, runID: '', lastEventID: 0, closed: false, eventsConnected: false };
+  const historyStateKey = 'contentcloudWorkbenchSession';
+  const state = { capability: '', csrf: '', expiresAt: '', snapshot: null, query: {view: 'workspace_summary'}, claim: null, pendingClaims: {}, proposal: null, runID: '', lastEventID: 0, closed: false, eventsConnected: false };
   const elements = {
     app: document.querySelector('#app'), workspace: document.querySelector('#workspace-name'), revision: document.querySelector('#revision'),
     kind: document.querySelector('#view-kind'), title: document.querySelector('#view-title'), summary: document.querySelector('#view-summary'),
@@ -27,6 +28,7 @@
     }
     const response = await fetch(url, {...options, headers, cache: 'no-store'});
     if (!response.ok) {
+      if (response.status === 401) { state.closed = true; clearPersistedSession(); }
       let message = `请求失败 (${response.status})`;
       try { const body = await response.json(); message = body.error?.message || message; } catch (_) {}
       throw new Error(message);
@@ -37,13 +39,39 @@
   async function exchange() {
     const params = new URLSearchParams(location.hash.slice(1));
     const token = params.get('handoff');
-    history.replaceState(null, '', '/');
-    if (!token) throw new Error('本地会话入口已失效，请从 Codex 重新打开。');
+    if (!token) {
+      const restored = history.state?.[historyStateKey];
+      if (!restored || typeof restored.capability !== 'string' || typeof restored.csrf !== 'string') {
+        throw new Error('本地会话入口已失效，请从 Codex 重新打开。');
+      }
+      state.capability = restored.capability;
+      state.csrf = restored.csrf;
+      state.expiresAt = typeof restored.expiresAt === 'string' ? restored.expiresAt : '';
+      state.pendingClaims = restored.pendingClaims && typeof restored.pendingClaims === 'object' ? restored.pendingClaims : {};
+      return;
+    }
+    clearPersistedSession();
     const response = await fetch('/api/v1/session/exchange', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({token}), cache: 'no-store'});
     if (!response.ok) throw new Error('本地会话入口已失效，请从 Codex 重新打开。');
     const body = await response.json();
     state.capability = body.capability;
     state.csrf = body.csrf;
+    state.expiresAt = body.expires_at;
+    state.pendingClaims = body.claims || {};
+    persistSession();
+  }
+
+  function persistSession() {
+    const current = history.state && typeof history.state === 'object' ? history.state : {};
+    history.replaceState({...current, [historyStateKey]: {
+      capability: state.capability, csrf: state.csrf, expiresAt: state.expiresAt, pendingClaims: state.pendingClaims
+    }}, '', '/');
+  }
+
+  function clearPersistedSession() {
+    const current = history.state && typeof history.state === 'object' ? {...history.state} : {};
+    delete current[historyStateKey];
+    history.replaceState(Object.keys(current).length ? current : null, '', '/');
   }
 
   async function prepareServiceWorker() {
@@ -96,6 +124,10 @@
     state.snapshot = await response.json();
 	state.runID = state.snapshot.view.run_id || state.runID;
 	state.query = initialBootstrap ? queryFromSnapshot(state.snapshot) : {...query};
+	const persistedToken = state.pendingClaims[state.runID];
+	if (!state.claim && persistedToken && state.snapshot.ownership?.claimed && state.snapshot.ownership.owner_id === state.snapshot.workbench_id) {
+		state.claim = {...state.snapshot.ownership, token: persistedToken, owner_id: state.snapshot.workbench_id};
+	}
 	if (state.snapshot.ownership?.owner_id !== state.claim?.owner_id || state.snapshot.ownership?.epoch !== state.claim?.epoch) state.claim = null;
     render(state.snapshot);
     activity('本地工作区已同步', 'idle');
@@ -147,12 +179,40 @@
     if (resource && resource.mime_type.startsWith('video/')) return elements.content.append(media('video', resource));
     if (resource && resource.mime_type === 'application/pdf') return elements.content.append(media('iframe', resource));
     if (view.text) {
-      const pre = document.createElement('pre'); pre.className = 'document'; pre.textContent = view.text; elements.content.append(pre); return;
+      if (view.mime_type === 'text/markdown') {
+        elements.content.append(renderMarkdown(view.text));
+      } else {
+        const pre = document.createElement('pre'); pre.className = 'document'; pre.textContent = view.text; elements.content.append(pre);
+      }
+      return;
     }
     if (view.data) {
-      const pre = document.createElement('pre'); pre.className = 'structured'; pre.textContent = JSON.stringify(view.data, null, 2); elements.content.append(pre); return;
+      elements.content.append(renderStructured(view.data)); return;
     }
     elements.content.append(empty('当前视图没有可展示的内容。'));
+  }
+
+  function renderMarkdown(text) {
+    const article = document.createElement('article'); article.className = 'markdown-document';
+    for (const line of String(text).split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
+      if (heading) { const node = document.createElement(`h${heading[1].length}`); node.textContent = heading[2]; article.append(node); continue; }
+      if (/^[-*]\s+/.test(trimmed)) { const list = article.lastElementChild?.tagName === 'UL' ? article.lastElementChild : document.createElement('ul'); if (!list.parentNode) article.append(list); const item = document.createElement('li'); item.textContent = trimmed.replace(/^[-*]\s+/, ''); list.append(item); continue; }
+      const paragraph = document.createElement('p'); paragraph.textContent = trimmed; article.append(paragraph);
+    }
+    return article;
+  }
+
+  function renderStructured(value) {
+    const table = document.createElement('dl'); table.className = 'structured-facts';
+    const entries = Array.isArray(value) ? value.map((item, index) => [String(index + 1), item]) : Object.entries(value);
+    for (const [key, item] of entries) {
+      const row = document.createElement('div'); const term = document.createElement('dt'); const detail = document.createElement('dd');
+      term.textContent = key; detail.textContent = typeof item === 'string' ? item : JSON.stringify(item, null, 2); row.append(term, detail); table.append(row);
+    }
+    return table;
   }
 
   function renderOwnership(ownership) {
@@ -221,7 +281,9 @@
       }
       response = await api('/api/v1/ownership/claim', {method: 'POST', body: JSON.stringify(base)});
     }
-    state.claim = await response.json();
+	state.claim = await response.json();
+	state.pendingClaims[state.runID] = state.claim.token;
+	persistSession();
     state.snapshot.ownership = {claimed: true, owner_kind: state.claim.owner_kind, owner_id: state.claim.owner_id, epoch: state.claim.epoch, expires_at: state.claim.expires_at, expired: false};
     renderOwnership(state.snapshot.ownership);
     return state.claim;
@@ -307,6 +369,7 @@
         const headers = {Authorization: `Bearer ${state.capability}`};
         if (state.lastEventID) headers['Last-Event-ID'] = String(state.lastEventID);
         const response = await fetch('/api/v1/events', {headers, cache: 'no-store'});
+        if (response.status === 401) { state.closed = true; clearPersistedSession(); activity('本地会话已失效，请从 Codex 重新打开。', 'error'); return; }
         if (!response.ok || !response.body) throw new Error('事件连接失败');
         const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
         while (!state.closed) {
@@ -317,7 +380,7 @@
             if (id) state.lastEventID = Number(id[1]);
             if (data) {
               const event = JSON.parse(data[1]);
-              if (event.topic === 'session.closed') { state.closed = true; activity('会话已关闭', 'idle'); return; }
+              if (event.topic === 'session.closed') { state.closed = true; clearPersistedSession(); activity('会话已关闭', 'idle'); return; }
               if (event.topic === 'view.invalidated' || event.topic === 'event.gap') await reloadServerView();
             }
           }
@@ -346,7 +409,7 @@
   elements.refresh.addEventListener('click', () => load().catch(showError));
 	elements.edit.addEventListener('click', () => editCurrentView().catch(showError));
   elements.close.addEventListener('click', async () => {
-    try { await api('/api/v1/session', {method: 'DELETE', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: '{}'}); state.closed = true; elements.content.replaceChildren(empty('本地 Workbench 已关闭。')); activity('会话已关闭', 'idle'); } catch (error) { showError(error); }
+    try { await api('/api/v1/session', {method: 'DELETE', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: '{}'}); state.closed = true; clearPersistedSession(); elements.content.replaceChildren(empty('本地 Workbench 已关闭。')); activity('会话已关闭', 'idle'); } catch (error) { showError(error); }
   });
 
   if ('serviceWorker' in navigator) {

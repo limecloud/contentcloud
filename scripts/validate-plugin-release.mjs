@@ -220,6 +220,7 @@ const expectedSkillDirectories = [
   'contentcloud-douyin-audience-strategy',
   'contentcloud-knowledge-extraction',
   'contentcloud-marketing-video-script',
+  'contentcloud-seedance-execution',
   'contentcloud-seedance-export',
   'contentcloud-storyboard-production',
   'contentcloud-workspace',

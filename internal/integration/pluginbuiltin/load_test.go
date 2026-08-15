@@ -30,3 +30,16 @@ func TestLoadBundledWeChatSkillPack(t *testing.T) {
 		t.Fatalf("unexpected bundled WeChat Skill Pack: %#v", pkg)
 	}
 }
+
+func TestLoadBundledMarketingSkillPack(t *testing.T) {
+	pkg, err := pluginbuiltin.Load(t.TempDir(), pluginidentity.Marketing, pluginidentity.MarketingVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pkg.Manifest.Name != pluginidentity.Marketing || pkg.Manifest.Version != pluginidentity.MarketingVersion || len(pkg.Skills) != 8 || len(pkg.MCPServers) != 0 {
+		t.Fatalf("unexpected bundled marketing Skill Pack: %#v", pkg)
+	}
+	if filepath.Base(pkg.Root) != pluginidentity.MarketingVersion {
+		t.Fatalf("bundle was not materialized in the versioned store: %s", pkg.Root)
+	}
+}

@@ -184,7 +184,8 @@ func TestKnowledgeResultRecoversAfterBusinessWriteBeforeAck(t *testing.T) {
 
 func TestKnowledgeExtractionRuntimeWorkerRejectsEvidenceOutsideFrozenContract(t *testing.T) {
 	ctx := context.Background()
-	service := app.New(memory.New(), slog.Default())
+	blobs := blob.NewMemory()
+	service := app.NewWithBlob(memory.New(), slog.Default(), blobs)
 	session, err := service.Register(ctx, "extract-invalid@example.com", "long-enough-password", "Owner", "Extract Invalid Tenant")
 	must(t, err)
 	actor, _, err := service.SessionActor(ctx, session.ID)
@@ -210,6 +211,14 @@ func TestKnowledgeExtractionRuntimeWorkerRejectsEvidenceOutsideFrozenContract(t 
 	assertDomainCode(t, err, "KNOWLEDGE_CANDIDATE_GROUNDING_INVALID")
 	if finalized.Handle.Attempt.State != domain.RuntimeAttemptFailed || finalized.Job.State != domain.JobRunFailed {
 		t.Fatalf("invalid business result must fail Runtime: %#v", finalized)
+	}
+	var resultValue any
+	must(t, json.Unmarshal(body, &resultValue))
+	resultDigest, err := domain.CanonicalHash(resultValue)
+	must(t, err)
+	resultKey := "runtime/results/" + actor.TenantID + "/" + handle.Attempt.ID + "/" + resultDigest + ".json"
+	if _, err := blobs.Get(ctx, resultKey); !errors.Is(err, blob.ErrNotFound) {
+		t.Fatalf("rejected business result left an orphan Blob: %v", err)
 	}
 	objects, err := service.KnowledgeObjects(ctx, actor, project.ID)
 	must(t, err)

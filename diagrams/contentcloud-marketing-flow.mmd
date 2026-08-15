@@ -1,0 +1,22 @@
+graph TD
+    A[营销任务请求] --> B[Core: workspace_context\n+ environment_execution_plan]
+    B --> C{Capability 允许?}
+    C -->|否| D[停止并报告签名环境阻断]
+    C -->|是| E{营销 Pack 已安装?}
+    E -->|否| F[prepare_plan\n披露权限 / 数据流 / 费用]
+    F --> G{确认同一 preparation_id?}
+    G -->|否| H[保持当前环境不变]
+    G -->|是| I[apply: exact bundle\nHost Adapter + Lock CAS]
+    I --> J[新建宿主会话]
+    E -->|是| K[加载中文营销 Skills]
+    J --> K
+    K --> L[恢复或创建同一个 LocalRun\n取得 Claim]
+    L --> M[来源摄取 + 知识 lint / query]
+    M --> N{知识门禁通过?}
+    N -->|否| O[记录 finding\n失败后 resume]
+    N -->|是| P[按意图编排\n交接视频 / 文章 Pack]
+    P --> Q[内容 lint + finalize]
+    Q --> R{需要云端写入?}
+    R -->|否| S[record + release / handoff]
+    R -->|是| T[preflight -> 用户确认\napply + audit receipt]
+    T --> S

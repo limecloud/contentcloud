@@ -267,7 +267,11 @@ func TestRealCodexAgentPluginLifecycle(t *testing.T) {
 		t.Fatal("resolve test source path")
 	}
 	repositoryRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", "..", ".."))
-	pkg, err := plugin.Load(filepath.Join(repositoryRoot, "plugins", "contentcloud-video-production"))
+	pluginName := os.Getenv("CONTENTCLOUD_PLUGIN_SMOKE_PACKAGE")
+	if pluginName == "" {
+		pluginName = "contentcloud-video-production"
+	}
+	pkg, err := plugin.Load(filepath.Join(repositoryRoot, "plugins", pluginName))
 	if err != nil {
 		t.Fatal(err)
 	}

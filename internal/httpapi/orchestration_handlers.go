@@ -263,8 +263,8 @@ func (s *Server) createMediaGenerationJob(w http.ResponseWriter, r *http.Request
 func (s *Server) uploadStoryboardArtifact(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	const maxBytes = 25 * 1024 * 1024
-	r.Body = http.MaxBytesReader(w, r.Body, maxBytes+1<<20)
-	if err := r.ParseMultipartForm(maxBytes + 1<<20); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes+(1<<20))
+	if err := r.ParseMultipartForm(maxBytes + (1 << 20)); err != nil {
 		s.fail(w, r, "storyboard.artifact.upload", domain.Invalid("STORYBOARD_MULTIPART_INVALID", "分镜素材上传表单无效或超过大小限制"))
 		return
 	}
@@ -288,6 +288,36 @@ func (s *Server) uploadStoryboardArtifact(w http.ResponseWriter, r *http.Request
 	}
 	value, err := s.service.UploadStoryboardArtifact(r.Context(), actor, chi.URLParam(r, "taskID"), app.UploadStoryboardArtifactInput{SnapshotID: r.FormValue("snapshot_id"), AssetID: r.FormValue("asset_id"), FileName: fileName, Body: body}, middleware.GetReqID(r.Context()))
 	s.dispatchResult(w, r, "storyboard.artifact.upload", value, err)
+}
+
+func (s *Server) uploadSeedancePromptPackage(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	const maxBytes = 8 * 1024 * 1024
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes+(1<<20))
+	if err := r.ParseMultipartForm(maxBytes + (1 << 20)); err != nil {
+		s.fail(w, r, "seedance.prompt_package.upload", domain.Invalid("SEEDANCE_MULTIPART_INVALID", "Seedance 提示包上传表单无效或超过大小限制"))
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		s.fail(w, r, "seedance.prompt_package.upload", domain.Invalid("SEEDANCE_PROMPT_PACKAGE_REQUIRED", "必须上传 Seedance 提示包 JSON 文件"))
+		return
+	}
+	defer file.Close()
+	body, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		s.fail(w, r, "seedance.prompt_package.upload", err)
+		return
+	}
+	fileName := ""
+	if header != nil {
+		fileName = header.Filename
+	}
+	value, err := s.service.UploadSeedancePromptPackage(r.Context(), actor, chi.URLParam(r, "taskID"), app.UploadSeedancePromptPackageInput{SnapshotID: r.FormValue("snapshot_id"), FileName: fileName, Body: body}, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "seedance.prompt_package.upload", value, err)
 }
 
 func (s *Server) createFinalRender(w http.ResponseWriter, r *http.Request) {
@@ -318,6 +348,16 @@ func (s *Server) cancelMediaGenerationJob(w http.ResponseWriter, r *http.Request
 	}
 	value, err := s.service.CancelMediaGenerationJob(r.Context(), actor, chi.URLParam(r, "id"), input, middleware.GetReqID(r.Context()))
 	s.dispatchResult(w, r, "media.job.cancel", value, err)
+}
+
+func (s *Server) reconcileMediaGenerationSubmit(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input app.MediaJobSubmitReconciliationInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.ReconcileMediaGenerationSubmit(r.Context(), actor, chi.URLParam(r, "id"), input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "media.job.submit_reconcile", value, err)
 }
 
 func (s *Server) decideMediaReview(w http.ResponseWriter, r *http.Request) {

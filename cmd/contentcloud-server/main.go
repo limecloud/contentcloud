@@ -78,8 +78,16 @@ func main() {
 			serviceOptions = append(serviceOptions, app.WithAutomationExecutionPolicy(environmentRuntime.AutomationRequirements, environmentRuntime.AutomationPackIDs))
 		}
 	}
+	seedance25Provider, seedance25Err := app.Seedance25ProviderFromEnv(st, blobStore)
+	if seedance25Err != nil {
+		logger.Error("configure Seedance 2.5 Provider", "error", seedance25Err)
+		os.Exit(1)
+	}
+	if seedance25Provider != nil {
+		serviceOptions = append(serviceOptions, app.WithMediaProviderAdapter(app.Seedance25ProviderID, seedance25Provider))
+	}
 	service := app.NewWithBlob(st, logger, blobStore, serviceOptions...)
-	logger.Info("Environment Control Plane configured", "enabled", environmentRuntime.Enabled, "automation_policy", len(environmentRuntime.AutomationRequirements) > 0)
+	logger.Info("Environment Control Plane configured", "enabled", environmentRuntime.Enabled, "automation_policy", len(environmentRuntime.AutomationRequirements) > 0, "seedance25_enabled", seedance25Provider != nil)
 	logger.Info("Runtime rollout configured", "admission_enabled", rolloutPolicy.AdmissionEnabled, "dynamic_graph_enabled", rolloutPolicy.DynamicGraphEnabled, "canary_tenant_count", len(rolloutPolicy.TenantIDs))
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	defer cancelWorker()
@@ -112,7 +120,7 @@ func main() {
 	httpOptions = append(httpOptions, agentCallbackHTTPOptions(os.Getenv("CONTENTCLOUD_AGENT_CALLBACK_SECRETS"))...)
 	server := &http.Server{Addr: addr, Handler: httpapi.New(service, logger, devMode, webDist, httpOptions...).Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
-		logger.Info("contentcloud server listening", "addr", addr, "dev_mode", devMode, "zero_exec", true)
+		logger.Info("contentcloud server listening", "addr", addr, "dev_mode", devMode, "zero_exec", seedance25Provider == nil)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("server stopped", "error", err)
 			os.Exit(1)

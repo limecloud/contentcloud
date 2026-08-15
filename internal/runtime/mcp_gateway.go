@@ -161,6 +161,7 @@ func (g *RuntimeMCPGateway) Call(ctx context.Context, request GatewayRequest) (G
 			}
 		}
 	}
+	claimedRunning := false
 	if call.State == domain.ToolCallProposed {
 		authorized := call
 		authorized.State = domain.ToolCallAuthorized
@@ -170,8 +171,38 @@ func (g *RuntimeMCPGateway) Call(ctx context.Context, request GatewayRequest) (G
 		if err != nil {
 			return GatewayResponse{}, err
 		}
-	} else if call.State != domain.ToolCallAuthorized && call.State != domain.ToolCallRunning {
+	}
+	if call.State == domain.ToolCallAuthorized {
+		running := call
+		running.State = domain.ToolCallRunning
+		started := g.service.now().UTC()
+		running.StartedAt = &started
+		running.Version++
+		running.UpdatedAt = started
+		claimed, transitionErr := g.service.TransitionFencedToolCall(ctx, running, call.Version, request.FenceToken)
+		if transitionErr != nil {
+			// A competing request may have won the authorized -> running CAS.
+			// Never execute again merely because the row is already running.
+			current, lookupErr := g.findExisting(ctx, request.TenantID, state.attempt.ID, request.ToolName, idempotencyKey)
+			if lookupErr == nil && (current.State == domain.ToolCallSucceeded || current.State == domain.ToolCallFailed || current.State == domain.ToolCallUnknown) {
+				return gatewayTerminalReplay(current)
+			}
+			conflict := domain.Conflict("MCP_GATEWAY_TOOL_CALL_IN_PROGRESS", "相同幂等请求正在执行")
+			conflict.Retryable = true
+			return GatewayResponse{ToolCall: current}, conflict
+		}
+		call = claimed
+		claimedRunning = true
+	} else if call.State != domain.ToolCallRunning {
 		return GatewayResponse{}, domain.Conflict("MCP_GATEWAY_TOOL_CALL_STATE_INVALID", "MCP ToolCall 当前状态不能恢复执行")
+	}
+	if call.State == domain.ToolCallRunning && !claimedRunning && hasPrevious {
+		// A persisted running call has no proof that this process owns the
+		// external execution. Reconciliation, rather than blind replay, must
+		// decide whether it can be resumed.
+		conflict := domain.Conflict("MCP_GATEWAY_TOOL_CALL_IN_PROGRESS", "相同幂等请求正在执行")
+		conflict.Retryable = true
+		return GatewayResponse{ToolCall: call}, conflict
 	}
 	result, execErr := g.execute(ctx, state, request.ToolName, request.Arguments, idempotencyKey)
 	if execErr != nil {

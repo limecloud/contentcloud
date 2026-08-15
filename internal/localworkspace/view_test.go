@@ -180,6 +180,23 @@ func TestWorkspaceViewTreatsCustomerHTMLAsText(t *testing.T) {
 	}
 }
 
+func TestWorkspaceViewParsesJSONAsStructuredData(t *testing.T) {
+	root := workspaceViewFixture(t)
+	ref := "50-production/content.json"
+	body := []byte(`{"title":"本地内容","version":2}`)
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(ref)), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	view, err := BuildWorkspaceView(WorkspaceViewOptions{Root: root, View: "file", Ref: ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, ok := view.View.Data.(map[string]any)
+	if !ok || view.View.MIMEType != "application/json" || view.View.Text != "" || data["title"] != "本地内容" || data["version"] != float64(2) {
+		t.Fatalf("JSON file was not exposed as structured data: %#v", view.View)
+	}
+}
+
 func TestWorkspaceResourceRejectsRemovedPresentationNamespace(t *testing.T) {
 	_, err := ReadWorkspaceResource(workspaceViewFixture(t), "contentcloud://workspace/presentations/pres_dead/index.html?digest=dead")
 	assertWorkspaceViewErrorCode(t, err, "MCP_RESOURCE_URI_INVALID")

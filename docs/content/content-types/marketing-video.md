@@ -24,12 +24,14 @@
 - 抖音受众策略：形成抖音电商受众策略。
 - 分镜生产：从已批准内容生成分镜生产对象。
 - Seedance 导出：生成受约束的 Seedance 交付包。
+- Seedance 2.5 执行（预览）：在费用批准后，通过 ContentCloud Media Job 执行单镜头生成并回收已校验 Artifact；正式开放前仍需真实 Provider 验收。
 
 ## 关键门禁
 
 - 只使用当前知识快照中的可用事实、营销主张、素材和权利记录。
 - 缺少正式输入时可以形成已阻断候选，但不得伪造依据。
 - 分镜和 Seedance 只能使用通过检查的上游内容。
+- Seedance 2.5 的服务端执行只能从 `MediaGenerationJob` 进入；手动 Seedance 上传和服务端执行的结果都必须重新经过技术与内容审核。
 - 本地候选、提交内容版本、已批准快照和外部发布状态必须分别表达。
 
 ## 客户端支持
@@ -38,4 +40,6 @@
 | --- | --- |
 | Codex | 可用，查看[完整教程](../guides/marketing-video/codex.md) |
 | Claude Code | 底层能力有限可用，暂无完整场景教程 |
-| WorkBuddy、Cursor、Hermes、OpenClaw | 即将支持 |
+| Claude Desktop/Web、Cursor、VS Code GitHub Copilot | 上游协议候选，ContentCloud 场景尚未准入 |
+| GitHub Copilot 其他 Surface、Kiro、Gemini CLI、Cline、Windsurf、Continue | 规划状态 |
+| Hermes、OpenClaw、WorkBuddy、Grok Bot、NanoClaw | 规划或非首发 |

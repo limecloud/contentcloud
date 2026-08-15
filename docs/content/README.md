@@ -21,11 +21,12 @@ Content Work OS 是 Studio-first 的内容生产与云端治理系统。客户�
 | 客户端 | 当前状态 | 文档 |
 | --- | --- | --- |
 | Codex | 完整接入能力可用 | [Codex](clients/codex.md) |
-| Claude Code | 本地自动化与工作区注册可用，其他能力仍在接入 | [Claude Code](clients/claude-code.md) |
-| WorkBuddy | 即将支持 | 在 Web 文档中心查看动态状态页 |
-| Cursor | 即将支持 | 在 Web 文档中心查看动态状态页 |
-| Hermes | 即将支持 | 在 Web 文档中心查看动态状态页 |
-| OpenClaw | 即将支持 | 在 Web 文档中心查看动态状态页 |
+| Claude Code | 控制面有限可用，客户侧完整接入仍在进行 | [Claude Code](clients/claude-code.md) |
+| Claude Desktop/Web、Cursor、VS Code GitHub Copilot | 上游协议候选，ContentCloud 尚未准入 | 在 Web 文档中心查看动态状态页 |
+| GitHub Copilot 其他 Surface、Kiro、Gemini CLI | Headless/协议候选，尚未准入 | 在 Web 文档中心查看动态状态页 |
+| Cline、Windsurf、Continue | 规划状态 | 在 Web 文档中心查看动态状态页 |
+| Hermes、OpenClaw、WorkBuddy | 规划状态 | 在 Web 文档中心查看动态状态页 |
+| Grok Bot、NanoClaw | 非首发 | 在 Web 文档中心查看动态状态页 |
 
 客户端状态来自智能体客户端注册表（`Agent Client Registry`）。Web 文档中心会按注册表中的最新能力状态生成客户端目录，避免文档和产品状态各自维护一份事实。
 
@@ -48,6 +49,8 @@ Content Work OS 是 Studio-first 的内容生产与云端治理系统。客户�
 - **可用**：已有受支持的产品流程和可验证实现。
 - **有限支持**：部分底层能力可用，但不能完成完整初始化、交接或内容生产流程。
 - **即将支持**：已进入兼容设计，尚无可执行实现。
+
+上游兼容目录只作为调研证据，不会直接改变这里的客户可用状态。每个客户端都必须独立完成安装、Workspace 绑定、stdio MCP 生命周期、呈现或 Headless 降级以及安全验收。
 
 遇到任务、执行客户端连接、本地工作区或任务交接问题时，查看[故障排查](troubleshooting/workspace-and-handoff.md)。
 

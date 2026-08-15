@@ -3,12 +3,15 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/limecloud/contentcloud/contracts"
 	"github.com/limecloud/contentcloud/internal/agentadapter"
+	"github.com/limecloud/contentcloud/internal/blob"
 	"github.com/limecloud/contentcloud/internal/capabilitycatalog"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/integration/pluginidentity"
@@ -369,6 +372,20 @@ func (s *Service) FinalizeRuntimeWorker(ctx context.Context, actor Actor, input 
 		}
 	}
 	resultRef := ""
+	resultKey := ""
+	keepResult := false
+	defer func() {
+		if resultKey == "" || keepResult {
+			return
+		}
+		if deleter, ok := s.blobs.(blob.DeleteStore); ok {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			if deleteErr := deleter.Delete(cleanupCtx, resultKey); deleteErr != nil && !errors.Is(deleteErr, blob.ErrNotFound) {
+				s.log.Warn("清理未提交的 Runtime 业务结果失败", "object_key", resultKey, "error", deleteErr)
+			}
+		}
+	}()
 	businessDigest := ""
 	var businessErr error
 	if len(input.BusinessPayload) > 0 {
@@ -376,6 +393,7 @@ func (s *Service) FinalizeRuntimeWorker(ctx context.Context, actor Actor, input 
 		if err != nil {
 			return RuntimeWorkerResult{}, err
 		}
+		resultKey = strings.TrimPrefix(resultRef, "runtime-result:")
 		outcome.OutputRefs = append(outcome.OutputRefs, resultRef)
 		if outcome.OutputDigest != "" && outcome.OutputDigest != businessDigest {
 			return RuntimeWorkerResult{}, domain.Conflict("RUNTIME_BUSINESS_RESULT_DIGEST_CONFLICT", "worker 提交的 output digest 与结构化业务结果不一致")
@@ -404,6 +422,7 @@ func (s *Service) FinalizeRuntimeWorker(ctx context.Context, actor Actor, input 
 	if businessErr != nil {
 		return RuntimeWorkerResult{Handle: finalized.Handle, Job: finalized.Job, BusinessResultRef: resultRef}, businessErr
 	}
+	keepResult = resultRef != ""
 	return RuntimeWorkerResult{Handle: finalized.Handle, Job: finalized.Job, BusinessResultRef: resultRef}, nil
 }
 

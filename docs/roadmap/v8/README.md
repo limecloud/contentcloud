@@ -182,6 +182,7 @@ Codex / Claude Code：完成适合由智能体处理的具体步骤
 | [08-migration-testing-and-acceptance.md](./08-migration-testing-and-acceptance.md) | 如何兼容现有实现、分阶段启用并完成验收 |
 | [09-runtime-infra-v2.md](./09-runtime-infra-v2.md) | 把 V8 收敛为 PostgreSQL-first 的可恢复执行内核：事务命令、事件/outbox、fencing、资源账本、Effect 对账与恢复 |
 | [10-runtime-operations-runbook.md](./10-runtime-operations-runbook.md) | Runtime 健康检查、Canary 准入、排空、故障处置和前向回退 |
+| [11-seedance25-provider-integration.md](./11-seedance25-provider-integration.md) | Seedance 2.5 单镜头 Provider、输入解析、费用、取消和插件边界 |
 | [PLAN.md](./PLAN.md) | 实施顺序、依赖、阶段门槛和主要风险 |
 | [外部参考架构与 ContentCloud 边界](../../foundation/09-reference-patterns.md) | Camunda、Dify、Temporal、Adobe、Runway 和 Frame.io 对产品分层、可恢复执行和结果资产的启发 |
 
@@ -198,3 +199,4 @@ Codex / Claude Code：完成适合由智能体处理的具体步骤
 | 2026-08-06 | 外部 Harness 调用采用 Prepare/Start/Activate/Finalize 协议 | 数据库事务不能包住外部进程；分阶段原子提交和租约恢复可以覆盖每个崩溃窗口 |
 | 2026-08-07 | Runtime 只引用工作区资料、任务输入、生成结果与交付事实 | 防止执行状态、文件处理、客户结果状态和交付状态形成平行事实源 |
 | 2026-08-08 | 先升级 Durable Runtime 内核，再开放动态图和真实宿主恢复 | 当前代码已具备一次调度闭环，但事务原子性、资源账本、跨进程恢复和外部 unknown 对账仍不足以支撑生产扩展 |
+| 2026-08-15 | Seedance 2.5 先作为受 ContentCloud 控制的单镜头 Provider 接入 | 复用现有 Media Job、Effect、费用和 Artifact 血缘，不把外部 MCP 或完整应用变成第二套控制面 |

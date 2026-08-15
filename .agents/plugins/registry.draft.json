@@ -1,0 +1,54 @@
+{
+  "$schema": "../../contracts/marketplace-registry-1.0.schema.json",
+  "schema_version": "1.0",
+  "entries": [
+    {
+      "id": "contentcloud-marketing",
+      "kind": "skill_pack",
+      "version": "0.1.0",
+      "source": {
+        "repository": "https://github.com/limecloud/contentcloud",
+        "ref": "v0.1.0"
+      },
+      "license": "Apache-2.0",
+      "digest": "sha256:d2bfc1aa09ce9fd288afbf581c91f6d8b558bba008c767a313c7c7c3d4dfe7ff",
+      "signature": {
+        "status": "pending"
+      },
+      "compatible_profiles": [
+        "contentcloud.video-production",
+        "contentcloud.marketing"
+      ],
+      "permissions": [
+        "workspace:read",
+        "workspace:write-managed",
+        "contentcloud-control-plane:explicit-actions-only"
+      ],
+      "data_flow": {
+        "local_by_default": true,
+        "cloud_actions": [
+          "explicit knowledge, brief, content and delivery submission",
+          "explicit review and approved-snapshot synchronization"
+        ]
+      },
+      "cost": {
+        "model": "included",
+        "notice": "营销 Skills 随 ContentCloud 提供；外部模型、素材或渠道 Provider 费用必须单独确认。"
+      },
+      "output_schemas": [
+        "contracts/knowledge-candidates-1.0.schema.json",
+        "contracts/knowledge-page-3.0.schema.json",
+        "contracts/knowledge-pack-3.0.schema.json",
+        "contracts/content-batch-3.0.schema.json",
+        "contracts/handoff-1.0.schema.json"
+      ],
+      "evaluation": {
+        "status": "pending"
+      },
+      "lifecycle": "draft",
+      "revocation": {
+        "status": "active"
+      }
+    }
+  ]
+}

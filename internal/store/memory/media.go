@@ -113,6 +113,39 @@ func (s *Store) ProviderProfile(_ context.Context, providerID, version string) (
 	return cloneProviderProfile(value), nil
 }
 
+func (s *Store) SaveProviderProfile(_ context.Context, value domain.ProviderProfile) error {
+	value.NormalizeCollections()
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := providerProfileKey(value.ProviderID, value.Version)
+	if _, ok := s.providerProfiles[key]; !ok {
+		return domain.NotFound("服务商配置")
+	}
+	s.providerProfiles[key] = cloneProviderProfile(value)
+	return nil
+}
+
+func (s *Store) ProviderProfiles(_ context.Context, providerID string) ([]domain.ProviderProfile, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := []domain.ProviderProfile{}
+	for _, value := range s.providerProfiles {
+		if providerID == "" || value.ProviderID == providerID {
+			result = append(result, cloneProviderProfile(value))
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].ProviderID == result[j].ProviderID {
+			return result[i].Version < result[j].Version
+		}
+		return result[i].ProviderID < result[j].ProviderID
+	})
+	return result, nil
+}
+
 func (s *Store) SaveProviderBinding(_ context.Context, value domain.ProviderBinding) error {
 	if err := value.Validate(); err != nil {
 		return err

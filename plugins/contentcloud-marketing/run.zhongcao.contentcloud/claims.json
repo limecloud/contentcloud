@@ -1,0 +1,69 @@
+{
+  "schema_version": "contentcloud.plugin-claims/1.0",
+  "plugin_id": "contentcloud-marketing",
+  "plugin_version": "0.1.0",
+  "package_spec_version": "1.0.0",
+  "kind": "skill_pack",
+  "requested_capabilities": [
+    {
+      "id": "contentcloud.marketing.knowledge-governance",
+      "version": "1.0.0",
+      "input_schemas": [
+        "contracts/source-registry-3.0.schema.json",
+        "contracts/knowledge-candidates-1.0.schema.json"
+      ],
+      "output_schemas": [
+        "contracts/knowledge-page-3.0.schema.json",
+        "contracts/knowledge-pack-3.0.schema.json"
+      ]
+    },
+    {
+      "id": "contentcloud.marketing.content-orchestration",
+      "version": "1.0.0",
+      "input_schemas": [
+        "contracts/brief-3.0.schema.json",
+        "contracts/content-batch-3.0.schema.json"
+      ],
+      "output_schemas": [
+        "contracts/content-batch-3.0.schema.json",
+        "contracts/handoff-1.0.schema.json"
+      ]
+    }
+  ],
+  "permissions_requested": [
+    "workspace:read",
+    "workspace:write-managed",
+    "contentcloud-control-plane:explicit-actions-only"
+  ],
+  "data_flow": {
+    "local_by_default": true,
+    "declared_cloud_actions": [
+      "explicit knowledge, brief, content and delivery submission",
+      "explicit review and approved-snapshot synchronization"
+    ]
+  },
+  "cost": {
+    "model": "included",
+    "notice": "营销 Skills 随 ContentCloud 提供；外部模型、素材或渠道 Provider 费用必须单独确认。"
+  },
+  "hosts": [
+    {
+      "id": "codex",
+      "required": [
+        "skills",
+        "new_session_required"
+      ]
+    },
+    {
+      "id": "claude",
+      "required": [
+        "skills",
+        "new_session_required"
+      ]
+    }
+  ],
+  "support": {
+    "owner": "GoodVision ContentCloud",
+    "runbook": "./run.zhongcao.contentcloud/RUNBOOK.md"
+  }
+}

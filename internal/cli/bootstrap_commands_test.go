@@ -75,7 +75,7 @@ func TestBootstrapPlanIsReadOnlyAndUsesOnlyPublicSessionID(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode output: %v; output=%s", err, stdout.String())
 	}
-	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.26.0" || len(envelope.Data.Plugin.Actions) != 7 || !envelope.Data.WouldEnableDaemon {
+	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.27.0" || len(envelope.Data.Plugin.Actions) != 8 || !envelope.Data.WouldEnableDaemon {
 		t.Fatalf("unexpected plan: %s", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "connect_key") || envelope.Data.AuthorizationMode != "browser_device" || !envelope.Data.WouldAuthorizeDevice {
@@ -511,13 +511,13 @@ func TestRequireHealthyWorkspaceBlocksRegistration(t *testing.T) {
 func successfulBootstrapRunner() *bootstrapRunner {
 	missingMarketplace := `{"marketplaces":[]}`
 	missingPlugin := `{"installed":[],"available":[]}`
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.26.0"}}]}`
-	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.26.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.27.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.27.0","installed":true,"enabled":true}],"available":[]}`
 	return &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: missingMarketplace}, {stdout: missingPlugin},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
-		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.26.0","installedPath":"/tmp/plugin"}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.27.0","installedPath":"/tmp/plugin"}`},
 		{stdout: currentMarketplace}, {stdout: currentPlugin},
 	}}
 }
@@ -525,8 +525,8 @@ func successfulBootstrapRunner() *bootstrapRunner {
 func successfulBootstrapUpgradeRunner() *bootstrapRunner {
 	oldMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache-old","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.7.0"}}]}`
 	oldPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.7.0","installed":true,"enabled":true}],"available":[]}`
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.26.0"}}]}`
-	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.26.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.27.0"}}]}`
+	currentPlugin := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.27.0","installed":true,"enabled":true}],"available":[]}`
 	return &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: oldMarketplace}, {stdout: oldPlugin},
 		{stdout: oldMarketplace}, {stdout: oldPlugin},
@@ -534,7 +534,7 @@ func successfulBootstrapUpgradeRunner() *bootstrapRunner {
 		{stdout: `{}`},
 		{stdout: `{}`},
 		{stdout: `{"marketplaceName":"contentcloud","installedRoot":"/tmp/cache","alreadyAdded":false}`},
-		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.26.0","installedPath":"/tmp/plugin"}`},
+		{stdout: `{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.27.0","installedPath":"/tmp/plugin"}`},
 		{stdout: currentMarketplace}, {stdout: currentPlugin},
 	}}
 }
@@ -559,9 +559,15 @@ func bootstrapPlanIDForTest(t *testing.T, directory, serverURL string) string {
 
 type testBootstrapHost struct {
 	status pluginhost.Status
+	hostID pluginhost.HostID
 }
 
-func (h *testBootstrapHost) ID() pluginhost.HostID { return pluginhost.HostCodex }
+func (h *testBootstrapHost) ID() pluginhost.HostID {
+	if h.hostID == "" {
+		return pluginhost.HostCodex
+	}
+	return h.hostID
+}
 
 func (h *testBootstrapHost) Capabilities(context.Context) (pluginhost.Capabilities, error) {
 	return pluginhost.Capabilities{Skills: true, MCPStdio: true, Rollback: true}, nil
@@ -584,7 +590,7 @@ func (h *testBootstrapHost) Remove(context.Context, pluginhost.NativeRemove) (pl
 func (h *testBootstrapHost) Rollback(context.Context, pluginhost.NativeChange) error { return nil }
 func (h *testBootstrapHost) Commit(context.Context, pluginhost.NativeChange) error   { return nil }
 
-func testPluginRuntimeHook(t *testing.T, initial pluginhost.Status) func(string) (*hostPluginRuntime, error) {
+func testPluginRuntimeHook(t *testing.T, initial pluginhost.Status) func(string, string, string) (*hostPluginRuntime, error) {
 	t.Helper()
 	pkg, err := pluginbuiltin.Load(t.TempDir(), pluginidentity.VideoProduction, Version)
 	if err != nil {
@@ -600,7 +606,7 @@ func testPluginRuntimeHook(t *testing.T, initial pluginhost.Status) func(string)
 		t.Fatal(err)
 	}
 	runtime := &hostPluginRuntime{Adapter: adapter, Package: pkg, HostID: pluginhost.HostCodex}
-	return func(string) (*hostPluginRuntime, error) { return runtime, nil }
+	return func(string, string, string) (*hostPluginRuntime, error) { return runtime, nil }
 }
 
 const testBootstrapSessionID = "11111111-1111-4111-8111-111111111111"
@@ -682,6 +688,20 @@ func testRegistryVerifier(t *testing.T) *environment.RegistryVerifier {
 
 func bootstrapEnvironmentFixture(t *testing.T, now time.Time) (environment.Manifest, *environment.Verifier, environment.Registry, *environment.RegistryVerifier) {
 	t.Helper()
+	return bootstrapEnvironmentFixtureWithTaskPack(t, now, bootstrapTaskPackFixture{
+		ID: "contentcloud-visual-storytelling", Version: "1.2.0", Digest: "sha256:" + strings.Repeat("b", 64), Capability: "contentcloud.asset.generate",
+	})
+}
+
+type bootstrapTaskPackFixture struct {
+	ID         string
+	Version    string
+	Digest     string
+	Capability string
+}
+
+func bootstrapEnvironmentFixtureWithTaskPack(t *testing.T, now time.Time, taskPack bootstrapTaskPackFixture) (environment.Manifest, *environment.Verifier, environment.Registry, *environment.RegistryVerifier) {
+	t.Helper()
 	standardPackage, err := pluginbuiltin.Load(t.TempDir(), pluginidentity.VideoProduction, Version)
 	if err != nil {
 		t.Fatal(err)
@@ -699,8 +719,8 @@ func bootstrapEnvironmentFixture(t *testing.T, now time.Time) (environment.Manif
 		Evaluation: environment.RegistryEvaluation{Status: "passed", Report: "evaluation.json", Digest: "sha256:" + strings.Repeat("e", 64), Evidence: []string{"test"}}, Lifecycle: "published", Revocation: environment.RegistryRevocation{Status: "active"},
 	}
 	packEntry := environment.RegistryEntry{
-		ID: "contentcloud-visual-storytelling", Kind: "skill_pack", Version: "1.2.0",
-		Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v" + Version}, License: "Apache-2.0", Digest: "sha256:" + strings.Repeat("b", 64),
+		ID: taskPack.ID, Kind: "skill_pack", Version: taskPack.Version,
+		Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v" + Version}, License: "Apache-2.0", Digest: taskPack.Digest,
 		Signature: environment.RegistrySignature{Status: "verified", Algorithm: "ed25519", KeyID: "plugin-release-bootstrap-test"}, CompatibleProfiles: []string{"contentcloud.video-production"},
 		Permissions: []string{"workspace:read", "workspace:write-managed"}, DataFlow: environment.RegistryDataFlow{LocalByDefault: true, CloudActions: []string{}}, OutputSchemas: []string{"contracts/content-item-3.0.schema.json"},
 		Cost:       environment.RegistryCost{Model: "included", Notice: "Included in tests."},
@@ -727,11 +747,11 @@ func bootstrapEnvironmentFixture(t *testing.T, now time.Time) (environment.Manif
 		ID: "contentcloud.video-production", Version: "1.0.0", EnvironmentVersion: "2026.7.1", Harness: "codex", Marketplace: "contentcloud",
 		Plugins: []environment.ProfilePlugin{
 			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: Version, Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}},
-			{ID: "contentcloud-visual-storytelling", Kind: "skill_pack", Version: "1.2.0", Required: false, Scope: "task", Capabilities: []string{"contentcloud.asset.generate"}},
+			{ID: taskPack.ID, Kind: "skill_pack", Version: taskPack.Version, Required: false, Scope: "task", Capabilities: []string{taskPack.Capability}},
 		},
 		WorkspaceTemplate: environment.WorkspaceTemplateRef{ID: localworkspace.TemplateID, Version: localworkspace.TemplateVersion, Digest: "sha256:" + strings.Repeat("c", 64)}, Capabilities: []string{domain.KnowledgeExtractCapability}, Policies: environment.Policies{PublishRequiresConfirmation: true, AutomationEnabled: true},
 	}
-	profile.Capabilities = append(profile.Capabilities, "contentcloud.asset.generate")
+	profile.Capabilities = append(profile.Capabilities, taskPack.Capability)
 	unsigned, err := environment.BuildManifest("project-1", []string{domain.ContentTypeVideoScript}, profile, registry, now, now.Add(24*time.Hour))
 	if err != nil {
 		t.Fatal(err)

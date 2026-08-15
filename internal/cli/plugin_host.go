@@ -33,8 +33,15 @@ type hostLaunchResult struct {
 }
 
 func (r *Root) pluginRuntime(hostName string) (*hostPluginRuntime, error) {
+	return r.bundledPluginRuntime(hostName, pluginidentity.VideoProduction, Version)
+}
+
+// bundledPluginRuntime is the only runtime path for standard packages. The
+// package identity comes from a verified Environment plan, while the bundle
+// itself must be embedded in this CLI release.
+func (r *Root) bundledPluginRuntime(hostName, pluginID, version string) (*hostPluginRuntime, error) {
 	if r.pluginRuntimeHook != nil {
-		return r.pluginRuntimeHook(hostName)
+		return r.pluginRuntimeHook(hostName, pluginID, version)
 	}
 	hostID, err := parsePluginHost(hostName)
 	if err != nil {
@@ -48,9 +55,11 @@ func (r *Root) pluginRuntime(hostName string) (*hostPluginRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
-	pkg, err := pluginbuiltin.Load(store.Root, pluginidentity.VideoProduction, Version)
+	pkg, err := pluginbuiltin.Load(store.Root, pluginID, version)
 	if err != nil {
-		return nil, err
+		unavailable := domain.Policy("ENVIRONMENT_PLUGIN_ARTIFACT_UNAVAILABLE", "环境准备引用的标准插件包未随当前 CLI 发布", "安装包含该标准包的 ContentCloud CLI 版本后重试")
+		unavailable.Details = map[string]any{"plugin_id": pluginID, "plugin_version": version}
+		return nil, unavailable
 	}
 	var native pluginhost.NativeHost
 	switch hostID {

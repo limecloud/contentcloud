@@ -6,7 +6,15 @@ Content Work OS 的使用路径由两个维度决定：你使用的智能体客�
 
 当前推荐使用 Codex。Codex 已支持本地工作区注册、初始化、创作环境和交互式任务交接，可以完成完整的本地创作与云端治理流程。
 
-Claude Code 当前只开放本地自动化与工作区注册能力，尚不能替代 Codex 完成 Web 初始化、创作环境准备或交互式任务交接。WorkBuddy、Cursor、Hermes 和 OpenClaw 已进入兼容目录，但仍是规划状态。
+| 客户端 | 当前可用范围 | 尚未开放 |
+| --- | --- | --- |
+| Codex CLI/Desktop | 完整客户流程；Skills + stdio MCP 控制面；MCP Apps 最小协议闭环 | Codex Desktop App/Bridge 真实宿主验收 |
+| Claude Code CLI | 本地自动化、工作区注册、Plugin/Skills/stdio MCP 控制面 | Web bootstrap、交互式交接、内联富 UI |
+| Claude Desktop/Web、Cursor、VS Code GitHub Copilot | 上游具备部分 MCP Apps 或 Agent Plugins 能力 | ContentCloud 安装投影、项目绑定、生命周期和真实 UI 验收 |
+| GitHub Copilot 其他 Surface、Kiro、Gemini CLI、Cline、Windsurf、Continue | 协议候选 | ContentCloud 正式 Adapter 与完整验收 |
+| Hermes、OpenClaw、WorkBuddy、Grok Bot、NanoClaw | 规划或非首发 | 客户侧完整接入 |
+
+“上游支持 Agent Plugins、Agent Skills、MCP 或 MCP Apps”不等于 ContentCloud 已支持该客户端。正式开放必须同时通过安装、工作区绑定、MCP 生命周期、呈现降级和安全测试；详细工程矩阵见[本地工作台技术方案](../product/customer-creation-studio/05-local-workbench-browser.md)。
 
 ## 2. 选择内容形态
 
@@ -24,6 +32,8 @@ Claude Code 当前只开放本地自动化与工作区注册能力，尚不能�
 6. 安装或环境变更后，在相同的本地工作区根目录（`Workspace Root`）中新建智能体会话。
 
 初始化不会自动上传已有文件、启动后台进程或替你提交内容。每次安装、授权、写入、拉取（`pull`）、提交（`publish`）和人工决定都有独立边界。
+
+客户端的本地呈现可能是 MCP App、受控 Browser/WebView 或纯 Tool/Resource。缺少富 UI 时仍应使用类型化 Headless 流程，不能要求模型复制带 token 的 localhost URL，也不能临时启动长期 Node 服务。
 
 ## 4. 开始第一条工作流
 

@@ -18,6 +18,7 @@ import (
 const (
 	marketplaceManifestRelativePath = ".claude-plugin/marketplace.json"
 	projectionMarkerFile            = ".contentcloud-plugin-host.json"
+	workspaceRootEnvironment        = "CONTENTCLOUD_WORKSPACE_ROOT"
 )
 
 type marketplaceManifest struct {
@@ -169,6 +170,10 @@ func (h *Host) materializePackage(pkg plugin.Package, packageRoot string) (strin
 				Env:     translateMap(server.Env),
 				CWD:     translateCWD(server.CWD),
 			}
+			if translated.Env == nil {
+				translated.Env = map[string]string{}
+			}
+			translated.Env[workspaceRootEnvironment] = "${CLAUDE_PROJECT_DIR}"
 			mcp.Servers[server.Name] = translated
 		}
 		if len(mcp.Servers) > 0 {

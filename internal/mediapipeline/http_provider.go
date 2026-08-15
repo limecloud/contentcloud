@@ -283,23 +283,28 @@ func (p *HTTPProvider) Download(ctx context.Context, outputRef string, profile d
 }
 
 func (p *HTTPProvider) doJSON(ctx context.Context, method, endpoint, idempotency string, payload any, target any) (int, error) {
+	statusCode, _, err := p.doJSONWithMetadata(ctx, method, endpoint, idempotency, payload, target)
+	return statusCode, err
+}
+
+func (p *HTTPProvider) doJSONWithMetadata(ctx context.Context, method, endpoint, idempotency string, payload any, target any) (int, string, error) {
 	var body io.Reader
 	var encoded []byte
 	var err error
 	if payload != nil {
 		encoded, err = json.Marshal(payload)
 		if err != nil {
-			return 0, err
+			return 0, "", err
 		}
 		body = bytes.NewReader(encoded)
 	}
 	targetURL, err := p.resolveEndpoint(endpoint)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	req, err := http.NewRequestWithContext(ctx, method, targetURL.String(), body)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	req.Header.Set("Accept", "application/json")
 	if payload != nil {
@@ -310,24 +315,25 @@ func (p *HTTPProvider) doJSON(ctx context.Context, method, endpoint, idempotency
 	}
 	resp, err := p.do(ctx, req, string(encoded))
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	defer resp.Body.Close()
+	requestID := firstNonEmpty(resp.Header.Get("X-Request-Id"), resp.Header.Get("x-request-id"))
 	if target == nil {
-		return resp.StatusCode, nil
+		return resp.StatusCode, requestID, nil
 	}
 	limited := io.LimitReader(resp.Body, p.maxResponseBytes+1)
 	responseBody, err := io.ReadAll(limited)
 	if err != nil {
-		return resp.StatusCode, err
+		return resp.StatusCode, requestID, err
 	}
 	if int64(len(responseBody)) > p.maxResponseBytes {
-		return resp.StatusCode, domain.Invalid("PROVIDER_RESPONSE_TOO_LARGE", "服务商 JSON 响应超过大小上限")
+		return resp.StatusCode, requestID, domain.Invalid("PROVIDER_RESPONSE_TOO_LARGE", "服务商 JSON 响应超过大小上限")
 	}
 	if err := json.Unmarshal(responseBody, target); err != nil {
-		return resp.StatusCode, domain.Invalid("PROVIDER_RESPONSE_INVALID", "服务商响应不是有效 JSON")
+		return resp.StatusCode, requestID, domain.Invalid("PROVIDER_RESPONSE_INVALID", "服务商响应不是有效 JSON")
 	}
-	return resp.StatusCode, nil
+	return resp.StatusCode, requestID, nil
 }
 
 func (p *HTTPProvider) do(ctx context.Context, req *http.Request, body string) (*http.Response, error) {

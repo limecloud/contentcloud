@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,7 +19,9 @@ import (
 	"github.com/limecloud/contentcloud/internal/app"
 	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/environment"
+	"github.com/limecloud/contentcloud/internal/integration/pluginbuiltin"
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
+	"github.com/limecloud/contentcloud/internal/integration/pluginidentity"
 	"github.com/limecloud/contentcloud/internal/localworkspace"
 	"github.com/limecloud/contentcloud/internal/workbench"
 )
@@ -211,7 +215,7 @@ func TestMCPListsAndCallsWorkspaceTools(t *testing.T) {
 		name, _ := tool["name"].(string)
 		names[name] = true
 	}
-	for _, name := range []string{"contentcloud_open_studio_view", "workspace_context", "workspace_view", "workspace_open_workbench", "workspace_workbench_status", "workspace_close_workbench", "workspace_proposal_prepare", "workspace_proposal_apply", "memory_status", "memory_rebuild", "memory_remember", "memory_consolidate", "memory_promote", "memory_extract", "memory_remote_query", "memory_query", "workspace_project_brief", "environment_execution_plan", "environment_prepare_plan", "environment_prepare_apply", "workspace_status", "workspace_doctor", "source_register", "source_list", "source_ingest", "source_verify", "local_run_init", "local_run_show", "local_run_claim", "local_run_takeover", "local_run_renew", "local_run_release", "handoff_create_ready", "handoff_list_ready", "handoff_accept", "handoff_complete", "handoff_supersede", "knowledge_import", "knowledge_lint", "knowledge_query", "knowledge_diagnose", "knowledge_pack", "brief_lint", "content_batch_init", "content_item_lint", "content_batch_lint", "content_batch_finalize", "content_item_diff", "delivery_export", "article_brief_lint", "article_batch_create", "article_item_lint", "article_batch_lint", "article_batch_finalize", "article_item_diff", "wechat_package_export", "wechat_package_lint", "publish_preflight", "publish_apply", "submission_status", "review_feedback_list", "review_feedback_pull", "review_feedback_inbox", "approved_snapshot_list", "approved_snapshot_pull", "approved_snapshot_inbox", "approved_snapshot_show"} {
+	for _, name := range []string{"contentcloud_open_studio_view", "workspace_context", "workspace_view", "workspace_open_workbench", "workspace_workbench_status", "workspace_close_workbench", "workspace_proposal_prepare", "workspace_proposal_apply", "memory_status", "memory_rebuild", "memory_remember", "memory_consolidate", "memory_promote", "memory_extract", "memory_remote_query", "memory_query", "workspace_project_brief", "environment_execution_plan", "environment_prepare_plan", "environment_prepare_apply", "workspace_status", "workspace_doctor", "source_register", "source_list", "source_ingest", "source_verify", "local_run_init", "local_run_show", "local_run_record", "local_run_check", "local_run_advance", "local_run_fail", "local_run_resume", "local_run_claim", "local_run_takeover", "local_run_renew", "local_run_release", "handoff_create_ready", "handoff_list_ready", "handoff_accept", "handoff_complete", "handoff_supersede", "knowledge_import", "knowledge_lint", "knowledge_query", "knowledge_diagnose", "knowledge_pack", "brief_lint", "content_batch_init", "content_item_lint", "content_batch_lint", "content_batch_finalize", "content_item_diff", "delivery_export", "article_brief_lint", "article_batch_create", "article_item_lint", "article_batch_lint", "article_batch_finalize", "article_item_diff", "wechat_package_export", "wechat_package_lint", "publish_preflight", "publish_apply", "submission_status", "review_feedback_list", "review_feedback_pull", "review_feedback_inbox", "approved_snapshot_list", "approved_snapshot_pull", "approved_snapshot_inbox", "approved_snapshot_show"} {
 		if !names[name] {
 			t.Fatalf("MCP tool %q is missing: %#v", name, tools)
 		}
@@ -342,6 +346,270 @@ func TestMCPBindsExplicitWorkspaceForSubsequentResourceReads(t *testing.T) {
 		t.Fatal("MCP session accepted a second workspace")
 	}
 	assertCLIErrorCode(t, err, "MCP_WORKSPACE_SESSION_CONFLICT")
+}
+
+func TestMCPLocalRunToolsDriveMarketingRunAndRecovery(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, WorkspaceID: "workspace-mcp-marketing", ProjectID: "project-mcp-marketing", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 15, 14, 0, 0, 0, time.UTC)
+	r := &Root{mcpCWD: root, now: func() time.Time { return now }}
+
+	initialized := callMCPToolForTest(t, r, "local_run_init", map[string]any{"run_id": "run-marketing-mcp", "intent": "intent:content"})
+	run := initialized["structuredContent"].(localworkspace.LocalRunContext)
+	claimed := callMCPToolForTest(t, r, "local_run_claim", map[string]any{
+		"run_id": run.RunID, "owner_kind": "agent", "owner_id": "marketing-mcp", "expected_revision": run.ContextRevision,
+	})
+	claim := claimed["structuredContent"].(localworkspace.RunClaim)
+
+	checked := callMCPToolForTest(t, r, "local_run_check", map[string]any{
+		"run_id": run.RunID, "claim_token": claim.Token, "expected_revision": claim.ContextRevision,
+		"name": "kb-lint", "status": "passed", "detail": "营销知识门禁通过",
+	})
+	run = checked["structuredContent"].(localworkspace.LocalRunContext)
+	advanced := callMCPToolForTest(t, r, "local_run_advance", map[string]any{
+		"run_id": run.RunID, "claim_token": claim.Token, "expected_revision": run.ContextRevision, "stage": "query",
+	})
+	run = advanced["structuredContent"].(localworkspace.LocalRunContext)
+	recorded := callMCPToolForTest(t, r, "local_run_record", map[string]any{
+		"run_id": run.RunID, "claim_token": claim.Token, "expected_revision": run.ContextRevision, "eligible_ids": []string{"knowledge:eligible-1"},
+	})
+	run = recorded["structuredContent"].(localworkspace.LocalRunContext)
+	advanced = callMCPToolForTest(t, r, "local_run_advance", map[string]any{
+		"run_id": run.RunID, "claim_token": claim.Token, "expected_revision": run.ContextRevision, "stage": "compile",
+	})
+	run = advanced["structuredContent"].(localworkspace.LocalRunContext)
+	recorded = callMCPToolForTest(t, r, "local_run_record", map[string]any{
+		"run_id": run.RunID, "claim_token": claim.Token, "expected_revision": run.ContextRevision, "output_paths": []string{"50-production/marketing-draft.json"},
+	})
+	run = recorded["structuredContent"].(localworkspace.LocalRunContext)
+	advanced = callMCPToolForTest(t, r, "local_run_advance", map[string]any{
+		"run_id": run.RunID, "claim_token": claim.Token, "expected_revision": run.ContextRevision, "stage": "output-lint",
+	})
+	run = advanced["structuredContent"].(localworkspace.LocalRunContext)
+	checked = callMCPToolForTest(t, r, "local_run_check", map[string]any{
+		"run_id": run.RunID, "claim_token": claim.Token, "expected_revision": run.ContextRevision,
+		"name": "content-lint", "status": "passed",
+	})
+	run = checked["structuredContent"].(localworkspace.LocalRunContext)
+	completed := callMCPToolForTest(t, r, "local_run_advance", map[string]any{
+		"run_id": run.RunID, "claim_token": claim.Token, "expected_revision": run.ContextRevision, "stage": "done",
+	})
+	run = completed["structuredContent"].(localworkspace.LocalRunContext)
+	if run.Stage != "done" || run.Status != "completed" || len(run.EligibleIDs) != 1 || len(run.OutputPaths) != 1 {
+		t.Fatalf("marketing MCP run did not complete: %#v", run)
+	}
+
+	failedInit := callMCPToolForTest(t, r, "local_run_init", map[string]any{"run_id": "run-marketing-recovery", "intent": "intent:content"})
+	failedRun := failedInit["structuredContent"].(localworkspace.LocalRunContext)
+	failedClaimResult := callMCPToolForTest(t, r, "local_run_claim", map[string]any{
+		"run_id": failedRun.RunID, "owner_kind": "agent", "owner_id": "marketing-recovery", "expected_revision": failedRun.ContextRevision,
+	})
+	failedClaim := failedClaimResult["structuredContent"].(localworkspace.RunClaim)
+	failed := callMCPToolForTest(t, r, "local_run_fail", map[string]any{
+		"run_id": failedRun.RunID, "claim_token": failedClaim.Token, "expected_revision": failedClaim.ContextRevision, "findings": []string{"缺少品牌权利证明"},
+	})
+	failedRun = failed["structuredContent"].(localworkspace.LocalRunContext)
+	resumed := callMCPToolForTest(t, r, "local_run_resume", map[string]any{
+		"run_id": failedRun.RunID, "claim_token": failedClaim.Token, "expected_revision": failedRun.ContextRevision,
+	})
+	resumedRun := resumed["structuredContent"].(localworkspace.LocalRunContext)
+	if resumedRun.Status != "active" || len(resumedRun.Findings) != 1 {
+		t.Fatalf("marketing MCP recovery did not resume original run: %#v", resumedRun)
+	}
+}
+
+func TestMCPAppsNegotiationExposesOnlyTheAppResource(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-app", WorkspaceID: "workspace-app", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	r := &Root{mcpCWD: root}
+
+	initializeParams, _ := json.Marshal(map[string]any{
+		"protocolVersion": "2025-11-25",
+		"capabilities": map[string]any{
+			"extensions": map[string]any{
+				mcpAppsExtensionID: map[string]any{"mimeTypes": []string{mcpAppsMIMEType}},
+			},
+		},
+	})
+	initialized := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("0"), Method: "initialize", Params: initializeParams})
+	if initialized.Error != nil || !r.mcpAppsEnabled() {
+		t.Fatalf("MCP Apps capability was not negotiated: %#v", initialized)
+	}
+
+	toolList := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/list"})
+	listed := toolList.Result.(map[string]any)
+	var appTool map[string]any
+	for _, tool := range listed["tools"].([]map[string]any) {
+		if tool["name"] == "workspace_open_workbench" {
+			appTool = tool
+			break
+		}
+	}
+	if appTool == nil {
+		t.Fatal("workspace_open_workbench is missing")
+	}
+	meta, ok := appTool["_meta"].(map[string]any)
+	uiMeta, uiOK := meta["ui"].(map[string]any)
+	if !ok || !uiOK || uiMeta["resourceUri"] != mcpAppsResourceURI {
+		t.Fatalf("MCP Apps metadata is missing: %#v", appTool)
+	}
+
+	resourceList := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("2"), Method: "resources/list"})
+	resources := resourceList.Result.(map[string]any)["resources"].([]map[string]any)
+	if len(resources) != 3 {
+		t.Fatalf("unexpected negotiated resource count: %#v", resources)
+	}
+	appResource := resources[2]
+	if appResource["uri"] != mcpAppsResourceURI || appResource["mimeType"] != mcpAppsMIMEType {
+		t.Fatalf("unexpected app resource listing: %#v", appResource)
+	}
+
+	params, _ := json.Marshal(map[string]any{"uri": mcpAppsResourceURI})
+	read := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("3"), Method: "resources/read", Params: params})
+	if read.Error != nil {
+		t.Fatalf("MCP App resource read failed: %#v", read.Error)
+	}
+	contents := read.Result.(map[string]any)["contents"].([]map[string]any)
+	if len(contents) != 1 || contents[0]["mimeType"] != mcpAppsMIMEType {
+		t.Fatalf("unexpected app resource content: %#v", contents)
+	}
+	html, ok := contents[0]["text"].(string)
+	if !ok || !strings.Contains(html, "ui/initialize") || strings.Contains(html, root) {
+		t.Fatalf("app resource is not self-contained: %q", html)
+	}
+}
+
+func TestMCPAppsFallbackHidesMetadataAndRejectsAppResource(t *testing.T) {
+	r := &Root{}
+	initializeParams, _ := json.Marshal(map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{
+		"extensions": map[string]any{mcpAppsExtensionID: map[string]any{"mimeTypes": []string{"text/html"}}},
+	}})
+	initialized := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("0"), Method: "initialize", Params: initializeParams})
+	if initialized.Error != nil || r.mcpAppsEnabled() {
+		t.Fatalf("unsupported host unexpectedly negotiated MCP Apps: %#v", initialized)
+	}
+	toolList := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/list"})
+	for _, tool := range toolList.Result.(map[string]any)["tools"].([]map[string]any) {
+		if tool["name"] == "workspace_open_workbench" && tool["_meta"] != nil {
+			t.Fatalf("fallback tool leaked MCP Apps metadata: %#v", tool)
+		}
+	}
+	resources := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("2"), Method: "resources/list"}).Result.(map[string]any)["resources"].([]map[string]any)
+	if len(resources) != 2 {
+		t.Fatalf("fallback resource list changed: %#v", resources)
+	}
+	params, _ := json.Marshal(map[string]any{"uri": mcpAppsResourceURI})
+	read := r.handleMCPRequest(context.Background(), mcpRequest{JSONRPC: "2.0", ID: json.RawMessage("3"), Method: "resources/read", Params: params})
+	if read.Error == nil || read.Error.Code != -32001 || read.Error.Message != "当前 MCP 会话未协商 MCP Apps，不能读取本地工作台 App Resource" {
+		t.Fatalf("unsupported host did not reject app resource: %#v", read)
+	}
+}
+
+func TestMCPRootsRequestBindsSingleRootAndHandlesChangeNotification(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: workspaceRoot, ProjectID: "project-roots", WorkspaceID: "workspace-roots", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	pluginRoot := filepath.Join(t.TempDir(), "plugin")
+	inReader, inWriter := io.Pipe()
+	outReader, outWriter := io.Pipe()
+	r := &Root{mcpCWD: pluginRoot, stdout: outWriter}
+	done := make(chan error, 1)
+	go func() { done <- r.serveMCP(t.Context(), inReader); _ = outWriter.Close() }()
+
+	write := func(value any) {
+		body, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(inWriter, string(body)+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := bufio.NewReader(outReader)
+	read := func() map[string]any {
+		line, err := out.ReadBytes('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		var message map[string]any
+		if err := json.Unmarshal(line, &message); err != nil {
+			t.Fatal(err)
+		}
+		return message
+	}
+	write(map[string]any{"jsonrpc": "2.0", "id": "init", "method": "initialize", "params": map[string]any{
+		"protocolVersion": "2025-11-25",
+		"capabilities":    map[string]any{"roots": map[string]any{"listChanged": true}},
+	}})
+	if message := read(); message["id"] != "init" {
+		t.Fatalf("unexpected initialize response: %#v", message)
+	}
+	write(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"})
+	rootRequest := read()
+	if rootRequest["method"] != "roots/list" {
+		t.Fatalf("server did not request roots/list: %#v", rootRequest)
+	}
+	write(map[string]any{"jsonrpc": "2.0", "id": rootRequest["id"], "result": map[string]any{"roots": []map[string]any{{"uri": (&url.URL{Scheme: "file", Path: workspaceRoot}).String(), "name": "项目"}}}})
+	write(map[string]any{"jsonrpc": "2.0", "id": "context", "method": "tools/call", "params": map[string]any{"name": "workspace_context", "arguments": map[string]any{}}})
+	contextResponse := read()
+	contextJSON, _ := json.Marshal(contextResponse)
+	if contextResponse["id"] != "context" || !strings.Contains(string(contextJSON), "project-roots") {
+		t.Fatalf("roots did not bind workspace context: %#v", contextResponse)
+	}
+	write(map[string]any{"jsonrpc": "2.0", "method": "notifications/roots/list_changed"})
+	changedRequest := read()
+	if changedRequest["method"] != "roots/list" || changedRequest["id"] == rootRequest["id"] {
+		t.Fatalf("roots change did not create a new request: first=%#v second=%#v", rootRequest, changedRequest)
+	}
+	write(map[string]any{"jsonrpc": "2.0", "id": changedRequest["id"], "result": map[string]any{"roots": []map[string]any{{"uri": (&url.URL{Scheme: "file", Path: workspaceRoot}).String()}}}})
+	if err := inWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMCPRootsRequireExplicitSelectionForMultipleRoots(t *testing.T) {
+	first := filepath.Join(t.TempDir(), "first")
+	second := filepath.Join(t.TempDir(), "second")
+	for _, root := range []string{first, second} {
+		if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: root, WorkspaceID: root, CLIVersion: "test", Target: "none"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &Root{mcpCWD: filepath.Join(t.TempDir(), "plugin")}
+	params, _ := json.Marshal(map[string]any{"roots": []map[string]any{
+		{"uri": (&url.URL{Scheme: "file", Path: first}).String()},
+		{"uri": (&url.URL{Scheme: "file", Path: second}).String()},
+	}})
+	r.applyMCPRoots(params)
+	if _, err := r.resolveMCPWorkspace(""); err == nil {
+		t.Fatal("multiple MCP roots were guessed without explicit selection")
+	} else {
+		assertCLIErrorCode(t, err, "MCP_ROOT_SELECTION_REQUIRED")
+	}
+	resolved, err := r.resolveMCPWorkspace(second)
+	canonicalSecond, evalErr := filepath.EvalSymlinks(second)
+	if err != nil || evalErr != nil || resolved != canonicalSecond {
+		t.Fatalf("explicit MCP root selection failed: root=%q err=%v", resolved, err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: outside, ProjectID: "project-outside", WorkspaceID: "workspace-outside", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	outsideRoot := &Root{mcpCWD: filepath.Join(t.TempDir(), "plugin-outside")}
+	outsideRoot.applyMCPRoots(params)
+	if _, err := outsideRoot.resolveMCPWorkspace(outside); err == nil {
+		t.Fatal("explicit directory outside MCP roots was accepted")
+	} else {
+		assertCLIErrorCode(t, err, "MCP_ROOT_OUTSIDE_DECLARED_ROOTS")
+	}
 }
 
 func TestMCPOpenProjectViewReturnsTrustedResourceLink(t *testing.T) {
@@ -520,6 +788,41 @@ func TestMCPServeSerializesAttachedWorkspaceToolResourceLink(t *testing.T) {
 	}
 	if response.Result.Content[1].URI != "https://content.example.com/studio?project=project-1" || !response.Result.StructuredContent.Initialized || response.Result.StructuredContent.Binding.ProjectID != "project-1" {
 		t.Fatalf("workspace status data or attached link changed during serialization: %#v", response.Result)
+	}
+}
+
+func TestMCPServeUsesInjectedWorkspaceRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if _, err := localworkspace.Initialize(localworkspace.InitOptions{Root: root, ProjectID: "project-injected", WorkspaceID: "workspace-injected", CLIVersion: "test", Target: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(contentCloudWorkspaceRootEnvironment, root)
+	request := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"workspace_context","arguments":{}}}` + "\n"
+	var output bytes.Buffer
+	r := &Root{stdout: &output}
+	if err := r.serveMCP(t.Context(), strings.NewReader(request)); err != nil {
+		t.Fatal(err)
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.mcpCWD != root || r.mcpWorkspaceRoot != canonicalRoot {
+		t.Fatalf("MCP did not bind the injected workspace root: cwd=%q root=%q", r.mcpCWD, r.mcpWorkspaceRoot)
+	}
+	var response struct {
+		Result struct {
+			StructuredContent struct {
+				ProjectID string `json:"project_id"`
+			} `json:"structuredContent"`
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &response); err != nil {
+		t.Fatalf("invalid MCP JSON response: %v output=%s", err, output.String())
+	}
+	if response.Result.IsError || response.Result.StructuredContent.ProjectID != "project-injected" {
+		t.Fatalf("workspace_context did not use the injected root: %#v", response.Result)
 	}
 }
 
@@ -875,6 +1178,125 @@ func TestMCPEnvironmentPreparationRequiresExactConfirmationAndReachesReady(t *te
 	}
 }
 
+func TestEnvironmentPreparationLoadsMarketingPackForCodexAndClaude(t *testing.T) {
+	now := time.Date(2026, 8, 15, 13, 0, 0, 0, time.UTC)
+	for _, host := range []pluginhost.HostID{pluginhost.HostCodex, pluginhost.HostClaude} {
+		t.Run(string(host), func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "project")
+			target := string(host) + "-plugin"
+			if host == pluginhost.HostClaude {
+				// Claude customer bootstrap remains capability-gated. This fixture
+				// represents a workspace already registered to the Claude host.
+				target = "none"
+			}
+			if _, err := localworkspace.Initialize(localworkspace.InitOptions{
+				Root: root, WorkspaceID: "workspace-marketing-" + string(host), ProjectID: "project-1", ServerURL: "https://content.example.com", CLIVersion: Version, Target: target, Now: now,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if host == pluginhost.HostClaude {
+				lockPath := filepath.Join(root, ".contentcloud", "template.lock")
+				body, readErr := os.ReadFile(lockPath)
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				var lock localworkspace.TemplateLock
+				if decodeErr := json.Unmarshal(body, &lock); decodeErr != nil {
+					t.Fatal(decodeErr)
+				}
+				lock.Targets = []string{"claude-plugin"}
+				body, encodeErr := json.MarshalIndent(lock, "", "  ")
+				if encodeErr != nil {
+					t.Fatal(encodeErr)
+				}
+				if writeErr := os.WriteFile(lockPath, append(body, '\n'), 0o600); writeErr != nil {
+					t.Fatal(writeErr)
+				}
+			}
+			marketingPackage, err := pluginbuiltin.Load(t.TempDir(), pluginidentity.Marketing, pluginidentity.MarketingVersion)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest, manifestVerifier, registry, registryVerifier := bootstrapEnvironmentFixtureWithTaskPack(t, now, bootstrapTaskPackFixture{
+				ID: pluginidentity.Marketing, Version: pluginidentity.MarketingVersion, Digest: marketingPackage.Digest, Capability: "contentcloud.marketing.content-orchestration",
+			})
+			if _, err := localworkspace.StoreEnvironmentRegistry(root, registry, registryVerifier); err != nil {
+				t.Fatal(err)
+			}
+			sceneDigest := ""
+			for _, plugin := range manifest.Distribution.Plugins {
+				if plugin.ID == pluginidentity.VideoProduction {
+					sceneDigest = plugin.Digest
+				}
+			}
+			if sceneDigest == "" {
+				t.Fatal("marketing manifest is missing the core scene plugin")
+			}
+			installed := []environment.LockedPlugin{{ID: pluginidentity.VideoProduction, Kind: "scene_plugin", Version: Version, Digest: sceneDigest, Installed: true}}
+			if _, err := localworkspace.StoreEnvironment(root, manifest, installed, manifestVerifier, now); err != nil {
+				t.Fatal(err)
+			}
+
+			requested := []string{}
+			runtime := &Root{
+				mcpCWD: root, now: func() time.Time { return now.Add(time.Minute) },
+				manifestVerifierHook: fixedManifestVerifier(manifestVerifier), registryVerifierHook: fixedRegistryVerifier(registryVerifier),
+				pluginRuntimeHook: func(hostName, pluginID, version string) (*hostPluginRuntime, error) {
+					requested = append(requested, hostName+":"+pluginID+"@"+version)
+					if hostName != string(host) {
+						t.Fatalf("environment selected host %q, want %q", hostName, host)
+					}
+					pkg, loadErr := pluginbuiltin.Load(t.TempDir(), pluginID, version)
+					if loadErr != nil {
+						return nil, loadErr
+					}
+					store, storeErr := pluginhost.NewStore(t.TempDir())
+					if storeErr != nil {
+						return nil, storeErr
+					}
+					native := &testBootstrapHost{status: pluginhost.StatusAbsent, hostID: host}
+					adapter, adapterErr := pluginhost.New(native, store)
+					if adapterErr != nil {
+						return nil, adapterErr
+					}
+					return &hostPluginRuntime{Adapter: adapter, Package: pkg, HostID: host}, nil
+				},
+			}
+			input := environmentPreparationInput{Directory: root, RunID: "run-marketing-" + string(host), Intent: "compile marketing content", Capabilities: []string{"contentcloud.marketing.content-orchestration"}, InputRefs: []string{"50-production/briefs/brief.json"}}
+			_, _, preparation, err := runtime.resolveEnvironmentPreparation(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if preparation.State != "ready" || len(preparation.Actions) != 1 || preparation.Actions[0].Plugin.ID != pluginidentity.Marketing {
+				t.Fatalf("marketing preparation = %#v", preparation)
+			}
+			result, err := runtime.applyEnvironmentPreparation(t.Context(), input, preparation.PreparationID, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(requested) != 1 || requested[0] != string(host)+":"+pluginidentity.Marketing+"@"+pluginidentity.MarketingVersion {
+				t.Fatalf("bundled runtime selection = %#v", requested)
+			}
+			if len(result.InstalledPacks) != 1 || result.InstalledPacks[0].Plugin.ID != pluginidentity.Marketing || result.ExecutionPlan.State != "ready" {
+				t.Fatalf("marketing apply result = %#v", result)
+			}
+			state, err := localworkspace.LoadEnvironment(root, manifestVerifier, now.Add(2*time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			foundMarketing := false
+			for _, plugin := range state.Lock.Plugins {
+				if plugin.ID == pluginidentity.Marketing && plugin.Installed && plugin.Digest == marketingPackage.Digest {
+					foundMarketing = true
+				}
+			}
+			if !foundMarketing || !result.Handoff.RequiresNewChat {
+				t.Fatalf("marketing lock/handoff = lock=%#v handoff=%#v", state.Lock, result.Handoff)
+			}
+		})
+	}
+}
+
 func TestWorkspacePrepareCLIPlanAndApplyUseTheSameDeterministicPlan(t *testing.T) {
 	now := time.Date(2026, 7, 27, 4, 45, 0, 0, time.UTC)
 	root := filepath.Join(t.TempDir(), "project")
@@ -929,8 +1351,8 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 	if _, err := localworkspace.StoreEnvironment(root, manifest, installed, manifestVerifier, now); err != nil {
 		t.Fatal(err)
 	}
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.26.0"}}]}`
-	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.26.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.27.0"}}]}`
+	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.27.0","installed":true,"enabled":true}],"available":[]}`
 	runner := &bootstrapRunner{responses: []bootstrapRunnerResponse{
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: currentMarketplace}, {stdout: missingPack},
@@ -957,9 +1379,9 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 }
 
 func successfulTaskPackResponses() []bootstrapRunnerResponse {
-	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.26.0"}}]}`
-	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.26.0","installed":true,"enabled":true}],"available":[]}`
-	currentPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.26.0","installed":true,"enabled":true},{"pluginId":"contentcloud-visual-storytelling@contentcloud","name":"contentcloud-visual-storytelling","marketplaceName":"contentcloud","version":"1.2.0","installed":true,"enabled":true}],"available":[]}`
+	currentMarketplace := `{"marketplaces":[{"name":"contentcloud","root":"/tmp/cache","marketplaceSource":{"sourceType":"git","source":"limecloud/contentcloud","ref":"v0.27.0"}}]}`
+	missingPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.27.0","installed":true,"enabled":true}],"available":[]}`
+	currentPack := `{"installed":[{"pluginId":"contentcloud-video-production@contentcloud","name":"contentcloud-video-production","marketplaceName":"contentcloud","version":"0.27.0","installed":true,"enabled":true},{"pluginId":"contentcloud-visual-storytelling@contentcloud","name":"contentcloud-visual-storytelling","marketplaceName":"contentcloud","version":"1.2.0","installed":true,"enabled":true}],"available":[]}`
 	return []bootstrapRunnerResponse{
 		{stdout: currentMarketplace}, {stdout: missingPack},
 		{stdout: currentMarketplace}, {stdout: missingPack},

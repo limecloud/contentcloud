@@ -123,6 +123,38 @@ func (s *Store) ProviderProfile(ctx context.Context, providerID, version string)
 	return value, err
 }
 
+func (s *Store) SaveProviderProfile(ctx context.Context, value domain.ProviderProfile) error {
+	value.NormalizeCollections()
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	command, err := s.pool.Exec(ctx, `UPDATE provider_profiles SET digest=$3,adapter_version=$4,model=$5,region=$6,modes=$7,input_media_types=$8,output_media_type=$9,limits=$10,data_retention=$11,pricing=$12,status=$13,verified_at=$14,expires_at=$15 WHERE provider_id=$1 AND version=$2`, value.ProviderID, value.Version, value.Digest, value.AdapterVersion, value.Model, value.Region, jsonArrayValue(value.Modes), jsonArrayValue(value.InputMediaTypes), value.OutputMediaType, jsonValue(value.Limits), value.DataRetention, jsonValue(value.Pricing), value.Status, value.VerifiedAt, value.ExpiresAt)
+	if err != nil {
+		return dbError(err)
+	}
+	if command.RowsAffected() == 0 {
+		return domain.NotFound("服务商配置")
+	}
+	return nil
+}
+
+func (s *Store) ProviderProfiles(ctx context.Context, providerID string) ([]domain.ProviderProfile, error) {
+	rows, err := s.pool.Query(ctx, `SELECT provider_id,version,digest,adapter_version,model,region,modes,input_media_types,output_media_type,limits,data_retention,pricing,status,verified_at,expires_at FROM provider_profiles WHERE ($1='' OR provider_id=$1) ORDER BY provider_id,version`, providerID)
+	if err != nil {
+		return nil, dbError(err)
+	}
+	defer rows.Close()
+	result := []domain.ProviderProfile{}
+	for rows.Next() {
+		value, scanErr := scanProviderProfile(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		result = append(result, value)
+	}
+	return result, dbError(rows.Err())
+}
+
 func (s *Store) SaveProviderBinding(ctx context.Context, value domain.ProviderBinding) error {
 	if err := value.Validate(); err != nil {
 		return err

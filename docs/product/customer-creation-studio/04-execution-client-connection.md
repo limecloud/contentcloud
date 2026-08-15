@@ -59,6 +59,8 @@ Claude Code、Codex 和其他客户端在 Runtime 内部属于同一类执行者
 
 在这些条件满足前，客户端只可以作为 Runtime 的内部执行适配器或灵感采集的可选能力，不能出现在客户连接选择器中，也不能出现在“已连接”数量中。
 
+Plugin、Skill、stdio MCP、Workspace 绑定、MCP Apps、private Browser handoff 和客户侧 bootstrap 是不同能力维度。Cursor、VS Code GitHub Copilot、Hermes、OpenClaw 等进入上游兼容目录，只能作为实现候选；完整宿主矩阵和逐宿主验收门禁见[本地工作台技术方案](./05-local-workbench-browser.md)。
+
 ## 5. 对代码和契约的约束
 
 - `StudioProject.execution_client_connected` 是项目级客户投影字段，不是 Runtime 的全局状态。

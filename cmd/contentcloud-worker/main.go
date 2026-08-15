@@ -40,9 +40,22 @@ func main() {
 		logger.Error("initialize object storage", "error", err)
 		os.Exit(1)
 	}
-	service := app.NewWithBlob(store, logger, blobs)
+	serviceOptions := []app.Option{}
+	seedance25Provider, seedance25Err := app.Seedance25ProviderFromEnv(store, blobs)
+	if seedance25Err != nil {
+		logger.Error("configure Seedance 2.5 Provider", "error", seedance25Err)
+		os.Exit(1)
+	}
+	if seedance25Provider != nil {
+		serviceOptions = append(serviceOptions, app.WithMediaProviderAdapter(app.Seedance25ProviderID, seedance25Provider))
+	}
+	service := app.NewWithBlob(store, logger, blobs, serviceOptions...)
 	runtimeWorkerID := worker.RuntimeEventWorkerID()
-	logger.Info("contentcloud deterministic worker ready", "zero_exec", true, "capabilities", []string{"runtime_event_delivery", "business_result_materialization", "runtime_projection", "source_ingestion", "policy_validation", "context_compile", "export"})
+	capabilities := []string{"runtime_event_delivery", "business_result_materialization", "runtime_projection", "source_ingestion", "policy_validation", "context_compile", "export"}
+	if seedance25Provider != nil {
+		capabilities = append(capabilities, "seedance25_media")
+	}
+	logger.Info("contentcloud deterministic worker ready", "zero_exec", seedance25Provider == nil, "seedance25_enabled", seedance25Provider != nil, "capabilities", capabilities)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {

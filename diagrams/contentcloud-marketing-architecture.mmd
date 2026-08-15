@@ -1,0 +1,29 @@
+graph LR
+    Host[Codex / Claude 宿主]
+    Core[Core Scene Plugin\ncontentcloud-local stdio MCP]
+    Env[Environment Resolver\nCapability 解析]
+    Registry[(签名 Manifest + Registry)]
+    Lock[(Environment Lock)]
+    Loader[Bundled Plugin Loader\nexact ID + version + digest]
+    Adapter[Native Host Adapter\nPlan / Apply / Rollback]
+    Pack[contentcloud-marketing\n8 个中文 Skills]
+    Kernel[Workspace Command Kernel]
+    Run[LocalRun + Claim\n唯一状态机]
+    Workspace[(客户 Workspace\n资料 / 素材 / Run / 输出)]
+    Shape[视频 / 文章形态 Pack]
+    Cloud[(ContentCloud 云端)]
+
+    Host --> Core
+    Core --> Env
+    Registry --> Env
+    Lock --> Env
+    Env -->|缺少任务 Pack| Loader
+    Loader --> Adapter
+    Adapter -->|安装后更新| Lock
+    Adapter -->|新会话发现| Pack
+    Pack --> Core
+    Core --> Kernel
+    Kernel --> Run
+    Kernel <--> Workspace
+    Pack -. 类型化交接 .-> Shape
+    Kernel -->|确认 plan_id 后写入| Cloud

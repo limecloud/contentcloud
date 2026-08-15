@@ -1,0 +1,25 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "contentcloud-marketing",
+  "version": "0.1.0",
+  "description": "中文营销知识治理、客户 Agent 交付与跨渠道内容编排 Skills。",
+  "author": {
+    "name": "GoodVision",
+    "url": "https://github.com/limecloud/contentcloud"
+  },
+  "homepage": "https://github.com/limecloud/contentcloud",
+  "repository": "https://github.com/limecloud/contentcloud",
+  "license": "Apache-2.0",
+  "keywords": [
+    "contentcloud",
+    "marketing",
+    "knowledge-governance",
+    "client-agent",
+    "content-orchestration"
+  ],
+  "extensions": {
+    "run.zhongcao.contentcloud": {
+      "claims": "./run.zhongcao.contentcloud/claims.json"
+    }
+  }
+}

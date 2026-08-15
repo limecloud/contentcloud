@@ -189,6 +189,17 @@ func RecordClaimedLocalRun(options RecordLocalRunOptions) (LocalRunContext, erro
 }
 
 func recordLocalRun(options RecordLocalRunOptions, requireClaim bool) (LocalRunContext, error) {
+	return recordLocalRunInternal(options, requireClaim, false)
+}
+
+// recordClaimedLocalRunWithMutationLock is used by compound local mutations
+// that already hold the Run lock. It prevents the second save from opening a
+// write window inside the surrounding transaction.
+func recordClaimedLocalRunWithMutationLock(options RecordLocalRunOptions) (LocalRunContext, error) {
+	return recordLocalRunInternal(options, true, true)
+}
+
+func recordLocalRunInternal(options RecordLocalRunOptions, requireClaim, mutationLockHeld bool) (LocalRunContext, error) {
 	root, err := FindRoot(options.Root)
 	if err != nil {
 		return LocalRunContext{}, err
@@ -217,7 +228,11 @@ func recordLocalRun(options RecordLocalRunOptions, requireClaim bool) (LocalRunC
 	context.OutputPaths = mergeStrings(context.OutputPaths, options.OutputPaths)
 	now := localNow(options.Now)
 	context.History = append(context.History, LocalRunHistory{Event: "recorded", Stage: context.Stage, At: now})
-	context, err = saveLocalRun(root, context, now)
+	if mutationLockHeld {
+		context, err = saveLocalRunUnlocked(root, context, now)
+	} else {
+		context, err = saveLocalRun(root, context, now)
+	}
 	if err != nil {
 		return LocalRunContext{}, err
 	}
@@ -511,6 +526,10 @@ func saveLocalRun(root string, context LocalRunContext, now time.Time) (LocalRun
 		return LocalRunContext{}, err
 	}
 	defer release()
+	return saveLocalRunUnlocked(root, context, now)
+}
+
+func saveLocalRunUnlocked(root string, context LocalRunContext, now time.Time) (LocalRunContext, error) {
 	path := localRunPath(root, context.RunID)
 	var current LocalRunContext
 	if err := readJSON(path, &current); err == nil {

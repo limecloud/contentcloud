@@ -4,6 +4,8 @@
 
 Codex 是当前能力最完整的 Content Work OS 客户端，支持本地自动化、工作区注册与初始化、交互式任务交接和受治理创作环境。
 
+这里的“可用”指客户创作与云端治理流程。ContentCloud 已实现标准 MCP Apps 的协商、`ui://` Resource 和最小 App 页面；Codex Desktop 仍需真实宿主验收。Codex CLI 当前使用 Tool、`structuredContent` 和 MCP Resource，并按能力退回 Headless，不把上游存在 MCP Apps 管道推断为本项目富 UI 全渠道已交付。
+
 ## 可用能力
 
 | 能力 | 状态 |

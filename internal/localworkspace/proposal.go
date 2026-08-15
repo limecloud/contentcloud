@@ -135,7 +135,7 @@ func (s *ProposalStore) PrepareIdempotent(key string, options PrepareWorkspacePr
 	} else if found {
 		return replay.(WorkspaceProposal), nil
 	}
-	proposal, err := s.Prepare(options)
+	proposal, err := s.prepare(options)
 	if err != nil {
 		return WorkspaceProposal{}, err
 	}
@@ -144,6 +144,12 @@ func (s *ProposalStore) PrepareIdempotent(key string, options PrepareWorkspacePr
 }
 
 func (s *ProposalStore) Prepare(options PrepareWorkspaceProposalOptions) (WorkspaceProposal, error) {
+	s.commandMu.Lock()
+	defer s.commandMu.Unlock()
+	return s.prepare(options)
+}
+
+func (s *ProposalStore) prepare(options PrepareWorkspaceProposalOptions) (WorkspaceProposal, error) {
 	proposal, err := PrepareWorkspaceProposal(options)
 	if err != nil {
 		return WorkspaceProposal{}, err
@@ -169,7 +175,7 @@ func (s *ProposalStore) ApplyIdempotent(key, proposalID string, options ApplyWor
 	} else if found {
 		return replay.(WorkspaceProposalApplyResult), nil
 	}
-	result, err := s.Apply(proposalID, options)
+	result, err := s.apply(proposalID, options)
 	if err != nil {
 		return WorkspaceProposalApplyResult{}, err
 	}
@@ -178,17 +184,27 @@ func (s *ProposalStore) ApplyIdempotent(key, proposalID string, options ApplyWor
 }
 
 func (s *ProposalStore) Apply(proposalID string, options ApplyWorkspaceProposalOptions) (WorkspaceProposalApplyResult, error) {
+	s.commandMu.Lock()
+	defer s.commandMu.Unlock()
+	return s.apply(proposalID, options)
+}
+
+func (s *ProposalStore) apply(proposalID string, options ApplyWorkspaceProposalOptions) (WorkspaceProposalApplyResult, error) {
 	s.mu.Lock()
 	proposal, ok := s.proposals[strings.TrimSpace(proposalID)]
-	if ok {
-		delete(s.proposals, proposal.ProposalID)
-	}
 	s.mu.Unlock()
 	if !ok {
 		return WorkspaceProposalApplyResult{}, domain.NotFound("Workspace Proposal")
 	}
 	options.Proposal = proposal
-	return ApplyWorkspaceProposal(options)
+	result, err := ApplyWorkspaceProposal(options)
+	if err != nil {
+		return WorkspaceProposalApplyResult{}, err
+	}
+	s.mu.Lock()
+	delete(s.proposals, proposal.ProposalID)
+	s.mu.Unlock()
+	return result, nil
 }
 
 func (s *ProposalStore) Clear() {
@@ -293,6 +309,19 @@ func ApplyWorkspaceProposal(options ApplyWorkspaceProposalOptions) (WorkspacePro
 	if proposal.OwnerKind != options.OwnerKind || proposal.OwnerID != options.OwnerID || proposal.OwnerEpoch != options.OwnerEpoch || proposal.BaseContextRevision != options.ExpectedContextRevision {
 		return WorkspaceProposalApplyResult{}, proposalStale("Apply 使用的 owner、epoch 或 revision 与 Proposal 不匹配", nil)
 	}
+	releaseCoordination, err := acquireEnvironmentCoordinationLock(root, now)
+	if err != nil {
+		return WorkspaceProposalApplyResult{}, err
+	}
+	defer releaseCoordination()
+	if err := ensureEnvironmentPreparationIdle(root, now); err != nil {
+		return WorkspaceProposalApplyResult{}, err
+	}
+	releaseMutation, err := acquireLocalRunMutationLock(root, proposal.RunID, now)
+	if err != nil {
+		return WorkspaceProposalApplyResult{}, err
+	}
+	defer releaseMutation()
 	if _, err := ValidateRunOwnership(root, proposal.RunID, options.ClaimToken, options.OwnerKind, options.OwnerID, options.OwnerEpoch, options.ExpectedContextRevision, now); err != nil {
 		return WorkspaceProposalApplyResult{}, proposalStale("Apply 时运行所有权已经变化", err)
 	}
@@ -325,7 +354,7 @@ func ApplyWorkspaceProposal(options ApplyWorkspaceProposalOptions) (WorkspacePro
 	if err := replaceFile(file.Path, proposal.proposedBody, info.Mode().Perm()); err != nil {
 		return WorkspaceProposalApplyResult{}, err
 	}
-	updated, runErr := RecordClaimedLocalRun(RecordLocalRunOptions{
+	updated, runErr := recordClaimedLocalRunWithMutationLock(RecordLocalRunOptions{
 		Root: root, RunID: proposal.RunID, ClaimToken: options.ClaimToken,
 		ExpectedRevision: options.ExpectedContextRevision, OutputPaths: []string{file.Ref}, Now: now,
 	})

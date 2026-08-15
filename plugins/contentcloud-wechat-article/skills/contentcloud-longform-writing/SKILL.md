@@ -1,36 +1,36 @@
 ---
 name: contentcloud-longform-writing
-description: Generate or revise cited ContentCloud ArticleItem candidates inside a governed WeChat article ContentBatch. Use for long-form drafting, title variants, structured article blocks, assertions, editorial review, controlled revisions, or publishing a reviewable WeChat article revision from an approved ArticleBrief.
+description: 在受治理的微信文章 ContentBatch 中生成或修订带引用的 ContentCloud ArticleItem 候选。用于长文起草、标题变体、结构化文章块、断言、编辑评审、受控修订，或基于已批准 ArticleBrief 发布可评审的微信文章修订版。
 ---
 
-# ContentCloud Longform Writing
+# ContentCloud 长文写作
 
-Write provider-neutral `contentcloud.article/1.0` objects from immutable ContentCloud inputs. Canonical article content is structured data, not arbitrary HTML.
+基于不可变的 ContentCloud 输入编写与供应商无关的 `contentcloud.article/1.0` 对象。规范文章内容是结构化数据，不是任意 HTML。
 
-## Preconditions
+## 前置条件
 
-1. Call `workspace_context`; require a verified `wechat_article` capability, matching environment lock, selected LocalRun, and active claim.
-2. Use `article_batch_create` to freeze one approved ArticleBrief and its eligible Knowledge ApprovedSnapshot.
-3. Read only the returned `manifest.yaml` and `context.json` under the new batch directory. Do not reconstruct frozen context from chat history or newer workspace files.
-4. Write candidates only to the item paths inside that batch.
+1. 调用 `workspace_context`；必须具备已验证的 `wechat_article` 能力、匹配的环境锁、选定的 LocalRun 和有效 claim。
+2. 使用 `article_batch_create` 冻结一个已批准的 ArticleBrief 及其合格 Knowledge ApprovedSnapshot。
+3. 在新批次目录下只读取返回的 `manifest.yaml` 和 `context.json`。不要从聊天历史或较新的工作区文件重建冻结上下文。
+4. 候选只能写入该批次内的 item 路径。
 
-## Draft
+## 起草
 
-1. Produce several title candidates with explicit strategies and risk refs, then select exactly one title ID.
-2. Build the article from supported semantic blocks: `heading`, `paragraph`, `list`, `quote`, `image`, `callout`, `divider`, and `cta`.
-3. Keep one editorial purpose per block. Use stable block and assertion IDs so review comments and revisions remain addressable.
-4. Classify assertions as `fact`, `commercial_claim`, `quotation`, `editorial_opinion`, `personal_experience`, or `hypothesis`.
-5. Cite every fact, commercial claim, and quotation. A `commercial_claim` may reference only an approved Knowledge item whose kind is `claim`; preserve attribution for quotations.
-6. Keep editorial opinion, personal experience, and hypotheses visibly distinct from verified fact. Never fabricate experience or attribution.
-7. Match the ArticleBrief word range, voice, structure, CTA, approved claims, and controlled variables. Use `blocked` with actionable reasons when a required gate fails.
+1. 生成多个带明确策略和风险引用的标题候选，然后只选择一个标题 ID。
+2. 使用受支持的语义块构建文章：`heading`、`paragraph`、`list`、`quote`、`image`、`callout`、`divider` 和 `cta`。
+3. 每个块只承担一个编辑目的。使用稳定的块 ID 和断言 ID，确保评审评论和修订仍可定位。
+4. 将断言分类为 `fact`、`commercial_claim`、`quotation`、`editorial_opinion`、`personal_experience` 或 `hypothesis`。
+5. 每个事实、商业声明和引语都必须有引用。`commercial_claim` 只能引用 kind 为 `claim` 的已批准 Knowledge 项；引语必须保留归属信息。
+6. 让编辑意见、个人经历和假设与已验证事实保持清晰区分。不得编造经历或归属。
+7. 遵循 ArticleBrief 的字数范围、文风、结构、CTA、已批准声明和受控变量。必需门禁失败时使用 `blocked` 并填写可执行原因。
 
-Do not embed HTML, scripts, tracking, remote media, credentials, or provider-specific draft IDs in an ArticleItem.
+不得在 ArticleItem 中嵌入 HTML、脚本、跟踪代码、远程媒体、凭据或供应商专用草稿 ID。
 
-## Validate And Review
+## 校验与评审
 
-1. Call `article_item_lint` for every candidate.
-2. Call `article_batch_lint` with the exact manifest and complete item list.
-3. Call `article_batch_finalize` only after deterministic checks pass. A blocked batch may be reviewed but is not deliverable.
-4. Publish the exact `content_batch` files only through `publish_preflight`, explicit confirmation of its `plan_id`, and `publish_apply`.
+1. 为每个候选调用 `article_item_lint`。
+2. 使用精确 Manifest 和完整 item 列表调用 `article_batch_lint`。
+3. 只有确定性检查通过后才能调用 `article_batch_finalize`。blocked 批次可以评审，但不可交付。
+4. 只能通过 `publish_preflight`、对其 `plan_id` 的明确确认以及 `publish_apply` 发布精确的 `content_batch` 文件。
 
-For a revision, set `based_on_version_id`, resolved comment IDs, and `change_summary`. Call `article_item_diff` with explicit allowed JSON Pointer prefixes. Treat any undeclared path change as an error, then repeat item and batch lint before publishing.
+修订时设置 `based_on_version_id`、已解决的评论 ID 和 `change_summary`。使用明确允许的 JSON Pointer 前缀调用 `article_item_diff`。任何未声明路径的变更都视为错误，发布前重新执行 item 和 batch lint。

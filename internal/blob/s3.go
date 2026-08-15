@@ -140,6 +140,17 @@ func (s *S3Store) Get(ctx context.Context, key string) ([]byte, error) {
 	return data, nil
 }
 
+func (s *S3Store) Delete(ctx context.Context, key string) error {
+	objectKey, err := s.key(key)
+	if err != nil {
+		return err
+	}
+	if _, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(objectKey)}); err != nil {
+		return fmt.Errorf("删除 S3 对象失败：%w", err)
+	}
+	return nil
+}
+
 func (s *S3Store) key(key string) (string, error) {
 	clean := strings.Trim(strings.ReplaceAll(key, "\\", "/"), "/")
 	if clean == "" || strings.Contains(clean, "../") || strings.HasPrefix(clean, "..") || strings.ContainsRune(clean, '\x00') {

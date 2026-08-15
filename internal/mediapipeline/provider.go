@@ -15,13 +15,17 @@ import (
 )
 
 type Request struct {
-	JobID                string
-	IdempotencyKey       string
-	StoryboardSnapshotID string
-	Mode                 string
-	AspectRatio          string
-	DurationSeconds      int
-	InputArtifactRefs    []string
+	TenantID                string
+	ProjectID               string
+	JobID                   string
+	IdempotencyKey          string
+	StoryboardSnapshotID    string
+	PromptPackageArtifactID string
+	ProfileVersion          string
+	Mode                    string
+	AspectRatio             string
+	DurationSeconds         int
+	InputArtifactRefs       []string
 }
 
 type Estimate struct {
