@@ -6,12 +6,12 @@
 
 ## 图谱
 
-| 图 | Mermaid 源 | 渲染产物 | 状态 |
-| --- | --- | --- | --- |
-| Agentic Job Runtime 总架构 | [contentcloud-agentic-job-runtime-architecture.mmd](./contentcloud-agentic-job-runtime-architecture.mmd) | SVG / PNG | current |
-| Desktop、Codex、Web 与本地/云端边界 | [contentcloud-desktop-architecture.mmd](./contentcloud-desktop-architecture.mmd) | SVG / PNG | target；Electron 尚未实现 |
+| 图 | Mermaid 源 | 渲染产物 | 可编辑场景 | 状态 |
+| --- | --- | --- | --- | --- |
+| Agentic Job Runtime 总架构 | [contentcloud-agentic-job-runtime-architecture.mmd](./contentcloud-agentic-job-runtime-architecture.mmd) | [SVG](./contentcloud-agentic-job-runtime-architecture.svg) / [PNG](./contentcloud-agentic-job-runtime-architecture.png) | [Excalidraw](./contentcloud-agentic-job-runtime-architecture.excalidraw) | current |
+| Desktop、Codex、Web 与本地/云端边界 | [contentcloud-desktop-architecture.mmd](./contentcloud-desktop-architecture.mmd) | [SVG](./contentcloud-desktop-architecture.svg) / [PNG](./contentcloud-desktop-architecture.png) | [Excalidraw](./contentcloud-desktop-architecture.excalidraw) | target；Electron 尚未实现 |
 
-架构语义以 `.mmd` 与对应 ADR/产品文档为准。修改架构时先改源文件，再使用项目固定 Mermaid CLI 渲染；没有渲染工具时不得手工伪造 SVG/PNG。
+架构语义以 `.mmd` 与对应 ADR/产品文档为准。修改架构时先改源文件，再用离线 Mermaid 渲染器同时生成 SVG、PNG 和 Excalidraw；没有渲染工具时不得手工伪造图片。
 
 Desktop 的启动时序、同步时序、大文件上传、审批回流、冲突决策和离线状态机维护在：
 
