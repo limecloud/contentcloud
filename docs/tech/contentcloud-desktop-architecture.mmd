@@ -2,26 +2,28 @@
 %% Desktop is a persistent project surface. Codex remains the task-time AI surface.
 flowchart TB
     subgraph Surfaces["① 用户工作面"]
-        Codex["Codex\n任务期 AI 工作面\n推理 · 生成 · 工具 · Proposal"]
-        Desktop["Content Work OS Desktop\n持续项目工作面\n目录 · 同步 · 上传 · 审批 · 交付"]
-        Web["Web Studio / Operations\n团队与组织工作面\n协作 · 租户 · 发布 · Runtime 诊断"]
+        Codex["Codex<br/>任务期 AI 工作面<br/>推理 · 生成 · 工具 · Proposal"]
+        Desktop["Content Work OS Desktop<br/>持续项目工作面<br/>目录 · 同步 · 上传 · 审批 · 交付"]
+        Web["Web Studio / Operations<br/>团队与组织工作面<br/>协作 · 租户 · 发布 · Runtime 诊断"]
     end
 
     subgraph Electron["② Electron 安全边界"]
-        Renderer["Renderer\nReact · untrusted UI"]
-        Preload["Preload\ntyped contextBridge"]
-        Main["Main\n窗口 · 通知 · 协议 · 更新"]
+        Renderer["Renderer<br/>React · untrusted UI"]
+        Preload["Preload<br/>typed contextBridge"]
+        Main["Main<br/>窗口 · 通知 · 协议 · 更新"]
+        Forbidden["拒绝<br/>文件系统 · Token · Cloud API · 任意命令"]
         Renderer --> Preload --> Main
+        Renderer -. "禁止" .-> Forbidden
     end
 
     subgraph Local["③ 本地 Go 服务"]
         MCP["stdio MCP Adapter"]
-        DesktopAPI["authenticated Desktop API\ncommands · snapshots · events"]
-        Kernel["Local Workspace Kernel\nClaim · Proposal · Apply · digest"]
-        Sync["Sync / Upload / Review Inbox\noutbox · cursor · conflict"]
-        RuntimeWorker["Runtime Worker\nHarness · lease · fence"]
-        Cache[("SQLite\nindex · outbox · parts · cursors")]
-        Workspace[("Local Workspace\n未提交文件与草稿事实源")]
+        DesktopAPI["authenticated Desktop API<br/>commands · snapshots · events"]
+        Kernel["Local Workspace Kernel<br/>Claim · Proposal · Apply · digest"]
+        Sync["Sync / Upload / Review Inbox<br/>outbox · cursor · conflict"]
+        RuntimeWorker["Runtime Worker<br/>Harness · lease · fence"]
+        Cache[("SQLite<br/>index · outbox · parts · cursors")]
+        Workspace[("Local Workspace<br/>未提交文件与草稿事实源")]
         DesktopAPI --> Kernel
         DesktopAPI --> Sync
         Kernel <--> Workspace
@@ -30,10 +32,10 @@ flowchart TB
 
     subgraph Cloud["④ ContentCloud 服务端"]
         API["Command / Query API"]
-        Events["WebSocket / SSE\nmonotonic event cursor"]
-        Blob["Object Storage\nscoped multipart upload"]
+        Events["WebSocket / SSE<br/>monotonic event cursor"]
+        Blob["Object Storage<br/>scoped multipart upload"]
         Runtime["Agentic Job Runtime"]
-        Facts[("Cloud Revision · Review\nArtifact · Delivery · Audit")]
+        Facts[("Cloud Revision · Review<br/>Artifact · Delivery · Audit")]
         API <--> Facts
         Runtime <--> Facts
     end
@@ -47,17 +49,13 @@ flowchart TB
     RuntimeWorker <--> Runtime
     Web --> API
 
-    Renderer -. "禁止" .-> Workspace
-    Renderer -. "禁止" .-> API
-    Renderer -. "禁止" .-> Cache
-
     classDef surface fill:#eff6ff,stroke:#4c91ff,color:#172033
     classDef shell fill:#f8faff,stroke:#52627b,color:#172033
     classDef local fill:#edf4ef,stroke:#397860,color:#172033
     classDef cloud fill:#edf4f8,stroke:#3b6f8f,color:#172033
     classDef fact fill:#fff1f2,stroke:#c24f5f,color:#172033
     class Codex,Desktop,Web surface
-    class Renderer,Preload,Main shell
+    class Renderer,Preload,Main,Forbidden shell
     class MCP,DesktopAPI,Kernel,Sync,RuntimeWorker,Cache,Workspace local
     class API,Events,Blob,Runtime cloud
     class Facts fact
