@@ -47,7 +47,7 @@ jobs:
       - run: pnpm evaluate:plugin
       - run: pnpm test:plugin-signing
       - run: pnpm check:plugin
-      - run: pnpm --dir web typecheck
-      - run: pnpm --dir web test
-      - run: pnpm --dir web build
+      - run: pnpm --dir apps/web typecheck
+      - run: pnpm --dir apps/web test
+      - run: pnpm --dir apps/web build
       - run: node --check packages/contentcloud/bin/contentcloud.js

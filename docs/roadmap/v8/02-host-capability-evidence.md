@@ -2,7 +2,7 @@
 
 > 阅读对象：平台架构、执行适配、安全和法务负责人。本文把承载智能体会话和工具调用的 Codex、Claude Code 统称为“宿主”。普通读者只需记住一句话：宿主负责完成具体步骤，ContentCloud 负责任务编排并保存权威业务记录。
 
-范围说明：本文评估 Runtime `AgentHarnessAdapter`，不代表本地 Agent Plugin 或 Workbench UI 的客户端支持状态。Plugin、Workspace 绑定、MCP Apps、Direct Browser 和 Headless 的多宿主矩阵以[本地工作台技术方案](../../product/customer-creation-studio/05-local-workbench-browser.md)为准；两个矩阵不能互相推导。
+范围说明：本文评估 Runtime `AgentHarnessAdapter`，不代表本地 Agent Plugin、Content Work OS Desktop 或 Workbench UI 的客户端支持状态。Desktop 只消费 Daemon 暴露的进度、任务和审批 View，不渲染 Codex transcript；Plugin、Workspace 绑定、MCP Apps、Direct Browser 和 Headless 的多宿主矩阵以[本地工作台技术方案](../../product/customer-creation-studio/05-local-workbench-browser.md)为准；两个矩阵不能互相推导。
 
 ## 1. 结论
 

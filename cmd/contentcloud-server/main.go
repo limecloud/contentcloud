@@ -54,7 +54,7 @@ func main() {
 		os.Exit(1)
 	}
 	addr := env("CONTENTCLOUD_ADDR", ":8080")
-	webDist := env("CONTENTCLOUD_WEB_DIST", "web/dist")
+	webDist := env("CONTENTCLOUD_WEB_DIST", "apps/web/dist")
 	devMode := os.Getenv("CONTENTCLOUD_DEV_MODE") == "1" || os.Getenv("CONTENTCLOUD_DEV_MODE") == "true"
 	adminEmails := splitValues(os.Getenv("CONTENTCLOUD_PLATFORM_ADMIN_EMAILS"))
 	if devMode {

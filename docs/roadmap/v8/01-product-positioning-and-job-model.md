@@ -6,7 +6,7 @@
 
 ## 1. 产品定位与边界
 
-V8 在 ContentCloud 内部定位为 **ContentCloud Agentic Job Runtime（智能体任务运行时）**。它不是另一套产品，而是现有内容工作台背后的任务执行能力。用户仍然在 ContentCloud 中提交业务任务、完成人工审批和接收交付。
+V8 在 ContentCloud 内部定位为 **ContentCloud Agentic Job Runtime（智能体任务运行时）**。它不是另一套产品，而是现有内容工作台背后的任务执行能力。用户在 Codex 完成任务期交互，在 Desktop 持续处理项目目录、同步、审批和交付，在 Web Studio/Operations 完成团队治理；三种工作面共享业务引用但不共享页面或状态容器。
 
 这套运行时只管理一项有边界的内容任务，负责：
 
@@ -165,17 +165,17 @@ Codex 线程和 Claude 会话可以用于恢复智能体对话，但对话记录
 - 由 Runtime 状态直接写入 `reusable=true`，或把 `DeliveryPackage` 复制成新的资产正文。
 - 在原执行实例上覆盖旧执行方案来实现所谓“回滚”。
 
-## 8. 与现有模型的兼容关系
+## 8. 与业务模型的所有权关系
 
 V8 保留业务对象，但执行模型只保留 Runtime 权威表：
 
-- 业务任务（`WorkTask`）继续作为用户侧业务对象；兼容期内现有状态和当前阶段字段继续可读，但 V8 不再只靠这两个字段调度执行图。
+- 业务任务（`WorkTask`）继续作为用户侧业务对象；业务状态和当前阶段字段由业务域维护，V8 不再只靠这两个字段调度执行图。
 - 执行实例（`JobRun`）是 V8 新增的运行时聚合根。
 - 执行步骤（`NodeRun`）使用独立 `runtime_node_runs`；公开 API 使用从 JobRun/NodeRun 生成的 `RuntimeRun` 只读模型，不对应独立执行表。
 - 执行尝试（`RuntimeAttempt`）使用独立 `runtime_attempts`，记录执行许可、心跳、执行器和单次运行结果；旧 `RunAttempt` 已删除。
 - `StageRun` 继续服务现有页面，由执行步骤、人工审批节点和输出结果生成业务阶段投影，不直接负责调度。
 
-具体迁移和双写限制见 [08：迁移、测试与验收](./08-migration-testing-and-acceptance.md)。
+代码目录和实现迁移遵循一次性目标拓扑，见 [08：一次性收口、测试与验收](./08-migration-testing-and-acceptance.md)。
 
 ## 9. 首版门槛与明确边界
 

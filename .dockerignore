@@ -5,6 +5,6 @@ bin
 coverage
 node_modules
 var
-web/dist
-web/node_modules
+apps/web/dist
+apps/web/node_modules
 *.log

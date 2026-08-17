@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * 一次性配色迁移脚本：把 web/src/styles.css 的暖绿调配色迁到
+ * 一次性配色迁移脚本：把 apps/web/src/styles.css 的暖绿调配色迁到
  * loopany-platform 的冷蓝灰 + Rubik 语义色体系。
  *
  * 策略：在 HSL 空间做色相旋转，保留每个颜色的明度（L）不变 ——
@@ -10,7 +10,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const CSS_PATH = new URL('../web/src/styles.css', import.meta.url);
+const CSS_PATH = new URL('../apps/web/src/styles.css', import.meta.url);
 
 // ---- 色彩空间转换 --------------------------------------------------------
 function hexToRgb(hex) {
@@ -164,7 +164,7 @@ for (const [from, to] of sorted) console.log(`  ${from} -> ${to}`);
 
 if (!dry) {
   writeFileSync(CSS_PATH, out);
-  console.log('\n已写入 web/src/styles.css');
+  console.log('\n已写入 apps/web/src/styles.css');
 } else {
   console.log('\n(dry run，未写入)');
 }

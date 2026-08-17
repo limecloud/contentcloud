@@ -22,6 +22,10 @@ V8 不会把数据库账号直接交给智能体，也不会用一份大型 JSON
 
 目标是让多个智能体可靠协作，同时由服务端统一控制数据格式（Schema）、版本、权限、预算和审计。
 
+### 1.1 本地 Workspace 与 Desktop 缓存
+
+交互式本地工作区的未提交文件和草稿由 Local Workspace 负责；Desktop 通过 Go Daemon 观察目录、计算 digest、维护同步 outbox 和事件游标。SQLite/FTS5 只保存可重建索引、缓存、上传分片和游标，不能成为 `StateCollection`、Cloud Revision 或审批的第三事实源。Codex 通过 stdio MCP 进入同一 Kernel，Desktop 通过 typed local API 读取专用 View。
+
 ## 2. 共享状态集合（`StateCollection`）
 
 ### 2.1 定义

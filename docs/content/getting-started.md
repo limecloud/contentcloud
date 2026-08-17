@@ -1,49 +1,49 @@
 # 开始使用
 
-Content Work OS 的使用路径由两个维度决定：你使用的智能体客户端，以及你要生产的内容形态。客户端可用不代表所有内容形态都可用，内容形态可用也不代表每个客户端都已完成接入。
+Content Work OS 的使用方式主要取决于两件事：你连接的工具，以及你要制作的内容形式。某个工具可以连接，不代表它能完成所有内容；某种内容可以制作，也不代表每个工具都已接入。
 
-## 1. 选择客户端
+## 1. 选择连接工具
 
-当前推荐使用 Codex。Codex 已支持本地工作区注册、初始化、创作环境和交互式任务交接，可以完成完整的本地创作与云端治理流程。
+当前推荐使用 Codex。它可以连接项目文件夹、继续上次工作、整理资料并把结果提交到网页工作台审核。
 
-| 客户端 | 当前可用范围 | 尚未开放 |
+| 连接工具 | 当前可用范围 | 尚未开放 |
 | --- | --- | --- |
-| Codex CLI/Desktop | 完整客户流程；Skills + stdio MCP 控制面；MCP Apps 最小协议闭环 | Codex Desktop App/Bridge 真实宿主验收 |
-| Claude Code CLI | 本地自动化、工作区注册、Plugin/Skills/stdio MCP 控制面 | Web bootstrap、交互式交接、内联富 UI |
-| Claude Desktop/Web、Cursor、VS Code GitHub Copilot | 上游具备部分 MCP Apps 或 Agent Plugins 能力 | ContentCloud 安装投影、项目绑定、生命周期和真实 UI 验收 |
-| GitHub Copilot 其他 Surface、Kiro、Gemini CLI、Cline、Windsurf、Continue | 协议候选 | ContentCloud 正式 Adapter 与完整验收 |
-| Hermes、OpenClaw、WorkBuddy、Grok Bot、NanoClaw | 规划或非首发 | 客户侧完整接入 |
+| Codex Desktop / CLI | 可以完成完整连接和创作流程 | 个别桌面版本仍在做真实环境检查 |
+| Claude Code CLI | 可以在电脑上做部分资料整理 | 暂不能完成网页连接和跨页面继续工作 |
+| Claude Desktop/Web、Cursor、VS Code GitHub Copilot | 正在评估 | 尚未完成 Content Work OS 的正式接入 |
+| GitHub Copilot 其他版本、Kiro、Gemini CLI、Cline、Windsurf、Continue | 评估中 | 尚未开放正式接入 |
+| Hermes、OpenClaw、WorkBuddy、Grok Bot、NanoClaw | 规划中或暂不首发 | 尚未开放客户使用 |
 
-“上游支持 Agent Plugins、Agent Skills、MCP 或 MCP Apps”不等于 ContentCloud 已支持该客户端。正式开放必须同时通过安装、工作区绑定、MCP 生命周期、呈现降级和安全测试；详细工程矩阵见[本地工作台技术方案](../product/customer-creation-studio/05-local-workbench-browser.md)。
+其他工具即使在自己的产品中支持插件或自动化，也不代表已经接入 Content Work OS。正式开放前还要完成安装、项目文件夹连接、权限和安全检查；详细说明见[本地创作台说明](../product/customer-creation-studio/05-local-workbench-browser.md)。
 
-## 2. 选择内容形态
+## 2. 选择内容形式
 
-营销视频默认对所有租户开放。微信公众号文章也已支持，但必须由平台管理员针对租户显式开通；开通后需要刷新签名执行环境清单（`Environment Manifest`），旧清单不会自动获得该能力。
+营销视频默认对所有客户开放。微信公众号文章也已支持，但需要平台管理员先为客户开启；开启后请刷新连接工具的可用功能列表，旧列表不会自动更新。
 
-其他内容形态仍处于规划状态。不要根据规划页面自行推断命令、数据格式或发布步骤。
+其他内容形式仍处于规划状态。不要根据规划页面自行推断操作步骤。
 
-## 3. 连接执行客户端
+## 3. 连接工作电脑
 
 1. 登录 Content Work OS。
 2. 创建或选择一个项目。
-3. 打开“执行客户端”。
-4. 选择具备 `workspace_bootstrap` 能力的客户端。
-5. 按页面生成的固定操作指令或确定性计划完成初始化。
-6. 安装或环境变更后，在相同的本地工作区根目录（`Workspace Root`）中新建智能体会话。
+3. 打开“连接工作电脑”。
+4. 选择页面显示的可用连接工具。
+5. 按页面给出的连接文字完成连接。
+6. 连接完成后，在同一个项目文件夹中新建对话。
 
-初始化不会自动上传已有文件、启动后台进程或替你提交内容。每次安装、授权、写入、拉取（`pull`）、提交（`publish`）和人工决定都有独立边界。
+连接不会自动上传已有文件、启动后台程序或替你提交内容。安装、授权、写入、拉取（`pull`）、提交（`publish`）和人工确认都会分别提示，你不需要一次完成所有操作。
 
-客户端的本地呈现可能是 MCP App、受控 Browser/WebView 或纯 Tool/Resource。缺少富 UI 时仍应使用类型化 Headless 流程，不能要求模型复制带 token 的 localhost URL，也不能临时启动长期 Node 服务。
+连接工具可能显示完整页面，也可能只显示文字和按钮。显示方式不同不会影响任务结果；不要复制带有密钥的本地网址，也不要为了连接临时启动长期运行的服务。
 
 ## 4. 开始第一条工作流
 
-选择[使用 Codex 制作营销视频内容](guides/marketing-video/codex.md)或[使用 Codex 制作微信公众号文章](guides/wechat-article/codex.md)。进入新对话后先调用 `workspace_context`，从持久化的本地工作区状态恢复工作，不要依赖旧聊天记录重建项目事实。
+选择[使用 Codex 制作营销视频内容](guides/marketing-video/codex.md)或[使用 Codex 制作微信公众号文章](guides/wechat-article/codex.md)。进入新对话后先调用 `workspace_context`，这样可以恢复项目状态，不用依赖旧聊天记录。
 
 ## 5. 在 Web 中协作
 
-- 本地智能体负责候选资料、知识、创作简报和内容的生成与修订。
+- 连接工具负责整理资料、形成草稿和修改内容。
 - Web 工作台只展示已经显式提交的不可变内容版本。
-- 审核人批准后形成已批准快照（`ApprovedSnapshot`）；本地文件中的 `approved` 文案不能替代它。
-- 交付必须基于明确拉取的批准快照，不能把“生成成功”推断为“已发布”。
+- 审核人确认后才会形成“已确认版本”（内部名称为 `ApprovedSnapshot`）；本地文件中的“已确认”文字不能替代网页审核。
+- 交付必须基于明确下载的已确认版本，“生成成功”不等于“外部平台已发布”。
 
-开始前建议阅读[受治理的内容工作流](concepts/governed-workflow.md)。
+开始前建议阅读[内容审核与交付流程](concepts/governed-workflow.md)。

@@ -2,7 +2,7 @@
 
 状态：`目标契约；先冻结名称和边界，再按阶段实现`。
 
-更新时间：2026-08-08。
+更新时间：2026-08-17。
 
 ## 1. 先用人话说清楚
 
@@ -88,7 +88,7 @@ Capability
 
 ## 5. 执行方式（Executor）
 
-执行方式描述信任边界和运行位置，而不是业务能力。类型包括：
+执行方式描述信任边界和运行位置，而不是业务能力。Desktop 不是 Executor；它是用户工作面和 Daemon 控制入口。真正执行 Agent 节点的是已登记 Harness，执行同步与上传的是本地服务。类型包括：
 
 | 类型 | 适用场景 | 关键限制 |
 | --- | --- | --- |
@@ -183,7 +183,7 @@ BindingPolicy
 
 ### 9.1 运营后台查询约定（Operations BFF）
 
-运营前端使用独立 BFF，不复用客户 Studio 的页面 DTO，也不直接读取数据库。
+运营前端使用独立 BFF，不复用客户 Studio 或 Desktop 的页面 DTO，也不直接读取数据库。Desktop 使用版本化本地 API 和专用 `DesktopProjectView`；共享的是对象引用、revision、digest、命令语义和 allowed actions，不是页面模型。
 
 ```text
 /api/bff/operations/overview

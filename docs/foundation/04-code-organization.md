@@ -1,6 +1,6 @@
 # 代码组织、模块边界与依赖规范
 
-状态：`目标规范；不要求一次性物理搬迁`。
+状态：`Accepted 目标规范；本轮一次性物理切换`。
 
 更新时间：2026-08-05。
 
@@ -23,7 +23,7 @@ internal/httpapi/     客户、管理员、CLI 和公开接口处理
 - HTTP DTO、领域对象和投影容易共用同一结构，兼容变更影响扩大。
 - 新功能自然继续加入旧宽包，目录搬迁后仍会复制相同问题。
 
-本轮不做纯物理搬家。先建立逻辑模块、窄端口和依赖检查，再逐模块迁移。
+本轮不保留“先建立逻辑模块、以后再迁移”的中间结构。文档、目标目录和代码在同一次整改中完成切换；验证可以按依赖顺序进行，但最终提交不得包含旧包、旧路径或兼容别名。
 
 ## 2. 目标架构层次
 
@@ -56,7 +56,7 @@ Composition Root 是唯一知道所有具体实现的地方
 
 ## 3. 目标目录
 
-目录表示目标所有权，迁移按 [07-migration-and-delivery.md](./07-migration-and-delivery.md) 分阶段完成。
+目录表示目标所有权，迁移按 [07-migration-and-delivery.md](./07-migration-and-delivery.md) 一次性切换。
 
 ```text
 internal/
@@ -93,15 +93,31 @@ contracts/
 ├── integration/              Agent、Connector、Provider 契约
 └── openapi/                  按表面拆分或生成的 OpenAPI
 
-web/src/
+apps/web/src/
 ├── studio/                   客户创作台 Shell、routes、features
 ├── admin/                    平台运营控制台（发布、能力、运行、资产治理）
 ├── public/                   官网、登录、公开审核和文档
 ├── shared/                   纯 UI 原语、品牌、格式化和 API 基础设施
 └── app/                      Router 和根级 Provider 装配
+
+apps/desktop/
+├── src/main/                 Electron 生命周期、系统权限、更新和通知
+├── src/preload/              版本化、运行时校验的 typed IPC
+├── src/renderer/             持续项目工作面
+└── tests/e2e/                真实 Daemon/Cloud fixture 的进程验收
+
+packages/ui/                  Web/Desktop 共用的纯 UI 原语和设计 Token
+packages/contracts-ts/        从 OpenAPI/Schema 生成的 TypeScript 契约
+
+internal/local/
+├── workspace/                本地目录、Claim、Proposal、Apply、View
+├── sync/                     outbox、cursor、上传、下载、冲突和恢复
+├── workbench/                Direct Browser 和 MCP Apps Presenter
+├── desktopapi/               Desktop command/query/event surface
+└── config/                   设备、绑定和本地配置
 ```
 
-目录不是立即创建的空壳。只有迁移一个真实模块时才建立对应目录。
+目录必须由真实实现一次性填充，不创建没有所有权和测试的空壳包。
 
 ## 4. 模块内部结构
 
@@ -172,42 +188,30 @@ internal/work/
 
 | 当前路径 | 目标 | 策略 |
 | --- | --- | --- |
-| `internal/domain/*.go` | 对应业务模块 `model.go` | 按聚合迁移；迁移前保留类型别名或 Adapter，禁止复制行为 |
-| `internal/app/*.go` | 模块 command/query 或应用协调器 | 先切窄接口和测试，再移动实现 |
-| `internal/store/store.go` | 各模块 `repository.go` | 新代码禁止扩大全局 Store；逐模块拆接口 |
-| `internal/store/postgres` | `internal/persistence/postgres` | 实现模块端口，迁移期可保留适配器 |
-| `internal/store/memory` | `internal/persistence/memory` | 保持与 PostgreSQL 相同契约测试 |
+| `internal/domain/*.go` | 对应业务模块 `model.go` | 一次性按事实所有者迁移；不保留类型别名 |
+| `internal/app/*.go` | 模块 command/query 或应用协调器 | 直接拆分并更新调用方，不保留全局 Service |
+| `internal/store/store.go` | 各模块 `repository.go` | 迁移完成后删除全局 Store |
+| `internal/store/postgres` | `internal/persistence/postgres` | 只实现模块端口，不保留旧包适配器 |
+| `internal/store/memory` | `internal/persistence/memory` | 与 PostgreSQL 运行同一契约测试 |
 | `internal/httpapi` | `internal/transport/http` | 按 studio/admin/agent/public 路由拆 DTO 和 Handler |
-| `internal/agentadapter` | `internal/integration/agent` | 保留 CLI 兼容适配器，补 `AgentHarnessAdapter`、FakeHarness 和 Runtime Node 契约 |
-| `internal/environment` | `catalog` + `integration` + `runtime binding` | 先拆清配置、信任和运行绑定语义 |
+| `internal/agentadapter` | `internal/integration/agent` | 直接迁移 Harness、FakeHarness 和 Runtime Node 契约 |
+| `internal/environment` | `catalog` + `integration` + `runtime binding` | 一次性拆清配置、信任和运行绑定语义 |
 | `internal/mediapipeline` | `delivery` + `integration/provider` | 业务状态归 delivery，SDK 调用归 provider |
 | `internal/worker` | Runtime worker / 模块 worker | 节点执行与业务处理按能力拆分 |
-| `web/src/workspace` | `web/src/studio` / `web/src/admin` / `web/src/styles` | 客户页面已迁入 Studio；workspace 目录已退场，Admin 共享规范化器位于 `admin/operationsData.ts`，共享工作面样式位于 `styles/workSurface.css` |
-| `web/src/admin` | 保留并按 overview/experiences/catalog/binding-policies/runtime/assets/governance 分区 | 复用现有独立 Shell 和权限；中文页面蓝图见 `docs/product/operations-control-plane/04-page-blueprints-and-language.md`；不得继续扩大全能 Admin 页面 |
-| `web/src/types.ts` | feature types / generated contracts | 禁止继续加入新业务大类型 |
+| `internal/localworkspace` | `internal/local/workspace` | 直接迁移本地目录事实、Claim、Proposal 和 View |
+| `internal/workbench` | `internal/local/workbench` | 直接迁移 Presenter、MCP Apps 和 Direct Browser |
+| `internal/localconfig` | `internal/local/config` | 直接迁移设备和 Workspace 绑定配置 |
+| `web` | `apps/web` | Git rename 后同步所有构建、CI、脚本和文档引用 |
+| `apps/web/src/workspace` | `apps/web/src/studio` / `apps/web/src/admin` / `apps/web/src/styles` | 客户页面已迁入 Studio；workspace 目录已退场，Admin 共享规范化器位于 `admin/operationsData.ts`，共享工作面样式位于 `styles/workSurface.css` |
+| `apps/web/src/admin` | 保留并按 overview/experiences/catalog/binding-policies/runtime/assets/governance 分区 | 复用现有独立 Shell 和权限；中文页面蓝图见 `docs/product/operations-control-plane/04-page-blueprints-and-language.md`；不得继续扩大全能 Admin 页面 |
+| `apps/web/src/types.ts` | feature types / generated contracts | 禁止继续加入新业务大类型 |
 | `internal/domain/projection.go` / `internal/app/projection.go` | `internal/experience/projection` | 复用现有投影模式，先增加窄 Query/Projector；禁止把目录项放入 Source 或 Delivery 聚合 |
 
 ## 8. 兼容代码规范
 
-每个兼容 Adapter 必须包含：
+本次早期研发整改不创建兼容层、类型别名、双写或旧路径转发。只有已经对外发布且有真实消费者的契约，才可以通过独立 ADR 定义明确的 major/minor 兼容窗口；本地目录、内部 Go 包、开发数据库和未发布 API 不具备该条件。
 
-```text
-CompatRecord
-├── legacy_source
-├── target_contract
-├── owner
-├── introduced_in
-├── metrics
-├── read_compare_rule
-├── rollback_rule
-├── removal_gate
-└── latest_removal_phase
-```
-
-- 兼容层只做语义映射，不承载新业务规则。
-- 新功能不得依赖已标记 `deprecated` 的接口。
-- 双写只用于有限迁移窗口，必须有摘要对账和失败告警。
-- 达到退场门槛后优先删除兼容路径，不长期保留“保险代码”。
+任何临时迁移脚本必须在同一次整改中运行并删除，不能把脚本留在仓库作为下一次开发路径。
 
 ## 9. 架构门禁
 
@@ -219,7 +223,7 @@ CI 最终必须加入不依赖新大型框架的架构检查：
 - 检查新 Repository 是否继续扩大全局 `store.Store`。
 - 检查跨模块 DTO 是否使用版本化引用而非数据库结构。
 - 检查 `CreativeAssetCatalogItem` 只位于读路径，目录更新不能直接修改 Source、Rights、Approval、Artifact 或 Delivery 状态。
-- 检查 `compat`、`deprecated` 和 `dead` 条目是否有所有者、退场阶段和可验证门槛。
+- 检查旧包、旧 import、兼容别名、双写和通用 IPC 是否为零。
 
 任何例外必须有 ADR、到期时间和对应测试，不能通过注释永久豁免。
 

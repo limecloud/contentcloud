@@ -1,0 +1,102 @@
+%% Content Work OS / ContentCloud current architecture source.
+%% Business facts and runtime facts remain separate; all executor paths return through gates and receipts.
+flowchart TB
+    subgraph Surfaces["① 人与执行入口"]
+        Studio["Customer Studio / Asset Library"]
+        Ops["Operations Control Plane"]
+        CLI["ContentCloud CLI / Daemon"]
+        Worker["ContentCloud Worker"]
+        Connector["Provider / Connector / Human"]
+    end
+
+    subgraph Contracts["② 产品合同与业务事实"]
+        BFF["Studio BFF · Operations BFF · commands"]
+        Catalog["Experience · SOP · Capability · Gate"]
+        Work["WorkTask · input snapshot · project refs"]
+        Review["SubmissionRevision · Review · ApprovedSnapshot"]
+        Assets["Artifact · DeliveryPackage · CreativeResultAsset"]
+    end
+
+    subgraph Runtime["③ Agentic Job Runtime：执行事实唯一 owner"]
+        Plan["JobPlanRevision · ExecutionBindingSnapshot"]
+        Job["JobRun · graph · budget · policy"]
+        Node["NodeRun · dependency · readiness"]
+        Attempt["RuntimeAttempt · lease · fence · heartbeat"]
+        Context["ContextView · tool allowlist · checkpoint"]
+        Effect["Effect · inbox/outbox · reconciliation"]
+        Events["JobEvent · runtime projection · diagnostics"]
+    end
+
+    subgraph Loop["④ 一次节点执行生命周期"]
+        Admit["admit"]
+        Compile["compile / freeze"]
+        Schedule["schedule ready node"]
+        Lease["lease + ContextView"]
+        Execute["execute Worker / Agent / Connector / Human gate"]
+        Validate["validate schema · digest · rights · budget"]
+        Complete["complete / retry / branch / wait"]
+    end
+
+    subgraph Seam["⑤ Capability Seam：Definition / Provider / Consumer"]
+        Deterministic["Deterministic Worker\nparse · lint · render · package"]
+        Harness["Agent Harness\nCodex · Claude · Plugin · Skill · MCP"]
+        Provider["Provider / Connector\nsearch · media · API · webhook"]
+        External["External SaaS / Browser\npartial · external-dependency"]
+        Human["Human creator / reviewer / operator"]
+    end
+
+    subgraph Data["⑥ 数据平面与投影"]
+        BusinessFacts["Business facts\nSource · Knowledge · Work · Review · Delivery"]
+        RuntimeFacts["Runtime facts\nJob · Node · Attempt · Lease · Effect · Event"]
+        Storage[("PostgreSQL + Blob / Artifact Store")]
+        Projections["Customer Journey · Creative Asset Catalog\nOperations Runtime Explorer"]
+    end
+
+    Studio --> BFF
+    Ops --> BFF
+    CLI --> BFF
+    Worker --> Attempt
+    Connector --> Attempt
+    BFF --> Work
+    Catalog --> Plan
+    Work --> Plan
+    Work --> Review
+    Review --> Assets
+    Plan --> Job --> Node --> Attempt --> Context
+    Attempt --> Effect --> Events
+    Attempt --> Execute
+    Events --> RuntimeFacts
+    Work --> BusinessFacts
+    Review --> BusinessFacts
+    Assets --> BusinessFacts
+    BusinessFacts -->|refs + digest| Plan
+
+    Admit --> Compile --> Schedule --> Lease --> Execute --> Validate --> Complete
+    Complete -->|downstream ready| Schedule
+    Complete -->|waiting human / external| Node
+    Complete -->|new branch| Job
+    Execute --> Deterministic
+    Execute --> Harness
+    Execute --> Provider
+    Execute --> External
+    Execute --> Human
+    BusinessFacts --> Storage
+    RuntimeFacts --> Storage
+    Storage --> Projections
+    Projections --> Studio
+    Projections --> Ops
+
+    classDef surface fill:#eff6ff,stroke:#4c91ff,color:#172033
+    classDef contract fill:#edf4f8,stroke:#3b6f8f,color:#172033
+    classDef production fill:#fff3ed,stroke:#b45b3c,color:#172033
+    classDef review fill:#fff1f2,stroke:#c24f5f,color:#172033
+    classDef runtime fill:#edf4ef,stroke:#397860,color:#172033
+    classDef seam fill:#f8faff,stroke:#4c91ff,color:#172033
+    classDef data fill:#f3f5f8,stroke:#52627b,color:#172033
+    class Studio,Ops,CLI,Worker,Connector surface
+    class BFF,Catalog,Work contract
+    class Review,Assets review
+    class Plan,Job,Node,Attempt,Context,Effect,Events runtime
+    class Admit,Compile,Schedule,Lease,Execute,Validate,Complete production
+    class Deterministic,Harness,Provider,External,Human seam
+    class BusinessFacts,RuntimeFacts,Storage,Projections data

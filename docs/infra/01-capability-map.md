@@ -2,7 +2,7 @@
 
 状态：`当前实现对账 + 首个用户前的收口能力地图`。
 
-更新时间：2026-08-11。
+更新时间：2026-08-17。
 
 ## 1. 状态口径
 
@@ -55,6 +55,18 @@ V8 Runtime
 | 外部执行者 | 本地/远程 Agent、Agent SaaS、创作 SaaS、Worker、模型、人工和渠道 | `current` / `external-dependency` | Adapter、Runtime 和回执由 ContentCloud 管理；具体进程、账号和配额由外部系统提供 |
 
 Runtime 只拥有执行事实；业务域拥有来源、知识、内容、审批、产物、交付和外部回执事实。
+
+### 3.1 工作面能力映射
+
+| 能力 | Codex | Desktop | Web Studio / Operations |
+| --- | --- | --- | --- |
+| 项目内容目录 | 当前任务引用与 MCP View | 完整本地目录、业务分组和离线状态 | 已提交的团队目录与云端投影 |
+| 内容修改 | Claim -> Proposal -> Apply | 外部编辑观察、冲突处理和受控命令 | 基于 Cloud Revision 创建团队修订 |
+| 同步与上传 | 可发起显式命令，不维护队列 | 持久队列、分片恢复、游标和状态 | 服务端策略、配额和治理结果 |
+| 审批 | 解释反馈、生成修订，不作决定 | 个人收件箱和精确版本决定 | 公开/团队审核与运营治理 |
+| Runtime | 交互执行或 Harness | 用户可理解的进度、等待和恢复动作 | Runtime Explorer 与跨租户运维 |
+
+Desktop 当前为 `target`，不能写成已经发布。其完成门槛以 [Desktop 一次性交付计划](../product/content-work-os-desktop/04-delivery-plan.md) 为准。
 
 ## 4. 任务入口与需求定义
 

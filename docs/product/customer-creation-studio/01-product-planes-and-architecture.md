@@ -37,7 +37,7 @@ Content Work OS 创作任务
 
 中心不能命名为“ContentCloud Agent”。Content Work OS 是客户产品品牌；ContentCloud Agentic Job Runtime 是中心背后的技术执行内核。完整表达规则见[产品叙事规范](../00-product-narrative.md)。
 
-## 2. 四个边界清晰的部分
+## 2. 五个边界清晰的部分
 
 ### 2.1 客户创作台
 
@@ -111,6 +111,18 @@ Runtime 不理解客户页面布局，也不把“人物原型”“公众号文
 | 本地 Codex / Claude Code | 本地资料研究、MCP 工具、策略、人物原型、剧本和语义修订 | 保存云端权威状态、自动批准 |
 | 外部服务商 | 搜索、图片、视频、语音、转录和平台 API | 决定业务任务是否成功或交付 |
 | 人工节点 | 事实、权利、方向、费用和最终内容决定 | 直接修改运行时历史 |
+
+### 2.5 Content Work OS Desktop
+
+Desktop 是持续项目工作面，不是客户 Web Studio 的壳，也不是 Codex 的聊天容器。它直接面向项目生命周期，负责：
+
+- 展示上下文、来源、知识、工作、生产、结果和交付目录。
+- 观察本地文件、Codex Apply、外部编辑、同步、上传和处理进度。
+- 提供大媒体预览、版本差异、冲突处理、审批收件箱和交付状态。
+- 通过 Go Local Service 与 Cloud API 交互，不让 Renderer 直接访问文件系统或服务端。
+- 通过对象引用、revision 和意图发起 Codex Handoff；不在 Desktop 内复制 AI 对话。
+
+Desktop 不拥有 Cloud Revision、Approval、Artifact 或 Runtime 事实；服务端命令和 Local Workspace Kernel 必须重新校验所有写入。
 
 ## 3. 总体架构
 
@@ -303,7 +315,7 @@ WorkTask
 ├── customer-bff/             客户业务投影和业务命令
 ├── experience-projection/    CustomerJourney 和 CreativeResultAsset
 ├── admin-control-plane/      运营配置、发布和诊断
-└── web/
+└── apps/web/
     ├── studio/               客户创作台
     └── admin/                运营控制台
 ```

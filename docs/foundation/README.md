@@ -31,18 +31,19 @@ Worker、本地 Agent、服务商和人工完成各自适合的节点
 | 1 | [00-charter-and-principles.md](./00-charter-and-principles.md) | 为什么重构，哪些原则不可破坏 |
 | 2 | [01-product-planes.md](./01-product-planes.md) | 客户、运营、诊断和执行者分别看到什么 |
 | 3 | [运营后台方案](../product/operations-control-plane/README.md) | 运营后台的页面、发布、能力、运行诊断和创作结果治理怎么落地 |
-| 4 | [02-business-domains.md](./02-business-domains.md) | 哪个业务域拥有哪类事实，核心对象如何关联 |
-| 5 | [03-system-and-runtime.md](./03-system-and-runtime.md) | 系统组件、Runtime、执行路径和状态怎样工作 |
-| 6 | [04-code-organization.md](./04-code-organization.md) | 目标代码目录、模块职责和依赖方向是什么 |
-| 7 | [05-contracts-and-extension.md](./05-contracts-and-extension.md) | 新流水线、Schema、API、事件和版本怎样扩展 |
-| 8 | [06-security-quality-operations.md](./06-security-quality-operations.md) | 安全、测试、可观测性和发布门禁是什么 |
-| 9 | [07-migration-and-delivery.md](./07-migration-and-delivery.md) | 如何从现状渐进迁移并持续交付客户价值 |
-| 10 | [08-developer-experience.md](./08-developer-experience.md) | 开发者如何新增、验证、调试、升级和发布流水线 |
-| 11 | [09-reference-patterns.md](./09-reference-patterns.md) | 外部系统怎样验证产品面、流水线、执行者和结果资产的分层 |
-| 12 | [内容创作 AI Infra](../infra/README.md) | 搜索、采集、编排、产物、发布和反馈的横向基础能力地图 |
-| 13 | [10-current-state-inventory.md](./10-current-state-inventory.md) | 目标架构对应的当前代码证据、门禁基线和精确退场条件 |
-| 14 | [decisions/README.md](./decisions/README.md) | 哪些重大决策必须记录为 ADR |
-| 15 | [PLAN.md](./PLAN.md) | 本轮文档重构的范围、问题和退出条件 |
+| 4 | [Content Work OS Desktop](../product/content-work-os-desktop/README.md) | 持续本地项目、同步、上传、审批和 Codex 协作怎样工作 |
+| 5 | [02-business-domains.md](./02-business-domains.md) | 哪个业务域拥有哪类事实，核心对象如何关联 |
+| 6 | [03-system-and-runtime.md](./03-system-and-runtime.md) | 系统组件、Runtime、执行路径和状态怎样工作 |
+| 7 | [04-code-organization.md](./04-code-organization.md) | 目标代码目录、模块职责和依赖方向是什么 |
+| 8 | [05-contracts-and-extension.md](./05-contracts-and-extension.md) | 新流水线、Schema、API、事件和版本怎样扩展 |
+| 9 | [06-security-quality-operations.md](./06-security-quality-operations.md) | 安全、测试、可观测性和发布门禁是什么 |
+| 10 | [07-migration-and-delivery.md](./07-migration-and-delivery.md) | 如何一次性切换目录并持续交付客户价值 |
+| 11 | [08-developer-experience.md](./08-developer-experience.md) | 开发者如何新增、验证、调试、升级和发布流水线 |
+| 12 | [09-reference-patterns.md](./09-reference-patterns.md) | 外部系统怎样验证产品面、流水线、执行者和结果资产的分层 |
+| 13 | [内容创作 AI Infra](../infra/README.md) | 搜索、采集、编排、产物、发布和反馈的横向基础能力地图 |
+| 14 | [10-current-state-inventory.md](./10-current-state-inventory.md) | 目标架构对应的当前代码证据、门禁基线和精确退场条件 |
+| 15 | [decisions/README.md](./decisions/README.md) | 哪些重大决策必须记录为 ADR |
+| 16 | [PLAN.md](./PLAN.md) | 本轮文档重构的范围、问题和退出条件 |
 
 ## 4. 文档事实层级
 
@@ -69,7 +70,7 @@ Worker、本地 Agent、服务商和人工完成各自适合的节点
 5. 流水线声明能力，发布或准入阶段绑定具体执行者，运行中不静默换绑。
 6. 任务开始时固定体验模板、SOP、执行计划、能力绑定和输入摘要。
 7. 候选结果只有通过来源、权利、质量和人工门禁后才能成为正式输入。
-8. 兼容层必须有所有者、指标、退场条件和最晚清理阶段。
+8. 已发布公共契约若确需兼容，必须有所有者、指标、退场条件和最晚清理阶段；本次早期研发内部重构不保留兼容层。
 9. 模块化单体优先，只有负载、故障隔离或组织所有权证明需要时才拆服务。
 10. 发布声明必须区分目标、预览、已实现和已投产。
 11. 客户“资产”是统一入口，不是统一写模型；它组合客户上传/导入的工作区资料与流水线生成结果两个专用投影。
@@ -77,6 +78,9 @@ Worker、本地 Agent、服务商和人工完成各自适合的节点
 13. 创作结果投影只表达人物原型、剧本、分镜、图片和视频；已确认或已交付结果才能正式复用，结果状态不能强加给普通文件。
 14. 所有资产引用固定底层对象版本和摘要，目录项与文件夹本身不成为 Runtime 权威输入或业务正文拥有者。
 15. 客户叙事中心是 Content Work OS 创作任务，不是万能 Agent；供应商只作为可替换执行者或工具示例。
+16. Codex 是任务期 AI 工作面，Desktop 是持续项目工作面，Web 是团队与治理工作面；三者共享事实引用但不共享业务页面。
+17. Local Workspace 与 Cloud Revision 是两个明确事实源；Desktop SQLite、Renderer 状态和事件缓存都不能成为第三事实源。
+18. 早期研发期目录整改一次性切换到目标结构，不保留旧路径、类型别名、兼容 Facade 或双写。
 
 ## 6. 现有对象与模块处置规则
 

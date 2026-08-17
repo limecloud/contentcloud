@@ -23,13 +23,13 @@ if (!contentKinds.includes('video_script') || !contentKinds.includes('wechat_art
   failures.push('ContentBatch schema must route both current content kinds')
 }
 
-const publicReview = read('web/src/views/PublicViews.tsx')
+const publicReview = read('apps/web/src/views/PublicViews.tsx')
 requireText(publicReview, 'reviewSubject(projection)', 'public review must route through reviewSubject')
 requireText(publicReview, '<ReviewContent', 'public review must render the routed review subject')
 for (const token of ['.shots', 'duration_ms', 'contentcloud.content-item/3.0']) {
   forbidText(publicReview, token, `public review shell must not assume video field ${token}`)
 }
-const reviewRouter = read('web/src/views/reviewSubject.ts')
+const reviewRouter = read('apps/web/src/views/reviewSubject.ts')
 for (const token of ["kind:'video_script'", "kind:'wechat_article'", "contentcloud.content-item/3.0", "contentcloud.article/1.0"]) {
   requireText(reviewRouter, token, `review subject router is missing ${token}`)
 }
@@ -88,11 +88,11 @@ for (const file of ['internal/cli/local_commands.go', 'internal/cli/workspace_co
   forbidText(read(file), 'UpdatePlatformTenantContentCapability', `${file} must not enable tenant content capabilities`)
 }
 
-const workspaceRouter = read('web/src/router.tsx')
+const workspaceRouter = read('apps/web/src/router.tsx')
 if ((workspaceRouter.match(/web\/src\/workspace|\.TaskProductionPage/g) ?? []).length !== 0) {
   failures.push('retired workspace task routes must not be reintroduced')
 }
-forbidText(workspaceRouter, 'WorkOSTaskDetailPage', 'web/src/router.tsx must not restore the retired task detail page')
+forbidText(workspaceRouter, 'WorkOSTaskDetailPage', 'apps/web/src/router.tsx must not restore the retired task detail page')
 
 if (failures.length > 0) {
   console.error(failures.join('\n'))

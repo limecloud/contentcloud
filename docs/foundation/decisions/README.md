@@ -1,6 +1,6 @@
 # 架构决策记录规范
 
-状态：`规范已定义；候选 ADR 待联合评审后逐项接受`。
+状态：`规范已定义；Accepted ADR 是当前实现必须遵守的架构事实`。
 
 更新时间：2026-08-07。
 
@@ -98,6 +98,8 @@ ADR-0002-product-plane-separation.md
 | [ADR-0015](./ADR-0015-operations-control-plane.md) | 独立的平台运营后台 | 按创作产品、能力与执行、运行诊断、创作结果治理分区；客户面与运营面完全分离 | Operations BFF、发布中心、绑定规则、Runtime Explorer 和资产治理 |
 | [ADR-0016](./ADR-0016-runtime-command-kernel.md) | Runtime 统一事务命令内核 | 快照、JobEvent 和 outbox 在同一命令提交边界内完成；Service 不再组合宽写方法 | RuntimeCommandStore、outbox、故障注入和旧写路径退场 |
 | [ADR-0017](./ADR-0017-codex-runtime-harness.md) | Codex Runtime Harness | 使用官方 CLI JSONL/thread resume；会话固定在 RuntimeAttempt，事件必须经 fence 脱敏入库 | Runtime worker、Codex 会话恢复、宿主数据边界和旧 SessionStore 镜像退场 |
+| [ADR-0018](./ADR-0018-desktop-surface-and-repository-topology.md) | Desktop 产品面、Electron 技术栈与仓库拓扑 | Codex 负责任务期 AI 交互，Desktop 负责持续项目工作面，Web 负责团队与治理；仓库一次性切换到目标目录 | Electron、Go Daemon、Surface 边界、代码目录和分发 |
+| [ADR-0019](./ADR-0019-local-cloud-sync-authority.md) | Local/Cloud 同步权威 | Local Workspace 拥有未提交事实，Cloud Revision 拥有已提交治理事实；SQLite 只做可重建缓存和 outbox | 同步、上传、审批、冲突、离线和恢复 |
 
 候选编号在正式创建 ADR 文件时确认。若已有项目 ADR 编号体系，应迁入现有体系而不是并行编号。
 

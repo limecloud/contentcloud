@@ -9,17 +9,16 @@
 ContentCloud 必须为不同角色提供不同产品面，而不是让所有人进入同一个后台再依靠菜单隐藏复杂度。
 
 ```text
-客户创作者 / 客户审批人             平台内容运营 / 运行运营
-             |                                  |
-             v                                  v
-      客户创作台                          平台运营控制台
-      /studio/*                            /admin/*
-             |                                  |
-             v                                  v
-      Studio BFF                         Operations BFF
-             \                                  /
-              \                                /
-               +------ 领域服务与 Runtime -----+
+客户创作者 / 审批人       Desktop 项目用户       平台内容运营 / 运行运营
+       |                         |                         |
+       v                         v                         v
+ Web Studio /studio/*     Content Work OS Desktop       Operations /admin/*
+       |                         |                         |
+       v                         v                         v
+ Studio BFF              Go Local Service / Sync       Operations BFF
+       \                         |                         /
+        \                        |                        /
+         +---------- 领域服务与 Runtime ---------------+
                               |
                               v
                    Worker / Agent / Provider / Human
@@ -36,6 +35,16 @@ ContentCloud 必须为不同角色提供不同产品面，而不是让所有人�
 ```
 
 本文件其余架构图用于说明职责、权限和系统边界，不直接作为官网或客户首图。外部叙事不能把中心写成“ContentCloud Agent”，也不能把 Codex、Claude Code 或某个服务商描述为开始创作的必选前提。完整规则见[产品叙事规范](../product/00-product-narrative.md)。
+
+### 1.2 三个工作面的职责
+
+| 工作面 | 持续时间 | 主要渲染 | 不拥有 |
+| --- | --- | --- | --- |
+| Codex | 当前 AI 任务 | 对话、推理结果、Proposal、轻量 MCP App | 项目目录、审批权威、上传队列 |
+| Desktop | 项目生命周期 | 内容目录、资产、大媒体、同步、审批、任务、交付、通知 | Cloud 数据库、Codex transcript、平台治理 |
+| Web Studio/Operations | 团队与组织生命周期 | 跨设备协作、租户设置、运营配置和 Runtime 诊断 | 本地未提交文件、Desktop Token、AI transcript |
+
+Desktop 不是 Codex 的渲染替代品。Codex 任务结束后，Desktop 仍然持续显示项目和传输状态；用户从 Desktop 发起 AI 命令时，通过对象引用和 revision Handoff 打开 Codex，而不是在 Desktop 里复制聊天。
 
 ## 2. 客户创作台
 
@@ -169,9 +178,9 @@ Runtime Explorer 是运营控制台中的诊断产品，不是客户功能。它
 
 Explorer 只通过运行读模型查询。任何操作按钮由服务端按当前状态和权限返回，不能成为绕过领域命令的通用控制台。
 
-## 6. 本地 Agent 和开发者执行面
+## 6. Codex、本地 Agent 和 Desktop 执行面
 
-Codex、Claude Code、CLI、Plugin、Skill 和 MCP 为执行与集成表面，不是客户必须使用的主界面。
+Codex、Claude Code、CLI、Plugin、Skill 和 MCP 为执行与集成表面，不是客户必须使用的主界面。Desktop 是持续项目工作面，不承担 Agent transcript 或模型会话权威。
 
 它们可以：
 
@@ -187,6 +196,17 @@ Codex、Claude Code、CLI、Plugin、Skill 和 MCP 为执行与集成表面，�
 - 自动提升权限、预算、工具或数据披露等级。
 - 直接访问 ContentCloud 数据库和服务商密钥。
 - 提交隐藏推理、完整本地路径或完整聊天记录作为正式业务事实。
+
+Desktop 可以：
+
+- 读取 Go Local Service 提供的项目、资产、同步、审批、任务和交付投影。
+- 发起上传、审批、评论、恢复和受控 Codex Handoff。
+- 展示本地与云端 revision/digest 的差异和冲突。
+
+Desktop 不能：
+
+- 通过 Renderer 直接访问文件系统、数据库、服务端 API 或设备凭据。
+- 以 UI 状态替代服务器命令、权限、Gate、CAS 和幂等校验。
 
 ## 7. 同一状态的两种语言
 

@@ -68,33 +68,33 @@ Content Work OS 需要同时向客户解释“它能帮我完成什么”，向�
 ## 5. 平台架构图
 
 ```text
-客户创作者 / 客户审批人                 平台内容运营 / 运行运营
-            |                                      |
-            v                                      v
-      客户创作台与资产入口                     平台运营控制台
-            |                                      |
-            v                                      v
- Customer Journey + Customer Asset Surface       Operations Projection
-            \                                      /
-             +------ 业务域与版本化契约 -----------+
-                               |
-                               v
-                 ContentCloud Agentic Job Runtime
-                               |
-          +--------------------+--------------------+
-          |                    |                    |
-          v                    v                    v
-  ContentCloud Worker    Codex / Claude Code    外部服务商与工具
-          \                    |                    /
-           +-------------------+-------------------+
-                               |
-                               v
-                   候选结果 -> 人工门禁 -> 正式事实
+客户 Web Studio         Content Work OS Desktop       平台运营控制台
+      |                         |                         |
+      v                         v                         v
+Customer Journey         Project View / Sync Inbox       Operations Projection
+      |                         |                         |
+      +------------+------------+------------------------+
+                   v
+           业务域与版本化契约
+                   |
+                   v
+       ContentCloud Agentic Job Runtime
+                   |
+      +------------+-------------+------------+
+      |                          |            |
+      v                          v            v
+确定性 Worker              Codex / Claude   外部服务商
+      \                          |            /
+       +-------------------------+-----------+
+                                 v
+                    候选结果 -> 人工门禁 -> 正式事实
 ```
 
 这张图表达责任和信任边界，不承担营销任务。它必须继续显示：
 
 - 客户面和运营面完全分离。
+- Codex 是任务期 AI 渲染面，Desktop 是持续项目渲染面，Web 是团队和治理渲染面。
+- Desktop 通过 Go Local Service 与 Workspace、同步、上传和服务端交互，不在 Renderer 中复制业务内核。
 - Runtime 只拥有执行事实，不拥有来源、批准、资产正文和交付正文。
 - Codex、Claude Code、确定性 Worker、外部服务商和人工都是执行者或参与者。
 - 候选、人工决定和正式事实之间存在明确门禁。

@@ -4,7 +4,7 @@
     "slug": "overview",
     "source": "README.md",
     "title": "Content Work OS 使用文档",
-    "description": "按客户端、内容形态和真实可用场景查找 Content Work OS 使用方法。",
+      "description": "按连接工具、内容形式和真实可用场景查找 Content Work OS 使用方法。",
     "kind": "overview",
     "status": "available"
   },
@@ -20,8 +20,8 @@
     {
       "slug": "concepts/governed-workflow",
       "source": "concepts/governed-workflow.md",
-      "title": "受治理的内容工作流",
-      "description": "理解本地候选、云端审核、批准快照和交付边界。",
+      "title": "内容审核与交付流程",
+      "description": "理解草稿、审核通过版本、固定版本和交付文件的区别。",
       "kind": "concept",
       "status": "available"
     },
@@ -29,7 +29,7 @@
       "slug": "clients/codex",
       "source": "clients/codex.md",
       "title": "Codex",
-      "description": "使用 Codex 接入本地工作区、恢复项目状态并生产内容。",
+      "description": "使用 Codex 连接项目文件夹、恢复项目状态并制作内容。",
       "kind": "client",
       "status": "available"
     },
@@ -53,7 +53,7 @@
       "slug": "content-types/wechat-article",
       "source": "content-types/wechat-article.md",
       "title": "微信公众号文章",
-      "description": "公众号文章的租户开通、结构化创作、审核与本地交付边界。",
+      "description": "公众号文章的客户开通、结构化创作、审核与本地交付边界。",
       "kind": "content_type",
       "status": "available"
     },
@@ -69,15 +69,15 @@
       "slug": "guides/wechat-article/codex",
       "source": "guides/wechat-article/codex.md",
       "title": "使用 Codex 制作微信公众号文章",
-      "description": "从租户开通到文章创作简报、文章审核和人工发布包的完整流程。",
+      "description": "从客户开通到文章创作简报、文章审核和人工发布包的完整流程。",
       "kind": "guide",
       "status": "available"
     },
     {
       "slug": "troubleshooting/workspace-and-handoff",
       "source": "troubleshooting/workspace-and-handoff.md",
-      "title": "工作区与交接恢复故障排查",
-      "description": "按确定性检查定位初始化、本地工作区和恢复入口问题。",
+      "title": "项目文件夹连接与继续工作故障排查",
+      "description": "按页面提示排查连接、准备项目文件夹和继续工作时的问题。",
       "kind": "troubleshooting",
       "status": "available"
     }
@@ -92,7 +92,7 @@
     {
       "id": "troubleshooting",
       "title": "故障排查",
-      "description": "处理本地工作区、初始化和交接恢复问题。",
+      "description": "处理项目文件夹连接、准备和继续工作时的问题。",
       "page_slugs": ["troubleshooting/workspace-and-handoff"]
     }
   ],
@@ -108,7 +108,7 @@
       "id": "wechat-article",
       "title": "微信公众号文章",
       "status": "available",
-      "summary": "按租户开通，支持文章创作简报、结构化长文、文章审核和本地人工发布包。",
+      "summary": "按客户开通，支持文章创作简报、结构化长文、文章审核和本地人工发布包。",
       "page_slug": "content-types/wechat-article"
     }
   ],
@@ -119,7 +119,7 @@
       "client_id": "codex",
       "content_type_id": "marketing-video",
       "status": "available",
-      "summary": "从连接本地工作区到提交审核和交付的完整流程。",
+      "summary": "从连接项目文件夹到提交审核和交付的完整流程。",
       "page_slug": "guides/marketing-video/codex"
     },
     {
@@ -128,7 +128,7 @@
       "client_id": "codex",
       "content_type_id": "wechat-article",
       "status": "available",
-      "summary": "从租户开通、结构化创作和审核到本地人工发布包。",
+      "summary": "从客户开通、结构化创作和审核到本地人工发布包。",
       "page_slug": "guides/wechat-article/codex"
     }
   ]

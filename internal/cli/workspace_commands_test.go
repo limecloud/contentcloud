@@ -1097,7 +1097,7 @@ func TestMCPEnvironmentExecutionPlanUsesVerifiedOfflineState(t *testing.T) {
 	if _, err := localworkspace.StoreEnvironmentRegistry(root, registry, registryVerifier); err != nil {
 		t.Fatal(err)
 	}
-	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: Version, Digest: manifest.Distribution.Plugins[0].Digest, Installed: true}}
+	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: pluginidentity.VideoProductionVersion, Digest: manifest.Distribution.Plugins[0].Digest, Installed: true}}
 	if _, err := localworkspace.StoreEnvironment(root, manifest, installed, manifestVerifier, now); err != nil {
 		t.Fatal(err)
 	}
@@ -1134,7 +1134,7 @@ func TestMCPEnvironmentPreparationRequiresExactConfirmationAndReachesReady(t *te
 	if _, err := localworkspace.StoreEnvironmentRegistry(root, registry, registryVerifier); err != nil {
 		t.Fatal(err)
 	}
-	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: Version, Digest: manifest.Distribution.Plugins[0].Digest, Installed: true}}
+	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: pluginidentity.VideoProductionVersion, Digest: manifest.Distribution.Plugins[0].Digest, Installed: true}}
 	if _, err := localworkspace.StoreEnvironment(root, manifest, installed, manifestVerifier, now); err != nil {
 		t.Fatal(err)
 	}
@@ -1232,7 +1232,7 @@ func TestEnvironmentPreparationLoadsMarketingPackForCodexAndClaude(t *testing.T)
 			if sceneDigest == "" {
 				t.Fatal("marketing manifest is missing the core scene plugin")
 			}
-			installed := []environment.LockedPlugin{{ID: pluginidentity.VideoProduction, Kind: "scene_plugin", Version: Version, Digest: sceneDigest, Installed: true}}
+			installed := []environment.LockedPlugin{{ID: pluginidentity.VideoProduction, Kind: "scene_plugin", Version: pluginidentity.VideoProductionVersion, Digest: sceneDigest, Installed: true}}
 			if _, err := localworkspace.StoreEnvironment(root, manifest, installed, manifestVerifier, now); err != nil {
 				t.Fatal(err)
 			}
@@ -1307,7 +1307,7 @@ func TestWorkspacePrepareCLIPlanAndApplyUseTheSameDeterministicPlan(t *testing.T
 	if _, err := localworkspace.StoreEnvironmentRegistry(root, registry, registryVerifier); err != nil {
 		t.Fatal(err)
 	}
-	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: Version, Digest: manifest.Distribution.Plugins[0].Digest, Installed: true}}
+	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: pluginidentity.VideoProductionVersion, Digest: manifest.Distribution.Plugins[0].Digest, Installed: true}}
 	if _, err := localworkspace.StoreEnvironment(root, manifest, installed, manifestVerifier, now); err != nil {
 		t.Fatal(err)
 	}
@@ -1347,7 +1347,7 @@ func TestEnvironmentPreparationFailureRollsBackOnlyTheNewPack(t *testing.T) {
 	if _, err := localworkspace.StoreEnvironmentRegistry(root, registry, registryVerifier); err != nil {
 		t.Fatal(err)
 	}
-	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: Version, Digest: manifest.Distribution.Plugins[0].Digest, Installed: true}}
+	installed := []environment.LockedPlugin{{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: pluginidentity.VideoProductionVersion, Digest: manifest.Distribution.Plugins[0].Digest, Installed: true}}
 	if _, err := localworkspace.StoreEnvironment(root, manifest, installed, manifestVerifier, now); err != nil {
 		t.Fatal(err)
 	}

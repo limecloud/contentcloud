@@ -2,43 +2,43 @@
 
 状态：**可用**。
 
-Codex 是当前能力最完整的 Content Work OS 客户端，支持本地自动化、工作区注册与初始化、交互式任务交接和受治理创作环境。
+Codex 是当前最完整的 Content Work OS 连接工具。它可以连接项目文件夹、继续上次工作、整理资料并把结果提交到网页工作台审核。
 
-这里的“可用”指客户创作与云端治理流程。ContentCloud 已实现标准 MCP Apps 的协商、`ui://` Resource 和最小 App 页面；Codex Desktop 仍需真实宿主验收。Codex CLI 当前使用 Tool、`structuredContent` 和 MCP Resource，并按能力退回 Headless，不把上游存在 MCP Apps 管道推断为本项目富 UI 全渠道已交付。
+这里的“可用”指完整的客户创作和网页审核流程。不同 Codex 版本的显示方式可能不同：有的会显示完整页面，有的会显示文字和按钮，但都可以完成同一条工作流。
 
 ## 可用能力
 
 | 能力 | 状态 |
 | --- | --- |
-| 本地自动化 | 可用 |
-| 本地工作区注册 | 可用 |
-| 本地工作区初始化 | 可用 |
-| 交互式任务交接 | 可用 |
-| 创作环境 | 可用 |
+| 电脑上的资料整理和修改 | 可用 |
+| 连接项目文件夹 | 可用 |
+| 准备项目文件夹 | 可用 |
+| 在网页和电脑之间继续工作 | 可用 |
+| 创作所需工具 | 可用 |
 
 ## 接入方式
 
-1. 在具备本机配置权限的 Codex Desktop 或 Codex CLI 中运行。
-2. 登录 Content Work OS，在项目“执行客户端”页创建连接会话（`ConnectSession`）。
-3. 使用页面提供的固定操作指令或初始化计划连接本地工作区。
-4. 核对插件市场（`Marketplace`）、插件、目标目录变化和 `plan_id` 后，再确认执行应用操作（`apply`）。
-5. 初始化成功后，在同一本地工作区根目录中新建 Codex 对话。
-6. 新对话先调用 `workspace_context`；仅在返回 `repair_required` 时调用 `workspace_doctor`。
+1. 在有本机配置权限的 Codex Desktop 或 Codex CLI 中运行。
+2. 登录 Content Work OS，在项目的“连接工作电脑”页创建连接会话（`ConnectSession`）。
+3. 使用页面提供的连接文字连接项目文件夹。
+4. 核对要改动的目录和版本，确认后再应用操作（`apply`）。
+5. 连接成功后，在同一个项目文件夹中新建 Codex 对话。
+6. 新对话先调用 `workspace_context`；只有页面提示需要修复时，才调用 `workspace_doctor`。
 
-固定的插件市场、插件身份、命令和安全说明以兼容入口 [`/codex`](/codex) 为准。该入口继续提供浏览器 HTML 和智能体可读文本输出。
+固定的安装方式、命令和安全说明以兼容入口 [`/codex`](/codex) 为准。该入口同时提供网页说明和连接工具可读文本。
 
 ## 日常使用
 
-- 使用 `workspace_context` 恢复当前项目、执行记录（`Run`）和任务交接状态。
-- 在写入前选择明确的执行记录，并取得单写者声明（`claim`）。
-- 使用内容形态对应的技能生成或修订候选。
-- 在提交前运行本地检查（`lint`）和 `publish_preflight`。
-- 只在用户确认精确的 `plan_id` 后执行提交。
-- Web 工作台退回后，通过“在智能体客户端中修订”打开绑定精确内容版本和摘要的新对话。
+- 使用 `workspace_context` 恢复当前项目、工作记录（`Run`）和继续工作状态。
+- 写入前选择要继续的工作记录，并取得编辑许可（`claim`）。
+- 使用对应内容形式的工具生成或修改草稿。
+- 提交前运行本地检查（`lint`）和 `publish_preflight`。
+- 只有在你确认具体修改范围后，才执行提交。
+- 网页工作台退回后，通过“在连接工具中修改”打开绑定准确版本的新对话。
 
-## 当前内容形态
+## 当前内容形式
 
 - [营销视频](../content-types/marketing-video.md)：可用。
-- [微信公众号文章](../content-types/wechat-article.md)：可用，需租户显式开通。
+- [微信公众号文章](../content-types/wechat-article.md)：可用，需要管理员为客户开启。
 
 完整场景流程见[使用 Codex 制作营销视频内容](../guides/marketing-video/codex.md)和[使用 Codex 制作微信公众号文章](../guides/wechat-article/codex.md)。

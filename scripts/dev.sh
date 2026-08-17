@@ -146,7 +146,7 @@ require_command go
 require_command pnpm
 require_command curl
 
-if [ ! -d "${ROOT_DIR}/web/node_modules" ]; then
+if [ ! -d "${ROOT_DIR}/apps/web/node_modules" ]; then
   echo "Frontend dependencies are missing. Run 'pnpm install' from ${ROOT_DIR}." >&2
   exit 1
 fi
@@ -297,7 +297,7 @@ fi
   exec env \
     CONTENTCLOUD_ADDR="${BACKEND_HOST}:${BACKEND_PORT}" \
     CONTENTCLOUD_DEV_MODE=1 \
-    CONTENTCLOUD_WEB_DIST="${CONTENTCLOUD_WEB_DIST:-web/dist}" \
+    CONTENTCLOUD_WEB_DIST="${CONTENTCLOUD_WEB_DIST:-apps/web/dist}" \
     go run ./cmd/contentcloud-server
 ) &
 BACKEND_PID="$!"
@@ -323,7 +323,7 @@ wait_for_backend() {
 wait_for_backend
 
 (
-  cd "${ROOT_DIR}/web"
+  cd "${ROOT_DIR}/apps/web"
   exec env \
     VITE_DEV_PROXY_TARGET="${BACKEND_URL}" \
     VITE_DEV_PORT="${FRONTEND_PORT}" \

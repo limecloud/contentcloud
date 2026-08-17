@@ -1,11 +1,11 @@
 {
   "name": "@limecloud/contentcloud-workspace",
   "private": true,
-  "version": "0.27.0",
+  "version": "0.28.0",
   "packageManager": "pnpm@10.8.1",
   "scripts": {
-    "dev:web": "pnpm --dir web dev",
-    "build:web": "pnpm --dir web build",
+    "dev:web": "pnpm --dir apps/web dev",
+    "build:web": "pnpm --dir apps/web build",
     "architecture": "node scripts/check-architecture.mjs",
     "check:plugin": "node scripts/validate-plugin-release.mjs",
     "check:marketing-plugin": "node scripts/check-marketing-plugin.mjs",
@@ -13,7 +13,7 @@
     "governance:content": "node scripts/check-content-governance.mjs",
     "governance:v3": "node scripts/check-v3-legacy.mjs",
     "test:plugin-signing": "node --test scripts/lib/plugin-release.test.mjs",
-    "test:web": "pnpm --dir web test",
-    "typecheck": "pnpm --dir web typecheck"
+    "test:web": "pnpm --dir apps/web test",
+    "typecheck": "pnpm --dir apps/web typecheck"
   }
 }

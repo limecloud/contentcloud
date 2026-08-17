@@ -143,9 +143,11 @@ Provider 配置不再要求直接写数据库。以下接口均挂在需要登�
 | `GET` | `/api/bff/provider-profiles?provider_id=...` | 已登录租户 | 查看当前可绑定的已发布、未过期 Profile；draft 和过期版本不会返回。 |
 | `POST` | `/api/bff/admin/provider-profiles` | 平台管理员 | 创建 `draft` Profile。请求只包含能力、限制、费用和核验时间，不接受 API Key。 |
 | `POST` | `/api/bff/admin/provider-profiles/{providerID}/{version}/publish` | 平台管理员 | 发布已核验且未过期的 Profile；发布操作幂等。 |
-| `GET` | `/api/bff/provider-bindings/{providerID}` | 当前租户管理员 | 查看当前租户 Binding，`credential_ref` 永远不会序列化到响应。 |
+| `GET` | `/api/bff/provider-bindings/{providerID}` | 当前租户成员（只读） | 查看当前租户 Binding；`credential_ref` 永远不会序列化，只返回 `credential_configured` 布尔状态。 |
 | `PUT` | `/api/bff/provider-bindings/{providerID}` | 当前租户管理员 | 配置当前租户 Binding。启用非 fake Provider 时，凭据只能是 `secret://`、`vault://` 或 `env://` 引用。 |
 | `PUT` | `/api/bff/admin/tenants/{tenantID}/provider-bindings/{providerID}` | 平台管理员 | 代租户配置 Binding；同样要求 Profile 版本精确匹配且处于 published、未过期状态。 |
+
+Binding 的读取响应会保留状态、Profile 版本、预算和出口策略，但只返回 `credential_configured`，不会返回凭据引用。租户工作台和平台后台都消费这一安全状态；Binding 的写入仍只允许租户管理员或平台管理员。
 
 Profile 创建示例（时间字段使用 RFC3339）：
 

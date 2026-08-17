@@ -2,6 +2,23 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.28.0] - 2026-08-17
+
+### Added
+
+- 增加 Provider Profile、Provider Binding 和管理员 Provider 管理页面，支持按租户配置出口策略、预算和服务商路由。
+- Provider 凭据引用只允许写入，不在 API 响应中回显，并增加对应 HTTP/应用层回归测试。
+
+### Changed
+
+- Content Work OS 前端迁移到 `apps/web`，同步 Workspace、Docker、CI、治理脚本和开发文档路径。
+- 更新工作台、Studio、运营页和官网视觉层级，统一 Provider 状态与白标工作流文案。
+- 应用发布版本与独立签名的 Scene Plugin 版本解耦；应用升级到 `0.28.0`，生产插件继续固定在已验证的 `0.27.0`。
+
+### Security
+
+- Provider Binding 查询不再泄漏 `credential_ref`，仅返回是否已配置凭据。
+
 ## [0.27.0] - 2026-08-15
 
 ### Added

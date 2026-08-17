@@ -182,6 +182,14 @@ func (s *Service) ConfigureProviderBinding(ctx context.Context, actor Actor, ten
 	}
 	egressPolicy := strings.TrimSpace(input.EgressPolicy)
 	credentialRef := strings.TrimSpace(input.CredentialRef)
+	// A binding update may change budgets or routing without forcing the
+	// operator to re-enter a credential reference that the server never echoes.
+	// An explicit reference still replaces the existing one.
+	if credentialRef == "" {
+		if existing, lookupErr := s.store.ProviderBinding(ctx, tenantID, providerID); lookupErr == nil {
+			credentialRef = existing.CredentialRef
+		}
+	}
 	if egressPolicy == "" {
 		return domain.ProviderBinding{}, domain.Invalid("PROVIDER_EGRESS_POLICY_INVALID", "Provider Binding 必须声明出口策略")
 	}
@@ -208,8 +216,8 @@ func (s *Service) ConfigureProviderBinding(ctx context.Context, actor Actor, ten
 
 func (s *Service) ProviderBindingForActor(ctx context.Context, actor Actor, tenantID, providerID string) (domain.ProviderBinding, error) {
 	tenantID = strings.TrimSpace(tenantID)
-	if !actor.PlatformAdmin && (actor.Role != "tenant_admin" || actor.TenantID != tenantID) {
-		return domain.ProviderBinding{}, domain.Policy("ROLE_DENIED", "只有租户管理员可以查看当前租户的 Provider Binding", "联系租户管理员")
+	if !actor.PlatformAdmin && actor.TenantID != tenantID {
+		return domain.ProviderBinding{}, domain.Policy("ROLE_DENIED", "只能查看当前租户的 Provider Binding", "切换到目标租户后重试")
 	}
 	return s.store.ProviderBinding(ctx, tenantID, strings.ToLower(strings.TrimSpace(providerID)))
 }

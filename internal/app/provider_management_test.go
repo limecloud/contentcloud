@@ -75,6 +75,14 @@ func TestProviderBindingRequiresSecretRefAndDoesNotExposeCredential(t *testing.T
 	if strings.Contains(string(body), "secret://providers/modelark") || strings.Contains(string(body), "credential_ref") {
 		t.Fatalf("binding response leaked credential: %s", body)
 	}
+	viewer, err := service.ProviderBindingForActor(ctx, app.Actor{UserID: "viewer", TenantID: tenantAdmin.TenantID, Role: "viewer", Type: "user"}, tenantAdmin.TenantID, input.ProviderID)
+	if err != nil || viewer.CredentialRef != "secret://providers/modelark" {
+		t.Fatalf("same-tenant read = %#v, err=%v", viewer, err)
+	}
+	updated, err := service.ConfigureProviderBinding(ctx, tenantAdmin, tenantAdmin.TenantID, input.ProviderID, app.ConfigureProviderBindingInput{ProfileVersion: input.Version, EgressPolicy: "provider-only", MonthlyBudgetMinor: 2000}, "update")
+	if err != nil || updated.CredentialRef != "secret://providers/modelark" || updated.MonthlyBudgetMinor != 2000 {
+		t.Fatalf("credential-preserving update = %#v, err=%v", updated, err)
+	}
 	if _, err := service.ProviderBindingForActor(ctx, app.Actor{UserID: "other", TenantID: "tenant-2", Role: "tenant_admin", Type: "user"}, tenantAdmin.TenantID, input.ProviderID); !hasProviderCode(err, "ROLE_DENIED") {
 		t.Fatalf("cross-tenant read error = %v", err)
 	}

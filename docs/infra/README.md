@@ -2,7 +2,7 @@
 
 状态：`当前实现对账 + 外部接通边界`。
 
-更新时间：2026-08-11。
+更新时间：2026-08-17。
 
 ## 0. 首个用户前的 Clean-room 规则
 
@@ -51,6 +51,16 @@ ContentCloud 不应成为另一个 vLLM 或 SGLang。它们解决模型推理的
 ```
 
 普通交互创作默认留在本地；服务端只在明确的环境准备、审核、拉取、提交或自动化任务动作中介入。Runtime 协调执行，但不拥有来源正文、知识正文、内容正文、批准事实或交付正文。
+
+执行平面和用户工作面是两个维度。Desktop 不是第四个 Runtime，也不接管 Codex 渲染：
+
+| 工作面 | 连接的执行/治理平面 | 主要职责 |
+| --- | --- | --- |
+| Codex | 本地交互生产 + Runtime Harness | 对话期推理、生成、工具调用、Proposal 确认 |
+| Desktop | 本地工作区 + 服务端治理 + Runtime 摘要 | 持续目录、同步、上传、审批、任务、通知、交付 |
+| Web Studio / Operations | 服务端治理 + Runtime 运营投影 | 团队协作、租户治理、发布配置、跨租户诊断 |
+
+Desktop Renderer 只通过 typed Preload -> Electron Main -> 认证本地 API 访问 Go Daemon。同步、上传、Workspace、审批命令和 Runtime Worker 都留在 Go；SQLite 只保存可重建索引、outbox、上传恢复和事件游标。
 
 ### 2.1 执行者是开放集合，不是 Codex/Claude 专属流程
 
@@ -215,6 +225,7 @@ Camunda 可借鉴设计、连接、人工任务、运营和优化的产品分层
 | [03-delivery-roadmap.md](./03-delivery-roadmap.md) | 基于当前 V3/Plugin/Runtime 基线，下一步先补哪些缺口 |
 | [04-architecture-and-flow-diagrams.md](./04-architecture-and-flow-diagrams.md) | 当前架构、搜索/Agent/渠道时序、场景血缘和故障恢复图 |
 | [05-content-production-scenario-matrix.md](./05-content-production-scenario-matrix.md) | 抖音电商、公众号、小说等内容类型的专有工序、执行者组合和交付矩阵 |
+| [Content Work OS Desktop](../product/content-work-os-desktop/README.md) | 持续项目工作面、Electron 技术栈、同步、上传、审批和分发门禁 |
 
 相关事实文档：
 

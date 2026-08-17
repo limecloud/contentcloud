@@ -28,7 +28,7 @@ const check = (condition, message) => {
 
 const workspacePackage = await readJSON('package.json');
 const cliPackage = await readJSON('packages/contentcloud/package.json');
-const webPackage = await readJSON('web/package.json');
+const webPackage = await readJSON('apps/web/package.json');
 const registry = await readJSON('.agents/plugins/registry.json');
 const trustStore = await readJSON('.agents/plugins/trusted-keys.json');
 const environmentProfile = await readJSON('deploy/systemd/environment-profile.json');
@@ -38,8 +38,8 @@ const versionFile = (await readText('VERSION')).trim();
 const goSource = await readText('internal/cli/root.go');
 const codexGuideSource = await readText('internal/httpapi/codex.go');
 const bootstrapSource = await readText('internal/httpapi/bootstrap.md');
-const webSource = await readText('web/src/connectBootstrap.ts');
-const agentHandoffSource = await readText('web/src/agentHandoff.ts');
+const webSource = await readText('apps/web/src/connectBootstrap.ts');
+const agentHandoffSource = await readText('apps/web/src/agentHandoff.ts');
 const systemdEnvironmentSource = await readText('deploy/systemd/contentcloud.env.example');
 const localWorkspaceSource = await readText('internal/localworkspace/workspace.go');
 const pluginIdentitySource = await readText('internal/integration/pluginidentity/identity.go');
@@ -61,23 +61,29 @@ const mcpPackage = Array.isArray(mcpServer?.args)
   : undefined;
 const mcpVersion = mcpPackage?.slice('@limecloud/contentcloud@'.length);
 
-const versions = new Map([
+const releaseVersions = new Map([
   ['VERSION', versionFile],
   ['package.json', workspacePackage.version],
   ['packages/contentcloud/package.json', cliPackage.version],
-  ['web/package.json', webPackage.version],
+  ['apps/web/package.json', webPackage.version],
+  ['internal/cli/root.go', goVersion],
+  ['internal/httpapi/codex.go', codexGuideVersion],
+  ['apps/web/src/connectBootstrap.ts', webCLIVersion],
+]);
+for (const [source, value] of releaseVersions) {
+  check(typeof value === 'string' && value === versionFile, `${source} version ${JSON.stringify(value)} does not match VERSION ${versionFile}`);
+}
+
+const pluginVersions = new Map([
   ['plugin.json', plugin.version],
   ['deploy/systemd/environment-profile.json', environmentProfile.plugins?.find(candidate => candidate?.id === pluginName)?.version],
   ['deploy/systemd/contentcloud.env.example', capabilityReleaseVersion],
-  ['internal/cli/root.go', goVersion],
-  ['internal/httpapi/codex.go', codexGuideVersion],
-  ['web/src/connectBootstrap.ts', webCLIVersion],
-  ['web/src/agentHandoff.ts', agentHandoffVersion],
+  ['apps/web/src/agentHandoff.ts', agentHandoffVersion],
   ['plugin .mcp.json', mcpVersion],
   ['internal/integration/pluginidentity', pluginIdentityVersion],
 ]);
-for (const [source, value] of versions) {
-  check(typeof value === 'string' && value === versionFile, `${source} version ${JSON.stringify(value)} does not match VERSION ${versionFile}`);
+for (const [source, value] of pluginVersions) {
+  check(typeof value === 'string' && value === plugin.version, `${source} version ${JSON.stringify(value)} does not match Plugin ${plugin.version}`);
 }
 check(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(versionFile), `VERSION is not a supported semantic version: ${versionFile}`);
 check(cliPackage.contentcloudReleaseTag === `v${versionFile}`, 'npm contentcloudReleaseTag must equal v<VERSION>');
@@ -117,7 +123,8 @@ const registryEntries = Array.isArray(registry.entries) ? registry.entries : [];
 const registryEntry = registryEntries.find(entry => entry?.id === pluginName);
 check(Boolean(registryEntry), `governance registry is missing ${pluginName}`);
 check(registryEntry?.kind === 'scene_plugin', 'registry kind must be scene_plugin');
-check(registryEntry?.version === versionFile, 'registry plugin version must match VERSION');
+check(registryEntry?.version === plugin.version, 'registry plugin version must match plugin.json');
+check(registryEntry?.source?.ref === `v${plugin.version}`, 'registry plugin source ref must match plugin.json');
 check(registryEntry?.source?.repository === 'https://github.com/limecloud/contentcloud', 'registry repository is not pinned to the ContentCloud source');
 check(registryEntry?.license === plugin.license, 'registry license must match plugin manifest');
 check(registryEntry?.digest === `sha256:${digest}`, 'registry digest does not match canonical plugin contents');
@@ -166,7 +173,7 @@ if (evaluation?.status === 'passed') {
         check(evaluationReport.scope === 'deterministic_release_contract', 'evaluation report scope is invalid');
         check(evaluationReport.status === 'passed', 'evaluation report status must be passed');
         check(evaluationReport.plugin?.id === pluginName, 'evaluation report Plugin ID does not match');
-        check(evaluationReport.plugin?.version === versionFile, 'evaluation report Plugin version does not match');
+        check(evaluationReport.plugin?.version === plugin.version, 'evaluation report Plugin version does not match');
         check(evaluationReport.plugin?.digest === `sha256:${digest}`, 'evaluation report Plugin digest does not match');
         const scenarios = Array.isArray(evaluationReport.scenarios) ? evaluationReport.scenarios : [];
         check(scenarios.length > 0 && scenarios.every(scenario => scenario?.status === 'passed'), 'all evaluation report scenarios must be passed');
@@ -248,7 +255,7 @@ if (registryEntry?.evaluation?.status !== 'passed') {
   warnings.push('scene evaluation is pending; tagged release validation will fail');
 }
 
-const releaseTag = `v${versionFile}`;
+const releaseTag = `v${plugin.version}`;
 if (gitRefExists(releaseTag)) {
   const manifestAtRef = `${releaseTag}:${pluginRelativePath}/plugin.json`;
   if (!gitObjectExists(manifestAtRef)) {

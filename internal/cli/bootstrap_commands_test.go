@@ -75,7 +75,7 @@ func TestBootstrapPlanIsReadOnlyAndUsesOnlyPublicSessionID(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode output: %v; output=%s", err, stdout.String())
 	}
-	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.27.0" || len(envelope.Data.Plugin.Actions) != 8 || !envelope.Data.WouldEnableDaemon {
+	if !envelope.OK || envelope.Data.State != "ready" || !strings.HasPrefix(envelope.Data.PlanID, "bp_") || envelope.Data.CLIPackage != "@limecloud/contentcloud@0.28.0" || len(envelope.Data.Plugin.Actions) != 8 || !envelope.Data.WouldEnableDaemon {
 		t.Fatalf("unexpected plan: %s", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "connect_key") || envelope.Data.AuthorizationMode != "browser_device" || !envelope.Data.WouldAuthorizeDevice {
@@ -592,7 +592,7 @@ func (h *testBootstrapHost) Commit(context.Context, pluginhost.NativeChange) err
 
 func testPluginRuntimeHook(t *testing.T, initial pluginhost.Status) func(string, string, string) (*hostPluginRuntime, error) {
 	t.Helper()
-	pkg, err := pluginbuiltin.Load(t.TempDir(), pluginidentity.VideoProduction, Version)
+	pkg, err := pluginbuiltin.Load(t.TempDir(), pluginidentity.VideoProduction, pluginidentity.VideoProductionVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +702,7 @@ type bootstrapTaskPackFixture struct {
 
 func bootstrapEnvironmentFixtureWithTaskPack(t *testing.T, now time.Time, taskPack bootstrapTaskPackFixture) (environment.Manifest, *environment.Verifier, environment.Registry, *environment.RegistryVerifier) {
 	t.Helper()
-	standardPackage, err := pluginbuiltin.Load(t.TempDir(), pluginidentity.VideoProduction, Version)
+	standardPackage, err := pluginbuiltin.Load(t.TempDir(), pluginidentity.VideoProduction, pluginidentity.VideoProductionVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -711,8 +711,8 @@ func bootstrapEnvironmentFixtureWithTaskPack(t *testing.T, now time.Time, taskPa
 		t.Fatal(err)
 	}
 	sceneEntry := environment.RegistryEntry{
-		ID: "contentcloud-video-production", Kind: "scene_plugin", Version: Version,
-		Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v" + Version}, License: "Apache-2.0", Digest: standardPackage.Digest,
+		ID: "contentcloud-video-production", Kind: "scene_plugin", Version: pluginidentity.VideoProductionVersion,
+		Source: environment.RegistrySource{Repository: "https://github.com/limecloud/contentcloud", Ref: "v" + pluginidentity.VideoProductionVersion}, License: "Apache-2.0", Digest: standardPackage.Digest,
 		Signature: environment.RegistrySignature{Status: "verified", Algorithm: "ed25519", KeyID: "plugin-release-bootstrap-test"}, CompatibleProfiles: []string{"contentcloud.video-production"},
 		Permissions: []string{"workspace:read"}, DataFlow: environment.RegistryDataFlow{LocalByDefault: true, CloudActions: []string{}}, OutputSchemas: []string{"contracts/content-item-3.0.schema.json"},
 		Cost:       environment.RegistryCost{Model: "included", Notice: "Included in tests."},
@@ -746,7 +746,7 @@ func bootstrapEnvironmentFixtureWithTaskPack(t *testing.T, now time.Time, taskPa
 	profile := environment.Profile{
 		ID: "contentcloud.video-production", Version: "1.0.0", EnvironmentVersion: "2026.7.1", Harness: "codex", Marketplace: "contentcloud",
 		Plugins: []environment.ProfilePlugin{
-			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: Version, Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}},
+			{ID: "contentcloud-video-production", Kind: "scene_plugin", Version: pluginidentity.VideoProductionVersion, Required: true, Scope: "environment", Capabilities: []string{domain.KnowledgeExtractCapability}},
 			{ID: taskPack.ID, Kind: "skill_pack", Version: taskPack.Version, Required: false, Scope: "task", Capabilities: []string{taskPack.Capability}},
 		},
 		WorkspaceTemplate: environment.WorkspaceTemplateRef{ID: localworkspace.TemplateID, Version: localworkspace.TemplateVersion, Digest: "sha256:" + strings.Repeat("c", 64)}, Capabilities: []string{domain.KnowledgeExtractCapability}, Policies: environment.Policies{PublishRequiresConfirmation: true, AutomationEnabled: true},

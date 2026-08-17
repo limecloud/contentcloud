@@ -33,7 +33,7 @@ type hostLaunchResult struct {
 }
 
 func (r *Root) pluginRuntime(hostName string) (*hostPluginRuntime, error) {
-	return r.bundledPluginRuntime(hostName, pluginidentity.VideoProduction, Version)
+	return r.bundledPluginRuntime(hostName, pluginidentity.VideoProduction, pluginidentity.VideoProductionVersion)
 }
 
 // bundledPluginRuntime is the only runtime path for standard packages. The

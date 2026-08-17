@@ -530,9 +530,9 @@ go test ./... -count=1
 go test -race ./internal/localworkspace ./internal/workbench ./internal/cli -count=1
 node --check internal/workbench/ui/app.js
 node --check internal/workbench/ui/sw.js
-pnpm --dir web test
-pnpm --dir web typecheck
-pnpm --dir web build
+pnpm --dir apps/web test
+pnpm --dir apps/web typecheck
+pnpm --dir apps/web build
 pnpm architecture
 pnpm check:plugin
 pnpm governance:content

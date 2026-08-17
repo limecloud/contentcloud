@@ -13,6 +13,7 @@
 | [00-product-narrative.md](./00-product-narrative.md) | 客户叙事图、平台架构图、工具示例和分层表达规范 | 目标产品叙事 |
 | [customer-creation-studio](./customer-creation-studio/README.md) | 简单客户创作台、运营流水线产品层和首个灵感采集纵向切片 | 客户首切片已实现，完整分层持续迁移 |
 | [creative-asset-library](./creative-asset-library/README.md) | 客户工作区资料、创作结果、复用引用与运营治理 | “我的资产”上传首切片与客户结果目录已实现，连接器导入和结果持久化 Projector 待完成 |
+| [content-work-os-desktop](./content-work-os-desktop/README.md) | 持续项目目录、同步、上传、审批、任务、通知与交付 | 目标规范已冻结；Electron、同步引擎和签名分发待实现 |
 | [operations-control-plane](./operations-control-plane/README.md) | 平台运营后台、中文页面蓝图、创作产品发布、能力与执行方式、绑定规则、运行诊断和创作结果治理 | 目标设计；按 O0-O7 阶段建设 |
 
 ## 文档规则

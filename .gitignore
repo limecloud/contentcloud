@@ -5,13 +5,13 @@
 dist/
 coverage/
 node_modules/
-web/dist/
-web/node_modules/
+apps/*/dist/
+apps/*/node_modules/
 var/
 .contentcloud/
 *.tsbuildinfo
-web/vite.config.js
-web/vite.config.d.ts
+apps/web/vite.config.js
+apps/web/vite.config.d.ts
 *.log
 .playwright-mcp/
 register-create.png

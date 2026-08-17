@@ -24,7 +24,7 @@ function projectPath(path){return relative(root,path).replaceAll('\\','/')}
 function fail(path,message){failures.push(`${projectPath(path)}: ${message}`)}
 
 function checkWebBoundary(owner,forbidden){
-  for(const path of filesUnder(`web/src/${owner}`,new Set(['.ts','.tsx']))){
+  for(const path of filesUnder(`apps/web/src/${owner}`,new Set(['.ts','.tsx']))){
     const imports=[...source(path).matchAll(/(?:from\s*|import\s*\()\s*['"]([^'"]+)['"]/g)].map(match=>match[1]);
     for(const specifier of imports){
       if(specifier.includes(`/${forbidden}/`)||specifier.endsWith(`/${forbidden}`)||specifier.startsWith(`../${forbidden}`)){
@@ -37,9 +37,9 @@ function checkWebBoundary(owner,forbidden){
 checkWebBoundary('studio','admin');
 checkWebBoundary('admin','studio');
 
-const developmentBootstrapPath=join(root,'web/src/devBootstrap.ts');
+const developmentBootstrapPath=join(root,'apps/web/src/devBootstrap.ts');
 if(!source(developmentBootstrapPath).includes('import.meta.env.DEV'))fail(developmentBootstrapPath,'development bootstrap must be removed from production builds');
-for(const path of filesUnder('web/src',new Set(['.ts','.tsx']))){
+for(const path of filesUnder('apps/web/src',new Set(['.ts','.tsx']))){
   if(path===developmentBootstrapPath||projectPath(path).endsWith('.test.ts')||projectPath(path).endsWith('.test.tsx'))continue;
   if(source(path).includes('/api/v1/dev/bootstrap'))fail(path,'production web entry must not call the development bootstrap endpoint');
 }
@@ -133,7 +133,7 @@ for(const path of filesUnder('internal',new Set(['.go']))){
     if(value.includes(name))fail(path,`production Go must not restore retired Runtime read name ${name}`);
   }
 }
-for(const path of filesUnder('web/src',new Set(['.ts','.tsx']))){
+for(const path of filesUnder('apps/web/src',new Set(['.ts','.tsx']))){
   const value=source(path);
   for(const name of [...retiredRuntimeReadNames,'taskRun']){
     if(value.includes(name))fail(path,`web code must not restore retired Runtime read name ${name}`);
@@ -278,7 +278,7 @@ if(!existsSync(retiredHarnessCreationMigration)||!existsSync(retiredHarnessRemov
 // Agent handoff is the only current recovery DTO and route. The Codex-only
 // facade had no production consumer and must not return as a parallel API.
 const retiredCodexHandoffReferences=['contentcloud.codex-handoff','/codex-handoff','projectCodexHandoff','reviewFeedbackCodexHandoff'];
-for(const path of [...filesUnder('internal',new Set(['.go'])),...filesUnder('web/src',new Set(['.ts','.tsx']))]){
+for(const path of [...filesUnder('internal',new Set(['.go'])),...filesUnder('apps/web/src',new Set(['.ts','.tsx']))]){
   if(projectPath(path).endsWith('_test.go')||projectPath(path).endsWith('.test.ts')||projectPath(path).endsWith('.test.tsx'))continue;
   for(const reference of retiredCodexHandoffReferences){
     if(source(path).includes(reference))fail(path,`current code must not restore retired Codex-only handoff surface ${reference}`);

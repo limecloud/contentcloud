@@ -2,9 +2,11 @@
 
 状态：`I0 已冻结；I1～I5 核心切片、DaemonInstance/WSS current-state、Attempt-scoped MCP Gateway、Runtime Schema Registry、Provider HTTP ingress、Runtime Effect 关联、流式媒体对象链、Claude stream-json/session resume、Harness 进程组回收/进展 watchdog、Daemon PID freshness、日志脱敏和本地诊断包已进入代码；专用 PostgreSQL 集成库已通过迁移、核心 RLS、事务回滚、outbox receipts、fenced replay、Provider ingress httptest 和 Harness helper-process 验证；本地独立 CLI MCP stdio -> HTTP Gateway 传输 smoke 已通过；真实 Provider 凭据/回调、在线 Codex/Claude 宿主注入与模型调用、真实提交后故障环境、生产告警、长期 Daemon 和 Canary 未完成`。
 
-更新时间：2026-08-13。
+更新时间：2026-08-17。
 
 本文不是另起一套 V9，也不是把 ContentCloud 改造成通用工作流平台。它是对 V8 的基础设施升级：把已经存在的 JobRun、NodeRun、RuntimeAttempt 和 Harness 闭环，收敛为一套可以长期运行、跨进程恢复、可对账、可重放、可逐步扩展的 Durable Runtime 内核。
+
+Desktop 复用这套 Runtime 的查询和命令，但不把 Electron Renderer 变成 Runtime 客户端内核。Desktop 通过 Go Daemon 获取用户可理解的任务摘要、等待条件、失败原因和允许动作；租约、fence、Effect、ContextView 和完整事件仍由 Runtime owner 管理。
 
 ## 1. 结论先行
 
@@ -136,7 +138,7 @@ lease_owner + lease_expires_at + fence_token
 
 ### 5.1 先补控制面关系，再保留大字段引用
 
-`runtime_states.values` 仍只承载旧 RuntimeState 的非权威兼容 payload；计划 revision、节点/边、FanoutSet/Member 已关系化，JSONB 不再作为新增调度/授权控制面的唯一事实源：
+计划 revision、节点/边、FanoutSet/Member 已关系化；`runtime_states.values` 不属于目标事实源，在所有调用方迁到 collection/record 后直接删除，JSONB 不作为新增调度/授权控制面的事实源：
 
 | 新对象 | 关键字段 | 目的 |
 | --- | --- | --- |
@@ -156,7 +158,7 @@ lease_owner + lease_expires_at + fence_token
 | `runtime_state_collections` | `scope/schema_revision/writer_policy/retention` | 已落地的集合级类型和写入治理 |
 | `runtime_state_records` | `collection/key/value_ref/revision/digest` | 已落地的小记录 CAS，大值只存引用 |
 
-`runtime_plan_revisions` 现在是 JobRun 引用的不可变计划事实源；`00025` 已一次性切换权威读写并删除旧 `runtime_job_plans`，不保留双读壳。`runtime_states.values` 只承载旧 RuntimeState 的非权威兼容 payload；在所有调用方迁到 collection/record 后直接删除，当前没有用户数据，不建设导入或回填兼容层。
+`runtime_plan_revisions` 现在是 JobRun 引用的不可变计划事实源；`00025` 已一次性切换权威读写并删除旧 `runtime_job_plans`，不保留双读壳。`runtime_states.values` 在本次目标基线中直接删除；当前没有用户数据，不建设导入、回填或兼容读取。
 
 ### 5.2 JobRun admission snapshot
 
@@ -304,7 +306,7 @@ FakeHarness 继续作为 CI 基础；真实宿主和真实 Provider 不作为第
 - 不先拆微服务，不先引入 Kafka/Temporal。
 - 不把宿主的 Team、Thread、Task list 或聊天记录当作 Runtime 权威。
 - 不在同一轮同时重写领域模型、客户产品和存储驱动；先建立端口和事务命令，再迁移实现。
-- 不通过长期双写解决迁移问题；双写只能是有期限、可度量、可关闭的兼容窗口。
+- 不通过双写解决迁移问题；本次目标基线直接切换唯一写入者并删除旧实现。
 - 不把“能跑通 FakeHarness”写成“支持生产恢复”。
 
 ### 7.3 旧运行链路治理与退出条件
@@ -312,7 +314,7 @@ FakeHarness 继续作为 CI 基础；真实宿主和真实 Provider 不作为第
 | 分类 | 当前范围 | 约束与退出条件 |
 | --- | --- | --- |
 | `current` | JobRun/NodeRun/RuntimeAttempt 及其 `runtime_*` 权威表、`RuntimeCommandStore`、不可变 outbox/subscriber receipts、Projector、业务结果 consumer、Codex JSONL/thread resume Harness、Claude stream-json/session resume Harness、Runtime worker 协议；Customer Studio 与知识提取的 JobRun；`RuntimeRun` / `RuntimeRunEvent`、`run.list/show/events/log` 以及运行列表/ProjectProjection/lineage 投影 | Runtime 新能力只在这些 owner 内演进；远程 worker 只能凭 Attempt ID + fence token 续租、上报事件和终态收敛；公开读模型只从 JobRun/NodeRun/JobEvent 生成，不拥有独立存储或状态机 |
-| `current` 业务投影 | StageRun 客户业务阶段投影 | StageRun 只表达 SOP 业务阶段，不参与 Runtime 调度，不拥有执行租约或终态；是否退场由业务 API 是否仍需要阶段语义决定，不能与历史数据兼容混为一类 |
+| `current` 业务投影 | StageRun 客户业务阶段投影 | StageRun 只表达 SOP 业务阶段，不参与 Runtime 调度，不拥有执行租约或终态；它与 Runtime 是两个明确 owner，不得重新合并 |
 | `deprecated` | 全局 `store.Store`/`app.Service` 宽接口 | 不再承载执行方法；后续按业务模块拆窄，方法数只能减少 |
 | `dead` | 顶层单工作区配置及 `localconfig.Load()` 迁移；按名称/形状识别旧短视频 SOP 及内置元数据修复；V7 `task_runs/run_attempts/run_progress_events/creative_execution_bundles`、`TaskRun` / `RunProgressEvent` 公开 DTO 名称、`task_run` lineage 类型、daemon poll/report/finish 链、RunToken、旧 daemon journal/outbox；`DurableHarness`、`SessionStore`、`runtime_agent_sessions/events` 镜像；Runtime 内一次性 Codex/Claude Adapter、伪 session | CLI 只接受 `daemon_bindings`，未知旧顶层字段直接报错并要求重新连接；built-in SOP 只接受完整平台身份；相关兼容代码、生产读取、迁移文件和正向测试已删除，架构守卫禁止恢复。带已删除迁移版本记录的开发库必须重建 |
 

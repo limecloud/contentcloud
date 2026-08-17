@@ -2,12 +2,32 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/limecloud/contentcloud/internal/app"
+	"github.com/limecloud/contentcloud/internal/domain"
 )
+
+// providerBindingResponse deliberately exposes only whether a credential
+// reference exists. The reference itself remains an ingress-only value.
+type providerBindingResponse struct {
+	domain.ProviderBinding
+	CredentialConfigured bool `json:"credential_configured"`
+}
+
+func safeProviderBinding(value domain.ProviderBinding) providerBindingResponse {
+	return providerBindingResponse{ProviderBinding: value, CredentialConfigured: strings.TrimSpace(value.CredentialRef) != ""}
+}
+
+func providerBindingResult(value domain.ProviderBinding, err error) any {
+	if err != nil {
+		return value
+	}
+	return safeProviderBinding(value)
+}
 
 func (s *Server) providerProfiles(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
@@ -46,7 +66,7 @@ func (s *Server) publishProviderProfile(w http.ResponseWriter, r *http.Request) 
 func (s *Server) providerBinding(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	value, err := s.service.ProviderBindingForActor(r.Context(), actor, actor.TenantID, chi.URLParam(r, "providerID"))
-	s.dispatchResult(w, r, "provider.binding.show", value, err)
+	s.dispatchResult(w, r, "provider.binding.show", providerBindingResult(value, err), err)
 }
 
 func (s *Server) saveProviderBinding(w http.ResponseWriter, r *http.Request) {
@@ -56,13 +76,13 @@ func (s *Server) saveProviderBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	value, err := s.service.ConfigureProviderBinding(r.Context(), actor, actor.TenantID, chi.URLParam(r, "providerID"), input, middleware.GetReqID(r.Context()))
-	s.dispatchResult(w, r, "provider.binding.configure", value, err)
+	s.dispatchResult(w, r, "provider.binding.configure", providerBindingResult(value, err), err)
 }
 
 func (s *Server) adminProviderBinding(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	value, err := s.service.ProviderBindingForActor(r.Context(), actor, chi.URLParam(r, "tenantID"), chi.URLParam(r, "providerID"))
-	s.dispatchResult(w, r, "provider.binding.show", value, err)
+	s.dispatchResult(w, r, "provider.binding.show", providerBindingResult(value, err), err)
 }
 
 func (s *Server) saveAdminProviderBinding(w http.ResponseWriter, r *http.Request) {
@@ -72,5 +92,5 @@ func (s *Server) saveAdminProviderBinding(w http.ResponseWriter, r *http.Request
 		return
 	}
 	value, err := s.service.ConfigureProviderBinding(r.Context(), actor, chi.URLParam(r, "tenantID"), chi.URLParam(r, "providerID"), input, middleware.GetReqID(r.Context()))
-	s.dispatchResult(w, r, "provider.binding.configure", value, err)
+	s.dispatchResult(w, r, "provider.binding.configure", providerBindingResult(value, err), err)
 }

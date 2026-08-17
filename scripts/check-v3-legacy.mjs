@@ -15,7 +15,7 @@ const checks = [
       'internal/cli/artifacts.go',
       'internal/cli/root.go',
       'contracts/openapi.yaml',
-      'web/src/types.ts',
+      'apps/web/src/types.ts',
     ],
     forbidden: [
       'ExtensionArtifactEnvelopeV1',
@@ -35,7 +35,7 @@ const checks = [
       'internal/cli/submission_commands.go',
       'plugins/contentcloud-video-production/skills',
       'contracts',
-      'web/src',
+      'apps/web/src',
     ],
     forbidden: ['ScriptPackageV2', 'local.script', 'script_files', 'batch.json'],
   },
@@ -44,7 +44,7 @@ const checks = [
       'internal',
       'contracts',
       'plugins/contentcloud-video-production',
-      'web/src',
+      'apps/web/src',
       'deploy',
     ],
     forbidden: [
@@ -71,7 +71,7 @@ const checks = [
       'internal/cli/business_commands.go',
       'internal/cli/root.go',
       'contracts/openapi.yaml',
-      'web/src/types.ts',
+      'apps/web/src/types.ts',
       'migrations',
     ],
     forbidden: [

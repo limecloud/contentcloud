@@ -22,7 +22,7 @@ contracts/              OpenAPI 3.1 与 JSON Schema
 migrations/             PostgreSQL schema、RLS 与 runtime role
 skills/                  随 CLI 内嵌的本地 Agent Skill
 packages/contentcloud/   零依赖 npm 校验安装器
-web/                     React + TypeScript 工作台与客户审批页
+apps/web/                React + TypeScript 工作台与客户审批页
 docs/foundation/         平台基线、分层规范、迁移与工程门禁
 docs/product/             客户产品需求与平台叙事
 docs/roadmap/v8/          Agentic Job Runtime 专项路线图
@@ -150,7 +150,7 @@ project: "品牌 / 单品"
 ```bash
 make check
 go test -race ./...
-pnpm --dir web test
+pnpm --dir apps/web test
 pnpm check:plugin
 ```
 

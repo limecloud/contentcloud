@@ -11,7 +11,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const CSS_PATH = new URL('../web/src/styles.css', import.meta.url);
+const CSS_PATH = new URL('../apps/web/src/styles.css', import.meta.url);
 
 // 原字号 -> token 名
 const SCALE = {
@@ -44,7 +44,7 @@ console.log(`\n保持原样的字号（标题层）：${[...new Set(remaining)].
 
 if (!dry) {
   writeFileSync(CSS_PATH, out);
-  console.log('\n已写入 web/src/styles.css');
+  console.log('\n已写入 apps/web/src/styles.css');
 } else {
   console.log('\n(dry run，未写入)');
 }

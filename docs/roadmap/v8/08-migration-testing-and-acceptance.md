@@ -1,6 +1,6 @@
-# 08：迁移、测试与验收
+# 08：一次性收口、测试与验收
 
-> 阅读对象：负责兼容迁移、测试和发布验收的研发人员。本文件记录的是实施门槛，不表示这些能力已经上线。
+> 阅读对象：负责仓库收口、测试和发布验收的研发人员。本文件记录的是实施门槛，不表示这些能力已经上线。
 
 ## 1. 当前基线对账
 
@@ -18,18 +18,18 @@
 
 V8 的第一个工作包必须先更新权威文档和能力登记表；不能在错误的基线上继续规划。
 
-## 2. 迁移原则
+## 2. 一次性收口原则
 
-1. **先增量再切换**：新增表、字段、索引和 API；只有迁移边界已切换且生产引用归零时，才删除旧表、旧 API 或旧目录；已经确认无消费者的 Runtime 旧结构应在迁移中直接删除，不保留双读壳。
-2. **先旁路再成为权威**：先编译、比较和观测，不让新执行图直接决定生产调度。
-3. **每类权威数据只保留一个写入者**：切换后明确 Job、Node、Stage 投影分别由谁写入，禁止长期并行维护两套状态机。
-4. **不编造历史**：不为历史 Task 伪造 `JobEvent`、`Checkpoint`、`Artifact` 或服务商记录。
-5. **由功能开关控制准入**：开关只决定新 Job 进入哪条路径；不能把已经运行的动态图降级成线性 Stage。
-6. **优先向前恢复**：生产回退以停止新任务准入、排空、暂停或修复为主，不对已经写入数据的新表执行破坏性降级迁移。
+1. **先冻结文档和事实所有者**：先确认 Codex、Desktop、Web、Go Daemon、业务域和 Runtime 的唯一职责，再改目录。
+2. **一次性切换代码主线**：`apps/web`、`apps/desktop`、`internal/local`、`internal/integration`、`internal/transport`、`internal/persistence` 和业务 owner 包成为唯一 current 路径；旧目录、旧 import、别名、Facade、双读和双写在同一整改中删除。
+3. **每类权威数据只保留一个写入者**：Job、Node、Stage 投影、Local Workspace、Cloud Revision 和 Desktop SQLite 各自的所有者必须可从目录和测试看出。
+4. **不编造历史**：不为历史 Task 伪造 `JobEvent`、`Checkpoint`、`Artifact` 或服务商记录；开发数据库和本地 Fixture 直接重建。
+5. **由功能开关控制准入**：开关只决定新 Job 是否进入目标 Runtime；不能把已经运行的动态图降级成线性 Stage。
+6. **优先向前恢复**：生产回退以停止新任务准入、排空、暂停或修复为主，不恢复已删除的旧事实源。
 
 本地 CLI 配置也遵循同一边界：`daemon_bindings` 是 current 唯一运行事实；`localconfig.Load()` 严格拒绝未知顶层字段，旧单工作区字段不再读取、重写、fallback 或双写，需要重新连接生成 current 配置。
 
-SOP Registry 同样只认显式身份：同名、同结构或只有平台 ID 的不完整记录都不会被自动收编。新建任务私有 WorkspaceBinding 使用当前本地模板身份；`task_marketing_video` 等旧 source 标记不得再写入或恢复。
+SOP Registry 同样只认显式身份：同名、同结构或只有平台 ID 的不完整记录都不会被自动收编。新建任务私有 WorkspaceBinding 使用当前本地模板身份；`task_marketing_video` 等旧 source 标记不得再写入或恢复。Desktop 设备绑定只保存设备、项目和能力摘要，不把本地缓存写入服务端事实。
 
 ## 3. 数据迁移
 
@@ -45,7 +45,7 @@ SOP Registry 同样只认显式身份：同名、同结构或只有平台 ID 的
 | MIG8-F | `fanout_sets`、`fanout_members` | 成员集合封存摘要、确定性的子节点唯一键 |
 | MIG8-G | `checkpoints` | 清单不可变、记录事件和状态水位线 |
 | MIG8-H | `tool_calls`、`side_effects`、`resource_reservations` | 外部操作幂等、未知结果和对账、配额不变量 |
-| MIG8-I | 服务商任务、Artifact 和输出增加兼容关联字段 | `side_effect_id`、`node_run_id` 可空，旧记录不回填猜测值 |
+| MIG8-I | 新服务商任务、Artifact 和输出建立 Runtime 关联 | 新记录必须写入 `side_effect_id`、`node_run_id`；已有无关联历史只读保留，不回填猜测值 |
 
 所有表都需要由 Memory Store 和 PostgreSQL Store 共同遵守同一份存储契约；迁移集成测试必须使用真实的行级安全策略（RLS）操作人上下文。
 
@@ -71,7 +71,7 @@ SOP Registry 同样只认显式身份：同名、同结构或只有平台 ID 的
 
 - `RuntimeRun` / `RuntimeRunEvent` 是从 JobRun/NodeRun/JobEvent 生成的 current 只读模型；旧 `TaskRun` / `RunProgressEvent` DTO、`RunAttempt` 和旧执行表/API 已删除。
 - NodeRun/RuntimeAttempt 使用唯一状态机；`runtime_job_runs` 的业务键不再强制外键到 WorkTask，因此知识提取等业务流不需要伪造 WorkTask。
-- HTTP/BFF 新资源使用 NodeRun/RuntimeAttempt 术语；业务阶段兼容只通过单向投影完成。
+- HTTP/BFF 新资源使用 NodeRun/RuntimeAttempt 术语；业务阶段只通过单向投影读取，不形成第二套调度状态。
 - `RunProgress` 只投影 JobEvent；项目运行列表、Dashboard、ProjectProjection 和 lineage 只读取 Runtime。
 - CLI daemon 与 `runtime-worker run` 共用 Runtime prepare/activate/heartbeat/finalize 协议，不再有独立 poll/report/outbox 状态机。
 - Runtime worker 使用 `runtime.worker.prepare_next`、`runtime.worker.activate`、`runtime.worker.heartbeat`、`runtime.worker.event` 和 `runtime.worker.finalize` 协议；服务端从设备凭据派生 lease owner，远程请求只能携带 Attempt ID 与 fence token。成功结果先作为受控业务输出引用落 blob，再由业务 owner 校验并提交结构化结果。
@@ -226,7 +226,7 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
 - 客户“我的资产”必须使用独立 Folder/Material DTO；普通资料类型和 `processing_state` 不得加入现有结果 DTO。
 - 结果状态只允许 `draft / pending_confirmation / changes_requested / confirmed / delivered / superseded / blocked`，且只有 `confirmed` 和 `delivered` 可复用。
 - 没有任何 `MediaReview` 的图片或视频 Artifact 必须投影为 `pending_confirmation`，不能通过“审核记录不存在”推导为 `confirmed`。
-- 新的灵感保存契约使用 `keep_as_project_reference` / `saved_as_project_reference`；旧 `save_for_reuse` 只作兼容输入，响应不得继续返回 `saved_for_reuse`。
+- 灵感保存契约只使用 `keep_as_project_reference` / `saved_as_project_reference`；旧 `save_for_reuse` 在本次整改中删除，未知字段直接拒绝。
 - 保留为项目参考的灵感只在当前任务或项目参考投影中出现；它不得出现在“创作结果”，也不得在没有明确导入动作时出现在“我的资产”。
 - `DeliveryPackage` 只在交付视图中出现；工作区资料和创作结果 DTO 都不得增加 `delivery_package` 类型或复制交付正文。
 - 投影重建必须产生相同的结果类型、状态、复用门禁和底层引用，且不触发模型、执行者或外部服务。
@@ -269,7 +269,7 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
 
 ```text
 执行增量数据库迁移
-  -> 部署向后兼容读取的服务端
+  -> 部署目标版本服务端
   -> 部署支持能力协商的执行器和守护进程
   -> 开启旁路编译
   -> 为内部租户开启线性调度器
@@ -288,13 +288,13 @@ FakeHarness 的必测脚本包括：正常结构化结果、启动失败、启�
   -> 停止新的 JobRun 准入和动态 GraphPatch
   -> 保留读取路径和数据库迁移
   -> 让可以安全结束的运行中节点自然排空
-  -> 暂停存在未知外部操作或执行器不兼容的 JobRun
+  -> 暂停存在未知外部操作或执行器不满足当前契约的 JobRun
   -> 对外部操作和本地日志进行对账
   -> 部署修复后的服务端和执行器
   -> 从持久化状态恢复
 ```
 
-不能把已经运行的动态 JobRun 转换成业务 StageRun 来“回滚”，因为这样会丢失依赖关系和外部操作语义。只能选择排空、暂停、取消，或部署向后兼容的 Runtime 版本恢复。生产回退不能删除 Runtime 表和历史事件。
+不能把已经运行的动态 JobRun 转换成业务 StageRun 来“回滚”，因为这样会丢失依赖关系和外部操作语义。只能选择排空、暂停、取消，或在隔离副本验证后部署同一目标主线的修复版本恢复。生产回退不能恢复已删除的旧 Runtime 表或历史事件。
 
 ## 12. 总体验收条件
 

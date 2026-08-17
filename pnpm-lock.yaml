@@ -8,9 +8,7 @@ importers:
 
   .: {}
 
-  packages/contentcloud: {}
-
-  web:
+  apps/web:
     dependencies:
       '@vitejs/plugin-react':
         specifier: ^4.3.4
@@ -49,6 +47,8 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9
+
+  packages/contentcloud: {}
 
 packages:
 

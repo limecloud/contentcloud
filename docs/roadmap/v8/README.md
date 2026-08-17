@@ -2,13 +2,13 @@
 
 状态：V8 目标方案；Runtime Infra V2 I1～I5 的核心切片、第二业务流容量边界测试、运营 Explorer 首版，以及终态业务结果的持久化消费链已进入代码，尚未达到生产上线条件。2026-08-09 起按 [Runtime Infra V2 升级说明](./09-runtime-infra-v2.md) 收敛底层实现顺序。
 
-更新时间：2026-08-13
+更新时间：2026-08-17
 
 > 这份 README 先用一项实际任务说明 V8。只想了解产品方向，读到“为什么叫 Agentic Job Runtime”即可；工程设计和官方证据放在后续文档中。
 
 ## 专项定位
 
-V8 是 [ContentCloud 平台基线](../../foundation/README.md) 下的 Runtime 专项路线图，负责执行实例、执行图、调度、状态、恢复、外部操作和运行诊断，不定义客户创作台、平台运营产品层或内容业务事实。客户产品需求位于 [`docs/product`](../../product/README.md)。
+V8 是 [ContentCloud 平台基线](../../foundation/README.md) 下的 Runtime 专项路线图，负责执行实例、执行图、调度、状态、恢复、外部操作和运行诊断，不定义 Codex 任务期界面、Content Work OS Desktop 持续项目面、Web Studio/Operations 产品层或内容业务事实。Desktop 的本地同步和上传由 Go Daemon 承担，Runtime 只接收固定引用和执行命令。客户产品需求位于 [`docs/product`](../../product/README.md)。
 
 客户创作台的线性纵向切片复用 WorkTask、StageRun、SOP 和 Gate 业务能力，执行统一进入 Runtime，不等待动态执行图、共享状态和完整恢复能力全部完成，也不建立平行任务状态。
 
@@ -179,7 +179,8 @@ Codex / Claude Code：完成适合由智能体处理的具体步骤
 | [05-state-context-and-durability.md](./05-state-context-and-durability.md) | 共享状态、最小资料范围、中断续跑和外部操作 |
 | [06-execution-planes-security-and-governance.md](./06-execution-planes-security-and-governance.md) | 智能体、执行器和服务端之间的权限与信任边界 |
 | [07-web-console-observability-and-operations.md](./07-web-console-observability-and-operations.md) | 用户怎样查看进度、失败和费用，以及怎样暂停、恢复和核对 |
-| [08-migration-testing-and-acceptance.md](./08-migration-testing-and-acceptance.md) | 如何兼容现有实现、分阶段启用并完成验收 |
+| [08-migration-testing-and-acceptance.md](./08-migration-testing-and-acceptance.md) | 一次性代码收口、测试、分阶段准入并完成验收 |
+| [Content Work OS Desktop](../../product/content-work-os-desktop/README.md) | Electron 持续项目面、同步/上传/审批和分发门禁 |
 | [09-runtime-infra-v2.md](./09-runtime-infra-v2.md) | 把 V8 收敛为 PostgreSQL-first 的可恢复执行内核：事务命令、事件/outbox、fencing、资源账本、Effect 对账与恢复 |
 | [10-runtime-operations-runbook.md](./10-runtime-operations-runbook.md) | Runtime 健康检查、Canary 准入、排空、故障处置和前向回退 |
 | [11-seedance25-provider-integration.md](./11-seedance25-provider-integration.md) | Seedance 2.5 单镜头 Provider、输入解析、费用、取消和插件边界 |

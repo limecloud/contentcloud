@@ -1,7 +1,7 @@
 .PHONY: dev preview server web worker cli build test check check-plugin install-cli migrate-up
 
 CONTENTCLOUD_ADDR ?= :8080
-CONTENTCLOUD_WEB_DIST ?= web/dist
+CONTENTCLOUD_WEB_DIST ?= apps/web/dist
 
 dev:
 	./scripts/dev.sh
@@ -13,7 +13,7 @@ server:
 	go run ./cmd/contentcloud-server
 
 web:
-	pnpm --dir web dev
+	pnpm --dir apps/web dev
 
 worker:
 	go run ./cmd/contentcloud-worker
@@ -28,11 +28,11 @@ build: build-web
 	go build -o bin/contentcloud ./cmd/contentcloud
 
 build-web:
-	pnpm --dir web build
+	pnpm --dir apps/web build
 
 test:
 	go test ./...
-	pnpm --dir web test
+	pnpm --dir apps/web test
 
 check:
 	go fmt ./...
@@ -43,8 +43,8 @@ check:
 	pnpm governance:content
 	pnpm test:plugin-signing
 	pnpm check:plugin
-	pnpm --dir web typecheck
-	pnpm --dir web build
+	pnpm --dir apps/web typecheck
+	pnpm --dir apps/web build
 
 check-plugin:
 	pnpm evaluate:plugin

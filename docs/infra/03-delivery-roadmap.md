@@ -2,7 +2,7 @@
 
 状态：`现有实现收口 + 外部接通路线`。
 
-更新时间：2026-08-11。
+更新时间：2026-08-17。
 
 ## 1. 路线图口径
 
@@ -50,6 +50,20 @@ flowchart LR
 ```
 
 禁止再引入以下平行主线：
+
+Desktop 的交付不新增平行主链。它把现有 Local Workspace、Submission/Review、Artifact/Delivery 和 Runtime Query 组合为持续工作面；所有写命令仍进入各事实拥有域。
+
+### 3.1 Desktop 基础设施工作包
+
+```text
+apps/desktop
+  -> Main / Preload / Renderer
+  -> versioned local Desktop API
+  -> Go Daemon: Workspace Kernel + Sync + Upload + Review Inbox + Runtime Worker
+  -> ContentCloud Server
+```
+
+该工作包采用一次性目录切换：`apps/web`、`apps/desktop`、`internal/local`、`internal/integration`、`internal/transport`、`internal/persistence` 与按事实所有者划分的业务包必须同时成为唯一 current 路径。旧 import、别名、Facade、双写和旧路径转发不进入完成态。
 
 - SaaS 自己的 Task 取代 WorkTask。
 - Agent Session 取代 RuntimeAttempt/SessionRef。

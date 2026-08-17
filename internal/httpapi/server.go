@@ -1146,7 +1146,7 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	}
 	index := filepath.Join(s.webDist, "index.html")
 	if _, err := os.Stat(index); err != nil {
-		http.Error(w, "Content Work OS 工作台尚未构建，请运行 pnpm --dir web build", http.StatusServiceUnavailable)
+		http.Error(w, "Content Work OS 工作台尚未构建，请运行 pnpm --dir apps/web build", http.StatusServiceUnavailable)
 		return
 	}
 	http.ServeFile(w, r, index)
