@@ -3,8 +3,10 @@
 flowchart TB
     subgraph Surfaces["① 人与执行入口"]
         Studio["Customer Studio / Asset Library"]
+        Desktop["Content Work OS Desktop\n目录 · 同步 · 上传 · 审批 · 交付"]
         Ops["Operations Control Plane"]
-        CLI["ContentCloud CLI / Daemon"]
+        Codex["Codex / Agent Host\n任务期推理 · 生成 · MCP"]
+        Daemon["ContentCloud Go Daemon\nWorkspace · Sync · Runtime Worker"]
         Worker["ContentCloud Worker"]
         Connector["Provider / Connector / Human"]
     end
@@ -53,8 +55,11 @@ flowchart TB
     end
 
     Studio --> BFF
+    Desktop --> Daemon
     Ops --> BFF
-    CLI --> BFF
+    Codex --> Daemon
+    Daemon --> BFF
+    Daemon --> Attempt
     Worker --> Attempt
     Connector --> Attempt
     BFF --> Work
@@ -93,7 +98,7 @@ flowchart TB
     classDef runtime fill:#edf4ef,stroke:#397860,color:#172033
     classDef seam fill:#f8faff,stroke:#4c91ff,color:#172033
     classDef data fill:#f3f5f8,stroke:#52627b,color:#172033
-    class Studio,Ops,CLI,Worker,Connector surface
+    class Studio,Desktop,Ops,Codex,Daemon,Worker,Connector surface
     class BFF,Catalog,Work contract
     class Review,Assets review
     class Plan,Job,Node,Attempt,Context,Effect,Events runtime
