@@ -3,14 +3,14 @@ name: Desktop Release
 on:
   push:
     tags:
-      - "desktop-v*"
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
-        description: "版本号或 desktop-v 标签，例如 0.28.0-beta.1"
+        description: "版本号或 v 标签，例如 v0.28.0、0.28.0-beta.1"
         required: true
       source_ref:
-        description: "构建来源 ref；留空使用 main"
+        description: "构建来源 ref；留空使用对应 v 标签"
         required: false
         default: ""
       channel:
@@ -18,9 +18,9 @@ on:
         required: true
         type: choice
         options:
-          - beta
           - stable
-        default: beta
+          - beta
+        default: stable
       publish:
         description: "是否创建或更新 GitHub Release；手动运行默认只上传 CI artifact"
         required: true
@@ -30,10 +30,6 @@ on:
 permissions:
   contents: write
   actions: read
-
-concurrency:
-  group: desktop-release-${{ github.ref }}
-  cancel-in-progress: false
 
 env:
   NODE_VERSION: "22"
@@ -51,61 +47,20 @@ jobs:
       source_ref: ${{ steps.identity.outputs.source_ref }}
       publish: ${{ steps.identity.outputs.publish }}
     steps:
+      - name: Checkout release automation
+        uses: actions/checkout@v4
+
       - name: Resolve tag, version and channel
         id: identity
-        shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_TAG: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
           INPUT_VERSION: ${{ github.event.inputs.version || '' }}
-          INPUT_CHANNEL: ${{ github.event.inputs.channel || 'beta' }}
+          INPUT_CHANNEL: ${{ github.event.inputs.channel || 'stable' }}
           INPUT_SOURCE_REF: ${{ github.event.inputs.source_ref || '' }}
           INPUT_PUBLISH: ${{ github.event.inputs.publish || 'false' }}
-        run: |
-          set -euo pipefail
-          if [[ "$EVENT_NAME" == "push" ]]; then
-            tag="$EVENT_TAG"
-            source_ref="${GITHUB_SHA}"
-            publish=true
-          else
-            raw_version="${INPUT_VERSION#desktop-v}"
-            tag="desktop-v${raw_version}"
-            source_ref="${INPUT_SOURCE_REF:-main}"
-            publish="${INPUT_PUBLISH}"
-          fi
-
-          if [[ ! "$tag" =~ ^desktop-v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::invalid desktop release tag: $tag"
-            exit 1
-          fi
-          version="${tag#desktop-v}"
-          if [[ "$version" == *-* ]]; then
-            channel=beta
-          elif [[ "$EVENT_NAME" == push ]]; then
-            channel=stable
-          else
-            channel="${INPUT_CHANNEL:-stable}"
-          fi
-          if [[ "$channel" == stable && "$version" == *-* ]]; then
-            echo "::error::a prerelease version cannot enter stable"
-            exit 1
-          fi
-          if [[ "$publish" == true && "$channel" == beta && "$version" != *-* ]]; then
-            echo "::error::a published beta requires a prerelease version"
-            exit 1
-          fi
-          if [[ "$publish" != true && "$publish" != false ]]; then
-            echo "::error::publish must be true or false"
-            exit 1
-          fi
-
-          {
-            echo "tag=$tag"
-            echo "version=$version"
-            echo "channel=$channel"
-            echo "source_ref=$source_ref"
-            echo "publish=$publish"
-          } >> "$GITHUB_OUTPUT"
+        run: node scripts/resolve-desktop-release.mjs
 
   build:
     name: Build ${{ matrix.name }}
@@ -199,6 +154,20 @@ jobs:
           package_version="$(node -p "require('./apps/desktop/package.json').version")"
           test "$package_version" = "$RELEASE_VERSION" || {
             echo "::error::apps/desktop/package.json is $package_version, expected $RELEASE_VERSION"
+            exit 1
+          }
+
+      - name: Verify published source matches release tag
+        if: needs.resolve.outputs.publish == 'true'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          tag_commit="$(git rev-list -n 1 "$RELEASE_TAG")"
+          source_commit="$(git rev-parse 'HEAD^{commit}')"
+          test "$source_commit" = "$tag_commit" || {
+            echo "::error::published desktop source $source_commit does not match $RELEASE_TAG at $tag_commit"
             exit 1
           }
 
@@ -352,6 +321,9 @@ jobs:
     needs: [resolve, build]
     if: needs.resolve.outputs.publish == 'true' && needs.build.result == 'success'
     runs-on: ubuntu-22.04
+    concurrency:
+      group: desktop-release-publish-${{ needs.resolve.outputs.tag }}
+      cancel-in-progress: false
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -387,10 +359,16 @@ jobs:
             --tag "$RELEASE_TAG" \
             --repository "$RELEASE_REPOSITORY" \
             --require-all-targets
+          if [[ -f github-release-assets/checksums.txt ]]; then
+            test ! -e github-release-assets/desktop-checksums.txt
+            mv github-release-assets/checksums.txt github-release-assets/desktop-checksums.txt
+          fi
+          test -f github-release-assets/desktop-checksums.txt
           cp desktop-staged/* github-release-assets/
           find github-release-assets -maxdepth 1 -type f -print | sort
 
-      - name: Create draft GitHub Release
+      - name: Ensure GitHub Release exists
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
@@ -400,14 +378,19 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_REF" --draft=true
+            is_draft="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            echo "publish_after_upload=$is_draft" >> "$GITHUB_OUTPUT"
+            echo "Reusing existing GitHub Release $RELEASE_TAG"
           else
             gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$SOURCE_REF" \
-              --title "Content Work OS Desktop $RELEASE_TAG" \
+              --title "ContentCloud $RELEASE_TAG" \
               --generate-notes \
               --draft
+            echo "created=true" >> "$GITHUB_OUTPUT"
+            echo "publish_after_upload=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Upload desktop release assets
@@ -419,7 +402,8 @@ jobs:
           set -euo pipefail
           gh release upload "$RELEASE_TAG" github-release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
 
-      - name: Publish release
+      - name: Publish draft release
+        if: steps.release.outputs.publish_after_upload == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.resolve.outputs.tag }}

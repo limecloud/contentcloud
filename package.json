@@ -10,7 +10,7 @@
     "package:desktop": "pnpm --dir apps/desktop package",
     "make:desktop": "pnpm --dir apps/desktop make",
     "desktop:release:check": "pnpm --dir apps/desktop release:check",
-    "test:desktop-release": "node --test scripts/stage-desktop-release.test.mjs",
+    "test:desktop-release": "node --test scripts/*desktop-release.test.mjs",
     "architecture": "node scripts/check-architecture.mjs",
     "docs:links": "node scripts/check-doc-links.mjs",
     "check:plugin": "node scripts/validate-plugin-release.mjs",

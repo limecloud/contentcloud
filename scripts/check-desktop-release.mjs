@@ -17,6 +17,10 @@ const staging = await readFile(
   resolve(root, "scripts/stage-desktop-release.mjs"),
   "utf8",
 );
+const resolver = await readFile(
+  resolve(root, "scripts/resolve-desktop-release.mjs"),
+  "utf8",
+);
 
 const fail = (message) => {
   console.error(`desktop release check failed: ${message}`);
@@ -62,23 +66,40 @@ for (const maker of [
 if (forge.includes("electron-builder"))
   fail("electron-builder must not be introduced beside Electron Forge");
 for (const marker of [
-  "desktop-v*",
+  '      - "v*"',
   "workflow_dispatch:",
+  "node scripts/resolve-desktop-release.mjs",
+  "Verify published source matches release tag",
+  "desktop-release-publish-${{ needs.resolve.outputs.tag }}",
   "electron-forge make",
   "actions/upload-artifact@v4",
   "actions/download-artifact@v4",
+  "gh release view",
   "gh release create",
+  "gh release upload",
+  "mv github-release-assets/checksums.txt github-release-assets/desktop-checksums.txt",
   "CONTENTCLOUD_DESKTOP_SIGN",
   "node-gyp rebuild",
 ]) {
   if (!workflow.includes(marker))
     fail(`desktop release workflow is missing ${marker}`);
 }
+if (workflow.includes("desktop-v"))
+  fail("desktop-only tags must not diverge from the project v* release");
+for (const marker of [
+  "published desktop releases must build from",
+  "inputSourceRef",
+  "releaseTagPattern",
+]) {
+  if (!resolver.includes(marker))
+    fail(`desktop release resolver is missing ${marker}`);
+}
 for (const marker of [
   "contentcloud.desktop-update-metadata/1.0",
   "sha256",
   "requires verified signing",
   "aggregate",
+  "desktop-checksums.txt",
 ]) {
   if (!staging.includes(marker))
     fail(`desktop release staging is missing ${marker}`);

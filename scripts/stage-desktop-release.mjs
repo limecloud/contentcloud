@@ -120,8 +120,8 @@ function validateReleaseIdentity({ version, channel, tag }) {
   if (!["stable", "beta"].includes(channel)) {
     throw new Error(`invalid release channel: ${channel}`);
   }
-  if (!tag || !tag.endsWith(version)) {
-    throw new Error(`release tag must end with version ${version}: ${tag}`);
+  if (tag !== `v${version}`) {
+    throw new Error(`release tag must be v${version}: ${tag}`);
   }
 }
 
@@ -336,7 +336,7 @@ async function aggregateRelease({
   }
   checksumLines.push(`${await sha256(indexPath)}  ${basename(indexPath)}`);
   await writeFile(
-    join(outDir, "checksums.txt"),
+    join(outDir, "desktop-checksums.txt"),
     `${checksumLines.sort().join("\n")}\n`,
     "utf8",
   );

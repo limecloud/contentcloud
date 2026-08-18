@@ -36,7 +36,7 @@ test("stages macOS Forge assets with checksums and verified signing metadata", a
     ...fixture,
     version: "0.28.0-beta.1",
     channel: "beta",
-    tag: "desktop-v0.28.0-beta.1",
+    tag: "v0.28.0-beta.1",
     repository: "limecloud/contentcloud",
     signed: true,
   });
@@ -56,7 +56,7 @@ test("rejects unsigned macOS release staging", async () => {
       ...fixture,
       version: "0.28.0",
       channel: "stable",
-      tag: "desktop-v0.28.0",
+      tag: "v0.28.0",
       signed: false,
     }),
     /requires verified signing/,
@@ -77,7 +77,7 @@ test("rejects incomplete Forge release output", async () => {
       forgeDir: incompleteForgeDir,
       version: "0.28.0",
       channel: "stable",
-      tag: "desktop-v0.28.0",
+      tag: "v0.28.0",
       signed: true,
     }),
     /incomplete; missing zip/,
@@ -90,7 +90,7 @@ test("aggregates target metadata into a release index", async () => {
     ...fixture,
     version: "0.28.0-beta.1",
     channel: "beta",
-    tag: "desktop-v0.28.0-beta.1",
+    tag: "v0.28.0-beta.1",
     repository: "limecloud/contentcloud",
     signed: true,
   });
@@ -99,12 +99,12 @@ test("aggregates target metadata into a release index", async () => {
     inputDir: fixture.outDir,
     outDir: aggregateDir,
     channel: "beta",
-    tag: "desktop-v0.28.0-beta.1",
+    tag: "v0.28.0-beta.1",
     repository: "limecloud/contentcloud",
   });
   assert.deepEqual(Object.keys(index.targets), ["darwin-arm64"]);
   assert.match(
-    await readFile(join(aggregateDir, "checksums.txt"), "utf8"),
+    await readFile(join(aggregateDir, "desktop-checksums.txt"), "utf8"),
     /desktop-beta-latest\.json/,
   );
 });
@@ -115,7 +115,7 @@ test("rejects an incomplete release matrix", async () => {
     ...fixture,
     version: "0.28.0",
     channel: "stable",
-    tag: "desktop-v0.28.0",
+    tag: "v0.28.0",
     signed: true,
   });
   await assert.rejects(
@@ -123,7 +123,7 @@ test("rejects an incomplete release matrix", async () => {
       inputDir: fixture.outDir,
       outDir: join(fixture.root, "release"),
       channel: "stable",
-      tag: "desktop-v0.28.0",
+      tag: "v0.28.0",
       requireAllTargets: true,
     }),
     /missing targets/,
@@ -136,7 +136,7 @@ test("rejects a staged artifact integrity mismatch", async () => {
     ...fixture,
     version: "0.28.0",
     channel: "stable",
-    tag: "desktop-v0.28.0",
+    tag: "v0.28.0",
     signed: true,
   });
   await writeFile(join(fixture.outDir, metadata.artifacts[0].name), "tampered");
@@ -145,8 +145,22 @@ test("rejects a staged artifact integrity mismatch", async () => {
       inputDir: fixture.outDir,
       outDir: join(fixture.root, "release"),
       channel: "stable",
-      tag: "desktop-v0.28.0",
+      tag: "v0.28.0",
     }),
     /integrity mismatch/,
+  );
+});
+
+test("rejects the retired desktop-only release tag", async () => {
+  const fixture = await fixtureTarget("darwin-arm64");
+  await assert.rejects(
+    stageTarget({
+      ...fixture,
+      version: "0.28.0",
+      channel: "stable",
+      tag: "desktop-v0.28.0",
+      signed: true,
+    }),
+    /release tag must be v0\.28\.0/,
   );
 });

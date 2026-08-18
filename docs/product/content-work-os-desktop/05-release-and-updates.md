@@ -54,7 +54,7 @@ desktop/beta/latest.json
 桌面端发布 workflow 位于 `.github/workflows/desktop-release.yml`，借鉴 Lime 的发布分层，但只保留 ContentCloud 当前需要的链路：
 
 ```text
-desktop-vX.Y.Z(-beta.N)
+vX.Y.Z(-beta.N)
         |
         v
 resolve (tag / version / channel / source ref)
@@ -64,22 +64,24 @@ resolve (tag / version / channel / source ref)
         +--> Linux x64           --+
                                       |
                                       v
-                         aggregate --> draft GitHub Release --> publish
+                         aggregate --> existing/new GitHub Release --> publish
 ```
 
 触发约定：
 
-- 推送 `desktop-v0.28.0` 自动构建并发布 `stable` Release。
-- 推送 `desktop-v0.28.0-beta.1` 自动构建并发布 `beta` prerelease。
+- 项目只有一套 `v*` 版本标签。推送 `v0.28.0` 后，桌面安装包与 CLI 资产进入同一个 `v0.28.0` Release。
+- 推送 `v0.28.0-beta.1` 自动构建并发布 `beta` prerelease。
 - `workflow_dispatch` 默认只生成 Actions artifact；只有显式打开 `publish` 才会创建或更新 GitHub Release。
-- 手动运行可填写 `source_ref`，但 `apps/desktop/package.json` 的版本必须与输入版本完全一致。
+- 手动运行可填写 `source_ref`；留空时构建对应 `v*` 标签。发布模式强制从不可变的同名标签构建，只有 `publish=false` 的预览 artifact 才允许使用其他 ref。`apps/desktop/package.json` 的版本必须与输入版本完全一致。
+- 对已经存在的 GitHub Release，workflow 只追加或重建带桌面前缀的资产，不会改写 Release 标题、正文或 CLI 资产。
+- 同一标签的 publish job 使用标签级并发锁串行上传，防止自动触发和手动回填交错覆盖资产。
 
 每个平台 job 都执行 `electron-forge make`，随后由 `scripts/stage-desktop-release.mjs`：
 
 1. 只接收 `update-channels.json` 声明的格式，并强制要求 DMG+ZIP、Squirrel installer+NUPKG+RELEASES、DEB+RPM 各自完整。
 2. 生成带目标前缀的稳定文件名、目标级 `latest.json` 和 `*-checksums.sha256`。
 3. 在 macOS 上执行 `codesign` 与 Gatekeeper assessment，在 Windows 上验证 Authenticode 状态；Linux 仅作为不提供自动更新的预览包。
-4. 在 publish job 复验四个目标、版本和每个文件摘要，汇总为 `desktop-<channel>-latest.json` 和 `checksums.txt`，再上传 GitHub Release。
+4. 在 publish job 复验四个目标、版本和每个文件摘要，汇总为 `desktop-<channel>-latest.json` 和 `desktop-checksums.txt`，再上传 GitHub Release。桌面端使用独立校验文件名，避免覆盖 CLI 的 `checksums.txt`。
 
 macOS 的 DMG maker 间接依赖 `macos-alias` 和 `fs-xattr` 原生模块。pnpm 的 build-script 白名单保留在根 `package.json`，release job 还会在 `.pnpm` 的实际解析目录显式执行 `node-gyp rebuild` 并分别检查 `volume.node`、`xattr.node`；不能只构建 hoisted 副本，否则 Forge 仍会在 `appdmg` 加载阶段失败。
 
