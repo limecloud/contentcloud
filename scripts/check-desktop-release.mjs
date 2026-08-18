@@ -45,6 +45,8 @@ if (
 ) {
   fail("desktop package description is required by Linux installers");
 }
+if (desktopPackage.license !== "Apache-2.0")
+  fail("desktop package license must match the repository license");
 for (const nativeDependency of ["macos-alias", "fs-xattr"]) {
   if (
     !workspacePackage.pnpm?.onlyBuiltDependencies?.includes(nativeDependency)
