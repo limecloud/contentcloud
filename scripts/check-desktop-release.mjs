@@ -5,6 +5,9 @@ const root = resolve(import.meta.dirname, "..");
 const policy = JSON.parse(
   await readFile(resolve(root, "apps/desktop/update-channels.json"), "utf8"),
 );
+const workspacePackage = JSON.parse(
+  await readFile(resolve(root, "package.json"), "utf8"),
+);
 const desktopPackage = JSON.parse(
   await readFile(resolve(root, "apps/desktop/package.json"), "utf8"),
 );
@@ -42,6 +45,13 @@ if (
 ) {
   fail("desktop package description is required by Linux installers");
 }
+for (const nativeDependency of ["macos-alias", "fs-xattr"]) {
+  if (
+    !workspacePackage.pnpm?.onlyBuiltDependencies?.includes(nativeDependency)
+  ) {
+    fail(`${nativeDependency} must be built during dependency installation`);
+  }
+}
 for (const channel of ["stable", "beta"]) {
   const value = policy.channels?.[channel];
   if (
@@ -72,6 +82,16 @@ for (const maker of [
   if (!forge.includes(`new ${maker}`))
     fail(`Forge maker ${maker} is not configured`);
 }
+for (const marker of [
+  'const desktopExecutableName = "content-work-os"',
+  "name: desktopExecutableName",
+  "bin: desktopExecutableName",
+  "new MakerDeb({ options: linuxMakerOptions })",
+  "new MakerRpm({ options: linuxMakerOptions })",
+]) {
+  if (!forge.includes(marker))
+    fail(`Forge Linux maker contract is missing ${marker}`);
+}
 if (forge.includes("electron-builder"))
   fail("electron-builder must not be introduced beside Electron Forge");
 for (const marker of [
@@ -81,7 +101,6 @@ for (const marker of [
   "Verify published source matches release tag",
   "desktop-release-publish-${{ needs.resolve.outputs.tag }}",
   "--config.node-linker=hoisted",
-  "Prepare Linux package metadata",
   "electron-forge make",
   "actions/upload-artifact@v4",
   "actions/download-artifact@v4",
@@ -90,11 +109,18 @@ for (const marker of [
   "gh release upload",
   "mv github-release-assets/checksums.txt github-release-assets/desktop-checksums.txt",
   "CONTENTCLOUD_DESKTOP_SIGN",
-  "node-gyp rebuild",
 ]) {
   if (!workflow.includes(marker))
     fail(`desktop release workflow is missing ${marker}`);
 }
+if (workflow.includes("node_modules/.pnpm"))
+  fail("desktop release workflow must not depend on pnpm internal layout");
+if (workflow.includes("node-gyp rebuild"))
+  fail(
+    "desktop release workflow must use install-time native dependency builds",
+  );
+if (workflow.includes("Prepare Linux package metadata"))
+  fail("Linux package metadata must come from apps/desktop/package.json");
 if (workflow.includes("desktop-v"))
   fail("desktop-only tags must not diverge from the project v* release");
 for (const marker of [

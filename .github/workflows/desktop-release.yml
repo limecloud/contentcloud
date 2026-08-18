@@ -35,7 +35,6 @@ env:
   NODE_VERSION: "22"
   PNPM_VERSION: "10.8.1"
   ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
-  DESKTOP_PACKAGE_DESCRIPTION: "ContentCloud project workspace desktop"
 
 jobs:
   resolve:
@@ -122,27 +121,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --config.node-linker=hoisted
 
-      - name: Build macOS DMG native dependency
-        if: matrix.platform == 'darwin'
-        shell: bash
-        run: |
-          set -euo pipefail
-          for package_name in macos-alias fs-xattr; do
-            if [[ "$package_name" == macos-alias ]]; then
-              expected_output=volume.node
-            else
-              expected_output=xattr.node
-            fi
-            package_json="$(find node_modules/.pnpm -path "*/node_modules/$package_name/package.json" -print -quit)"
-            if [[ -z "$package_json" ]]; then
-              echo "::error::$package_name package is missing"
-              exit 1
-            fi
-            package_dir="$(dirname "$package_json")"
-            pnpm exec node-gyp rebuild --directory "$package_dir"
-            test -f "$package_dir/build/Release/$expected_output"
-          done
-
       - name: Validate desktop release contract
         run: pnpm desktop:release:check
 
@@ -171,19 +149,6 @@ jobs:
             echo "::error::published desktop source $source_commit does not match $RELEASE_TAG at $tag_commit"
             exit 1
           }
-
-      - name: Prepare Linux package metadata
-        if: matrix.platform == 'linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'NODE'
-          import { readFile, writeFile } from 'node:fs/promises';
-          const path = 'apps/desktop/package.json';
-          const packageJson = JSON.parse(await readFile(path, 'utf8'));
-          packageJson.description ||= process.env.DESKTOP_PACKAGE_DESCRIPTION;
-          await writeFile(path, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
-          NODE
 
       - name: Validate macOS signing secrets
         if: matrix.platform == 'darwin'
