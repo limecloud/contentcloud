@@ -11,6 +11,7 @@ import { MakerZIP } from "@electron-forge/maker-zip";
 const releaseSigningEnabled = process.env.CONTENTCLOUD_DESKTOP_SIGN === "1";
 const desktopProductName = "Content Work OS";
 const desktopExecutableName = "content-work-os";
+const desktopSquirrelName = "content_work_os";
 const linuxMakerOptions = {
   name: desktopExecutableName,
   productName: desktopProductName,
@@ -56,8 +57,9 @@ function macNotarizeOptions() {
 }
 
 function squirrelOptions() {
+  const identity = { name: desktopSquirrelName };
   if (process.platform !== "win32" || !releaseSigningEnabled) {
-    return {};
+    return identity;
   }
 
   const certificateFile =
@@ -70,7 +72,7 @@ function squirrelOptions() {
     );
   }
 
-  return { certificateFile, certificatePassword };
+  return { ...identity, certificateFile, certificatePassword };
 }
 
 const config: ForgeConfig = {

@@ -86,8 +86,10 @@ for (const maker of [
 }
 for (const marker of [
   'const desktopExecutableName = "content-work-os"',
+  'const desktopSquirrelName = "content_work_os"',
   "name: desktopExecutableName",
   "bin: desktopExecutableName",
+  "name: desktopSquirrelName",
   "new MakerDeb({ options: linuxMakerOptions })",
   "new MakerRpm({ options: linuxMakerOptions })",
 ]) {
@@ -112,9 +114,10 @@ for (const marker of [
   "mv github-release-assets/checksums.txt github-release-assets/desktop-checksums.txt",
   "CONTENTCLOUD_DESKTOP_SIGN",
   "needs.resolve.outputs.publish == 'true' && matrix.signing == 'required'",
-  'repository_flags+=(--repository "$RELEASE_REPOSITORY")',
-  "signing_flags+=(--preview)",
-  "signing_flags+=(--signed)",
+  'stage_args+=(--repository "$RELEASE_REPOSITORY")',
+  "stage_args+=(--preview)",
+  "stage_args+=(--signed)",
+  'node scripts/stage-desktop-release.mjs stage "${stage_args[@]}"',
 ]) {
   if (!workflow.includes(marker))
     fail(`desktop release workflow is missing ${marker}`);
@@ -129,6 +132,11 @@ if (workflow.includes("Prepare Linux package metadata"))
   fail("Linux package metadata must come from apps/desktop/package.json");
 if (workflow.includes("desktop-v"))
   fail("desktop-only tags must not diverge from the project v* release");
+if (
+  workflow.includes("repository_flags=()") ||
+  workflow.includes("signing_flags=()")
+)
+  fail("desktop staging must not expand empty arrays under macOS Bash 3.2");
 for (const platform of ["darwin", "win32"]) {
   const publishGate = `if: matrix.platform == '${platform}' && needs.resolve.outputs.publish == 'true'`;
   const count = workflow.split(publishGate).length - 1;

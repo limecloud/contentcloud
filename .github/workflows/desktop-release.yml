@@ -275,27 +275,25 @@ jobs:
           RELEASE_REPOSITORY: ${{ needs.resolve.outputs.publish == 'true' && github.repository || '' }}
         run: |
           set -euo pipefail
-          repository_flags=()
+          stage_args=(
+            --forge-dir apps/desktop/out
+            --out-dir "desktop-staged/${{ matrix.target }}"
+            --target "${{ matrix.target }}"
+            --version "$RELEASE_VERSION"
+            --channel "$RELEASE_CHANNEL"
+            --tag "$RELEASE_TAG"
+          )
           if [[ -n "$RELEASE_REPOSITORY" ]]; then
-            repository_flags+=(--repository "$RELEASE_REPOSITORY")
+            stage_args+=(--repository "$RELEASE_REPOSITORY")
           fi
-          signing_flags=()
           if [[ "${{ matrix.signing }}" == required ]]; then
             if [[ "${{ needs.resolve.outputs.publish }}" == true ]]; then
-              signing_flags+=(--signed)
+              stage_args+=(--signed)
             else
-              signing_flags+=(--preview)
+              stage_args+=(--preview)
             fi
           fi
-          node scripts/stage-desktop-release.mjs stage \
-            --forge-dir apps/desktop/out \
-            --out-dir "desktop-staged/${{ matrix.target }}" \
-            --target "${{ matrix.target }}" \
-            --version "$RELEASE_VERSION" \
-            --channel "$RELEASE_CHANNEL" \
-            --tag "$RELEASE_TAG" \
-            "${repository_flags[@]}" \
-            "${signing_flags[@]}"
+          node scripts/stage-desktop-release.mjs stage "${stage_args[@]}"
 
       - name: Upload staged desktop assets
         uses: actions/upload-artifact@v4
