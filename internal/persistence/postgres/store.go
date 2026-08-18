@@ -86,7 +86,7 @@ func (s *Store) withTenant(ctx context.Context, tenantID string, fn func(pgx.Tx)
 	if _, err := tx.Exec(ctx, `SET LOCAL ROLE contentcloud_runtime`); err != nil {
 		return fmt.Errorf("启用 RLS 运行角色失败：%w", err)
 	}
-	if _, err := tx.Exec(ctx, `SELECT set_config('application.tenant_id',$1,true)`, tenantID); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id',$1,true)`, tenantID); err != nil {
 		return err
 	}
 	if err := fn(tx); err != nil {

@@ -196,7 +196,7 @@ func TestV3WorkspaceSubmissionGovernanceWithPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT set_config('application.tenant_id',$1,true)`, otherActor.TenantID); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id',$1,true)`, otherActor.TenantID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(ctx, `SET LOCAL ROLE contentcloud_runtime`); err != nil {

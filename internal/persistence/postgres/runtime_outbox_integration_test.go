@@ -62,7 +62,7 @@ func TestRuntimeOutboxPostgresClaimAndCommandRollback(t *testing.T) {
 	}
 	for index, statement := range setupStatements {
 		if index == 1 {
-			if _, err := setupTx.Exec(ctx, `SELECT set_config('application.tenant_id',$1,true)`, tenantID); err != nil {
+			if _, err := setupTx.Exec(ctx, `SELECT set_config('app.tenant_id',$1,true)`, tenantID); err != nil {
 				_ = setupTx.Rollback(ctx)
 				t.Fatal(err)
 			}
@@ -154,7 +154,7 @@ func TestRuntimeOutboxPostgresClaimAndCommandRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := permissionTx.Exec(ctx, `SELECT set_config('application.tenant_id',$1,true)`, tenantID); err != nil {
+	if _, err := permissionTx.Exec(ctx, `SELECT set_config('app.tenant_id',$1,true)`, tenantID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := permissionTx.Exec(ctx, `SET LOCAL ROLE contentcloud_runtime`); err != nil {
@@ -252,7 +252,7 @@ func TestRuntimeOutboxPostgresClaimAndCommandRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixtureTx.Exec(ctx, `SELECT set_config('application.tenant_id',$1,true)`, tenantID); err != nil {
+	if _, err := fixtureTx.Exec(ctx, `SELECT set_config('app.tenant_id',$1,true)`, tenantID); err != nil {
 		_ = fixtureTx.Rollback(ctx)
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestRuntimeOutboxPostgresClaimAndCommandRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rlsTx.Rollback(ctx)
-	if _, err := rlsTx.Exec(ctx, `SELECT set_config('application.tenant_id',$1,true)`, otherTenantID); err != nil {
+	if _, err := rlsTx.Exec(ctx, `SELECT set_config('app.tenant_id',$1,true)`, otherTenantID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := rlsTx.Exec(ctx, `SET LOCAL ROLE contentcloud_runtime`); err != nil {
