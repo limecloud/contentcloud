@@ -83,7 +83,7 @@ resolve (tag / version / channel / source ref)
 3. 在 macOS 上执行 `codesign` 与 Gatekeeper assessment，在 Windows 上验证 Authenticode 状态；Linux 仅作为不提供自动更新的预览包。
 4. 在 publish job 复验四个目标、版本和每个文件摘要，汇总为 `desktop-<channel>-latest.json` 和 `desktop-checksums.txt`，再上传 GitHub Release。桌面端使用独立校验文件名，避免覆盖 CLI 的 `checksums.txt`。
 
-macOS 的 DMG maker 间接依赖 `macos-alias` 和 `fs-xattr` 原生模块。pnpm 的 build-script 白名单保留在根 `package.json`，release job 还会在 `.pnpm` 的实际解析目录显式执行 `node-gyp rebuild` 并分别检查 `volume.node`、`xattr.node`；不能只构建 hoisted 副本，否则 Forge 仍会在 `appdmg` 加载阶段失败。
+macOS 的 DMG maker 间接依赖 `macos-alias` 和 `fs-xattr` 原生模块。release job 使用 pnpm hoisted 布局安装 Forge 的平台可选依赖，再在 `.pnpm` 的实际解析目录显式执行 `node-gyp rebuild`，分别检查 `volume.node`、`xattr.node`。Linux DEB/RPM maker 依赖 `apps/desktop/package.json` 中的 `description`；workflow 会为缺少该字段的既有标签补入同一份固定安装器元数据，但不会改变应用代码或版本。
 
 正式 Release 所需 GitHub Actions secrets：
 

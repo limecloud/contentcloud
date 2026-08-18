@@ -5,6 +5,9 @@ const root = resolve(import.meta.dirname, "..");
 const policy = JSON.parse(
   await readFile(resolve(root, "apps/desktop/update-channels.json"), "utf8"),
 );
+const desktopPackage = JSON.parse(
+  await readFile(resolve(root, "apps/desktop/package.json"), "utf8"),
+);
 const forge = await readFile(
   resolve(root, "apps/desktop/forge.config.ts"),
   "utf8",
@@ -33,6 +36,12 @@ if (policy.app_id !== "run.zhongcao.contentcloud.desktop")
   fail("unexpected app id");
 if (!["stable", "beta"].includes(policy.default_channel))
   fail("default channel must be stable or beta");
+if (
+  typeof desktopPackage.description !== "string" ||
+  desktopPackage.description.trim() === ""
+) {
+  fail("desktop package description is required by Linux installers");
+}
 for (const channel of ["stable", "beta"]) {
   const value = policy.channels?.[channel];
   if (
@@ -71,6 +80,8 @@ for (const marker of [
   "node scripts/resolve-desktop-release.mjs",
   "Verify published source matches release tag",
   "desktop-release-publish-${{ needs.resolve.outputs.tag }}",
+  "--config.node-linker=hoisted",
+  "Prepare Linux package metadata",
   "electron-forge make",
   "actions/upload-artifact@v4",
   "actions/download-artifact@v4",

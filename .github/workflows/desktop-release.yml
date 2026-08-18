@@ -35,6 +35,7 @@ env:
   NODE_VERSION: "22"
   PNPM_VERSION: "10.8.1"
   ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+  DESKTOP_PACKAGE_DESCRIPTION: "ContentCloud project workspace desktop"
 
 jobs:
   resolve:
@@ -119,7 +120,7 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --config.node-linker=hoisted
 
       - name: Build macOS DMG native dependency
         if: matrix.platform == 'darwin'
@@ -170,6 +171,19 @@ jobs:
             echo "::error::published desktop source $source_commit does not match $RELEASE_TAG at $tag_commit"
             exit 1
           }
+
+      - name: Prepare Linux package metadata
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from 'node:fs/promises';
+          const path = 'apps/desktop/package.json';
+          const packageJson = JSON.parse(await readFile(path, 'utf8'));
+          packageJson.description ||= process.env.DESKTOP_PACKAGE_DESCRIPTION;
+          await writeFile(path, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
+          NODE
 
       - name: Validate macOS signing secrets
         if: matrix.platform == 'darwin'

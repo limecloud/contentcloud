@@ -2,6 +2,7 @@
   "name": "@limecloud/contentcloud-desktop",
   "private": true,
   "version": "0.28.0",
+  "description": "ContentCloud project workspace desktop",
   "main": ".vite/build/main.js",
   "scripts": {
     "start": "electron-forge start",
