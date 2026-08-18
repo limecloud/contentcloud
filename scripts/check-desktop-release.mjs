@@ -69,6 +69,7 @@ for (const marker of [
   "actions/download-artifact@v4",
   "gh release create",
   "CONTENTCLOUD_DESKTOP_SIGN",
+  "node-gyp rebuild",
 ]) {
   if (!workflow.includes(marker))
     fail(`desktop release workflow is missing ${marker}`);

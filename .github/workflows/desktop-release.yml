@@ -166,6 +166,27 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build macOS DMG native dependency
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for package_name in macos-alias fs-xattr; do
+            if [[ "$package_name" == macos-alias ]]; then
+              expected_output=volume.node
+            else
+              expected_output=xattr.node
+            fi
+            package_json="$(find node_modules/.pnpm -path "*/node_modules/$package_name/package.json" -print -quit)"
+            if [[ -z "$package_json" ]]; then
+              echo "::error::$package_name package is missing"
+              exit 1
+            fi
+            package_dir="$(dirname "$package_json")"
+            pnpm exec node-gyp rebuild --directory "$package_dir"
+            test -f "$package_dir/build/Release/$expected_output"
+          done
+
       - name: Validate desktop release contract
         run: pnpm desktop:release:check
 

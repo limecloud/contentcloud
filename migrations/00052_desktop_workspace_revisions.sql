@@ -28,7 +28,7 @@ CREATE TABLE workspace_upload_sessions (
   expires_at timestamptz NOT NULL,
   UNIQUE (tenant_id,workspace_id,idempotency_key),
   FOREIGN KEY (tenant_id,project_id) REFERENCES brand_projects(tenant_id,id) ON DELETE CASCADE,
-  FOREIGN KEY (tenant_id,workspace_id) REFERENCES workspace_bindings(tenant_id,id) ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id) REFERENCES workspace_bindings(id) ON DELETE CASCADE,
   FOREIGN KEY (tenant_id,device_id) REFERENCES devices(tenant_id,id)
 );
 
@@ -60,7 +60,7 @@ CREATE TABLE workspace_revisions (
   UNIQUE (tenant_id,workspace_id,revision_no),
   UNIQUE (tenant_id,workspace_id,idempotency_key),
   FOREIGN KEY (tenant_id,project_id) REFERENCES brand_projects(tenant_id,id) ON DELETE CASCADE,
-  FOREIGN KEY (tenant_id,workspace_id) REFERENCES workspace_bindings(tenant_id,id) ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id) REFERENCES workspace_bindings(id) ON DELETE CASCADE,
   FOREIGN KEY (tenant_id,device_id) REFERENCES devices(tenant_id,id),
   FOREIGN KEY (base_revision_id) REFERENCES workspace_revisions(id)
 );
