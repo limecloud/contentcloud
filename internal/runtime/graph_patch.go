@@ -5,31 +5,33 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+	"github.com/limecloud/contentcloud/internal/platform/idgen"
+	"github.com/limecloud/contentcloud/internal/platform/stablehash"
 )
 
 // GraphPatch is the only shape a supervisor may submit to extend an execution
 // graph. It has no delete or update operation for already published nodes.
 type GraphPatch struct {
-	ExpectedGraphVersion  int                  `json:"expected_graph_version"`
-	IdempotencyKey        string               `json:"idempotency_key"`
-	Reason                string               `json:"reason"`
-	AddNodes              []domain.JobPlanNode `json:"add_nodes"`
-	AddEdges              []domain.JobPlanEdge `json:"add_edges"`
-	CancelPendingNodeKeys []string             `json:"cancel_pending_node_keys"`
+	ExpectedGraphVersion  int           `json:"expected_graph_version"`
+	IdempotencyKey        string        `json:"idempotency_key"`
+	Reason                string        `json:"reason"`
+	AddNodes              []JobPlanNode `json:"add_nodes"`
+	AddEdges              []JobPlanEdge `json:"add_edges"`
+	CancelPendingNodeKeys []string      `json:"cancel_pending_node_keys"`
 }
 
 type GraphPatchResult struct {
-	Plan                  domain.JobPlanRevision `json:"plan"`
-	GraphVersion          int                    `json:"graph_version"`
-	CancelPendingNodeKeys []string               `json:"cancel_pending_node_keys"`
+	Plan                  JobPlanRevision `json:"plan"`
+	GraphVersion          int             `json:"graph_version"`
+	CancelPendingNodeKeys []string        `json:"cancel_pending_node_keys"`
 }
 
 // PatchGraph persists one immutable graph revision and advances the JobRun
 // pointer, new NodeRuns and event/outbox in one command transaction.
 func (s *Service) PatchGraph(ctx context.Context, tenantID, jobRunID, actorID string, patch GraphPatch) (GraphPatchResult, error) {
 	if s == nil || s.repo == nil {
-		return GraphPatchResult{}, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+		return GraphPatchResult{}, fault.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
 	}
 	if err := s.requireDynamicGraph(tenantID); err != nil {
 		return GraphPatchResult{}, err
@@ -52,12 +54,12 @@ func (s *Service) PatchGraph(ctx context.Context, tenantID, jobRunID, actorID st
 	}
 	now := s.now().UTC()
 	result.Plan.CompiledAt = now
-	addedNodes := make([]domain.NodeRun, 0, len(patch.AddNodes))
+	addedNodes := make([]NodeRun, 0, len(patch.AddNodes))
 	for _, spec := range result.Plan.Nodes {
 		if _, ok := existing[spec.Key]; ok {
 			continue
 		}
-		addedNodes = append(addedNodes, domain.NodeRun{ID: domain.NewID(), TenantID: tenantID, JobRunID: job.ID, NodeKey: spec.Key, State: domain.NodePending, OutputRefs: []string{}, Version: 1, CreatedAt: now, UpdatedAt: now})
+		addedNodes = append(addedNodes, NodeRun{ID: idgen.New(), TenantID: tenantID, JobRunID: job.ID, NodeKey: spec.Key, State: NodePending, OutputRefs: []string{}, Version: 1, CreatedAt: now, UpdatedAt: now})
 	}
 	expectedVersion := job.Version
 	job.PlanRevisionID = result.Plan.ID
@@ -68,8 +70,8 @@ func (s *Service) PatchGraph(ctx context.Context, tenantID, jobRunID, actorID st
 	if err != nil {
 		return GraphPatchResult{}, err
 	}
-	event := domain.JobEvent{
-		ID: domain.NewID(), TenantID: tenantID, JobRunID: job.ID, Type: "graph.patched", ActorType: "runtime", ActorID: strings.TrimSpace(actorID),
+	event := JobEvent{
+		ID: idgen.New(), TenantID: tenantID, JobRunID: job.ID, Type: "graph.patched", ActorType: "runtime", ActorID: strings.TrimSpace(actorID),
 		IdempotencyKey: "graph-patch:" + strings.TrimSpace(patch.IdempotencyKey),
 		Payload:        map[string]any{"base_revision_id": plan.ID, "plan_revision_id": result.Plan.ID, "graph_version": result.GraphVersion, "added_nodes": len(addedNodes), "cancelled_nodes": len(result.CancelPendingNodeKeys)}, OccurredAt: now,
 	}
@@ -82,34 +84,34 @@ func (s *Service) PatchGraph(ctx context.Context, tenantID, jobRunID, actorID st
 // ApplyGraphPatch validates and materializes one immutable plan revision. The
 // caller persists the returned plan and graph version in one transaction; this
 // function itself has no storage side effects.
-func ApplyGraphPatch(plan domain.JobPlanRevision, currentGraphVersion int, patch GraphPatch) (GraphPatchResult, error) {
+func ApplyGraphPatch(plan JobPlanRevision, currentGraphVersion int, patch GraphPatch) (GraphPatchResult, error) {
 	if currentGraphVersion < 1 || patch.ExpectedGraphVersion != currentGraphVersion {
-		return GraphPatchResult{}, domain.Conflict("GRAPH_VERSION_CONFLICT", "执行图版本已经变化，请重新读取后再提交")
+		return GraphPatchResult{}, fault.Conflict("GRAPH_VERSION_CONFLICT", "执行图版本已经变化，请重新读取后再提交")
 	}
 	if strings.TrimSpace(patch.IdempotencyKey) == "" || strings.TrimSpace(patch.Reason) == "" {
-		return GraphPatchResult{}, domain.Invalid("GRAPH_PATCH_INVALID", "执行图变更需要幂等键和原因")
+		return GraphPatchResult{}, fault.Invalid("GRAPH_PATCH_INVALID", "执行图变更需要幂等键和原因")
 	}
 	plan.NormalizeCollections()
-	existing := map[string]domain.JobPlanNode{}
+	existing := map[string]JobPlanNode{}
 	for _, node := range plan.Nodes {
 		existing[node.Key] = node
 	}
-	added := map[string]domain.JobPlanNode{}
+	added := map[string]JobPlanNode{}
 	for _, node := range patch.AddNodes {
 		if strings.TrimSpace(node.Key) == "" || strings.TrimSpace(node.Name) == "" || strings.TrimSpace(node.OutputSchema) == "" || node.Kind == "" {
-			return GraphPatchResult{}, domain.Invalid("GRAPH_PATCH_NODE_INVALID", "新增节点必须有唯一 Key、类型、名称和输出 Schema")
+			return GraphPatchResult{}, fault.Invalid("GRAPH_PATCH_NODE_INVALID", "新增节点必须有唯一 Key、类型、名称和输出 Schema")
 		}
 		if _, ok := existing[node.Key]; ok {
-			return GraphPatchResult{}, domain.Conflict("GRAPH_PATCH_NODE_EXISTS", "GraphPatch 不能修改或重复添加已有节点")
+			return GraphPatchResult{}, fault.Conflict("GRAPH_PATCH_NODE_EXISTS", "GraphPatch 不能修改或重复添加已有节点")
 		}
 		if _, ok := added[node.Key]; ok {
-			return GraphPatchResult{}, domain.Conflict("GRAPH_PATCH_NODE_EXISTS", "GraphPatch 包含重复节点")
+			return GraphPatchResult{}, fault.Conflict("GRAPH_PATCH_NODE_EXISTS", "GraphPatch 包含重复节点")
 		}
 		node.DependsOn = normalizeKeys(node.DependsOn)
 		added[node.Key] = node
 	}
 	if plan.Limits.MaxDynamicDescendants > 0 && len(added) > plan.Limits.MaxDynamicDescendants {
-		return GraphPatchResult{}, domain.Invalid("GRAPH_PATCH_DESCENDANT_LIMIT", "GraphPatch 超过动态后代数量上限")
+		return GraphPatchResult{}, fault.Invalid("GRAPH_PATCH_DESCENDANT_LIMIT", "GraphPatch 超过动态后代数量上限")
 	}
 
 	known := map[string]bool{}
@@ -119,18 +121,18 @@ func ApplyGraphPatch(plan domain.JobPlanRevision, currentGraphVersion int, patch
 	for key := range added {
 		known[key] = true
 	}
-	edges := append([]domain.JobPlanEdge{}, plan.Edges...)
+	edges := append([]JobPlanEdge{}, plan.Edges...)
 	seenEdges := map[string]bool{}
 	for _, edge := range edges {
 		seenEdges[edge.From+"\x00"+edge.To] = true
 	}
 	for _, edge := range patch.AddEdges {
 		if _, downstreamAdded := added[edge.To]; edge.From == edge.To || !known[edge.From] || !known[edge.To] || !downstreamAdded {
-			return GraphPatchResult{}, domain.Invalid("GRAPH_PATCH_EDGE_INVALID", "新增边必须引用已知节点，且下游必须是新增节点")
+			return GraphPatchResult{}, fault.Invalid("GRAPH_PATCH_EDGE_INVALID", "新增边必须引用已知节点，且下游必须是新增节点")
 		}
 		key := edge.From + "\x00" + edge.To
 		if seenEdges[key] {
-			return GraphPatchResult{}, domain.Conflict("GRAPH_PATCH_EDGE_EXISTS", "GraphPatch 包含重复边")
+			return GraphPatchResult{}, fault.Conflict("GRAPH_PATCH_EDGE_EXISTS", "GraphPatch 包含重复边")
 		}
 		seenEdges[key] = true
 		edges = append(edges, edge)
@@ -145,17 +147,17 @@ func ApplyGraphPatch(plan domain.JobPlanRevision, currentGraphVersion int, patch
 	for key, node := range added {
 		for _, dependency := range node.DependsOn {
 			if !known[dependency] {
-				return GraphPatchResult{}, domain.Invalid("GRAPH_PATCH_DEPENDENCY_INVALID", "新增节点依赖了不存在的节点: "+dependency)
+				return GraphPatchResult{}, fault.Invalid("GRAPH_PATCH_DEPENDENCY_INVALID", "新增节点依赖了不存在的节点: "+dependency)
 			}
 			depEdge := dependency + "\x00" + key
 			if !seenEdges[depEdge] {
 				seenEdges[depEdge] = true
-				edges = append(edges, domain.JobPlanEdge{From: dependency, To: key})
+				edges = append(edges, JobPlanEdge{From: dependency, To: key})
 			}
 		}
 	}
 
-	nodes := append([]domain.JobPlanNode{}, plan.Nodes...)
+	nodes := append([]JobPlanNode{}, plan.Nodes...)
 	for _, node := range added {
 		nodes = append(nodes, node)
 	}
@@ -167,7 +169,7 @@ func ApplyGraphPatch(plan domain.JobPlanRevision, currentGraphVersion int, patch
 		return edges[i].From < edges[j].From
 	})
 	candidate := plan
-	candidate.ID = domain.NewID()
+	candidate.ID = idgen.New()
 	candidate.BaseRevisionID = plan.ID
 	candidate.GraphVersion = currentGraphVersion + 1
 	candidate.PatchKey = strings.TrimSpace(patch.IdempotencyKey)
@@ -185,14 +187,14 @@ func ApplyGraphPatch(plan domain.JobPlanRevision, currentGraphVersion int, patch
 		return GraphPatchResult{}, err
 	}
 	if candidate.Limits.MaxDepth > 0 && depth > candidate.Limits.MaxDepth {
-		return GraphPatchResult{}, domain.Invalid("GRAPH_PATCH_DEPTH_LIMIT", "GraphPatch 超过执行图深度上限")
+		return GraphPatchResult{}, fault.Invalid("GRAPH_PATCH_DEPTH_LIMIT", "GraphPatch 超过执行图深度上限")
 	}
-	digest, err := domain.CanonicalHash(struct {
+	digest, err := stablehash.Sum(struct {
 		BaseDigest string
 		Reason     string
 		Key        string
-		Nodes      []domain.JobPlanNode
-		Edges      []domain.JobPlanEdge
+		Nodes      []JobPlanNode
+		Edges      []JobPlanEdge
 	}{plan.Digest, strings.TrimSpace(patch.Reason), strings.TrimSpace(patch.IdempotencyKey), nodes, edges})
 	if err != nil {
 		return GraphPatchResult{}, err
@@ -201,14 +203,14 @@ func ApplyGraphPatch(plan domain.JobPlanRevision, currentGraphVersion int, patch
 	cancel := normalizeKeys(patch.CancelPendingNodeKeys)
 	for _, key := range cancel {
 		if _, ok := existing[key]; !ok {
-			return GraphPatchResult{}, domain.Invalid("GRAPH_PATCH_CANCEL_INVALID", "只能标记已有节点取消: "+key)
+			return GraphPatchResult{}, fault.Invalid("GRAPH_PATCH_CANCEL_INVALID", "只能标记已有节点取消: "+key)
 		}
 	}
 	return GraphPatchResult{Plan: candidate, GraphVersion: currentGraphVersion + 1, CancelPendingNodeKeys: cancel}, nil
 }
 
-func graphDepth(nodes []domain.JobPlanNode) (int, error) {
-	byKey := map[string]domain.JobPlanNode{}
+func graphDepth(nodes []JobPlanNode) (int, error) {
+	byKey := map[string]JobPlanNode{}
 	for _, node := range nodes {
 		byKey[node.Key] = node
 	}
@@ -220,11 +222,11 @@ func graphDepth(nodes []domain.JobPlanNode) (int, error) {
 			return value, nil
 		}
 		if visiting[key] {
-			return 0, domain.Invalid("GRAPH_PATCH_CYCLE", "执行图不能包含环")
+			return 0, fault.Invalid("GRAPH_PATCH_CYCLE", "执行图不能包含环")
 		}
 		node, ok := byKey[key]
 		if !ok {
-			return 0, domain.Invalid("GRAPH_PATCH_DEPENDENCY_INVALID", "执行图依赖节点不存在")
+			return 0, fault.Invalid("GRAPH_PATCH_DEPENDENCY_INVALID", "执行图依赖节点不存在")
 		}
 		visiting[key] = true
 		value := 1

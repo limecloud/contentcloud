@@ -6,7 +6,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/limecloud/contentcloud/internal/agentadapter"
+	agentadapter "github.com/limecloud/contentcloud/internal/integration/agent"
 	"gopkg.in/yaml.v3"
 )
 

@@ -5,8 +5,14 @@
   "packageManager": "pnpm@10.8.1",
   "scripts": {
     "dev:web": "pnpm --dir apps/web dev",
+    "dev:desktop": "pnpm --dir apps/desktop start",
     "build:web": "pnpm --dir apps/web build",
+    "package:desktop": "pnpm --dir apps/desktop package",
+    "make:desktop": "pnpm --dir apps/desktop make",
+    "desktop:release:check": "pnpm --dir apps/desktop release:check",
+    "test:desktop-release": "node --test scripts/stage-desktop-release.test.mjs",
     "architecture": "node scripts/check-architecture.mjs",
+    "docs:links": "node scripts/check-doc-links.mjs",
     "check:plugin": "node scripts/validate-plugin-release.mjs",
     "check:marketing-plugin": "node scripts/check-marketing-plugin.mjs",
     "evaluate:plugin": "node scripts/evaluate-plugin.mjs",
@@ -14,6 +20,10 @@
     "governance:v3": "node scripts/check-v3-legacy.mjs",
     "test:plugin-signing": "node --test scripts/lib/plugin-release.test.mjs",
     "test:web": "pnpm --dir apps/web test",
-    "typecheck": "pnpm --dir apps/web typecheck"
+    "test:desktop": "pnpm --dir apps/desktop test",
+    "test:e2e:desktop": "pnpm --dir apps/desktop test:e2e",
+    "typecheck:web": "pnpm --dir apps/web typecheck",
+    "typecheck:desktop": "pnpm --dir apps/desktop typecheck",
+    "typecheck": "pnpm typecheck:web && pnpm typecheck:desktop"
   }
 }

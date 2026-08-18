@@ -684,7 +684,7 @@ flowchart TB
 | 本地到服务端主链 | CLI/MCP publish、V3 contracts、Review tests | `current` |
 | 公众号交付 | WeChatDelivery contract/Skill/CLI | `current-local` |
 | V3 对象血缘 | localworkspace、app submission、asset projections | `current-server` / `current-local` |
-| 搜索采集 | `internal/sourceinfra`、`internal/connector`、SourceRevision/Evidence | `current-server` / `external-dependency` |
+| 搜索采集 | `internal/integration/provider/source`、`internal/integration/connector`、SourceRevision/Evidence | `current-server` / `external-dependency` |
 | Runtime 自动化 | Runtime V8、Effect、Provider inbox | `current-server` |
 | 开放执行生态 | AgentHarnessAdapter、ExecutionProfile、Plugin claims、Effect | `current-server` / `external-dependency` |
 | 公众号排版派生 | Article/WeChatDelivery、DOM digest、移动 lint | `current-local` |

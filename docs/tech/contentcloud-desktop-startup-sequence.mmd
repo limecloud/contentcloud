@@ -1,0 +1,28 @@
+%% Desktop startup and UI attachment sequence.
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Avenir Next, Segoe UI Variable, PingFang SC, Microsoft YaHei, sans-serif","primaryColor":"#eff6ff","primaryBorderColor":"#4c91ff","primaryTextColor":"#172033","secondaryColor":"#edf4ef","tertiaryColor":"#fff3ed","lineColor":"#52627b","textColor":"#172033","actorBkg":"#ffffff","actorBorder":"#52627b","actorTextColor":"#172033","signalColor":"#52627b","signalTextColor":"#172033","noteBkgColor":"#fbfdff","noteBorderColor":"#e3eaf3","noteTextColor":"#172033","activationBkgColor":"#edf3f9","activationBorderColor":"#52627b"}}}%%
+sequenceDiagram
+    actor User as 用户
+    participant App as Electron Main
+    participant Daemon as Go Daemon
+    participant Server as ContentCloud Server
+    participant UI as Renderer
+
+    User->>App: 启动 Desktop
+    App->>App: 单实例与应用版本检查
+    App->>Daemon: 读取发现文件并探测健康
+    alt Daemon 未运行
+        App->>Daemon: 启动用户级服务
+    end
+    App->>Daemon: 协商 Desktop API 版本
+    Daemon->>Server: 恢复设备控制通道和事件游标
+    Daemon-->>App: health + bindings
+    App-->>UI: 经过 Preload 的 bootstrap
+    UI->>App: 请求项目快照
+    App->>Daemon: GET snapshot
+    Daemon-->>App: DesktopProjectView
+    App-->>UI: 校验后的投影
+    Daemon-->>App: snapshot invalidated
+    App-->>UI: snapshot changed
+    User->>App: 关闭窗口
+    App-->>Daemon: detach UI session
+    Note over Daemon,Server: Daemon 可继续已准入的同步与执行

@@ -1,18 +1,31 @@
-package runtime
+package runtime_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/agentadapter"
-	"github.com/limecloud/contentcloud/internal/domain"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	agentadapter "github.com/limecloud/contentcloud/internal/integration/agent"
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
+	"github.com/limecloud/contentcloud/internal/platform/idgen"
+	"github.com/limecloud/contentcloud/internal/platform/stablehash"
 )
 
-func activeGatewayFixture(t *testing.T) (*RuntimeMCPGateway, DispatchHandle, domain.StateCollection) {
+type gatewayFixture struct {
+	gateway    *RuntimeMCPGateway
+	service    *Service
+	repository *memory.Store
+	handle     DispatchHandle
+	collection StateCollection
+}
+
+func activeGatewayFixture(t *testing.T) gatewayFixture {
 	t.Helper()
 	fake := agentadapter.NewFakeHarness()
-	service, _, started := newDispatchRuntime(t, fake, time.Now)
+	service, repository, started := newDispatchRuntime(t, fake, time.Now)
 	collection := stateCollectionForTest(started, started.Plan.Nodes[0].Key, "brief", "cas_map", 10)
 	publishStateSchemaForTest(t, service, collection)
 	if err := service.CreateStateCollection(t.Context(), collection); err != nil {
@@ -35,7 +48,10 @@ func activeGatewayFixture(t *testing.T) (*RuntimeMCPGateway, DispatchHandle, dom
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewRuntimeMCPGateway(service), active, collection
+	return gatewayFixture{
+		gateway: NewRuntimeMCPGateway(service), service: service, repository: repository,
+		handle: active, collection: collection,
+	}
 }
 
 func mapCapabilities(fake *agentadapter.FakeHarness) agentadapter.HarnessCapabilities {
@@ -44,13 +60,14 @@ func mapCapabilities(fake *agentadapter.FakeHarness) agentadapter.HarnessCapabil
 }
 
 func TestRuntimeMCPGatewayBindsToolCallToFenceAndContext(t *testing.T) {
-	gateway, handle, collection := activeGatewayFixture(t)
+	fixture := activeGatewayFixture(t)
+	gateway, handle, collection := fixture.gateway, fixture.handle, fixture.collection
 	request := GatewayRequest{TenantID: handle.Attempt.TenantID, AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, ToolName: ToolStateMutate, RequestID: "mcp-state-1", Arguments: map[string]any{"collection": collection.ID, "key": "topic", "value": map[string]any{"value": "春日"}}}
 	first, err := gateway.Call(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.ToolCall.State != domain.ToolCallSucceeded || first.Result["record"] == nil {
+	if first.ToolCall.State != ToolCallSucceeded || first.Result["record"] == nil {
 		t.Fatalf("MCP state mutation did not produce a terminal ToolCall: %#v", first)
 	}
 	replayed, err := gateway.Call(t.Context(), request)
@@ -61,7 +78,7 @@ func TestRuntimeMCPGatewayBindsToolCallToFenceAndContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records, ok := query.Result["records"].([]domain.StateRecord)
+	records, ok := query.Result["records"].([]StateRecord)
 	if !ok || len(records) != 1 || records[0].Key != "topic" {
 		t.Fatalf("MCP state query returned unexpected records: %#v", query.Result)
 	}
@@ -74,13 +91,11 @@ func TestRuntimeMCPGatewayBindsToolCallToFenceAndContext(t *testing.T) {
 }
 
 func TestRuntimeMCPGatewayDoesNotReexecutePersistedRunningCall(t *testing.T) {
-	gateway, handle, collection := activeGatewayFixture(t)
+	fixture := activeGatewayFixture(t)
+	handle, collection := fixture.handle, fixture.collection
 	request := GatewayRequest{TenantID: handle.Attempt.TenantID, AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, ToolName: ToolStateQuery, RequestID: "mcp-running", Arguments: map[string]any{"collection": collection.ID}}
-	idempotencyKey, err := gatewayIdempotencyKey(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	requestDigest, err := domain.CanonicalHash(struct {
+	idempotencyKey := request.RequestID
+	requestDigest, err := stablehash.Sum(struct {
 		ToolName       string         `json:"tool_name"`
 		Arguments      map[string]any `json:"arguments"`
 		IdempotencyKey string         `json:"idempotency_key"`
@@ -88,51 +103,35 @@ func TestRuntimeMCPGatewayDoesNotReexecutePersistedRunningCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := gateway.service.now().UTC()
-	call := domain.ToolCall{
-		ID: domain.NewID(), TenantID: request.TenantID, JobRunID: handle.Attempt.JobRunID,
+	now := time.Now().UTC()
+	call := ToolCall{
+		ID: idgen.New(), TenantID: request.TenantID, JobRunID: handle.Attempt.JobRunID,
 		NodeRunID: handle.Attempt.NodeRunID, AttemptID: handle.Attempt.ID, AgentInstanceID: handle.Attempt.AgentInstanceID,
-		ToolName: request.ToolName, SchemaVersion: gatewayToolSchema(request.ToolName), RequestDigest: "sha256:" + requestDigest,
-		SafeRequest: gatewaySafeRequest(request.ToolName, request.Arguments, idempotencyKey), State: domain.ToolCallProposed,
-		Version: 1, CreatedAt: now, UpdatedAt: now,
+		ToolName: request.ToolName, SchemaVersion: "contentcloud.tool/state.query/1", RequestDigest: "sha256:" + requestDigest,
+		SafeRequest: map[string]any{"idempotency_key": idempotencyKey, "collection": collection.ID}, State: ToolCallRunning,
+		StartedAt: &now, Version: 3, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := gateway.service.CreateFencedToolCall(t.Context(), call, request.FenceToken); err != nil {
-		t.Fatal(err)
-	}
-	authorized := call
-	authorized.State = domain.ToolCallAuthorized
-	authorized.Version++
-	call, err = gateway.service.TransitionFencedToolCall(t.Context(), authorized, call.Version, request.FenceToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	running := call
-	running.State = domain.ToolCallRunning
-	running.StartedAt = &now
-	running.Version++
-	call, err = gateway.service.TransitionFencedToolCall(t.Context(), running, call.Version, request.FenceToken)
-	if err != nil {
-		t.Fatal(err)
-	}
+	gateway := NewRuntimeMCPGateway(New(&runningToolCallRepository{Store: fixture.repository, call: call}, time.Now))
 	response, err := gateway.Call(t.Context(), request)
-	if !hasDomainCode(err, "MCP_GATEWAY_TOOL_CALL_IN_PROGRESS") || response.ToolCall.ID != call.ID || response.ToolCall.State != domain.ToolCallRunning {
+	if !hasDomainCode(err, "MCP_GATEWAY_TOOL_CALL_IN_PROGRESS") || response.ToolCall.ID != call.ID || response.ToolCall.State != ToolCallRunning {
 		t.Fatalf("persisted running ToolCall was not fenced: response=%#v err=%v", response, err)
 	}
 }
 
 func TestRuntimeMCPGatewayTokenIsAttemptScopedAndRevokedAtTerminal(t *testing.T) {
-	gateway, handle, collection := activeGatewayFixture(t)
-	if !strings.HasPrefix(handle.GatewayToken, "rtg_") || handle.Attempt.GatewayTokenHash != domain.TokenHash(handle.GatewayToken) {
+	fixture := activeGatewayFixture(t)
+	gateway, service, handle, collection := fixture.gateway, fixture.service, fixture.handle, fixture.collection
+	if !strings.HasPrefix(handle.GatewayToken, "rtg_") || handle.Attempt.GatewayTokenHash != idgen.TokenHash(handle.GatewayToken) {
 		t.Fatalf("prepare did not return the Attempt token matching the persisted hash")
 	}
 	response, err := gateway.CallWithToken(t.Context(), handle.GatewayToken, GatewayTokenRequest{ToolName: ToolStateQuery, RequestID: "rtg-query", Arguments: map[string]any{"collection": collection.ID}})
-	if err != nil || response.ToolCall.State != domain.ToolCallSucceeded {
+	if err != nil || response.ToolCall.State != ToolCallSucceeded {
 		t.Fatalf("valid Attempt token call failed: response=%#v err=%v", response, err)
 	}
 	if _, err := gateway.CallWithToken(t.Context(), "rtg_invalid", GatewayTokenRequest{ToolName: ToolStateQuery}); !hasDomainCode(err, "RUNTIME_GATEWAY_TOKEN_INVALID") {
 		t.Fatalf("invalid token was accepted: %v", err)
 	}
-	if _, err := gateway.service.FinalizeDispatch(t.Context(), handle, DispatchOutcome{State: domain.RuntimeAttemptFailed, ErrorCode: "TEST_TERMINAL"}); err != nil {
+	if _, err := service.FinalizeDispatch(t.Context(), handle, DispatchOutcome{State: RuntimeAttemptFailed, ErrorCode: "TEST_TERMINAL"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := gateway.CallWithToken(t.Context(), handle.GatewayToken, GatewayTokenRequest{ToolName: ToolStateQuery, RequestID: "rtg-after-terminal", Arguments: map[string]any{"collection": collection.ID}}); !hasDomainCode(err, "RUNTIME_GATEWAY_TOKEN_INVALID") {
@@ -141,12 +140,13 @@ func TestRuntimeMCPGatewayTokenIsAttemptScopedAndRevokedAtTerminal(t *testing.T)
 }
 
 func TestRuntimeMCPGatewayEffectPreparationIsAttemptScoped(t *testing.T) {
-	gateway, handle, _ := activeGatewayFixture(t)
+	fixture := activeGatewayFixture(t)
+	gateway, handle := fixture.gateway, fixture.handle
 	response, err := gateway.Call(t.Context(), GatewayRequest{TenantID: handle.Attempt.TenantID, AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, ToolName: ToolEffectPrepare, RequestID: "mcp-effect-1", Arguments: map[string]any{"kind": "provider.submit", "request_digest": "sha256:" + repeatGatewayHex(64, 'a'), "cost_minor": 100, "safe_summary": map[string]any{"provider": "fake"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.ToolCall.State != domain.ToolCallSucceeded || response.Result["effect_id"] == "" {
+	if response.ToolCall.State != ToolCallSucceeded || response.Result["effect_id"] == "" {
 		t.Fatalf("effect.prepare did not persist an Effect: %#v", response)
 	}
 	if replay, err := gateway.Call(t.Context(), GatewayRequest{TenantID: handle.Attempt.TenantID, AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, ToolName: ToolEffectPrepare, RequestID: "mcp-effect-1", Arguments: map[string]any{"kind": "provider.submit", "request_digest": "sha256:" + repeatGatewayHex(64, 'a'), "cost_minor": 100, "safe_summary": map[string]any{"provider": "fake"}}}); err != nil || !replay.Replayed || replay.Result["effect_id"] != response.Result["effect_id"] {
@@ -155,26 +155,27 @@ func TestRuntimeMCPGatewayEffectPreparationIsAttemptScoped(t *testing.T) {
 }
 
 func TestRuntimeMCPGatewayFailedReplayPreservesTerminalError(t *testing.T) {
-	gateway, handle, _ := activeGatewayFixture(t)
+	fixture := activeGatewayFixture(t)
+	gateway, handle := fixture.gateway, fixture.handle
 	request := GatewayRequest{TenantID: handle.Attempt.TenantID, AttemptID: handle.Attempt.ID, FenceToken: handle.Attempt.FenceToken, ToolName: ToolEffectPrepare, RequestID: "mcp-effect-invalid", Arguments: map[string]any{"kind": "provider.submit", "request_digest": "sha256:" + repeatGatewayHex(64, 'c'), "cost_minor": -1}}
 	first, err := gateway.Call(t.Context(), request)
-	if !hasDomainCode(err, "MCP_GATEWAY_EFFECT_COST_INVALID") || first.ToolCall.State != domain.ToolCallFailed {
+	if !hasDomainCode(err, "MCP_GATEWAY_EFFECT_COST_INVALID") || first.ToolCall.State != ToolCallFailed {
 		t.Fatalf("invalid effect did not persist the expected failed ToolCall: response=%#v err=%v", first, err)
 	}
 	replayed, err := gateway.Call(t.Context(), request)
-	if !hasDomainCode(err, "MCP_GATEWAY_EFFECT_COST_INVALID") || !replayed.Replayed || replayed.ToolCall.ID != first.ToolCall.ID || replayed.ToolCall.State != domain.ToolCallFailed {
+	if !hasDomainCode(err, "MCP_GATEWAY_EFFECT_COST_INVALID") || !replayed.Replayed || replayed.ToolCall.ID != first.ToolCall.ID || replayed.ToolCall.State != ToolCallFailed {
 		t.Fatalf("failed MCP replay changed terminal semantics: first=%#v replay=%#v err=%v", first, replayed, err)
 	}
 }
 
 func TestRuntimeMCPGatewayCommandsRecheckFenceInsideCommandStore(t *testing.T) {
-	gateway, handle, collection := activeGatewayFixture(t)
-	service := gateway.service
+	fixture := activeGatewayFixture(t)
+	service, handle, collection := fixture.service, fixture.handle, fixture.collection
 	record := stateRecordForTest(collection, "stale", "node:"+handle.Node.NodeKey)
 	if _, err := service.StateRecordCASForAttempt(t.Context(), record, 0, handle.Attempt.ID, "stale-fence"); !hasDomainCode(err, "MCP_GATEWAY_FENCE_STALE") {
 		t.Fatalf("state command accepted a stale fence: %v", err)
 	}
-	if _, err := service.RegisterEffectForAttempt(t.Context(), domain.ExternalEffect{TenantID: handle.Attempt.TenantID, JobRunID: handle.Attempt.JobRunID, NodeRunID: handle.Node.ID, AttemptID: handle.Attempt.ID, Kind: "provider.submit", IdempotencyKey: "stale-effect", RequestDigest: "sha256:" + repeatGatewayHex(64, 'b'), Currency: "CNY", SafeSummary: map[string]any{}}, "stale-fence"); !hasDomainCode(err, "MCP_GATEWAY_FENCE_STALE") {
+	if _, err := service.RegisterEffectForAttempt(t.Context(), ExternalEffect{TenantID: handle.Attempt.TenantID, JobRunID: handle.Attempt.JobRunID, NodeRunID: handle.Node.ID, AttemptID: handle.Attempt.ID, Kind: "provider.submit", IdempotencyKey: "stale-effect", RequestDigest: "sha256:" + repeatGatewayHex(64, 'b'), Currency: "CNY", SafeSummary: map[string]any{}}, "stale-fence"); !hasDomainCode(err, "MCP_GATEWAY_FENCE_STALE") {
 		t.Fatalf("effect command accepted a stale fence: %v", err)
 	}
 	if records, err := service.StateRecords(t.Context(), handle.Attempt.TenantID, collection.ID); err != nil || len(records) != 0 {
@@ -183,6 +184,15 @@ func TestRuntimeMCPGatewayCommandsRecheckFenceInsideCommandStore(t *testing.T) {
 	if effects, err := service.Effects(t.Context(), handle.Attempt.TenantID, handle.Attempt.JobRunID); err != nil || len(effects) != 0 {
 		t.Fatalf("stale fenced command registered an Effect: %#v err=%v", effects, err)
 	}
+}
+
+type runningToolCallRepository struct {
+	*memory.Store
+	call ToolCall
+}
+
+func (r *runningToolCallRepository) ToolCallByIdempotencyKey(context.Context, string, string, string, string) (ToolCall, error) {
+	return r.call, nil
 }
 
 func repeatGatewayHex(count int, value byte) string {

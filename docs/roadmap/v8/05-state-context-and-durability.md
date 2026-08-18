@@ -315,7 +315,7 @@ ContentCloud 不自研数据库、全文搜索、文件监听或模型 SDK，但
 
 P0/P1 以及 P2a 的本地确定性部分已在 CLI/MCP 实现：
 
-- `internal/localworkspace` 定义 `MemoryEntry`、`MemoryQuery`、来源摘要、派生 scope、信任/状态和字符预算契约。
+- `internal/local/workspace` 定义 `MemoryEntry`、`MemoryQuery`、来源摘要、派生 scope、信任/状态和字符预算契约。
 - `modernc.org/sqlite` 提供纯 Go SQLite；`memory_fts` 使用 FTS5 trigram tokenizer 和 BM25 排序，投影位于 `.contentcloud/cache/memory/index.sqlite3`，不进入工作区事实提交。
 - `workspace memory status|rebuild|query|clear` 以及 `memory_status`、`memory_rebuild`、`memory_query` MCP 工具均在本地运行。重建不上传正文，查询范围从已绑定 `workspace_id/project_id` 推导。`memory_extract`、`memory_remote_query` 是额外的显式远程适配器工具：只有调用方提供 endpoint 才会联网，抽取单次正文总量限制为 8 MiB，返回候选必须经过本地 scope、来源 digest、trust、status 和结构字段回验，远程不可用时不影响本地 FTS。
 - `workspace memory remember` 和 `memory_remember` 将明确摘要保存到 `40-work/memory/records/*.json`，记录 `source_ref`、来源 digest、权限模式、scope、`formed_by` 和 `observed_at`；相同 ID 内容不可变，记录只作为 `memory_candidate`。

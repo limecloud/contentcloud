@@ -1,8 +1,8 @@
 # Content Work OS Desktop
 
-状态：`目标产品与技术规范已冻结；Electron 实现和正式分发尚未完成`。
+状态：`Preview 实现进行中；D3-D7 的核心链路已实现，正式签名、更新和多平台安装门禁仍未完成`。
 
-更新时间：2026-08-17。
+更新时间：2026-08-18。
 
 上位规范：[平台基线](../../foundation/README.md)、[ADR-0018](../../foundation/decisions/ADR-0018-desktop-surface-and-repository-topology.md)、[ADR-0019](../../foundation/decisions/ADR-0019-local-cloud-sync-authority.md)。本目录是 Desktop 产品、技术边界和交付门禁的唯一专项事实源。
 
@@ -106,13 +106,19 @@ Codex 可以在任务结果中提供“在 Desktop 中查看”的受控对象�
 | [02-architecture-and-technology.md](./02-architecture-and-technology.md) | 进程、组件、技术栈、安全和部署边界 |
 | [03-sync-review-upload.md](./03-sync-review-upload.md) | 同步、上传、审批、冲突、离线和恢复协议 |
 | [04-delivery-plan.md](./04-delivery-plan.md) | 一次性代码整改、测试、分发和完成定义 |
+| [05-release-and-updates.md](./05-release-and-updates.md) | 跨平台打包、签名、更新通道和发布门禁 |
+| [技术图册](../../tech/README.md) | Mermaid 图源、SVG/PNG 渲染产物与可编辑 Excalidraw |
 
 ## 8. 当前实现口径
 
-截至 2026-08-17：
+截至 2026-08-18：
 
 - Local Workspace、Claim、Proposal、Apply、Browser Workbench、MCP Apps 最小协议、Daemon、设备绑定、服务端 Revision、审批、资产和 Runtime 已分别存在。
-- Web Surface 已从根 `web/` 迁入 `apps/web/`，构建路径正在随本次整改统一。
-- Electron 应用、Desktop typed IPC、Workspace Sync Engine、持久传输 outbox、Desktop 审批收件箱和签名安装包尚未完成。
+- Web Surface 位于 `apps/web/`；Electron Surface 位于 `apps/desktop/`。
+- Electron 43.4.0、Forge/Vite、React Renderer、安全窗口、窄 Preload 白名单、Daemon 离线态、Vitest、Playwright Electron E2E 和本地未签名 package 已完成。
+- Go Desktop API 已接入长期运行 Daemon，只监听 `127.0.0.1` 随机端口，使用 `0600` 发现文件与 capability 鉴权，只返回 Workspace-relative 投影。
+- Workspace Revision 发布、4 MiB 可恢复分片上传（512 MiB 单文件上限）、持久 outbox/cursor、审批收件箱/Revision diff/批注/批准/拒绝/要求修改、Runtime/Delivery 项目投影已接入。
+- Electron 通过 typed Preload 调用 Daemon，Daemon 再使用设备绑定的 Cloud client；Renderer 没有通用 HTTP、文件系统或 Cloud token 权限。
+- 正式签名、notarization、自动更新、Windows 真机安装和跨平台升级仍是发布门禁，当前不能宣称已完成。
 
 对外用户文档在正式门禁通过前只能标记 Desktop 为目标或 Preview，不得宣称可下载或已支持全平台。

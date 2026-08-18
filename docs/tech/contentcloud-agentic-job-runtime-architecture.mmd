@@ -1,5 +1,5 @@
-%% Content Work OS / ContentCloud current architecture source.
-%% Work surfaces, business facts and runtime facts stay separate.
+%% Content Work OS / ContentCloud target architecture source.
+%% Work surfaces, bounded business facts and runtime facts stay separate.
 flowchart TB
     subgraph Surfaces["① 三个工作面"]
         Codex["Codex<br/>任务期推理 · 生成 · 工具"]
@@ -20,7 +20,7 @@ flowchart TB
     end
 
     subgraph Platform["④ ContentCloud 平台"]
-        Business["业务域<br/>Source · Knowledge · Work<br/>Review · Delivery"]
+        Business["边界业务域<br/>Identity · Workspace · Source · Catalog<br/>Work · Review · Delivery · Performance"]
         Runtime["Agentic Job Runtime<br/>Job · Node · Attempt<br/>Lease · Effect · Event"]
         CloudFacts[("PostgreSQL / Blob<br/>Cloud Revision 与执行事实")]
     end

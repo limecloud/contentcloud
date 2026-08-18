@@ -86,7 +86,7 @@ Desktop 当前为 `target`，不能写成已经发布。其完成门槛以 [Desk
 | --- | --- | --- | --- |
 | 人工补充灵感 | `current-server` | Studio 保存任务输入，可选项目参考 | 搜索结果与人工输入仍需统一候选契约 |
 | 本地资料选择 | `current-local` / `current-server` | WorkspaceMaterial、SourceRevision、摘要固定 | OCR/ASR 等派生能力仍有限 |
-| `source.search` Capability | `current-server` | `internal/sourceinfra` Provider、查询摘要和结果物化 | 搜索供应商账号和配额 |
+| `source.search` Capability | `current-server` | `internal/integration/provider/source` Provider、查询摘要和结果物化 | 搜索供应商账号和配额 |
 | `source.fetch` Capability | `current-server` | 受控 Fetcher、白名单、SSRF/大小限制和 Evidence 生成 | 目标站点授权、robots 和网络可达性 |
 | Web 搜索 | `current-server` / `external-dependency` | `source.search` API、SearchReceipt、SourceRevision | 搜索 Provider、计费和平台合规 |
 | 趋势/热榜 | `partial` / `external-dependency` | 统一查询/采集边界可复用 | 平台热榜 API、时效与授权 |

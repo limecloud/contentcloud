@@ -1,66 +1,14 @@
 # Desktop 架构与技术栈
 
-状态：`目标规范`。
+状态：`Preview 技术规范；Electron Shell、同步/上传/审批/Runtime 投影已实现，正式分发门禁未完成`。
 
-更新时间：2026-08-17。
+更新时间：2026-08-18。
 
 ## 1. 总体架构
 
-```mermaid
-flowchart TB
-    User[用户]
+![Desktop、Codex、Web 与本地/云端边界](../../tech/contentcloud-desktop-architecture.svg)
 
-    subgraph AI[Codex Surface]
-        Chat[AI 对话与任务结果]
-        MCPApp[MCP Apps 轻量任务 UI]
-        MCP[stdio MCP Adapter]
-    end
-
-    subgraph Desktop[Content Work OS Desktop]
-        Renderer[Electron Renderer\n项目目录 / 资产 / 审批 / 传输]
-        Preload[Typed Preload Bridge]
-        Main[Electron Main\n窗口 / 托盘 / 通知 / 更新]
-    end
-
-    subgraph Local[ContentCloud Go Daemon]
-        DesktopAPI[Authenticated Desktop API]
-        Kernel[Local Workspace Kernel]
-        Sync[Sync / Upload / Review Inbox]
-        Runtime[Runtime Worker]
-        Events[Local Event Broker]
-    end
-
-    subgraph Cloud[ContentCloud Server]
-        API[Command / Query API]
-        Stream[WebSocket / SSE Event Stream]
-        DB[(Cloud Revision / Review / Job)]
-        Blob[(Object Storage)]
-    end
-
-    subgraph Web[Web Surfaces]
-        Studio[Web Studio]
-        Operations[Operations Console]
-    end
-
-    User --> Chat
-    User --> Renderer
-    User --> Studio
-    Chat --> MCP
-    MCPApp --> MCP
-    MCP --> Kernel
-    Renderer --> Preload --> Main --> DesktopAPI
-    DesktopAPI --> Kernel
-    DesktopAPI --> Sync
-    DesktopAPI --> Events
-    Kernel <--> Workspace[(Local Workspace)]
-    Sync <--> API
-    Sync <--> Stream
-    Sync <--> Blob
-    Runtime <--> API
-    API <--> DB
-    Studio --> API
-    Operations --> API
-```
+图源：[Mermaid](../../tech/contentcloud-desktop-architecture.mmd) · [PNG](../../tech/contentcloud-desktop-architecture.png) · [Excalidraw](../../tech/contentcloud-desktop-architecture.excalidraw)
 
 核心不变量：
 
@@ -69,23 +17,13 @@ flowchart TB
 - Local Workspace 与 Cloud Revision 只通过显式同步协议交换。
 - Web 只读取云端事实，不假装拥有本地未提交文件。
 - Runtime Worker 与 Sync Engine 可以同进程托管，但使用独立状态、命令和错误域。
+- Renderer 的审批请求必须经过独立 IPC 方法，经 Main 到 Daemon，再由设备绑定 Cloud client 调用 `desktop.review.*`。
 
 ## 2. Electron 进程模型
 
-```mermaid
-flowchart LR
-    Renderer[Renderer\n不可信 UI] -->|contextBridge API| Preload[Preload\n窄白名单]
-    Preload -->|ipcRenderer.invoke/on| Main[Main\n权限与生命周期]
-    Main -->|Bearer capability\nloopback/pipe| Daemon[Go Daemon]
-    Daemon -->|typed snapshots/events| Main
-    Main -->|validated result/event| Preload
-    Preload --> Renderer
+![Electron Renderer、Preload、Main 与 Go Daemon 安全边界](../../tech/contentcloud-desktop-security-boundary.svg)
 
-    Renderer -. 禁止 .-> FS[文件系统]
-    Renderer -. 禁止 .-> Token[设备 Token]
-    Renderer -. 禁止 .-> Shell[任意命令]
-    Renderer -. 禁止 .-> Cloud[Cloud API]
-```
+图源：[Mermaid](../../tech/contentcloud-desktop-security-boundary.mmd) · [PNG](../../tech/contentcloud-desktop-security-boundary.png) · [Excalidraw](../../tech/contentcloud-desktop-security-boundary.excalidraw)
 
 Main 负责：
 
@@ -105,18 +43,18 @@ Main 不负责：
 
 | 层 | 选择 | 约束 |
 | --- | --- | --- |
-| Desktop Shell | Electron | 实施时锁定受支持稳定版本 |
-| 构建与打包 | Electron Forge + Vite Plugin | 不并用 electron-vite/electron-builder |
-| Renderer | React 18 + TypeScript 5.7 + Vite 6 | 与 Web 保持同代，不在整改中升级 |
-| 路由 | React Router | Desktop 路由与 Web 路由独立 |
+| Desktop Shell | Electron 43.4.0 | `sandbox`、`contextIsolation` 和 fuses 固化安全基线 |
+| 构建与打包 | Electron Forge 7.11.2 + Vite Plugin | 不并用 electron-vite/electron-builder |
+| Renderer | React 18.3.1 + TypeScript 5.7.2 + Vite 6.4.3 | 与 Web 保持同代，不在整改中升级 |
+| 路由 | React Router 7.18.1 | Desktop 路由与 Web 路由独立 |
 | 图标 | Lucide | 复用 DESIGN.md 规则 |
-| 服务状态 | TanStack Query | snapshot、失效、重试、分页 |
+| 服务状态 | TanStack Query 5.101.4 | snapshot、失效、重试、分页 |
 | UI 状态 | React state/context | 没有证据前不引入第二状态库 |
 | IPC Schema | 版本化 TS Schema + 运行时校验 | 禁止只依赖 TypeScript 类型 |
-| 本地服务 | Go Daemon | Workspace、同步、上传、审批、Runtime |
+| 本地服务 | Go Daemon | Workspace、同步、上传、审批、Runtime/Delivery 投影 |
 | 本地缓存 | Go + SQLite | 索引、outbox、游标和传输恢复，可重建 |
 | 自动测试 | Go test、Vitest、Playwright Electron | 不用 mock 代替进程 E2E |
-| 分发 | Forge makers/publishers + 平台签名 | macOS notarization、Windows signing |
+| 分发 | Forge makers + 更新通道元数据 + 平台签名 | macOS notarization、Windows signing、真实升级回滚 |
 
 ## 4. Desktop View 契约
 
@@ -153,32 +91,11 @@ idempotency_key
 
 ## 5. 组件生命周期时序
 
-```mermaid
-sequenceDiagram
-    actor User as 用户
-    participant App as Electron Main
-    participant Daemon as Go Daemon
-    participant Server as ContentCloud Server
-    participant UI as Renderer
+![Desktop 启动与 UI 附着时序](../../tech/contentcloud-desktop-startup-sequence.svg)
 
-    User->>App: 启动 Desktop
-    App->>App: 单实例与签名版本检查
-    App->>Daemon: 发现本地服务
-    alt Daemon 未运行
-        App->>Daemon: 启动用户级服务
-    end
-    App->>Daemon: negotiate(desktop API version)
-    Daemon->>Server: 恢复设备控制通道和事件游标
-    Daemon-->>App: health + bindings + capability
-    App-->>UI: validated bootstrap
-    UI->>App: openProject(project_id)
-    App->>Daemon: project snapshot
-    Daemon-->>UI: 经 Main/Preload 返回 DesktopProjectView
-    Daemon-->>UI: 后续只发送失效事件和小型进度事件
-    User->>App: 关闭窗口
-    App-->>Daemon: detach UI session
-    Note over Daemon,Server: Daemon 继续同步和执行已准入任务
-```
+图源：[Mermaid](../../tech/contentcloud-desktop-startup-sequence.mmd) · [PNG](../../tech/contentcloud-desktop-startup-sequence.png)
+
+> Sequence Diagram 暂不生成 Excalidraw：上游 Mermaid-to-Excalidraw 转换器只支持 flowchart，SVG/PNG 与 `.mmd` 均已生成。
 
 ## 6. 本地 API 与事件
 
@@ -189,6 +106,8 @@ sequenceDiagram
 - 所有命令有 body 上限、Schema 校验和幂等键。
 - 事件有单调 ID、重连游标、gap 和 full-resync 语义。
 - 路径序列化为 Workspace-relative ref，不返回绝对路径。
+
+当前 Local Desktop API 方法包括：`snapshot`、`workspace-publish`、`project events`、`review inbox`、`review revision`、`review comment`、`review approve`、`review reject`、`review request-changes`。审批命令不会把设备 Token 放入 Renderer；Daemon 关闭窗口后仍可继续 outbox、上传和 Runtime worker。
 
 ## 7. 安全基线
 

@@ -133,7 +133,7 @@ ContentCloud 不直接采用任何项目的固定层级作为领域模型，也�
 
 依赖选型必须满足四个条件：离线或明确授权时可用；索引可从来源确定性重建；删除与权限收窄能够传播；停用依赖不会丢失业务事实。首版只实现一个内建后端，不预先搭建空泛的多 Provider 插件体系；等第二个后端通过评测后再抽取适配接口。
 
-当前内建实现已经采用 `modernc.org/sqlite` 的纯 Go 驱动和 SQLite FTS5/BM25：索引位于工作区 `.contentcloud/cache/memory/index.sqlite3`，由 `internal/localworkspace` 扫描允许的文本目录并可随时重建。对于需要跨会话保留的明确摘要，`workspace memory remember` / `memory_remember` 将其写入 `40-work/memory/records/*.json`；记录绑定已允许来源、派生 workspace/project scope、来源摘要和权限模式，始终保持 `memory_candidate`，且可在删除索引后从文件重建。`memory consolidate` 对相同 `claim_key` 做确定性去重和冲突报告，冲突候选不进入默认召回；`memory promote` 要求已接受的本地 Evidence，并仅导入 `candidate` 知识页，不创建审批快照。`memory extract`、`remote-query` 和 `QueryMemoryWithEmbedding` 通过受控 HTTP/Embedding 适配器显式运行，回验 scope、来源 digest、状态和向量维度；网络或适配器失败不影响本地 FTS。CLI/MCP 只暴露受绑定工作区 scope，因此 TencentDB Agent Memory、Mem0 等仍不会成为默认存储或服务端依赖。
+当前内建实现已经采用 `modernc.org/sqlite` 的纯 Go 驱动和 SQLite FTS5/BM25：索引位于工作区 `.contentcloud/cache/memory/index.sqlite3`，由 `internal/local/workspace` 扫描允许的文本目录并可随时重建。对于需要跨会话保留的明确摘要，`workspace memory remember` / `memory_remember` 将其写入 `40-work/memory/records/*.json`；记录绑定已允许来源、派生 workspace/project scope、来源摘要和权限模式，始终保持 `memory_candidate`，且可在删除索引后从文件重建。`memory consolidate` 对相同 `claim_key` 做确定性去重和冲突报告，冲突候选不进入默认召回；`memory promote` 要求已接受的本地 Evidence，并仅导入 `candidate` 知识页，不创建审批快照。`memory extract`、`remote-query` 和 `QueryMemoryWithEmbedding` 通过受控 HTTP/Embedding 适配器显式运行，回验 scope、来源 digest、状态和向量维度；网络或适配器失败不影响本地 FTS。CLI/MCP 只暴露受绑定工作区 scope，因此 TencentDB Agent Memory、Mem0 等仍不会成为默认存储或服务端依赖。
 
 ## 4. 不采用的方案
 

@@ -1,0 +1,20 @@
+%% Resumable digest-bound upload flow.
+flowchart LR
+    Local["① 本地校验<br/>containment · type · permission"] --> Digest["② 流式摘要<br/>SHA-256 · size · MIME"]
+    Digest --> Exists{"已有同摘要 Blob?"}
+    Exists -->|"是"| Bind["绑定已有 Blob ref"]
+    Exists -->|"否"| Upload["③ 4 MiB multipart<br/>单文件上限 512 MiB<br/>SQLite 只记录已确认分片"]
+    Upload --> Finalize{"④ Finalize<br/>摘要、大小和权限有效?"}
+    Finalize -->|"否"| Failed["失败<br/>不创建 Revision"]
+    Finalize -->|"是"| Revision["⑤ 创建 WorkspaceObject<br/>Revision 发布前批量校验"]
+    Bind --> Revision
+    Revision --> Event["⑥ Cursor 事件回流<br/>Desktop 投影失效"]
+
+    classDef source fill:#eff6ff,stroke:#4c91ff,color:#172033
+    classDef local fill:#edf4ef,stroke:#397860,color:#172033
+    classDef cloud fill:#edf4f8,stroke:#3b6f8f,color:#172033
+    classDef review fill:#fff1f2,stroke:#c24f5f,color:#172033
+    class Local source
+    class Digest,Upload local
+    class Exists,Finalize,Bind,Revision,Event cloud
+    class Failed review

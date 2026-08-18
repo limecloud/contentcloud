@@ -1,14 +1,15 @@
-package runtime
+package runtime_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/store/memory"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
 )
 
-func setupProviderRuntime(t *testing.T) (*Service, *memory.Store, StartResult, domain.ExternalEffect) {
+func setupProviderRuntime(t *testing.T) (*Service, *memory.Store, StartResult, ExternalEffect) {
 	t.Helper()
 	now := time.Date(2026, 8, 9, 10, 0, 0, 0, time.UTC)
 	repo := memory.New()
@@ -17,7 +18,7 @@ func setupProviderRuntime(t *testing.T) (*Service, *memory.Store, StartResult, d
 	if err != nil {
 		t.Fatal(err)
 	}
-	effect, err := service.RegisterEffect(t.Context(), domain.ExternalEffect{
+	effect, err := service.RegisterEffect(t.Context(), ExternalEffect{
 		TenantID: "tenant-1", JobRunID: started.Job.ID, NodeRunID: started.Nodes[0].ID,
 		Kind: "media.generate", IdempotencyKey: "provider-effect-1", RequestDigest: "sha256:request",
 		CostMinor: 120, Currency: "CNY", SafeSummary: map[string]any{"provider_id": "provider-a"},
@@ -25,11 +26,11 @@ func setupProviderRuntime(t *testing.T) (*Service, *memory.Store, StartResult, d
 	if err != nil {
 		t.Fatal(err)
 	}
-	effect, err = service.ReconcileEffect(t.Context(), effect.TenantID, effect.ID, domain.EffectSubmitted, "external-1", "", "", effect.Version)
+	effect, err = service.ReconcileEffect(t.Context(), effect.TenantID, effect.ID, EffectSubmitted, "external-1", "", "", effect.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
-	effect, err = service.ReconcileEffect(t.Context(), effect.TenantID, effect.ID, domain.EffectAcknowledged, "external-1", "", "", effect.Version)
+	effect, err = service.ReconcileEffect(t.Context(), effect.TenantID, effect.ID, EffectAcknowledged, "external-1", "", "", effect.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +48,7 @@ func TestProviderCallbackInboxIdempotencyAndTerminalDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if message.State != domain.ProviderInboxApplied || message.EffectID != effect.ID || terminal.State != domain.EffectSucceeded {
+	if message.State != ProviderInboxApplied || message.EffectID != effect.ID || terminal.State != EffectSucceeded {
 		t.Fatalf("provider callback was not atomically applied: message=%#v effect=%#v", message, terminal)
 	}
 	events, err := repo.JobEvents(t.Context(), "tenant-1", started.Job.ID, 0)
@@ -67,7 +68,7 @@ func TestProviderCallbackInboxIdempotencyAndTerminalDuplicate(t *testing.T) {
 	terminalDuplicate := input
 	terminalDuplicate.MessageID = "message-2"
 	secondMessage, secondEffect, err := service.ReceiveProviderCallback(t.Context(), terminalDuplicate)
-	if err != nil || secondMessage.State != domain.ProviderInboxApplied || secondEffect.Version != terminal.Version {
+	if err != nil || secondMessage.State != ProviderInboxApplied || secondEffect.Version != terminal.Version {
 		t.Fatalf("new terminal duplicate callback must be recorded without advancing Effect: message=%#v effect=%#v err=%v", secondMessage, secondEffect, err)
 	}
 	conflict := input
@@ -79,7 +80,7 @@ func TestProviderCallbackInboxIdempotencyAndTerminalDuplicate(t *testing.T) {
 
 func TestUnknownProviderEffectRequiresExplicitReconciliation(t *testing.T) {
 	service, repo, started, effect := setupProviderRuntime(t)
-	unknown, err := service.ReconcileEffect(t.Context(), effect.TenantID, effect.ID, domain.EffectUnknown, "external-1", "", "PROVIDER_TIMEOUT", effect.Version)
+	unknown, err := service.ReconcileEffect(t.Context(), effect.TenantID, effect.ID, EffectUnknown, "external-1", "", "PROVIDER_TIMEOUT", effect.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,15 +91,15 @@ func TestUnknownProviderEffectRequiresExplicitReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if message.State != domain.ProviderInboxApplied || observed.State != domain.EffectReconciling || observed.Version != unknown.Version+1 {
+	if message.State != ProviderInboxApplied || observed.State != EffectReconciling || observed.Version != unknown.Version+1 {
 		t.Fatalf("unknown effect was blindly completed: message=%#v effect=%#v", message, observed)
 	}
 	reconciliations, err := repo.ProviderReconciliations(t.Context(), "tenant-1", observed.ID)
-	if err != nil || len(reconciliations) != 1 || reconciliations[0].Status != domain.ProviderReconPending {
+	if err != nil || len(reconciliations) != 1 || reconciliations[0].Status != ProviderReconPending {
 		t.Fatalf("provider reconciliation was not created: %#v err=%v", reconciliations, err)
 	}
-	resolved, finalEffect, err := service.ResolveProviderReconciliation(t.Context(), "tenant-1", reconciliations[0].ID, domain.EffectSucceeded, "operator-1")
-	if err != nil || resolved.Status != domain.ProviderReconMatched || finalEffect.State != domain.EffectSucceeded {
+	resolved, finalEffect, err := service.ResolveProviderReconciliation(t.Context(), "tenant-1", reconciliations[0].ID, EffectSucceeded, "operator-1")
+	if err != nil || resolved.Status != ProviderReconMatched || finalEffect.State != EffectSucceeded {
 		t.Fatalf("provider reconciliation did not converge explicitly: recon=%#v effect=%#v err=%v", resolved, finalEffect, err)
 	}
 }
@@ -106,15 +107,15 @@ func TestUnknownProviderEffectRequiresExplicitReconciliation(t *testing.T) {
 func TestProviderBillsMatchDisputeAndRemainPendingWithoutEffect(t *testing.T) {
 	service, repo, started, _ := setupProviderRuntime(t)
 	matched, err := service.RecordProviderBill(t.Context(), ProviderBillInput{TenantID: "tenant-1", ProviderID: "provider-a", BillID: "bill-1", ExternalID: "external-1", AmountMinor: 120, Currency: "CNY"})
-	if err != nil || matched.Status != domain.ProviderBillMatched || matched.EffectID == "" {
+	if err != nil || matched.Status != ProviderBillMatched || matched.EffectID == "" {
 		t.Fatalf("matching bill was not linked: %#v err=%v", matched, err)
 	}
 	disputed, err := service.RecordProviderBill(t.Context(), ProviderBillInput{TenantID: "tenant-1", ProviderID: "provider-a", BillID: "bill-2", ExternalID: "external-1", AmountMinor: 150, Currency: "CNY"})
-	if err != nil || disputed.Status != domain.ProviderBillDisputed {
+	if err != nil || disputed.Status != ProviderBillDisputed {
 		t.Fatalf("cost mismatch was not disputed: %#v err=%v", disputed, err)
 	}
 	unmatched, err := service.RecordProviderBill(t.Context(), ProviderBillInput{TenantID: "tenant-1", JobRunID: started.Job.ID, ProviderID: "provider-a", BillID: "bill-3", ExternalID: "external-missing", AmountMinor: 50, Currency: "CNY"})
-	if err != nil || unmatched.Status != domain.ProviderBillUnmatched || unmatched.EffectID != "" {
+	if err != nil || unmatched.Status != ProviderBillUnmatched || unmatched.EffectID != "" {
 		t.Fatalf("unmatched bill did not remain pending: %#v err=%v", unmatched, err)
 	}
 	reconciliations, err := repo.ProviderReconciliations(t.Context(), "tenant-1", "")
@@ -125,7 +126,7 @@ func TestProviderBillsMatchDisputeAndRemainPendingWithoutEffect(t *testing.T) {
 	for _, reconciliation := range reconciliations {
 		statuses[reconciliation.Status] = true
 	}
-	if !statuses[domain.ProviderReconMatched] || !statuses[domain.ProviderReconCostMismatch] || !statuses[domain.ProviderReconPending] {
+	if !statuses[ProviderReconMatched] || !statuses[ProviderReconCostMismatch] || !statuses[ProviderReconPending] {
 		t.Fatalf("bill reconciliation facts are incomplete: %#v", reconciliations)
 	}
 }

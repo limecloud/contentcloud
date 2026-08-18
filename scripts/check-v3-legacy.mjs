@@ -3,17 +3,17 @@ import { readFileSync } from 'node:fs'
 const checks = [
   {
     files: [
-      'internal/domain/content.go',
-      'internal/app/review_export.go',
-      'internal/app/lineage.go',
-      'internal/store/store.go',
-      'internal/store/memory/content.go',
-      'internal/store/postgres/review.go',
-      'internal/httpapi/content_handlers.go',
-      'internal/httpapi/server.go',
-      'internal/httpapi/cli_dispatch.go',
-      'internal/cli/artifacts.go',
-      'internal/cli/root.go',
+      'internal/work/work_model.go',
+      'internal/application/review_export.go',
+      'internal/application/lineage.go',
+      'internal/persistence/repository.go',
+      'internal/persistence/memory/content.go',
+      'internal/persistence/postgres/review.go',
+      'internal/transport/http/content_handlers.go',
+      'internal/transport/http/server.go',
+      'internal/transport/http/cli_dispatch.go',
+      'internal/transport/cli/artifacts.go',
+      'internal/transport/cli/root.go',
       'contracts/openapi.yaml',
       'apps/web/src/types.ts',
     ],
@@ -30,9 +30,9 @@ const checks = [
   },
   {
     files: [
-      'internal/localworkspace',
-      'internal/cli/local_commands.go',
-      'internal/cli/submission_commands.go',
+      'internal/local/workspace',
+      'internal/transport/cli/local_commands.go',
+      'internal/transport/cli/submission_commands.go',
       'plugins/contentcloud-video-production/skills',
       'contracts',
       'apps/web/src',
@@ -63,13 +63,12 @@ const checks = [
   },
   {
     files: [
-      'internal/domain/content.go',
-      'internal/domain/model.go',
-      'internal/app',
-      'internal/store',
-      'internal/httpapi',
-      'internal/cli/business_commands.go',
-      'internal/cli/root.go',
+      'internal/work/work_model.go',
+      'internal/application',
+      'internal/persistence',
+      'internal/transport/http',
+      'internal/transport/cli/business_commands.go',
+      'internal/transport/cli/root.go',
       'contracts/openapi.yaml',
       'apps/web/src/types.ts',
       'migrations',
@@ -105,9 +104,9 @@ const walkFiles = async (path) => {
 }
 
 const failures = []
-const artifactModel = readFileSync('internal/domain/content.go', 'utf8').split('type Artifact struct {', 2)[1]?.split('\n}', 1)[0] ?? ''
+const artifactModel = readFileSync('internal/work/work_model.go', 'utf8').split('type Artifact struct {', 2)[1]?.split('\n}', 1)[0] ?? ''
 if (artifactModel.includes('ScriptVersionID') || artifactModel.includes('approved_snapshot_id,omitempty')) {
-  failures.push('internal/domain/content.go: Artifact must require ApprovedSnapshotID and must not expose ScriptVersionID')
+  failures.push('internal/work/work_model.go: Artifact must require ApprovedSnapshotID and must not expose ScriptVersionID')
 }
 
 for (const check of checks) {

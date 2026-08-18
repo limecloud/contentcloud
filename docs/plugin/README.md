@@ -477,14 +477,14 @@ build package -> validate standard schema -> validate claims -> digest
 | 本地 CAS/回执/锁 | `internal/integration/pluginhost/store.go` |
 | Codex NativeHost | `internal/integration/pluginhost/codex` |
 | Claude NativeHost | `internal/integration/pluginhost/claude` |
-| Bootstrap CLI | `internal/cli/bootstrap_commands.go`、`internal/cli/plugin_host.go` |
-| Workspace Lock/Doctor | `internal/localworkspace` |
-| Workspace View/Resource | `internal/localworkspace/view.go` |
-| Claim v2/takeover | `internal/localworkspace/runcoordination.go` |
-| Proposal/Apply/rollback | `internal/localworkspace/proposal.go` |
-| Presenter/SSE/Range/嵌入式 SPA | `internal/workbench` |
-| Workbench 与 Proposal MCP Tool | `internal/cli/workspace_commands.go` |
-| Agent Session/Handoff | `internal/agentadapter` |
+| Bootstrap CLI | `internal/transport/cli/bootstrap_commands.go`、`internal/transport/cli/plugin_host.go` |
+| Workspace Lock/Doctor | `internal/local/workspace` |
+| Workspace View/Resource | `internal/local/workspace/view.go` |
+| Claim v2/takeover | `internal/local/workspace/runcoordination.go` |
+| Proposal/Apply/rollback | `internal/local/workspace/proposal.go` |
+| Presenter/SSE/Range/嵌入式 SPA | `internal/local/workbench` |
+| Workbench 与 Proposal MCP Tool | `internal/transport/cli/workspace_commands.go` |
+| Agent Session/Handoff | `internal/integration/agent` |
 | 标准 schema 固定副本 | `contracts/agent-plugins/1.0.0` |
 
 ## 15. 设计决策
@@ -516,7 +516,7 @@ Skills + stdio MCP 保持可移植控制面。呈现按 MCP Apps、Direct Browse
 ## 16. 当前验收命令
 
 ```bash
-go test ./internal/integration/plugin ./internal/integration/pluginbuiltin ./internal/integration/pluginhost ./internal/cli ./internal/localworkspace ./internal/workbench -count=1
+go test ./internal/integration/plugin ./internal/integration/pluginbuiltin ./internal/integration/pluginhost ./internal/transport/cli ./internal/local/workspace ./internal/local/workbench -count=1
 
 CONTENTCLOUD_CODEX_PLUGIN_SMOKE=1 \
   go test ./internal/integration/pluginhost/codex \
@@ -527,9 +527,9 @@ CONTENTCLOUD_CLAUDE_PLUGIN_SMOKE=1 \
   -run TestRealClaudeAgentPluginLifecycle -count=1 -v
 
 go test ./... -count=1
-go test -race ./internal/localworkspace ./internal/workbench ./internal/cli -count=1
-node --check internal/workbench/ui/app.js
-node --check internal/workbench/ui/sw.js
+go test -race ./internal/local/workspace ./internal/local/workbench ./internal/transport/cli -count=1
+node --check internal/local/workbench/ui/app.js
+node --check internal/local/workbench/ui/sw.js
 pnpm --dir apps/web test
 pnpm --dir apps/web typecheck
 pnpm --dir apps/web build

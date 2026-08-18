@@ -1,0 +1,150 @@
+package identity
+
+import "time"
+import "strings"
+import "github.com/limecloud/contentcloud/internal/platform/fault"
+
+type Tenant struct {
+	ID        string    `json:"id"`
+	Slug      string    `json:"slug"`
+	Name      string    `json:"name"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type User struct {
+	ID           string     `json:"id"`
+	Email        string     `json:"email"`
+	DisplayName  string     `json:"display_name"`
+	PasswordHash string     `json:"-"`
+	VerifiedAt   *time.Time `json:"verified_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+type Membership struct {
+	TenantID  string     `json:"tenant_id"`
+	UserID    string     `json:"user_id"`
+	Role      string     `json:"role"`
+	Status    string     `json:"status"`
+	CreatedAt time.Time  `json:"created_at"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+}
+
+type MembershipInvite struct {
+	ID             string     `json:"id"`
+	TenantID       string     `json:"tenant_id"`
+	Email          string     `json:"email"`
+	Role           string     `json:"role"`
+	InvitedBy      string     `json:"invited_by"`
+	TokenHash      string     `json:"-"`
+	Status         string     `json:"status"`
+	ExpiresAt      time.Time  `json:"expires_at"`
+	AcceptedBy     string     `json:"accepted_by,omitempty"`
+	AcceptedAt     *time.Time `json:"accepted_at,omitempty"`
+	RevokedAt      *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	PlaintextToken string     `json:"invite_token,omitempty"`
+}
+
+func (v MembershipInvite) ValidateAcceptance(email string, now time.Time) error {
+	if v.Status != "pending" || v.RevokedAt != nil || now.After(v.ExpiresAt) || !strings.EqualFold(v.Email, email) {
+		return fault.Conflict("INVITE_INVALID", "邀请无效、已撤销、邮箱不匹配或已过期")
+	}
+	return nil
+}
+
+type Session struct {
+	ID        string     `json:"id"`
+	UserID    string     `json:"user_id"`
+	TenantID  string     `json:"tenant_id"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+}
+
+const (
+	ContentTypeVideoScript     = "video_script"
+	ContentTypeMarketingVideo  = "marketing_video"
+	ContentTypeWeChatArticle   = "wechat_article"
+	ContentTypeSerializedNovel = "serialized_novel"
+	DefaultProjectContentType  = ContentTypeMarketingVideo
+)
+
+var optionalTenantContentTypes = map[string]struct{}{
+	ContentTypeMarketingVideo:  {},
+	ContentTypeWeChatArticle:   {},
+	ContentTypeSerializedNovel: {},
+}
+
+// TenantContentCapability is the server-owned entitlement for an optional content type.
+// Video scripts are always enabled and therefore are not persisted as a mutable row.
+type TenantContentCapability struct {
+	TenantID    string    `json:"tenant_id"`
+	ContentType string    `json:"content_type"`
+	Enabled     bool      `json:"enabled"`
+	UpdatedBy   string    `json:"updated_by"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func ValidOptionalTenantContentType(value string) bool {
+	_, ok := optionalTenantContentTypes[value]
+	return ok
+}
+
+func ValidTenantContentType(value string) bool {
+	return value == ContentTypeVideoScript || ValidOptionalTenantContentType(value)
+}
+
+func EnabledTenantContentTypes(values []TenantContentCapability) []string {
+	result := []string{ContentTypeVideoScript}
+	for _, value := range values {
+		if value.Enabled && ValidOptionalTenantContentType(value.ContentType) {
+			result = append(result, value.ContentType)
+		}
+	}
+	return result
+}
+
+// PlatformTenant is the platform operator projection for one tenant.
+type PlatformTenant struct {
+	Tenant
+	MemberCount    int        `json:"member_count"`
+	ProjectCount   int        `json:"project_count"`
+	DeviceCount    int        `json:"device_count"`
+	ActiveRunCount int        `json:"active_run_count"`
+	ContentTypes   []string   `json:"content_types"`
+	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
+}
+
+type PlatformUserMembership struct {
+	TenantID   string `json:"tenant_id"`
+	TenantName string `json:"tenant_name"`
+	Role       string `json:"role"`
+	Status     string `json:"status"`
+}
+
+// PlatformUser deliberately excludes credentials and other authentication material.
+type PlatformUser struct {
+	ID              string                   `json:"id"`
+	Email           string                   `json:"email"`
+	DisplayName     string                   `json:"display_name"`
+	VerifiedAt      *time.Time               `json:"verified_at,omitempty"`
+	CreatedAt       time.Time                `json:"created_at"`
+	IsPlatformAdmin bool                     `json:"is_platform_admin"`
+	Memberships     []PlatformUserMembership `json:"memberships"`
+}
+
+type PlatformCounts struct {
+	Tenants       int `json:"tenants"`
+	ActiveTenants int `json:"active_tenants"`
+	Users         int `json:"users"`
+	Projects      int `json:"projects"`
+	OnlineDevices int `json:"online_devices"`
+	ActiveRuns    int `json:"active_runs"`
+}
+
+type PlatformOverview struct {
+	Counts      PlatformCounts   `json:"counts"`
+	Tenants     []PlatformTenant `json:"tenants"`
+	Users       []PlatformUser   `json:"users"`
+	GeneratedAt time.Time        `json:"generated_at"`
+}

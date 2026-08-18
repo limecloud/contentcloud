@@ -1,4 +1,4 @@
-package runtime
+package runtime_test
 
 import (
 	"encoding/json"
@@ -9,9 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/agentadapter"
-	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/store/memory"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	catalogdomain "github.com/limecloud/contentcloud/internal/catalog"
+	agentadapter "github.com/limecloud/contentcloud/internal/integration/agent"
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
+	"github.com/limecloud/contentcloud/internal/platform/idgen"
+	sourcedomain "github.com/limecloud/contentcloud/internal/source"
+	workspacedomain "github.com/limecloud/contentcloud/internal/workspace"
 )
 
 func TestRuntimeDispatchCompletesWithPiAgentHTTPHarness(t *testing.T) {
@@ -39,7 +44,7 @@ func TestRuntimeDispatchCompletesWithPiAgentHTTPHarness(t *testing.T) {
 	}
 	repo := memory.New()
 	service := NewWithHarnessRegistry(repo, time.Now, registry)
-	started, err := service.Start(t.Context(), testStartInput("task-pi", domain.NewID()))
+	started, err := service.Start(t.Context(), testStartInput("task-pi", idgen.New()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +56,7 @@ func TestRuntimeDispatchCompletesWithPiAgentHTTPHarness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatched.Handle.Attempt.State != domain.RuntimeAttemptSucceeded || dispatched.Handle.Attempt.HarnessKind != "pi" || dispatched.Handle.Agent.HarnessKind != "pi" || dispatched.Handle.Node.OutputDigest != "sha256:pi-result" {
+	if dispatched.Handle.Attempt.State != RuntimeAttemptSucceeded || dispatched.Handle.Attempt.HarnessKind != "pi" || dispatched.Handle.Agent.HarnessKind != "pi" || dispatched.Handle.Node.OutputDigest != "sha256:pi-result" {
 		t.Fatalf("Pi Agent did not complete the existing Runtime protocol: %#v", dispatched.Handle)
 	}
 	if dispatched.Handle.Attempt.SafeSummary["api_token"] != "[redacted]" || dispatched.Handle.Agent.UsedCostMinor != 7 {
@@ -65,7 +70,7 @@ func writeRuntimeHarnessWorkspace(t *testing.T) string {
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	contract := domain.TaskContract{ContractVersion: "1.0", ContractID: "contract-pi", RunID: "run-pi", TaskType: "test", Project: domain.Project{ID: "project-1"}, Capability: domain.Capability{ID: "content.compose"}}
+	contract := sourcedomain.TaskContract{ContractVersion: "1.0", ContractID: "contract-pi", RunID: "run-pi", TaskType: "test", Project: workspacedomain.Project{ID: "project-1"}, Capability: catalogdomain.Capability{ID: "content.compose"}}
 	contractBody, _ := json.Marshal(contract)
 	for name, body := range map[string][]byte{"contract.json": contractBody, "output.schema.json": []byte(`{"type":"object"}`), "SKILL.md": []byte("# Pi Agent Test\n")} {
 		if err := os.WriteFile(filepath.Join(root, name), body, 0o400); err != nil {

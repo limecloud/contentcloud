@@ -22,16 +22,16 @@
 
 | 纵向能力 | 代码/事实源 | 契约/API | 验证 | 状态 |
 | --- | --- | --- | --- | --- |
-| 本地来源、知识和内容 | `internal/localworkspace` | LocalRun、EvidenceBundle、KnowledgePack、Brief、ContentBatch | localworkspace/CLI tests | `current-local` |
+| 本地来源、知识和内容 | `internal/local/workspace` | LocalRun、EvidenceBundle、KnowledgePack、Brief、ContentBatch | localworkspace/CLI tests | `current-local` |
 | 服务端提交和审核 | SubmissionRevision、Review、ApprovedSnapshot | SubmissionBundle 3.0、BFF/CLI | submission tests | `current-server` |
-| 搜索与受控采集 | `internal/sourceinfra` | `source.search/fetch`、SourceIntake | source infra tests | `current-server` |
-| 增量 Connector | `internal/connector` + memory/postgres repository | ConnectorSync、lease、cursor、tombstone | 崩溃重放/并发测试 | `current-server` |
+| 搜索与受控采集 | `internal/integration/provider/source` | `source.search/fetch`、SourceIntake | source infra tests | `current-server` |
+| 增量 Connector | `internal/integration/connector` + memory/postgres repository | ConnectorSync、lease、cursor、tombstone | 崩溃重放/并发测试 | `current-server` |
 | Agent Runtime | JobRun、NodeRun、RuntimeAttempt、SessionRef、Outbox | runtime worker、Harness registry | runtime tests | `current` |
 | 开放 Agent Harness | Pi、remote-http、agent-saas | AgentExecution、signed callback | Harness/callback tests | `current-server` |
 | 模型 Provider | vLLM、SGLang OpenAI-compatible Adapter | ModelGenerationReceipt | provider/app tests | `current-server` |
-| 内容 Profile | `internal/contentprofile` 编译现有 SOP | douyin/wechat/novel profiles | profile tests | `current-server` |
-| 微信文章与排版 | `internal/localworkspace/article.go` | Article/WeChatDelivery | layout/DOM/mobile/package tests | `current-local` |
-| 小说生产 | `internal/localworkspace/novel.go` | Canon/Outline/Chapter/Release | continuity/release tests | `current-local` |
+| 内容 Profile | `internal/catalog/profile` 编译现有 SOP | douyin/wechat/novel profiles | profile tests | `current-server` |
+| 微信文章与排版 | `internal/local/workspace/article.go` | Article/WeChatDelivery | layout/DOM/mobile/package tests | `current-local` |
+| 小说生产 | `internal/local/workspace/novel.go` | Canon/Outline/Chapter/Release | continuity/release tests | `current-local` |
 | 渠道发布 | ChannelBinding、ChannelPublication、CallbackReceipt | prepare/submit/inspect/withdraw/callback/reconcile/performance | channel tests | `current-server` |
 | 抖音电商发布校验 | ApprovedSnapshot + Artifact + DeliveryPackage + ChannelPublication | DouyinCommerceValidationReceipt、typed prepare refs | local/server lineage tests | `current-local` / `current-server` |
 

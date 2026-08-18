@@ -14,7 +14,7 @@
 - provider-neutral HTTP 适配器、签名/超时/SSRF 防护、异步 submit/status/cancel、到期轮询恢复、有上限流式下载、Runtime Effect 关联和 Provider callback/bill HMAC ingress 已有确定性 `httptest` 契约；未知提交不会自动重试；真实媒体服务商凭据、账单补偿演练、完整的媒体租约恢复和确定性后期处理仍未完成。
 - Codex Runtime Harness 已使用官方 CLI JSONL 协议，保存 `thread.started` 的真实 thread ID，并通过 `codex exec resume <thread_id>` 在新的 Harness/worker 进程恢复；Claude Runtime Harness 已使用 `stream-json` 首事件 session ID 和 `--resume`，两者能力均在 worker 侧探测并固定到 Attempt，过程事件经 lease/fence/session 校验后只保存脱敏摘要。Daemon WSS 首帧、心跳、断线 stopped、重复/乱序/旧实例 fencing 已有真实 `httptest` 覆盖；强制首连接断开后的集成测试已验证同一 DaemonInstance identity、递增 `connection_epoch`，以及每个 epoch 以 `report_seq=1` 重发完整 current-state。独立 CLI 子进程的 MCP stdio -> HTTP Runtime Gateway 真实传输 smoke 已完成，并验证 Attempt token 和工具 allowlist；这些 helper-process 测试不调用模型，在线 Codex/Claude 宿主注入、模型调用、生产凭据/网络和长期 WSS soak 仍未验收。
 
-基线事实主要来自 `CHANGELOG.md`、`internal/domain`、`internal/runtime`、`internal/agentadapter`、`internal/mediapipeline`、Memory/PostgreSQL Store 以及迁移 `00012_v7_media_pipeline.sql`、`00014_agentic_job_runtime.sql`～`00043_runtime_tool_call_results.sql`。历史路线图只能作为背景，不能代替当前代码和测试结果。
+基线事实主要来自 `CHANGELOG.md`、`internal/work`、`internal/runtime`、`internal/integration/agent`、`internal/integration/provider/media`、Memory/PostgreSQL Store 以及迁移 `00012_v7_media_pipeline.sql`、`00014_agentic_job_runtime.sql`～`00043_runtime_tool_call_results.sql`。历史路线图只能作为背景，不能代替当前代码和测试结果。
 
 V8 的第一个工作包必须先更新权威文档和能力登记表；不能在错误的基线上继续规划。
 

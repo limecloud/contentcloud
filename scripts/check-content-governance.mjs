@@ -34,21 +34,21 @@ for (const token of ["kind:'video_script'", "kind:'wechat_article'", "contentclo
   requireText(reviewRouter, token, `review subject router is missing ${token}`)
 }
 
-const publish = read('internal/cli/submission_commands.go')
+const publish = read('internal/transport/cli/submission_commands.go')
 for (const token of ['case localworkspace.ContentItemSchema:', 'case localworkspace.ArticleSchema:']) {
   requireText(publish, token, `publish validation must explicitly route ${token}`)
 }
-const mcp = read('internal/cli/workspace_commands.go')
+const mcp = read('internal/transport/cli/workspace_commands.go')
 for (const name of ['article_brief_lint', 'article_batch_create', 'article_item_lint', 'article_batch_lint', 'article_batch_finalize', 'article_item_diff', 'wechat_package_export', 'wechat_package_lint']) {
   const marker = `case "${name}":`
   const start = mcp.indexOf(marker)
   const end = mcp.indexOf('\n\tcase "', start + marker.length)
   const branch = start >= 0 ? mcp.slice(start, end >= 0 ? end : undefined) : ''
-  if (!branch.includes('requireMCPContentType') || !branch.includes('domain.ContentTypeWeChatArticle')) {
+  if (!branch.includes('requireMCPContentType') || !branch.includes('identitydomain.ContentTypeWeChatArticle')) {
     failures.push(`${name} must verify the signed tenant content capability before acting`)
   }
 }
-const localCommands = read('internal/cli/local_commands.go')
+const localCommands = read('internal/transport/cli/local_commands.go')
 if ((localCommands.match(/requireLocalContentType\(/g) ?? []).length < 9) {
   failures.push('every local article and WeChat command must verify the tenant content capability')
 }
@@ -79,12 +79,12 @@ if (plugin.name !== 'contentcloud-wechat-article' || plugin.extensions?.['run.zh
   failures.push('WeChat Skill Pack must expose its governed run claims')
 }
 
-const tenantDomain = read('internal/domain/platform.go')
+const tenantDomain = read('internal/identity/work_identity_model.go')
 if (!/DefaultProjectContentType\s*=\s*ContentTypeMarketingVideo/.test(tenantDomain)) failures.push('marketing_video must remain the default Project content type')
 requireText(tenantDomain, 'result := []string{ContentTypeVideoScript}', 'video_script must remain the always-enabled baseline content type')
 if (!/ContentTypeMarketingVideo:\s*\{\}/.test(tenantDomain)) failures.push('marketing_video must remain an optional tenant capability')
 if (!/ContentTypeWeChatArticle:\s*\{\}/.test(tenantDomain)) failures.push('wechat_article must remain an optional tenant capability')
-for (const file of ['internal/cli/local_commands.go', 'internal/cli/workspace_commands.go', ...expectedSkills.map((skill) => `${skillRoot}/${skill}/SKILL.md`)]) {
+for (const file of ['internal/transport/cli/local_commands.go', 'internal/transport/cli/workspace_commands.go', ...expectedSkills.map((skill) => `${skillRoot}/${skill}/SKILL.md`)]) {
   forbidText(read(file), 'UpdatePlatformTenantContentCapability', `${file} must not enable tenant content capabilities`)
 }
 

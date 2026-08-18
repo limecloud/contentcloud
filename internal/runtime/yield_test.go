@@ -1,11 +1,12 @@
-package runtime
+package runtime_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/agentadapter"
-	"github.com/limecloud/contentcloud/internal/domain"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	agentadapter "github.com/limecloud/contentcloud/internal/integration/agent"
 )
 
 func activeDispatchHandle(t *testing.T, service *Service, fake *agentadapter.FakeHarness, jobID string, input DispatchInput) DispatchHandle {
@@ -28,31 +29,31 @@ func activeDispatchHandle(t *testing.T, service *Service, fake *agentadapter.Fak
 func TestYieldReleasesLeaseAndResourcesThenResumesWithNewAttempt(t *testing.T) {
 	fake := agentadapter.NewFakeHarness()
 	service, repo, started := newDispatchRuntime(t, fake, time.Now)
-	if err := repo.SaveResourceQuota(t.Context(), domain.ResourceQuota{TenantID: "tenant-1", ResourceKey: "agent.concurrent", Capacity: 1, Unit: "slots", Version: 1, UpdatedAt: time.Now().UTC()}); err != nil {
+	if err := repo.SaveResourceQuota(t.Context(), ResourceQuota{TenantID: "tenant-1", ResourceKey: "agent.concurrent", Capacity: 1, Unit: "slots", Version: 1, UpdatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	input := dispatchInput(started.Job.ID)
-	input.ResourceRequests = []domain.ResourceRequest{{ResourceKey: "agent.concurrent", Quantity: 1, Unit: "slots"}}
+	input.ResourceRequests = []ResourceRequest{{ResourceKey: "agent.concurrent", Quantity: 1, Unit: "slots"}}
 	handle := activeDispatchHandle(t, service, fake, started.Job.ID, input)
 	sessionRef := handle.Agent.SessionRef
 
-	yielded, err := service.YieldDispatch(t.Context(), handle, YieldDispatchInput{Reason: domain.YieldWaitHuman, WaitRefs: []string{"gate:approval-1"}, SafeSummary: map[string]any{"phase": "approval"}, UsedCostMinor: 10})
+	yielded, err := service.YieldDispatch(t.Context(), handle, YieldDispatchInput{Reason: YieldWaitHuman, WaitRefs: []string{"gate:approval-1"}, SafeSummary: map[string]any{"phase": "approval"}, UsedCostMinor: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if yielded.Yield.State != domain.RuntimeYieldOpen || yielded.Handle.Attempt.State != domain.RuntimeAttemptYielded || yielded.Handle.Node.State != domain.NodeWaitingHuman || yielded.Handle.Agent.State != domain.AgentWaitingGate {
+	if yielded.Yield.State != RuntimeYieldOpen || yielded.Handle.Attempt.State != RuntimeAttemptYielded || yielded.Handle.Node.State != NodeWaitingHuman || yielded.Handle.Agent.State != AgentWaitingGate {
 		t.Fatalf("yield did not persist the waiting boundary: %#v", yielded)
 	}
 	if yielded.Handle.Node.LeaseOwner != "" || yielded.Handle.Attempt.FenceToken != "" || yielded.Handle.Agent.SessionRef != sessionRef {
 		t.Fatalf("yield did not release execution ownership or preserve the opaque session: %#v", yielded.Handle)
 	}
 	reservations, err := repo.ResourceReservations(t.Context(), "tenant-1", started.Job.ID)
-	if err != nil || len(reservations) != 1 || reservations[0].State != domain.ReservationReleased || reservations[0].ReleasedAt == nil {
+	if err != nil || len(reservations) != 1 || reservations[0].State != ReservationReleased || reservations[0].ReleasedAt == nil {
 		t.Fatalf("yield did not release held resources: %#v err=%v", reservations, err)
 	}
 
 	resolved, err := service.ResumeYield(t.Context(), "tenant-1", yielded.Yield.ID, "approve-1", "operator-1")
-	if err != nil || resolved.State != domain.RuntimeYieldResolved {
+	if err != nil || resolved.State != RuntimeYieldResolved {
 		t.Fatalf("human wait was not resolved: %#v err=%v", resolved, err)
 	}
 	replayed, err := service.ResumeYield(t.Context(), "tenant-1", yielded.Yield.ID, "approve-1", "operator-1")
@@ -72,31 +73,31 @@ func TestEffectYieldCannotResumeBeforeEffectConverges(t *testing.T) {
 	fake := agentadapter.NewFakeHarness()
 	service, _, started := newDispatchRuntime(t, fake, time.Now)
 	handle := activeDispatchHandle(t, service, fake, started.Job.ID, dispatchInput(started.Job.ID))
-	effect, err := service.RegisterEffect(t.Context(), domain.ExternalEffect{TenantID: "tenant-1", JobRunID: started.Job.ID, NodeRunID: handle.Node.ID, AttemptID: handle.Attempt.ID, Kind: "media.generate", IdempotencyKey: "yield-effect-1", RequestDigest: "sha256:request", Currency: "CNY", SafeSummary: map[string]any{}})
+	effect, err := service.RegisterEffect(t.Context(), ExternalEffect{TenantID: "tenant-1", JobRunID: started.Job.ID, NodeRunID: handle.Node.ID, AttemptID: handle.Attempt.ID, Kind: "media.generate", IdempotencyKey: "yield-effect-1", RequestDigest: "sha256:request", Currency: "CNY", SafeSummary: map[string]any{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	effect, err = service.ReconcileEffect(t.Context(), "tenant-1", effect.ID, domain.EffectSubmitted, "external-yield-1", "", "", effect.Version)
+	effect, err = service.ReconcileEffect(t.Context(), "tenant-1", effect.ID, EffectSubmitted, "external-yield-1", "", "", effect.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
-	effect, err = service.ReconcileEffect(t.Context(), "tenant-1", effect.ID, domain.EffectAcknowledged, "external-yield-1", "", "", effect.Version)
+	effect, err = service.ReconcileEffect(t.Context(), "tenant-1", effect.ID, EffectAcknowledged, "external-yield-1", "", "", effect.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
-	yielded, err := service.YieldDispatch(t.Context(), handle, YieldDispatchInput{Reason: domain.YieldWaitEffect, WaitRefs: []string{effect.ID}})
+	yielded, err := service.YieldDispatch(t.Context(), handle, YieldDispatchInput{Reason: YieldWaitEffect, WaitRefs: []string{effect.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.ResumeYield(t.Context(), "tenant-1", yielded.Yield.ID, "effect-resume-early", "reconciler"); !hasDomainCode(err, "RUNTIME_YIELD_NOT_READY") {
 		t.Fatalf("pending effect must block resume, got %v", err)
 	}
-	effect, err = service.ReconcileEffect(t.Context(), "tenant-1", effect.ID, domain.EffectSucceeded, "external-yield-1", "sha256:result", "", effect.Version)
+	effect, err = service.ReconcileEffect(t.Context(), "tenant-1", effect.ID, EffectSucceeded, "external-yield-1", "sha256:result", "", effect.Version)
 	if err != nil {
 		t.Fatal(err)
 	}
 	resolved, err := service.ResumeYield(t.Context(), "tenant-1", yielded.Yield.ID, "effect-resume-ready", "reconciler")
-	if err != nil || resolved.State != domain.RuntimeYieldResolved {
+	if err != nil || resolved.State != RuntimeYieldResolved {
 		t.Fatalf("successful effect did not release the wait: %#v err=%v", resolved, err)
 	}
 }

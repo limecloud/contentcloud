@@ -1,10 +1,10 @@
-package runtime
+package runtime_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/domain"
+	. "github.com/limecloud/contentcloud/internal/runtime"
 )
 
 func TestBuildContextViewIsReferenceOnlyAndDeterministic(t *testing.T) {
@@ -30,17 +30,17 @@ func TestBuildContextViewIsReferenceOnlyAndDeterministic(t *testing.T) {
 }
 
 func TestAgentInstanceStateAndBudgetAreBounded(t *testing.T) {
-	agent := domain.AgentInstance{ID: "agent-1", TenantID: "tenant-1", JobRunID: "job-1", NodeRunID: "node-1", Role: "researcher", HarnessKind: "fake", ExecutionProfileID: "profile-1", ContextViewID: "view-1", State: domain.AgentCreated, Depth: 1, RemainingDescendants: 2, BudgetMinor: 100, UsedCostMinor: 0, Version: 1, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	agent := AgentInstance{ID: "agent-1", TenantID: "tenant-1", JobRunID: "job-1", NodeRunID: "node-1", Role: "researcher", HarnessKind: "fake", ExecutionProfileID: "profile-1", ContextViewID: "view-1", State: AgentCreated, Depth: 1, RemainingDescendants: 2, BudgetMinor: 100, UsedCostMinor: 0, Version: 1, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	if err := agent.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	for _, next := range []string{domain.AgentRunnable, domain.AgentActive, domain.AgentWaitingChildren, domain.AgentRunnable, domain.AgentActive, domain.AgentCompleted} {
+	for _, next := range []string{AgentRunnable, AgentActive, AgentWaitingChildren, AgentRunnable, AgentActive, AgentCompleted} {
 		if err := agent.Transition(next); err != nil {
 			t.Fatalf("transition %s: %v", next, err)
 		}
 		agent.State = next
 	}
-	if err := agent.Transition(domain.AgentActive); err == nil {
+	if err := agent.Transition(AgentActive); err == nil {
 		t.Fatal("terminal AgentInstance unexpectedly resumed")
 	}
 	agent.UsedCostMinor = 101

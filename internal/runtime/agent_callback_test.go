@@ -1,13 +1,16 @@
-package runtime
+package runtime_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/agentadapter"
-	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/store/memory"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	agentadapter "github.com/limecloud/contentcloud/internal/integration/agent"
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
+	"github.com/limecloud/contentcloud/internal/platform/idgen"
 )
 
 func activeAgentSaaSDispatch(t *testing.T) (*Service, *memory.Store, StartResult, DispatchHandle, time.Time) {
@@ -43,7 +46,7 @@ func TestAgentCallbackRecordsProgressAndDeduplicatesReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !first.Applied || first.Replayed || first.Message.State != domain.ProviderInboxApplied || first.Attempt.State != domain.RuntimeAttemptRunning {
+	if !first.Applied || first.Replayed || first.Message.State != ProviderInboxApplied || first.Attempt.State != RuntimeAttemptRunning {
 		t.Fatalf("progress callback did not converge: %#v", first)
 	}
 	data, ok := first.Message.SafePayload["data"].(map[string]any)
@@ -79,26 +82,22 @@ func TestAgentCallbackResumesAfterDurableInboxCrashWindow(t *testing.T) {
 		TenantID: "tenant-1", HarnessKind: "agent-saas", MessageID: "result-1",
 		AttemptID: handle.Attempt.ID, SessionID: "saas-session-1", EventType: "result.completed",
 		Data:       json.RawMessage(`{"output_refs":["artifact:video-1"],"output_digest":"sha256:video","safe_summary":{"kind":"video"},"used_cost_minor":20}`),
-		OccurredAt: now, ReceivedAt: now,
+		OccurredAt: now, ReceivedAt: now, ReceivedDigest: "sha256:" + strings.Repeat("a", 64),
 	}
-	var dataValue any
-	if err := json.Unmarshal(input.Data, &dataValue); err != nil {
-		t.Fatal(err)
+	message := ProviderInboxMessage{
+		ID: idgen.New(), TenantID: input.TenantID, JobRunID: handle.Attempt.JobRunID,
+		ProviderID: "agent-harness:" + input.HarnessKind, MessageID: input.MessageID,
+		ReceivedDigest: input.ReceivedDigest, ExternalID: input.SessionID, ProviderState: input.EventType,
+		ResponseDigest: "sha256:" + strings.Repeat("b", 64), Currency: "CNY",
+		SafePayload: map[string]any{"attempt_id": input.AttemptID}, State: ProviderInboxReceived,
+		ReceivedAt: input.ReceivedAt, Version: 1, CreatedAt: input.ReceivedAt, UpdatedAt: input.ReceivedAt,
 	}
-	message, err := service.newAgentInboxMessage(input, handle, dataValue)
-	if err != nil {
-		t.Fatal(err)
-	}
-	commands, err := service.commands()
-	if err != nil {
-		t.Fatal(err)
-	}
-	stored, err := commands.ReceiveAgentInboxCommand(t.Context(), message, domain.JobEvent{
-		ID: domain.NewID(), TenantID: "tenant-1", JobRunID: started.Job.ID, NodeKey: handle.Node.NodeKey,
+	stored, err := repo.ReceiveAgentInboxCommand(t.Context(), message, JobEvent{
+		ID: idgen.New(), TenantID: "tenant-1", JobRunID: started.Job.ID, NodeKey: handle.Node.NodeKey,
 		Type: "agent.inbox.received", ActorType: "harness", ActorID: "agent-saas",
 		IdempotencyKey: "simulate-crash-after-inbox", Payload: map[string]any{"attempt_id": handle.Attempt.ID}, OccurredAt: now,
 	})
-	if err != nil || stored.State != domain.ProviderInboxReceived {
+	if err != nil || stored.State != ProviderInboxReceived {
 		t.Fatalf("failed to create crash-window inbox fact: %#v err=%v", stored, err)
 	}
 
@@ -106,7 +105,7 @@ func TestAgentCallbackResumesAfterDurableInboxCrashWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !resumed.Replayed || !resumed.Applied || resumed.Message.ID != stored.ID || resumed.Message.State != domain.ProviderInboxApplied || resumed.Attempt.State != domain.RuntimeAttemptSucceeded {
+	if !resumed.Replayed || !resumed.Applied || resumed.Message.ID != stored.ID || resumed.Message.State != ProviderInboxApplied || resumed.Attempt.State != RuntimeAttemptSucceeded {
 		t.Fatalf("durable inbox replay did not finish attempt: %#v", resumed)
 	}
 	if resumed.Attempt.ResultDigest == "" || resumed.Node.OutputDigest != "sha256:video" || resumed.Attempt.OutputRefs[0] != "artifact:video-1" {
@@ -117,7 +116,7 @@ func TestAgentCallbackResumesAfterDurableInboxCrashWindow(t *testing.T) {
 		t.Fatalf("terminal callback replay was not idempotent: %#v err=%v", second, err)
 	}
 	inbox, err := repo.ProviderInboxMessages(t.Context(), "tenant-1", started.Job.ID)
-	if err != nil || len(inbox) != 1 || inbox[0].State != domain.ProviderInboxApplied {
+	if err != nil || len(inbox) != 1 || inbox[0].State != ProviderInboxApplied {
 		t.Fatalf("unexpected durable agent inbox: %#v err=%v", inbox, err)
 	}
 }

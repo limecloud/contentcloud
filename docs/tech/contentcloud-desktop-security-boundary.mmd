@@ -1,0 +1,22 @@
+%% Electron security boundary. Renderer has no ambient authority.
+flowchart LR
+    Renderer["Renderer<br/>React · untrusted UI"] -->|"typed contextBridge"| Preload["Preload<br/>narrow allowlist"]
+    Preload -->|"validated IPC"| Main["Electron Main<br/>policy · lifecycle"]
+    Main -->|"capability + loopback"| Daemon["Go Daemon<br/>typed Desktop API"]
+    Daemon -->|"snapshot / invalidation"| Main
+    Main -->|"validated result"| Preload
+    Preload --> Renderer
+
+    Renderer -. "拒绝" .-> FS["文件系统"]
+    Renderer -. "拒绝" .-> Token["设备 Token"]
+    Renderer -. "拒绝" .-> Shell["任意命令"]
+    Renderer -. "拒绝" .-> Cloud["Cloud API"]
+
+    classDef surface fill:#eff6ff,stroke:#4c91ff,color:#172033
+    classDef boundary fill:#f8faff,stroke:#52627b,color:#172033
+    classDef local fill:#edf4ef,stroke:#397860,color:#172033
+    classDef denied fill:#fff1f2,stroke:#c24f5f,color:#172033
+    class Renderer surface
+    class Preload,Main boundary
+    class Daemon local
+    class FS,Token,Shell,Cloud denied

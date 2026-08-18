@@ -4,34 +4,37 @@ import (
 	"sort"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/domain"
+	catalogdomain "github.com/limecloud/contentcloud/internal/catalog"
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+	"github.com/limecloud/contentcloud/internal/platform/idgen"
+	"github.com/limecloud/contentcloud/internal/platform/stablehash"
 )
 
 type Compiler struct {
-	Limits domain.RuntimeLimits
+	Limits RuntimeLimits
 }
 
-func NewCompiler(limits domain.RuntimeLimits) Compiler {
+func NewCompiler(limits RuntimeLimits) Compiler {
 	if limits.MaxNodes == 0 {
-		limits = domain.DefaultRuntimeLimits()
+		limits = DefaultRuntimeLimits()
 	}
 	return Compiler{Limits: limits}
 }
 
 // CompileSOP converts the existing published SOP shape into an immutable DAG.
 // It is deterministic: the same SOP digest always produces the same plan body.
-func (c Compiler) CompileSOP(sop domain.SOPVersion, tenantID, compiledBy string, now time.Time) (domain.JobPlanRevision, error) {
+func (c Compiler) CompileSOP(sop catalogdomain.SOPVersion, tenantID, compiledBy string, now time.Time) (JobPlanRevision, error) {
 	if sop.Status != "published" {
-		return domain.JobPlanRevision{}, domain.Policy("JOB_PLAN_SOP_NOT_PUBLISHED", "只有已发布流程规范才能编译执行计划", "先发布流程规范版本")
+		return JobPlanRevision{}, fault.Policy("JOB_PLAN_SOP_NOT_PUBLISHED", "只有已发布流程规范才能编译执行计划", "先发布流程规范版本")
 	}
 	if err := sop.Validate(); err != nil {
-		return domain.JobPlanRevision{}, err
+		return JobPlanRevision{}, err
 	}
 	limits := c.Limits
 	if limits.MaxNodes == 0 {
-		limits = domain.DefaultRuntimeLimits()
+		limits = DefaultRuntimeLimits()
 	}
-	stages := append([]domain.StageDefinition(nil), sop.Stages...)
+	stages := append([]catalogdomain.StageDefinition(nil), sop.Stages...)
 	sort.SliceStable(stages, func(i, j int) bool { return stages[i].Order < stages[j].Order })
 	stageNode := map[string]string{}
 	stageExit := map[string]string{}
@@ -44,9 +47,9 @@ func (c Compiler) CompileSOP(sop domain.SOPVersion, tenantID, compiledBy string,
 			stageExit[stage.ID] = "gate:" + stage.GateIDs[len(stage.GateIDs)-1]
 		}
 	}
-	nodes := make([]domain.JobPlanNode, 0, len(stages)+len(sop.Gates))
-	edges := []domain.JobPlanEdge{}
-	steps := make([]domain.JobPlanCustomerStep, 0, len(stages))
+	nodes := make([]JobPlanNode, 0, len(stages)+len(sop.Gates))
+	edges := []JobPlanEdge{}
+	steps := make([]JobPlanCustomerStep, 0, len(stages))
 	for _, stage := range stages {
 		depends := []string{}
 		for _, ref := range stage.InputRefs {
@@ -55,52 +58,52 @@ func (c Compiler) CompileSOP(sop domain.SOPVersion, tenantID, compiledBy string,
 			}
 		}
 		sort.Strings(depends)
-		node := domain.JobPlanNode{Key: stageNode[stage.ID], Kind: "stage", StageID: stage.ID, Name: stage.Name, DependsOn: depends, InputRefs: append([]string{}, stage.InputRefs...), OutputSchema: stage.OutputSchema, RequiredCapabilities: append([]string{}, stage.RequiredCapabilities...), ExecutionModes: append([]string{}, stage.ExecutionModes...), CustomerStepID: stage.ID, SideEffectClass: "business_candidate", RetryMaxAttempts: stage.RetryMaxAttempts}
+		node := JobPlanNode{Key: stageNode[stage.ID], Kind: "stage", StageID: stage.ID, Name: stage.Name, DependsOn: depends, InputRefs: append([]string{}, stage.InputRefs...), OutputSchema: stage.OutputSchema, RequiredCapabilities: append([]string{}, stage.RequiredCapabilities...), ExecutionModes: append([]string{}, stage.ExecutionModes...), CustomerStepID: stage.ID, SideEffectClass: "business_candidate", RetryMaxAttempts: stage.RetryMaxAttempts}
 		if node.RetryMaxAttempts < 1 {
 			node.RetryMaxAttempts = limits.MaxAttemptsPerNode
 		}
 		nodes = append(nodes, node)
 		for _, dep := range depends {
-			edges = append(edges, domain.JobPlanEdge{From: dep, To: node.Key})
+			edges = append(edges, JobPlanEdge{From: dep, To: node.Key})
 		}
-		steps = append(steps, domain.JobPlanCustomerStep{ID: stage.ID, Title: stage.Name, NodeKeys: []string{node.Key}})
+		steps = append(steps, JobPlanCustomerStep{ID: stage.ID, Title: stage.Name, NodeKeys: []string{node.Key}})
 		for _, gateID := range stage.GateIDs {
 			gate, found := findGate(sop.Gates, gateID)
 			if !found {
-				return domain.JobPlanRevision{}, domain.Invalid("JOB_PLAN_GATE_NOT_FOUND", "Stage 引用了不存在的 Gate: "+gateID)
+				return JobPlanRevision{}, fault.Invalid("JOB_PLAN_GATE_NOT_FOUND", "Stage 引用了不存在的 Gate: "+gateID)
 			}
 			gateKey := "gate:" + gate.ID
-			gateNode := domain.JobPlanNode{Key: gateKey, Kind: "gate", GateID: gate.ID, Name: gate.Name, DependsOn: []string{node.Key}, InputRefs: append([]string{}, gate.InputRefs...), OutputSchema: "contentcloud.gate-decision/1.0", CustomerStepID: stage.ID, SideEffectClass: "human_decision", RetryMaxAttempts: 1}
+			gateNode := JobPlanNode{Key: gateKey, Kind: "gate", GateID: gate.ID, Name: gate.Name, DependsOn: []string{node.Key}, InputRefs: append([]string{}, gate.InputRefs...), OutputSchema: "contentcloud.gate-decision/1.0", CustomerStepID: stage.ID, SideEffectClass: "human_decision", RetryMaxAttempts: 1}
 			nodes = append(nodes, gateNode)
-			edges = append(edges, domain.JobPlanEdge{From: node.Key, To: gateKey})
+			edges = append(edges, JobPlanEdge{From: node.Key, To: gateKey})
 			steps[len(steps)-1].NodeKeys = append(steps[len(steps)-1].NodeKeys, gateKey)
 		}
 	}
-	plan := domain.JobPlanRevision{ID: domain.NewID(), TenantID: tenantID, GraphVersion: 1, SOPID: sop.SOPID, SOPVersion: sop.Version, SOPDigest: sop.Digest, SchemaVersion: domain.JobPlanSchema, Nodes: nodes, Edges: edges, CustomerSteps: steps, Limits: limits, CompiledAt: now.UTC(), CompiledBy: compiledBy}
-	bodyHash, err := domain.CanonicalHash(struct {
+	plan := JobPlanRevision{ID: idgen.New(), TenantID: tenantID, GraphVersion: 1, SOPID: sop.SOPID, SOPVersion: sop.Version, SOPDigest: sop.Digest, SchemaVersion: JobPlanSchema, Nodes: nodes, Edges: edges, CustomerSteps: steps, Limits: limits, CompiledAt: now.UTC(), CompiledBy: compiledBy}
+	bodyHash, err := stablehash.Sum(struct {
 		Schema, SOPID string
 		Version       int
 		Digest        string
-		Nodes         []domain.JobPlanNode
-		Edges         []domain.JobPlanEdge
-		Steps         []domain.JobPlanCustomerStep
-		Limits        domain.RuntimeLimits
-	}{domain.JobPlanSchema, sop.SOPID, sop.Version, sop.Digest, nodes, edges, steps, limits})
+		Nodes         []JobPlanNode
+		Edges         []JobPlanEdge
+		Steps         []JobPlanCustomerStep
+		Limits        RuntimeLimits
+	}{JobPlanSchema, sop.SOPID, sop.Version, sop.Digest, nodes, edges, steps, limits})
 	if err != nil {
-		return domain.JobPlanRevision{}, err
+		return JobPlanRevision{}, err
 	}
 	plan.Digest = "sha256:" + bodyHash
 	if err := plan.Validate(); err != nil {
-		return domain.JobPlanRevision{}, err
+		return JobPlanRevision{}, err
 	}
 	return plan, nil
 }
 
-func findGate(gates []domain.GateDefinition, id string) (domain.GateDefinition, bool) {
+func findGate(gates []catalogdomain.GateDefinition, id string) (catalogdomain.GateDefinition, bool) {
 	for _, gate := range gates {
 		if gate.ID == id {
 			return gate, true
 		}
 	}
-	return domain.GateDefinition{}, false
+	return catalogdomain.GateDefinition{}, false
 }

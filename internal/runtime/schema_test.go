@@ -1,11 +1,13 @@
-package runtime
+package runtime_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/store/memory"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
+	"github.com/limecloud/contentcloud/internal/platform/idgen"
 )
 
 func TestRuntimeSchemaPublishCompatibilityAndRetentionLifecycle(t *testing.T) {
@@ -60,7 +62,7 @@ func TestRuntimeSchemaPublishCompatibilityAndRetentionLifecycle(t *testing.T) {
 
 func TestStateCollectionRequiresPublishedRuntimeSchema(t *testing.T) {
 	service := New(memory.New(), time.Now)
-	started, err := service.Start(t.Context(), testStartInput("schema-policy", domain.NewID()))
+	started, err := service.Start(t.Context(), testStartInput("schema-policy", idgen.New()))
 	if err != nil {
 		t.Fatal(err)
 	}

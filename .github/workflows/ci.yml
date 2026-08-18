@@ -42,6 +42,7 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
       - run: pnpm architecture
+      - run: pnpm docs:links
       - run: pnpm governance:v3
       - run: pnpm governance:content
       - run: pnpm evaluate:plugin
@@ -50,4 +51,51 @@ jobs:
       - run: pnpm --dir apps/web typecheck
       - run: pnpm --dir apps/web test
       - run: pnpm --dir apps/web build
+      - run: pnpm --dir apps/desktop typecheck
+      - run: pnpm --dir apps/desktop test
+      - run: pnpm --dir apps/desktop package
+      - run: xvfb-run -a pnpm --dir apps/desktop exec playwright test
+      - run: pnpm desktop:release:check
+      - run: pnpm test:desktop-release
       - run: node --check packages/contentcloud/bin/contentcloud.js
+
+  desktop-package-matrix:
+    name: desktop package (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            os: macos-14
+            platform: darwin
+            arch: arm64
+          - target: darwin-x64
+            os: macos-14
+            platform: darwin
+            arch: x64
+          - target: win32-x64
+            os: windows-latest
+            platform: win32
+            arch: x64
+          - target: linux-x64
+            os: ubuntu-latest
+            platform: linux
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm desktop:release:check
+      - run: pnpm --dir apps/desktop exec electron-forge package --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: content-work-os-desktop-${{ matrix.target }}
+          path: apps/desktop/out/**
+          if-no-files-found: error

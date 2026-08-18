@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/platform/fault"
 )
 
 var pluginNamePattern = regexp.MustCompile(`^(?:[a-z0-9]|[a-z0-9](?:[a-z0-9.-]*[a-z0-9]))$`)
@@ -126,5 +126,5 @@ func invalidManifest(message string, cause error) error {
 	if cause != nil {
 		message += ": " + cause.Error()
 	}
-	return domain.Invalid("AGENT_PLUGIN_MANIFEST_INVALID", message)
+	return fault.Invalid("AGENT_PLUGIN_MANIFEST_INVALID", message)
 }

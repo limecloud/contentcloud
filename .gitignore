@@ -7,6 +7,9 @@ coverage/
 node_modules/
 apps/*/dist/
 apps/*/node_modules/
+apps/*/.vite/
+apps/*/out/
+apps/*/test-results/
 var/
 .contentcloud/
 *.tsbuildinfo

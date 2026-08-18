@@ -22,7 +22,7 @@
 | API 契约 | Studio BFF、Operations BFF、CLI envelope | 对应接口所有者 |
 | 事件契约 | JobEvent、AuditEvent、Projection cursor | 事件生产者所有者 |
 
-当前代码证据：`internal/agentadapter/harness.go` 提供 `AgentHarnessAdapter`、能力探测、结构化事件流和 FakeHarness；`internal/agentadapter/codex_harness.go` 使用 Codex CLI JSONL 协议保存真实 thread ID，并通过 `codex exec resume <thread_id>` 支持跨 worker 进程恢复；`internal/agentadapter/claude_harness.go` 使用 Claude `stream-json`、真实 `session_id` 和 `--resume` 支持跨 Harness 实例恢复；`internal/runtime/context.go` 只从引用和策略构建不可变 `ContextView`；`internal/runtime/agent.go` 与迁移 `00015_runtime_agent_instances.sql` 已实现 ContextView/AgentInstance 持久化及父子权限收敛；`internal/runtime/graph_patch.go` 只负责受限 GraphPatch 的纯校验与新计划摘要。Runtime 的 Yield/Resume 已落地，但真实 Codex/Claude 在线冒烟、Provider 端到端和动态图生产切流仍是独立门槛。
+当前代码证据：`internal/integration/agent/harness.go` 提供 `AgentHarnessAdapter`、能力探测、结构化事件流和 FakeHarness；`internal/integration/agent/codex_harness.go` 使用 Codex CLI JSONL 协议保存真实 thread ID，并通过 `codex exec resume <thread_id>` 支持跨 worker 进程恢复；`internal/integration/agent/claude_harness.go` 使用 Claude `stream-json`、真实 `session_id` 和 `--resume` 支持跨 Harness 实例恢复；`internal/runtime/context.go` 只从引用和策略构建不可变 `ContextView`；`internal/runtime/agent.go` 与迁移 `00015_runtime_agent_instances.sql` 已实现 ContextView/AgentInstance 持久化及父子权限收敛；`internal/runtime/graph_patch.go` 只负责受限 GraphPatch 的纯校验与新计划摘要。Runtime 的 Yield/Resume 已落地，但真实 Codex/Claude 在线冒烟、Provider 端到端和动态图生产切流仍是独立门槛。
 
 ## 3. 版本规则
 

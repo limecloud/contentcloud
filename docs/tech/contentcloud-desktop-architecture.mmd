@@ -1,4 +1,4 @@
-%% Content Work OS Desktop target architecture source.
+%% Content Work OS Desktop target architecture source for the one-time restructure.
 %% Desktop is a persistent project surface. Codex remains the task-time AI surface.
 flowchart TB
     subgraph Surfaces["① 用户工作面"]
@@ -18,10 +18,10 @@ flowchart TB
 
     subgraph Local["③ 本地 Go 服务"]
         MCP["stdio MCP Adapter"]
-        DesktopAPI["authenticated Desktop API<br/>commands · snapshots · events"]
-        Kernel["Local Workspace Kernel<br/>Claim · Proposal · Apply · digest"]
-        Sync["Sync / Upload / Review Inbox<br/>outbox · cursor · conflict"]
-        RuntimeWorker["Runtime Worker<br/>Harness · lease · fence"]
+        DesktopAPI["Desktop API<br/>internal/local/desktopapi<br/>commands · snapshots · events"]
+        Kernel["Workspace Kernel<br/>internal/local/workspace<br/>Claim · Proposal · Apply · digest"]
+        Sync["Sync / Upload / Review Inbox<br/>outbox · cursor · 4 MiB parts · conflict"]
+        RuntimeWorker["Runtime Worker<br/>internal/runtime/worker<br/>Harness · lease · fence"]
         Cache[("SQLite<br/>index · outbox · parts · cursors")]
         Workspace[("Local Workspace<br/>未提交文件与草稿事实源")]
         DesktopAPI --> Kernel
@@ -31,7 +31,7 @@ flowchart TB
     end
 
     subgraph Cloud["④ ContentCloud 服务端"]
-        API["Command / Query API"]
+        API["Command / Query API<br/>internal/transport/http"]
         Events["WebSocket / SSE<br/>monotonic event cursor"]
         Blob["Object Storage<br/>scoped multipart upload"]
         Runtime["Agentic Job Runtime"]

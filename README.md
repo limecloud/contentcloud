@@ -17,12 +17,13 @@ Content Work OS 是面向 AI 内容营销团队的 Studio-first 创作与云端�
 
 ```text
 cmd/                    Go Server、Worker、CLI/Daemon
-internal/               Domain、Application Service、Transport 与 Adapter
+internal/               Runtime、Local、Transport、Integration、Persistence 与业务模块
 contracts/              OpenAPI 3.1 与 JSON Schema
 migrations/             PostgreSQL schema、RLS 与 runtime role
 skills/                  随 CLI 内嵌的本地 Agent Skill
 packages/contentcloud/   零依赖 npm 校验安装器
 apps/web/                React + TypeScript 工作台与客户审批页
+apps/desktop/            Electron 持续项目工作面
 docs/foundation/         平台基线、分层规范、迁移与工程门禁
 docs/product/             客户产品需求与平台叙事
 docs/roadmap/v8/          Agentic Job Runtime 专项路线图
@@ -49,6 +50,14 @@ make dev
 默认使用隔离的 Memory Store 和 `var/dev-data` 本地 Blob，不会连接 `.env` 中的数据库或 S3。运行 `./scripts/dev.sh --help` 可查看端口覆盖、真实数据库联调和显式清理占用端口等选项。需要验证构建后的前后端单体服务时使用 `make preview`。
 
 开发模式下，演示账号默认具备平台管理员权限，并自动创建金陵古法线香演示项目；来源由内置确定性 Worker 处理。
+
+Desktop 通过本机 Go Daemon 的版本化 Desktop API 获取项目目录、同步/上传、审批和 Runtime/Delivery 投影，不复用 Codex 渲染面。启动开发版：
+
+```bash
+pnpm dev:desktop
+```
+
+`pnpm package:desktop` 生成当前平台未签名安装目录；正式签名、notarization 和自动更新仍是发布门禁，不属于当前已发布能力。
 
 CLI 示例：
 
@@ -151,6 +160,8 @@ project: "品牌 / 单品"
 make check
 go test -race ./...
 pnpm --dir apps/web test
+pnpm test:desktop
+pnpm test:e2e:desktop
 pnpm check:plugin
 ```
 
@@ -160,7 +171,7 @@ PostgreSQL 集成测试必须使用可重建的专用开发库；推荐先创建
 
 ```bash
 CONTENTCLOUD_TEST_DATABASE_URL='postgres://contentcloud@127.0.0.1:5432/<专用测试库>?sslmode=disable' \
-GOMAXPROCS=2 go test -race -p 1 -count=1 ./internal/store/postgres
+GOMAXPROCS=2 go test -race -p 1 -count=1 ./internal/persistence/postgres
 ```
 
 ## 当前实现事实

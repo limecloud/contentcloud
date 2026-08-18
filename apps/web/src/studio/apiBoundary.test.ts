@@ -1,4 +1,3 @@
-// @ts-expect-error Vitest 在 Node 中运行；Web 应用的类型边界不引入 Node globals。
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 

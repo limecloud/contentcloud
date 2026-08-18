@@ -35,18 +35,18 @@ const environmentProfile = await readJSON('deploy/systemd/environment-profile.js
 const plugin = await readJSON(`${pluginRelativePath}/plugin.json`);
 const mcp = await readJSON(`${pluginRelativePath}/mcp.json`);
 const versionFile = (await readText('VERSION')).trim();
-const goSource = await readText('internal/cli/root.go');
-const codexGuideSource = await readText('internal/httpapi/codex.go');
-const bootstrapSource = await readText('internal/httpapi/bootstrap.md');
+const goSource = await readText('internal/transport/cli/root.go');
+const codexGuideSource = await readText('internal/transport/http/codex.go');
+const bootstrapSource = await readText('internal/transport/http/bootstrap.md');
 const webSource = await readText('apps/web/src/connectBootstrap.ts');
 const agentHandoffSource = await readText('apps/web/src/agentHandoff.ts');
 const systemdEnvironmentSource = await readText('deploy/systemd/contentcloud.env.example');
-const localWorkspaceSource = await readText('internal/localworkspace/workspace.go');
+const localWorkspaceSource = await readText('internal/local/workspace/workspace.go');
 const pluginIdentitySource = await readText('internal/integration/pluginidentity/identity.go');
 const license = await readText('LICENSE');
 
-const goVersion = exactMatch(goSource, /const\s+Version\s*=\s*"([^"]+)"/, 'internal/cli Version');
-const codexGuideVersion = exactMatch(codexGuideSource, /codexGuideVersion\s*=\s*"([^"]+)"/, 'internal/httpapi /codex guide version');
+const goVersion = exactMatch(goSource, /const\s+Version\s*=\s*"([^"]+)"/, 'internal/transport/cli Version');
+const codexGuideVersion = exactMatch(codexGuideSource, /codexGuideVersion\s*=\s*"([^"]+)"/, 'internal/transport/http /codex guide version');
 const webCLIVersion = exactMatch(webSource, /@limecloud\/contentcloud@([^'\s]+)'/, 'web CONTENTCLOUD_CLI version');
 const agentHandoffVersion = exactMatch(agentHandoffSource, /integration\.version\s*!==\s*'([^']+)'/, 'web Agent handoff Plugin version');
 const capabilityReleaseVersion = exactMatch(systemdEnvironmentSource, /^CONTENTCLOUD_CAPABILITY_RELEASE_VERSION=([^\s]+)$/m, 'systemd capability release version');
@@ -66,8 +66,8 @@ const releaseVersions = new Map([
   ['package.json', workspacePackage.version],
   ['packages/contentcloud/package.json', cliPackage.version],
   ['apps/web/package.json', webPackage.version],
-  ['internal/cli/root.go', goVersion],
-  ['internal/httpapi/codex.go', codexGuideVersion],
+  ['internal/transport/cli/root.go', goVersion],
+  ['internal/transport/http/codex.go', codexGuideVersion],
   ['apps/web/src/connectBootstrap.ts', webCLIVersion],
 ]);
 for (const [source, value] of releaseVersions) {
@@ -87,7 +87,7 @@ for (const [source, value] of pluginVersions) {
 }
 check(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(versionFile), `VERSION is not a supported semantic version: ${versionFile}`);
 check(cliPackage.contentcloudReleaseTag === `v${versionFile}`, 'npm contentcloudReleaseTag must equal v<VERSION>');
-check(bootstrapVersions.length > 0 && bootstrapVersions.every(value => value === versionFile), `internal/httpapi/bootstrap.md contains versions ${JSON.stringify([...new Set(bootstrapVersions)])}, expected ${versionFile}`);
+check(bootstrapVersions.length > 0 && bootstrapVersions.every(value => value === versionFile), `internal/transport/http/bootstrap.md contains versions ${JSON.stringify([...new Set(bootstrapVersions)])}, expected ${versionFile}`);
 check(environmentProfile.workspace_template?.id === workspaceTemplateID, 'environment profile workspace template ID must match the current local workspace template');
 check(environmentProfile.workspace_template?.version === workspaceTemplateVersion, 'environment profile workspace template version must match the current local workspace template');
 check(environmentProfile.workspace_template?.digest === workspaceTemplateDigest, 'environment profile workspace template digest must equal sha256(<template-id>@<template-version>)');

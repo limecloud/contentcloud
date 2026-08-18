@@ -49,7 +49,7 @@ result_status: draft / pending_confirmation / changes_requested /
 | `DeliveryPackage` | 正式交付集合 | Artifact & Delivery | 只进入交付视图，并参与推导已有结果的 `delivered` 状态 |
 | `PerformanceObservation` | 对已确认内容的效果观察 | Performance & Learning | 首期只供运营分析，不作为资产正文 |
 
-现有代码事实以 `internal/domain/content.go`、`internal/app/assets.go`、`internal/app/lineage.go` 和 `internal/domain/projection.go` 为准。
+现有代码事实以 `internal/work/work_model.go`、`internal/application/assets.go`、`internal/application/lineage.go` 和 `internal/experience/projection/projectview.go` 为准；跨域写入通过命名应用服务和窄 Repository 完成。
 
 ### 3.1 工作区资料投影契约
 

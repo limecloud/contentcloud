@@ -1,8 +1,8 @@
 # 项目级执行客户端连接
 
-状态：`Codex 工作区连接已实现；Desktop 持续项目连接目标已冻结，完整 Daemon/Sync/Approval E2E 待实现`。
+状态：`Codex 工作区连接已实现；Desktop Daemon/Sync/Approval 核心链路已实现，完整真实进程矩阵与正式分发仍待门禁`。
 
-更新时间：2026-08-07。
+更新时间：2026-08-18。
 
 上位规范：[平台基线](../../foundation/README.md)、[客户创作台需求](./02-customer-studio-requirements.md)和 [V8 宿主能力证据](../../roadmap/v8/02-host-capability-evidence.md)。
 

@@ -1,41 +1,36 @@
 # 当前代码证据与一次性整改基线
 
-状态：`当前实现事实；随一次性整改更新`。
+状态：`当前实现事实；命名空间、业务模块、命名应用服务与 Desktop D3-D7 核心链路已完成，正式分发和真实进程矩阵仍在进行`。
 
-更新时间：2026-08-17。
+更新时间：2026-08-18。
 
 本文记录代码今天真实存在什么，以及一次性整改后必须删除什么。目标目录和决策见 [04-code-organization.md](./04-code-organization.md)、[07-migration-and-delivery.md](./07-migration-and-delivery.md)、[ADR-0018](./decisions/ADR-0018-desktop-surface-and-repository-topology.md)。
 
 ## 1. 当前物理结构
 
-当前仍有以下宽包或历史路径：
+当前物理目录已经收口为：
 
 ```text
-internal/domain
-internal/app
-internal/store
-internal/httpapi
-internal/agentadapter
-internal/localworkspace
-internal/workbench
-internal/localconfig
-internal/environment
-internal/mediapipeline
+apps/{web,desktop}
+internal/{application,bootstrap,catalog,experience,integration,local,persistence,platform,runtime,transport,work}
+internal/local/{automation,config,desktopapi,export,ingest,workbench,workspace}
+internal/persistence/{memory,postgres,blob}
+internal/transport/{client,cli,http}
 ```
 
-这些路径不是目标架构，也不允许继续增加新功能。Web Surface 已通过 Git rename 迁入 `apps/web`，但构建、CI、脚本、Docker 和文档引用仍需全量核对。`apps/desktop`、`internal/local/sync`、Desktop API 和 Electron 分发尚未实现。
+旧顶层包已删除，生产代码旧 import 扫描为零。业务事实已按域落到 `internal/identity`、`internal/workspace`、`internal/source`、`internal/catalog`、`internal/work`、`internal/review`、`internal/delivery`、`internal/performance`、`internal/audit` 和 `internal/runtime`；`internal/application` 已完成命名服务化。Desktop Sync、可恢复上传、审批命令和 Runtime/Delivery 投影已进入当前实现；正式签名分发和真实进程故障矩阵仍未完成。
 
 ## 2. 当前已存在、必须直接复用的事实
 
 | 能力 | 当前证据 | 目标落点 | 处理规则 |
 | --- | --- | --- | --- |
-| Workspace 目录、View、Claim、Proposal、Apply、CAS | `internal/localworkspace`、`internal/workbench` | `internal/local/workspace`、`internal/local/workbench` | 直接移动并保留测试，不复制规则 |
-| MCP stdio、Codex Harness、thread resume | `internal/cli`、`internal/agentadapter` | `internal/transport/mcp`、`internal/integration/agent` | 直接迁移，不创建 Electron Harness |
-| 用户级 Daemon、设备绑定和 Runtime 控制 | `internal/cli/daemon_*`、`internal/cli/runtime_*` | `internal/local`、`internal/runtime`、`internal/transport/cli` | Workspace Sync 与 Runtime Worker 分模块托管 |
+| Workspace 目录、View、Claim、Proposal、Apply、CAS | `internal/local/workspace`、`internal/local/workbench` | 当前落点 | 保留同一 Kernel，不复制规则 |
+| MCP stdio、Codex Harness、thread resume | `internal/transport/cli`、`internal/integration/agent` | 当前落点；后续可按所有权拆 `transport/mcp` | 不创建 Electron Harness |
+| 用户级 Daemon、设备绑定和 Runtime 控制 | `internal/transport/cli/daemon_*`、`internal/transport/cli/runtime_*`、`internal/runtime/worker` | 当前落点；Sync 仍待实现 | Workspace Sync 与 Runtime Worker 使用独立状态和错误域 |
 | Studio 资产投影 | `internal/experience/studio`、`apps/web/src/studio/assets` | `internal/experience/studio`、`apps/web/src/studio/assets` | 保持投影与业务写模型分离 |
-| Cloud Revision、Review、Approval、Artifact、Delivery | `internal/domain`、`internal/app`、`internal/store` | `internal/review`、`internal/delivery` | 按事实所有者迁移，不保留宽 Service |
+| Cloud Revision、Review、Approval、Artifact、Delivery | `internal/review`、`internal/delivery`、命名应用服务、12 个窄 Repository 组合 | `internal/review`、`internal/delivery` | 应用服务只协调用例，不拥有跨域事实 |
 | Runtime Job/Node/Attempt/Effect | `internal/runtime` | `internal/runtime` | 保持独立，不导入内容类型业务模块 |
-| 服务端 BFF、Admin、Public | `internal/httpapi`、`apps/web/src/admin`、`apps/web/src/views` | `internal/transport/http`、`apps/web` | DTO、路由和 Surface 依赖分开 |
+| 服务端 BFF、Admin、Public | `internal/transport/http`、`apps/web/src/admin`、`apps/web/src/views` | 当前落点 | DTO、路由和 Surface 依赖分开 |
 
 ## 3. 一次性目标证据
 
@@ -48,6 +43,7 @@ internal/local/{workspace,sync,workbench,desktopapi,config} 存在
 internal/transport/{http,cli,mcp} 存在
 internal/integration/{agent,connector,provider,pluginhost} 存在
 internal/persistence/{postgres,memory,blob} 存在
+internal/platform/fault 存在且稳定错误不再由宽业务包拥有
 identity/workspace/source/catalog/work/review/delivery/performance 独立拥有事实
 internal/app、internal/domain、internal/store、internal/httpapi 等旧包不存在
 ```
@@ -68,14 +64,14 @@ internal/app、internal/domain、internal/store、internal/httpapi 等旧包不�
 
 | 能力 | 当前状态 | 目标状态 |
 | --- | --- | --- |
-| Web 迁入 `apps/web` | 已完成目录 rename，引用整理中 | 所有构建、CI、Docker、脚本和文档通过 |
-| Electron Shell | 未实现 | Forge + Vite，Main/Preload/Renderer 安全边界 |
-| Desktop 项目 View | 未实现 | 目录、资产、任务、审批、传输和活动 |
-| Local Sync Engine | 未实现 | watcher、digest、outbox、cursor、冲突和恢复 |
-| Resumable Upload | 服务端已有部分上传能力 | Desktop 分片、恢复、finalize 和处理事件 |
-| Desktop Review Inbox | 服务端 Review/Approval 已有 | 精确 revision/digest 的持续审批工作面 |
+| Web 迁入 `apps/web` | 已完成，构建和 CI 使用新路径 | 所有脚本和文档持续由门禁防回流 |
+| Electron Shell | Forge + Vite、安全窗口、CSP、fuses 和安全 E2E 已实现 | 正式签名与更新验证 |
+| Desktop 项目 View | 快照、内容目录、Runtime/Delivery 投影和 allowed actions 已实现 | 完整活动流与细粒度通知 |
+| Local Sync Engine | digest、outbox、cursor、幂等发布和冲突状态已实现 | watcher 稳定窗口和多设备冲突 E2E |
+| Resumable Upload | 4 MiB 分片、512 MiB 上限、resume/finalize 已实现 | 真实媒体预览与跨平台故障矩阵 |
+| Desktop Review Inbox | inbox、Revision diff、批注、批准/拒绝/要求修改已实现 | 真实进程 E2E 与复杂 Gate 组合验收 |
 | Codex Desktop Handoff | MCP/Browser Handoff 已有 | 对象引用、任务意图和受控深链 |
-| 签名分发 | CLI Release 路径已有，Desktop 无 | macOS/Windows 正式安装、更新、卸载和恢复 |
+| 签名分发 | Desktop Forge makers、更新通道契约、本地 package 和 CI package matrix 已有；尚无真实签名发布 | macOS/Windows 正式安装、更新、卸载和恢复 |
 
 ## 6. 验证命令
 
@@ -89,6 +85,7 @@ pnpm --dir apps/web build
 pnpm --dir apps/desktop typecheck
 pnpm --dir apps/desktop test
 pnpm --dir apps/desktop test:e2e
+pnpm desktop:release:check
 ```
 
-Desktop 命令在应用目录建立后才加入根门禁；在此之前不能用“没有脚本”冒充已验证。
+根级脚本、Makefile 和 CI 必须直接覆盖 Desktop typecheck、unit、package 与 Electron E2E；没有脚本不能冒充已验证。

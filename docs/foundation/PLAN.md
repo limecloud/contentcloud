@@ -134,12 +134,12 @@ V8 继续负责 Agentic Job Runtime 的专项路线图和技术证据。本基�
 
 ### 7.3 工程与代码
 
-- `internal/domain`、`internal/app` 和 `internal/httpapi` 当前过宽的职责怎样按模块收敛？
+- 命名应用服务、`internal/transport/http` 与各业务模块之间的职责如何继续保持窄边界？
 - Runtime、控制面、客户 BFF、连接器和内容业务包之间允许哪些依赖？
 - 目标目录是逻辑边界还是一次性物理搬迁？迁移期间如何避免新旧实现长期并存？
 - 契约、迁移、兼容适配和废弃流程由谁负责？
 - 现有对象与模块如何逐项归类为 `current / compat / deprecated / dead`，并把保持、扩展、改名、迁移或删除作为独立动作管理？
-- 跨域资产目录投影应位于哪个 Experience 模块，怎样重建且不扩大全局 Store/Service？
+- 跨域资产目录投影应位于哪个 Experience 模块，怎样重建且继续使用窄 Repository 与命名应用服务？
 
 ### 7.4 运行与质量
 

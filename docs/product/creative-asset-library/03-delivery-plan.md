@@ -157,7 +157,7 @@ apps/web/src/studio/assets/                           客户资产 feature
 apps/web/src/admin/assets/                            运营治理 feature
 ```
 
-实际迁移期可以在现有 `internal/app`、`internal/domain/projection.go` 和 Web Shell 中以窄接口实现，不要求先创建完整目标目录。新代码不得继续扩大全局 `Store`、`Service` 或现有 `StudioAssetItem`；若暂时使用兼容接口，必须登记退场条件。
+当前实现继续位于 `internal/application`、`internal/experience/projection/projectview.go` 和 Web Shell，并通过命名应用服务与窄接口收敛；新代码不得扩大全局 `Store`、`Service` 或现有 `StudioAssetItem`，也不创建兼容接口。
 
 ## 6. 测试路径
 

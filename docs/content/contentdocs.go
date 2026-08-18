@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/limecloud/contentcloud/internal/agentadapter"
+	agentadapter "github.com/limecloud/contentcloud/internal/integration/agent"
 )
 
 const SchemaVersion = "contentcloud.docs-catalog/1.0"

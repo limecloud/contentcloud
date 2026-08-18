@@ -1,18 +1,20 @@
-package runtime
+package runtime_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/agentadapter"
-	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/store/memory"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	agentadapter "github.com/limecloud/contentcloud/internal/integration/agent"
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
+	"github.com/limecloud/contentcloud/internal/platform/idgen"
 )
 
-func stateCollectionForTest(started StartResult, nodeKey, key string, consistency string, maxRecords int) domain.StateCollection {
+func stateCollectionForTest(started StartResult, nodeKey, key string, consistency string, maxRecords int) StateCollection {
 	now := started.Job.CreatedAt
-	return domain.StateCollection{
-		ID:              domain.NewID(),
+	return StateCollection{
+		ID:              idgen.New(),
 		TenantID:        started.Job.TenantID,
 		JobRunID:        started.Job.ID,
 		CollectionKey:   key,
@@ -32,10 +34,10 @@ func stateCollectionForTest(started StartResult, nodeKey, key string, consistenc
 	}
 }
 
-func stateRecordForTest(collection domain.StateCollection, key, actor string) domain.StateRecord {
+func stateRecordForTest(collection StateCollection, key, actor string) StateRecord {
 	now := collection.CreatedAt
-	return domain.StateRecord{
-		ID:             domain.NewID(),
+	return StateRecord{
+		ID:             idgen.New(),
 		TenantID:       collection.TenantID,
 		CollectionID:   collection.ID,
 		Key:            key,
@@ -50,7 +52,7 @@ func stateRecordForTest(collection domain.StateCollection, key, actor string) do
 	}
 }
 
-func publishStateSchemaForTest(t *testing.T, service *Service, collection domain.StateCollection) {
+func publishStateSchemaForTest(t *testing.T, service *Service, collection StateCollection) {
 	t.Helper()
 	for revision := 1; revision <= collection.SchemaRevision; revision++ {
 		if existing, err := service.RuntimeSchema(t.Context(), collection.TenantID, collection.SchemaID, revision); err == nil {
@@ -158,7 +160,7 @@ func TestToolCallRequiresActiveAttemptAndAllowedTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	call := domain.ToolCall{TenantID: started.Job.TenantID, JobRunID: started.Job.ID, NodeRunID: handle.Node.ID, AttemptID: handle.Attempt.ID, AgentInstanceID: handle.Agent.ID, ID: domain.NewID(), ToolName: "state.get", SchemaVersion: "contentcloud.tool/state.get/1", RequestDigest: "sha256:request", SafeRequest: map[string]any{"collection": "brief"}, State: domain.ToolCallProposed, Version: 1, CreatedAt: now, UpdatedAt: now}
+	call := ToolCall{TenantID: started.Job.TenantID, JobRunID: started.Job.ID, NodeRunID: handle.Node.ID, AttemptID: handle.Attempt.ID, AgentInstanceID: handle.Agent.ID, ID: idgen.New(), ToolName: "state.get", SchemaVersion: "contentcloud.tool/state.get/1", RequestDigest: "sha256:request", SafeRequest: map[string]any{"collection": "brief"}, State: ToolCallProposed, Version: 1, CreatedAt: now, UpdatedAt: now}
 	if err := service.CreateToolCall(t.Context(), call); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +169,7 @@ func TestToolCallRequiresActiveAttemptAndAllowedTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	next := call
-	next.State = domain.ToolCallAuthorized
+	next.State = ToolCallAuthorized
 	next.Version++
 	next.UpdatedAt = now.Add(time.Second)
 	if _, err := service.TransitionToolCall(t.Context(), next, call.Version); err != nil {
@@ -175,9 +177,9 @@ func TestToolCallRequiresActiveAttemptAndAllowedTool(t *testing.T) {
 	}
 
 	unauthorized := next
-	unauthorized.ID = domain.NewID()
+	unauthorized.ID = idgen.New()
 	unauthorized.Version = 1
-	unauthorized.State = domain.ToolCallProposed
+	unauthorized.State = ToolCallProposed
 	unauthorized.ToolName = "provider.submit"
 	unauthorized.RequestDigest = "sha256:other-request"
 	unauthorized.CreatedAt = now
@@ -188,7 +190,7 @@ func TestToolCallRequiresActiveAttemptAndAllowedTool(t *testing.T) {
 
 	stale := next
 	stale.Version++
-	stale.State = domain.ToolCallRunning
+	stale.State = ToolCallRunning
 	stale.UpdatedAt = now.Add(2 * time.Second)
 	if _, err := service.TransitionToolCall(t.Context(), stale, call.Version); !hasDomainCode(err, "TOOL_CALL_VERSION_CONFLICT") {
 		t.Fatalf("stale ToolCall transition was accepted: %v", err)

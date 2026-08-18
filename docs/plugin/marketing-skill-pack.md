@@ -155,8 +155,8 @@ Environment Manifest
 
 ```bash
 pnpm check:marketing-plugin
-go test ./internal/integration/plugin ./internal/integration/pluginbuiltin ./internal/integration/pluginhost ./internal/environment
-go test ./internal/cli -run TestEnvironmentPreparationLoadsMarketingPackForCodexAndClaude -count=1
+go test ./internal/integration/plugin ./internal/integration/pluginbuiltin ./internal/integration/pluginhost ./internal/catalog/environment
+go test ./internal/transport/cli -run TestEnvironmentPreparationLoadsMarketingPackForCodexAndClaude -count=1
 ```
 
 检查内容包括：8 个中文 Skills、0 个 MCP、claims 能力、Registry 摘要、Workspace/Core 边界、视频/文章交接、Run 恢复和发布确认门禁。
@@ -165,7 +165,7 @@ go test ./internal/cli -run TestEnvironmentPreparationLoadsMarketingPackForCodex
 
 ```bash
 go test ./...
-go test -race ./internal/integration/plugin ./internal/integration/pluginbuiltin ./internal/cli ./internal/localworkspace ./internal/workbench ./internal/runtime
+go test -race ./internal/integration/plugin ./internal/integration/pluginbuiltin ./internal/transport/cli ./internal/local/workspace ./internal/local/workbench ./internal/runtime
 go vet ./...
 pnpm check:plugin
 pnpm check:marketing-plugin

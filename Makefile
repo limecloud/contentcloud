@@ -1,4 +1,4 @@
-.PHONY: dev preview server web worker cli build test check check-plugin install-cli migrate-up
+.PHONY: dev preview server web desktop worker cli build build-web package-desktop make-desktop test test-desktop test-desktop-e2e check check-plugin install-cli migrate-up
 
 CONTENTCLOUD_ADDR ?= :8080
 CONTENTCLOUD_WEB_DIST ?= apps/web/dist
@@ -15,6 +15,9 @@ server:
 web:
 	pnpm --dir apps/web dev
 
+desktop:
+	pnpm --dir apps/desktop start
+
 worker:
 	go run ./cmd/contentcloud-worker
 
@@ -30,21 +33,40 @@ build: build-web
 build-web:
 	pnpm --dir apps/web build
 
+package-desktop:
+	pnpm --dir apps/desktop package
+
+make-desktop:
+	pnpm --dir apps/desktop make
+
 test:
 	go test ./...
 	pnpm --dir apps/web test
+	pnpm --dir apps/desktop test
+
+test-desktop:
+	pnpm --dir apps/desktop typecheck
+	pnpm --dir apps/desktop test
+
+test-desktop-e2e:
+	pnpm --dir apps/desktop test:e2e
 
 check:
 	go fmt ./...
 	go vet ./...
 	go test ./...
 	pnpm architecture
+	pnpm docs:links
 	pnpm governance:v3
 	pnpm governance:content
 	pnpm test:plugin-signing
 	pnpm check:plugin
 	pnpm --dir apps/web typecheck
+	pnpm --dir apps/web test
 	pnpm --dir apps/web build
+	pnpm --dir apps/desktop typecheck
+	pnpm --dir apps/desktop test
+	pnpm --dir apps/desktop package
 
 check-plugin:
 	pnpm evaluate:plugin

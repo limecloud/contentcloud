@@ -1,0 +1,32 @@
+%% Local mutation to immutable cloud revision.
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Avenir Next, Segoe UI Variable, PingFang SC, Microsoft YaHei, sans-serif","primaryColor":"#eff6ff","primaryBorderColor":"#4c91ff","primaryTextColor":"#172033","secondaryColor":"#edf4ef","tertiaryColor":"#fff3ed","lineColor":"#52627b","textColor":"#172033","actorBkg":"#ffffff","actorBorder":"#52627b","actorTextColor":"#172033","signalColor":"#52627b","signalTextColor":"#172033","noteBkgColor":"#fbfdff","noteBorderColor":"#e3eaf3","noteTextColor":"#172033","activationBkgColor":"#edf3f9","activationBorderColor":"#52627b"}}}%%
+sequenceDiagram
+    actor Author as 用户或 Codex
+    participant Kernel as Workspace Kernel
+    participant Sync as Sync Engine
+    participant Outbox as SQLite Outbox
+    participant API as Cloud API
+    participant DB as Cloud Revision
+    participant UI as Desktop
+
+    Author->>Kernel: Proposal / Apply 或外部文件修改
+    Kernel->>Kernel: 校验路径、Claim、revision、digest
+    Kernel-->>UI: local view invalidated
+    Kernel->>Sync: normalized change + content digest
+    Sync->>Outbox: append 幂等命令
+    Sync-->>UI: transfer_state = queued
+    Sync->>API: publish preflight
+    API-->>Sync: accepted / conflict / policy denied
+    alt accepted
+        Sync->>API: upload / finalize
+        API->>DB: 创建不可变 Revision
+        DB-->>Sync: revision + digest
+        Sync->>Outbox: ack exact command
+        Sync-->>UI: synced + cloud revision
+    else stale base
+        Sync->>Outbox: mark conflict，停止自动重试
+        Sync-->>UI: local / base / remote refs
+    else transient error
+        Sync->>Outbox: retry_at + bounded backoff
+        Sync-->>UI: queued / failed + recovery action
+    end

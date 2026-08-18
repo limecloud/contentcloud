@@ -1,0 +1,375 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号或 desktop-v 标签，例如 0.28.0-beta.1'
+        required: true
+        default: '0.28.0-beta.1'
+      source_ref:
+        description: '构建来源 ref；留空使用 main'
+        required: false
+        default: ''
+      channel:
+        description: '更新通道；稳定版只能使用已签名产物'
+        required: true
+        type: choice
+        options:
+          - beta
+          - stable
+        default: beta
+      publish:
+        description: '是否创建或更新 GitHub Release；手动运行默认只上传 CI artifact'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.8.1'
+  ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+
+jobs:
+  resolve:
+    name: Resolve desktop release identity
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.identity.outputs.tag }}
+      version: ${{ steps.identity.outputs.version }}
+      channel: ${{ steps.identity.outputs.channel }}
+      source_ref: ${{ steps.identity.outputs.source_ref }}
+      publish: ${{ steps.identity.outputs.publish }}
+    steps:
+      - name: Resolve tag, version and channel
+        id: identity
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_TAG: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version || '' }}
+          INPUT_CHANNEL: ${{ github.event.inputs.channel || 'beta' }}
+          INPUT_SOURCE_REF: ${{ github.event.inputs.source_ref || '' }}
+          INPUT_PUBLISH: ${{ github.event.inputs.publish || 'false' }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            tag="$EVENT_TAG"
+            source_ref="${GITHUB_SHA}"
+            publish=true
+          else
+            raw_version="${INPUT_VERSION#desktop-v}"
+            tag="desktop-v${raw_version}"
+            source_ref="${INPUT_SOURCE_REF:-main}"
+            publish="${INPUT_PUBLISH}"
+          fi
+
+          if [[ ! "$tag" =~ ^desktop-v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::invalid desktop release tag: $tag"
+            exit 1
+          fi
+          version="${tag#desktop-v}"
+          if [[ "$version" == *-* ]]; then
+            channel=beta
+          else
+            channel="${INPUT_CHANNEL:-stable}"
+          fi
+          if [[ "$channel" == stable && "$version" == *-* ]]; then
+            echo "::error::a prerelease version cannot enter stable"
+            exit 1
+          fi
+          if [[ "$publish" != true && "$publish" != false ]]; then
+            echo "::error::publish must be true or false"
+            exit 1
+          fi
+
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "channel=$channel"
+            echo "source_ref=$source_ref"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            name: macOS arm64
+            runner: macos-14
+            platform: darwin
+            arch: arm64
+            forge_targets: dmg,zip
+            signing: required
+          - target: darwin-x64
+            name: macOS x64
+            runner: macos-15-intel
+            platform: darwin
+            arch: x64
+            forge_targets: dmg,zip
+            signing: required
+          - target: win32-x64
+            name: Windows x64
+            runner: windows-2022
+            platform: win32
+            arch: x64
+            forge_targets: squirrel
+            signing: required
+          - target: linux-x64
+            name: Linux x64
+            runner: ubuntu-22.04
+            platform: linux
+            arch: x64
+            forge_targets: deb,rpm
+            signing: preview
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.resolve.outputs.source_ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate desktop release contract
+        run: pnpm desktop:release:check
+
+      - name: Verify package version matches release tag
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./apps/desktop/package.json').version")"
+          test "$package_version" = "$RELEASE_VERSION" || {
+            echo "::error::apps/desktop/package.json is $package_version, expected $RELEASE_VERSION"
+            exit 1
+          }
+
+      - name: Validate macOS signing secrets
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID KEYCHAIN_PASSWORD; do
+            [[ -n "${!name:-}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::missing macOS signing/notarization secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Import macOS signing certificate
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/contentcloud-desktop-signing.keychain-db"
+          certificate="$RUNNER_TEMP/contentcloud-desktop-signing.p12"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$certificate"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security import "$certificate" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          echo "CONTENTCLOUD_DESKTOP_MAC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+      - name: Validate Windows signing secrets
+        if: matrix.platform == 'win32'
+        shell: bash
+        env:
+          WINDOWS_SIGNING_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
+          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [[ -n "${WINDOWS_SIGNING_CERTIFICATE:-}" ]] || { echo "::error::missing WINDOWS_SIGNING_CERTIFICATE"; exit 1; }
+          [[ -n "${WINDOWS_SIGNING_CERTIFICATE_PASSWORD:-}" ]] || { echo "::error::missing WINDOWS_SIGNING_CERTIFICATE_PASSWORD"; exit 1; }
+
+      - name: Prepare Windows signing certificate
+        if: matrix.platform == 'win32'
+        shell: bash
+        env:
+          WINDOWS_SIGNING_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
+          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          certificate="$RUNNER_TEMP/contentcloud-desktop-signing.pfx"
+          CERTIFICATE_PATH="$certificate" node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          writeFileSync(process.env.CERTIFICATE_PATH, Buffer.from(process.env.WINDOWS_SIGNING_CERTIFICATE, 'base64'));
+          NODE
+          echo "CONTENTCLOUD_DESKTOP_WINDOWS_CERTIFICATE_FILE=$certificate" >> "$GITHUB_ENV"
+          echo "CONTENTCLOUD_DESKTOP_WINDOWS_CERTIFICATE_PASSWORD=$WINDOWS_SIGNING_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Build Electron packages
+        shell: bash
+        env:
+          CONTENTCLOUD_DESKTOP_SIGN: ${{ matrix.signing == 'required' && '1' || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          pnpm --dir apps/desktop exec electron-forge make \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --targets "${{ matrix.forge_targets }}"
+
+      - name: Stage release assets and generate metadata
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          RELEASE_CHANNEL: ${{ needs.resolve.outputs.channel }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          signing_flag=()
+          if [[ "${{ matrix.signing }}" == required ]]; then signing_flag+=(--signed); fi
+          node scripts/stage-desktop-release.mjs stage \
+            --forge-dir apps/desktop/out \
+            --out-dir "desktop-staged/${{ matrix.target }}" \
+            --target "${{ matrix.target }}" \
+            --version "$RELEASE_VERSION" \
+            --channel "$RELEASE_CHANNEL" \
+            --tag "$RELEASE_TAG" \
+            --repository "$RELEASE_REPOSITORY" \
+            "${signing_flag[@]}"
+
+      - name: Upload staged desktop assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-${{ matrix.target }}
+          path: desktop-staged/${{ matrix.target }}/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub desktop release
+    needs: [resolve, build]
+    if: needs.resolve.outputs.publish == 'true' && needs.build.result == 'success'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.resolve.outputs.source_ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download staged desktop assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-release-*
+          path: desktop-staged
+          merge-multiple: true
+
+      - name: Aggregate release metadata and checksums
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_CHANNEL: ${{ needs.resolve.outputs.channel }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p github-release-assets
+          node scripts/stage-desktop-release.mjs aggregate \
+            --input-dir desktop-staged \
+            --out-dir github-release-assets \
+            --channel "$RELEASE_CHANNEL" \
+            --tag "$RELEASE_TAG" \
+            --repository "$RELEASE_REPOSITORY"
+          cp desktop-staged/* github-release-assets/
+          find github-release-assets -maxdepth 1 -type f -print | sort
+
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          SOURCE_REF: ${{ needs.resolve.outputs.source_ref }}
+          RELEASE_CHANNEL: ${{ needs.resolve.outputs.channel }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_REF" --draft=true
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_REF" \
+              --title "Content Work OS Desktop $RELEASE_TAG" \
+              --generate-notes \
+              --draft
+          fi
+
+      - name: Upload desktop release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" github-release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_CHANNEL: ${{ needs.resolve.outputs.channel }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_CHANNEL" == beta ]]; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+          else
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          fi

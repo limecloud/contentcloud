@@ -13,7 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 )
 
@@ -75,7 +76,7 @@ func New(config Config, runner CommandRunner) (*Host, error) {
 		config.MarketplaceName = "contentcloud"
 	}
 	if strings.TrimSpace(config.ProjectionRoot) == "" {
-		return nil, domain.Invalid("CLAUDE_PLUGIN_HOST_CONFIG_INVALID", "Claude 插件宿主缺少本地 Marketplace 投影目录")
+		return nil, fault.Invalid("CLAUDE_PLUGIN_HOST_CONFIG_INVALID", "Claude 插件宿主缺少本地 Marketplace 投影目录")
 	}
 	projectionRoot, err := filepath.Abs(config.ProjectionRoot)
 	if err != nil {
@@ -261,12 +262,12 @@ func (h *Host) Apply(ctx context.Context, request pluginhost.NativeApply) (plugi
 		return h.change(change), nil, err
 	}
 	if state.Status != pluginhost.StatusReady {
-		return h.change(change), nil, domain.Conflict("CLAUDE_PLUGIN_VERIFY_FAILED", state.Reason)
+		return h.change(change), nil, fault.Conflict("CLAUDE_PLUGIN_VERIFY_FAILED", state.Reason)
 	}
 	installedInventory, err := h.readInventory(ctx, request.Target)
 	if err != nil || installedInventory.plugin == nil {
 		if err == nil {
-			err = domain.Conflict("CLAUDE_PLUGIN_VERIFY_FAILED", "Claude 插件安装后未返回缓存路径")
+			err = fault.Conflict("CLAUDE_PLUGIN_VERIFY_FAILED", "Claude 插件安装后未返回缓存路径")
 		}
 		return h.change(change), nil, err
 	}
@@ -320,7 +321,7 @@ func (h *Host) Remove(ctx context.Context, request pluginhost.NativeRemove) (plu
 		return h.change(change), err
 	}
 	if state.Status != pluginhost.StatusAbsent {
-		return h.change(change), domain.Conflict("CLAUDE_PLUGIN_REMOVE_VERIFY_FAILED", "Claude 插件删除后仍处于可见状态")
+		return h.change(change), fault.Conflict("CLAUDE_PLUGIN_REMOVE_VERIFY_FAILED", "Claude 插件删除后仍处于可见状态")
 	}
 	return h.change(change), nil
 }
@@ -331,7 +332,7 @@ func (h *Host) Rollback(ctx context.Context, native pluginhost.NativeChange) err
 	}
 	var change nativeChange
 	if err := json.Unmarshal(native.Data, &change); err != nil {
-		return domain.Invalid("CLAUDE_PLUGIN_ROLLBACK_INVALID", "Claude 插件原生回滚状态无法解析")
+		return fault.Invalid("CLAUDE_PLUGIN_ROLLBACK_INVALID", "Claude 插件原生回滚状态无法解析")
 	}
 	if len(change.PreviousProjection) == 0 {
 		return nil
@@ -485,7 +486,7 @@ func (h *Host) marketplaces(ctx context.Context) ([]marketplaceListItem, error) 
 		return nil, err
 	}
 	if response == nil {
-		return nil, domain.Invalid("CLAUDE_MARKETPLACE_LIST_INVALID", "Claude Marketplace 列表必须是 JSON 数组")
+		return nil, fault.Invalid("CLAUDE_MARKETPLACE_LIST_INVALID", "Claude Marketplace 列表必须是 JSON 数组")
 	}
 	return response, nil
 }
@@ -496,7 +497,7 @@ func (h *Host) plugins(ctx context.Context) ([]pluginListItem, error) {
 		return nil, err
 	}
 	if response == nil {
-		return nil, domain.Invalid("CLAUDE_PLUGIN_LIST_INVALID", "Claude 插件列表必须是 JSON 数组")
+		return nil, fault.Invalid("CLAUDE_PLUGIN_LIST_INVALID", "Claude 插件列表必须是 JSON 数组")
 	}
 	return response, nil
 }
@@ -513,7 +514,7 @@ func (h *Host) version(ctx context.Context) (string, error) {
 			return parts[0], nil
 		}
 	}
-	return "", domain.Invalid("CLAUDE_VERSION_INVALID", "Claude --version 未返回可识别的语义版本")
+	return "", fault.Invalid("CLAUDE_VERSION_INVALID", "Claude --version 未返回可识别的语义版本")
 }
 
 func (h *Host) validateProjection(ctx context.Context, root string) error {
@@ -559,13 +560,13 @@ func (h *Host) runJSON(ctx context.Context, operation string, target any, args .
 	}
 	decoder := json.NewDecoder(bytes.NewReader(result.Stdout))
 	if err := decoder.Decode(target); err != nil {
-		domainErr := domain.Invalid("CLAUDE_JSON_INVALID", "Claude 命令没有返回可解析的 JSON")
+		domainErr := fault.Invalid("CLAUDE_JSON_INVALID", "Claude 命令没有返回可解析的 JSON")
 		domainErr.Details = map[string]any{"operation": operation, "error": err.Error()}
 		return domainErr
 	}
 	var extra any
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return domain.Invalid("CLAUDE_JSON_INVALID", "Claude 命令返回了多个 JSON 值")
+		return fault.Invalid("CLAUDE_JSON_INVALID", "Claude 命令返回了多个 JSON 值")
 	}
 	return nil
 }
@@ -608,8 +609,8 @@ func (h *Host) expectedProjectedPackageRoot(release pluginhost.ReleaseRef) (stri
 	return canonicalPath(filepath.Join(h.config.ProjectionRoot, "plugins", release.PluginID, digest))
 }
 
-func commandError(operation string, result CommandResult, cause error) *domain.Error {
-	domainErr := domain.E("runtime", "claude", "CLAUDE_COMMAND_FAILED", "Claude 插件命令执行失败", 5)
+func commandError(operation string, result CommandResult, cause error) *fault.Error {
+	domainErr := fault.E("runtime", "claude", "CLAUDE_COMMAND_FAILED", "Claude 插件命令执行失败", 5)
 	domainErr.Retryable = true
 	domainErr.Details = map[string]any{
 		"operation": operation,

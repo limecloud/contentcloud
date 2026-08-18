@@ -1,4 +1,4 @@
-package runtime
+package runtime_test
 
 import (
 	"encoding/json"
@@ -8,9 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/agentadapter"
-	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/store/memory"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	catalogdomain "github.com/limecloud/contentcloud/internal/catalog"
+	agentadapter "github.com/limecloud/contentcloud/internal/integration/agent"
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
+	"github.com/limecloud/contentcloud/internal/platform/idgen"
 )
 
 func newDispatchRuntime(t *testing.T, fake *agentadapter.FakeHarness, now func() time.Time) (*Service, *memory.Store, StartResult) {
@@ -21,7 +24,7 @@ func newDispatchRuntime(t *testing.T, fake *agentadapter.FakeHarness, now func()
 		t.Fatal(err)
 	}
 	service := NewWithHarnessRegistry(repo, now, registry)
-	started, err := service.Start(t.Context(), testStartInput("task-dispatch", domain.NewID()))
+	started, err := service.Start(t.Context(), testStartInput("task-dispatch", idgen.New()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +50,7 @@ func TestDispatchNextCompletesNodeAttemptAgentAndRefreshesJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatched.Handle.Attempt.State != domain.RuntimeAttemptSucceeded || dispatched.Handle.Node.State != domain.NodeSucceeded || dispatched.Handle.Agent.State != domain.AgentCompleted {
+	if dispatched.Handle.Attempt.State != RuntimeAttemptSucceeded || dispatched.Handle.Node.State != NodeSucceeded || dispatched.Handle.Agent.State != AgentCompleted {
 		t.Fatalf("dispatch did not converge atomically: %#v", dispatched.Handle)
 	}
 	if dispatched.Handle.Attempt.ResultDigest == "" || dispatched.Handle.Node.OutputDigest != "sha256:result" || dispatched.Handle.Agent.UsedCostMinor != 20 {
@@ -105,14 +108,14 @@ func TestDispatchStartFailureReturnsNodeAndAgentToRetryableState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatched.Handle.Attempt.State != domain.RuntimeAttemptRetryableFailed || dispatched.Handle.Attempt.ErrorCode != "HARNESS_START_FAILED" || dispatched.Handle.Agent.State != domain.AgentRunnable {
+	if dispatched.Handle.Attempt.State != RuntimeAttemptRetryableFailed || dispatched.Handle.Attempt.ErrorCode != "HARNESS_START_FAILED" || dispatched.Handle.Agent.State != AgentRunnable {
 		t.Fatalf("start failure did not converge: %#v", dispatched.Handle)
 	}
 	node, err := repo.NodeRun(t.Context(), "tenant-1", dispatched.Handle.Node.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if node.State != domain.NodeReady || node.LeaseOwner != "" || node.LeaseExpiresAt != nil {
+	if node.State != NodeReady || node.LeaseOwner != "" || node.LeaseExpiresAt != nil {
 		t.Fatalf("retryable node was not returned to ready: %#v", node)
 	}
 }
@@ -126,7 +129,7 @@ func TestDispatchStreamCloseWithoutTerminalIsRetryable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatched.Handle.Attempt.State != domain.RuntimeAttemptRetryableFailed || dispatched.Handle.Attempt.ErrorCode != "HARNESS_STREAM_CLOSED" {
+	if dispatched.Handle.Attempt.State != RuntimeAttemptRetryableFailed || dispatched.Handle.Attempt.ErrorCode != "HARNESS_STREAM_CLOSED" {
 		t.Fatalf("closed stream did not become retryable failure: %#v", dispatched.Handle.Attempt)
 	}
 }
@@ -140,14 +143,14 @@ func TestDispatchMissingEventStreamIsRetryable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatched.Handle.Attempt.State != domain.RuntimeAttemptRetryableFailed || dispatched.Handle.Attempt.ErrorCode != "HARNESS_STREAM_MISSING" {
+	if dispatched.Handle.Attempt.State != RuntimeAttemptRetryableFailed || dispatched.Handle.Attempt.ErrorCode != "HARNESS_STREAM_MISSING" {
 		t.Fatalf("missing stream did not become retryable failure: %#v", dispatched.Handle.Attempt)
 	}
 	node, err := repo.NodeRun(t.Context(), "tenant-1", dispatched.Handle.Node.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if node.State != domain.NodeReady || dispatched.Handle.Agent.State != domain.AgentRunnable {
+	if node.State != NodeReady || dispatched.Handle.Agent.State != AgentRunnable {
 		t.Fatalf("missing stream did not release dispatch ownership: node=%#v agent=%#v", node, dispatched.Handle.Agent)
 	}
 }
@@ -164,7 +167,7 @@ func TestDispatchHeartbeatKeepsShortLeaseAlive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatched.Handle.Attempt.State != domain.RuntimeAttemptSucceeded || dispatched.Handle.Attempt.Version < 4 {
+	if dispatched.Handle.Attempt.State != RuntimeAttemptSucceeded || dispatched.Handle.Attempt.Version < 4 {
 		t.Fatalf("heartbeat did not renew attempt lease: %#v", dispatched.Handle.Attempt)
 	}
 }
@@ -184,7 +187,7 @@ func TestFinalizeDispatchIsIdempotentForSameDigestAndRejectsConflict(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	outcome := DispatchOutcome{State: domain.RuntimeAttemptSucceeded, OutputRefs: []string{"asset:1"}, OutputDigest: "sha256:output", ResultDigest: "sha256:terminal", SafeSummary: map[string]any{}, UsedCostMinor: 0}
+	outcome := DispatchOutcome{State: RuntimeAttemptSucceeded, OutputRefs: []string{"asset:1"}, OutputDigest: "sha256:output", ResultDigest: "sha256:terminal", SafeSummary: map[string]any{}, UsedCostMinor: 0}
 	first, err := service.FinalizeDispatch(t.Context(), handle, outcome)
 	if err != nil {
 		t.Fatal(err)
@@ -232,7 +235,7 @@ func TestExpireDispatchLeaseExpiresAttemptAndReleasesAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if attempt.State != domain.RuntimeAttemptExpired || agent.State != domain.AgentRunnable || node.State != domain.NodeReady {
+	if attempt.State != RuntimeAttemptExpired || agent.State != AgentRunnable || node.State != NodeReady {
 		t.Fatalf("lease expiry did not converge all runtime records: node=%#v attempt=%#v agent=%#v", node, attempt, agent)
 	}
 }
@@ -257,7 +260,7 @@ func TestFinalizeDispatchRejectsExpiredLeaseBeforeReclamation(t *testing.T) {
 	}
 
 	now = now.Add(time.Minute + time.Nanosecond)
-	_, err = service.FinalizeDispatch(t.Context(), handle, DispatchOutcome{State: domain.RuntimeAttemptSucceeded, ResultDigest: "sha256:late-result", SafeSummary: map[string]any{}, UsedCostMinor: 0})
+	_, err = service.FinalizeDispatch(t.Context(), handle, DispatchOutcome{State: RuntimeAttemptSucceeded, ResultDigest: "sha256:late-result", SafeSummary: map[string]any{}, UsedCostMinor: 0})
 	if err == nil || !hasDomainCode(err, "DISPATCH_LEASE_STALE") {
 		t.Fatalf("expired lease accepted terminal result: %v", err)
 	}
@@ -277,7 +280,7 @@ func TestFinalizeDispatchRejectsExpiredLeaseBeforeReclamation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if attempt.State != domain.RuntimeAttemptExpired || agent.State != domain.AgentRunnable || node.State != domain.NodeReady {
+	if attempt.State != RuntimeAttemptExpired || agent.State != AgentRunnable || node.State != NodeReady {
 		t.Fatalf("lease reclamation did not converge after stale terminal rejection: node=%#v attempt=%#v agent=%#v", node, attempt, agent)
 	}
 }
@@ -286,10 +289,10 @@ func TestPrepareDispatchConcurrentWorkersCreateUniqueAttempts(t *testing.T) {
 	const workers = 20
 	sop := testSOP()
 	sop.ID, sop.SOPID, sop.Name = "parallel-v1", "parallel", "并发调度流程"
-	sop.Stages = make([]domain.StageDefinition, 0, workers)
+	sop.Stages = make([]catalogdomain.StageDefinition, 0, workers)
 	sop.Gates = nil
 	for index := 0; index < workers; index++ {
-		sop.Stages = append(sop.Stages, domain.StageDefinition{ID: fmt.Sprintf("node-%02d", index), Name: fmt.Sprintf("并发节点 %02d", index), Order: index + 1, OutputSchema: "contentcloud.test/1.0", ExecutionModes: []string{"agent"}})
+		sop.Stages = append(sop.Stages, catalogdomain.StageDefinition{ID: fmt.Sprintf("node-%02d", index), Name: fmt.Sprintf("并发节点 %02d", index), Order: index + 1, OutputSchema: "contentcloud.test/1.0", ExecutionModes: []string{"agent"}})
 	}
 	repo := memory.New()
 	fake := agentadapter.NewFakeHarness()

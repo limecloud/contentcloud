@@ -9,8 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+
 	"github.com/google/uuid"
-	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/integration/plugin"
 )
 
@@ -22,7 +23,7 @@ type Adapter struct {
 
 func New(host NativeHost, store *Store) (*Adapter, error) {
 	if host == nil || store == nil {
-		return nil, domain.Invalid("PLUGIN_HOST_ADAPTER_INVALID", "插件宿主适配器和存储必须存在")
+		return nil, fault.Invalid("PLUGIN_HOST_ADAPTER_INVALID", "插件宿主适配器和存储必须存在")
 	}
 	return &Adapter{Host: host, Store: store, Now: time.Now}, nil
 }
@@ -39,7 +40,7 @@ func (a *Adapter) Plan(ctx context.Context, pkg plugin.Package, mode string) (Pl
 		return Plan{}, err
 	}
 	if mode != "install" && mode != "remove" {
-		return Plan{}, domain.Invalid("PLUGIN_HOST_PLAN_MODE_INVALID", "插件宿主计划必须是 install 或 remove")
+		return Plan{}, fault.Invalid("PLUGIN_HOST_PLAN_MODE_INVALID", "插件宿主计划必须是 install 或 remove")
 	}
 	capabilities, err := a.Host.Capabilities(ctx)
 	if err != nil {
@@ -117,20 +118,20 @@ func (a *Adapter) Plan(ctx context.Context, pkg plugin.Package, mode string) (Pl
 
 func (a *Adapter) Apply(ctx context.Context, pkg plugin.Package, approved Plan, confirmed bool) (Receipt, error) {
 	if approved.SchemaVersion != SchemaVersion || approved.HostID != a.Host.ID() || approved.Release.Digest != pkg.Digest {
-		return Receipt{}, domain.Invalid("PLUGIN_HOST_PLAN_INVALID", "安装计划与标准包或宿主不一致")
+		return Receipt{}, fault.Invalid("PLUGIN_HOST_PLAN_INVALID", "安装计划与标准包或宿主不一致")
 	}
 	if approved.Mode != "install" {
-		return Receipt{}, domain.Invalid("PLUGIN_HOST_PLAN_INVALID", "Apply 只接受 install 计划")
+		return Receipt{}, fault.Invalid("PLUGIN_HOST_PLAN_INVALID", "Apply 只接受 install 计划")
 	}
 	currentPlan, err := a.Plan(ctx, pkg, "install")
 	if err != nil {
 		return Receipt{}, err
 	}
 	if currentPlan.PlanDigest != approved.PlanDigest {
-		return Receipt{}, domain.Conflict("PLUGIN_HOST_PLAN_STALE", "插件安装状态在确认后发生变化，请重新生成计划")
+		return Receipt{}, fault.Conflict("PLUGIN_HOST_PLAN_STALE", "插件安装状态在确认后发生变化，请重新生成计划")
 	}
 	if currentPlan.State == StatusBlocked {
-		return Receipt{}, domain.Conflict("PLUGIN_HOST_INSTALL_BLOCKED", strings.Join(currentPlan.BlockingReasons, "; "))
+		return Receipt{}, fault.Conflict("PLUGIN_HOST_INSTALL_BLOCKED", strings.Join(currentPlan.BlockingReasons, "; "))
 	}
 	if currentPlan.State == StatusReady {
 		receipt, err := a.Store.LoadReceipt(a.Host.ID(), pkg.Manifest.Name)
@@ -138,12 +139,12 @@ func (a *Adapter) Apply(ctx context.Context, pkg plugin.Package, approved Plan, 
 			return Receipt{}, err
 		}
 		if receipt == nil {
-			return Receipt{}, domain.Conflict("PLUGIN_HOST_RECEIPT_MISSING", "宿主报告已就绪但本地安装回执缺失")
+			return Receipt{}, fault.Conflict("PLUGIN_HOST_RECEIPT_MISSING", "宿主报告已就绪但本地安装回执缺失")
 		}
 		return *receipt, nil
 	}
 	if !confirmed {
-		return Receipt{}, domain.Policy("PLUGIN_HOST_CONFIRMATION_REQUIRED", "安装计划需要明确确认后才能修改宿主配置", "确认同一 plan_digest 后重试")
+		return Receipt{}, fault.Policy("PLUGIN_HOST_CONFIRMATION_REQUIRED", "安装计划需要明确确认后才能修改宿主配置", "确认同一 plan_digest 后重试")
 	}
 	unlock, err := a.Store.Lock(a.Host.ID())
 	if err != nil {
@@ -157,7 +158,7 @@ func (a *Adapter) Apply(ctx context.Context, pkg plugin.Package, approved Plan, 
 		return Receipt{}, err
 	}
 	if latest.PlanDigest != approved.PlanDigest {
-		return Receipt{}, domain.Conflict("PLUGIN_HOST_PLAN_STALE", "插件安装计划在 CAS 锁后已过期")
+		return Receipt{}, fault.Conflict("PLUGIN_HOST_PLAN_STALE", "插件安装计划在 CAS 锁后已过期")
 	}
 	installationID := uuid.NewString()
 	stage, err := a.Store.Stage(pkg, installationID)
@@ -199,10 +200,10 @@ func (a *Adapter) Inspect(ctx context.Context, pkg plugin.Package) (State, error
 
 func (a *Adapter) Remove(ctx context.Context, pkg plugin.Package, approved Plan, confirmed bool) (Receipt, error) {
 	if approved.SchemaVersion != SchemaVersion || approved.Mode != "remove" || approved.HostID != a.Host.ID() || approved.Release.PluginID != pkg.Manifest.Name || approved.Release.Digest != pkg.Digest {
-		return Receipt{}, domain.Invalid("PLUGIN_HOST_REMOVE_PLAN_INVALID", "删除计划与宿主或插件不一致")
+		return Receipt{}, fault.Invalid("PLUGIN_HOST_REMOVE_PLAN_INVALID", "删除计划与宿主或插件不一致")
 	}
 	if !confirmed {
-		return Receipt{}, domain.Policy("PLUGIN_HOST_REMOVE_CONFIRMATION_REQUIRED", "删除会修改宿主 Skill 和 MCP 配置，需要明确确认", "确认同一插件 Release 后重试")
+		return Receipt{}, fault.Policy("PLUGIN_HOST_REMOVE_CONFIRMATION_REQUIRED", "删除会修改宿主 Skill 和 MCP 配置，需要明确确认", "确认同一插件 Release 后重试")
 	}
 	unlock, err := a.Store.Lock(a.Host.ID())
 	if err != nil {
@@ -214,14 +215,14 @@ func (a *Adapter) Remove(ctx context.Context, pkg plugin.Package, approved Plan,
 		return Receipt{}, err
 	}
 	if latest.PlanDigest != approved.PlanDigest {
-		return Receipt{}, domain.Conflict("PLUGIN_HOST_PLAN_STALE", "插件删除计划在 CAS 锁后已过期")
+		return Receipt{}, fault.Conflict("PLUGIN_HOST_PLAN_STALE", "插件删除计划在 CAS 锁后已过期")
 	}
 	receipt, err := a.Store.LoadReceipt(a.Host.ID(), pkg.Manifest.Name)
 	if err != nil {
 		return Receipt{}, err
 	}
 	if receipt == nil {
-		return Receipt{}, domain.NotFound("插件宿主安装回执")
+		return Receipt{}, fault.NotFound("插件宿主安装回执")
 	}
 	change, err := a.Host.Remove(ctx, NativeRemove{Target: TargetFromPackage(pkg), Receipt: *receipt, PluginDataRoot: a.Store.DataPath(a.Host.ID(), receipt.Release)})
 	if err != nil {
@@ -248,7 +249,7 @@ func (a *Adapter) Remove(ctx context.Context, pkg plugin.Package, approved Plan,
 
 func (a *Adapter) Rollback(ctx context.Context, receipt Receipt) error {
 	if receipt.HostID != a.Host.ID() || receipt.NativeData == nil {
-		return domain.Invalid("PLUGIN_HOST_ROLLBACK_INVALID", "回滚回执不属于当前宿主或缺少原生状态")
+		return fault.Invalid("PLUGIN_HOST_ROLLBACK_INVALID", "回滚回执不属于当前宿主或缺少原生状态")
 	}
 	var change NativeChange
 	change.Data = receipt.NativeData
@@ -270,7 +271,7 @@ func (a *Adapter) clock() time.Time {
 
 func validatePackage(pkg plugin.Package) error {
 	if pkg.Manifest.Name == "" || pkg.Manifest.Version == "" || pkg.Digest == "" {
-		return domain.Invalid("PLUGIN_HOST_PACKAGE_INVALID", "标准包缺少可安装的身份和摘要")
+		return fault.Invalid("PLUGIN_HOST_PACKAGE_INVALID", "标准包缺少可安装的身份和摘要")
 	}
 	return nil
 }
@@ -312,7 +313,7 @@ func mutationError(code, message string, cause, rollback error) error {
 	if rollback == nil {
 		return cause
 	}
-	err := domain.Invalid(code, message)
+	err := fault.Invalid(code, message)
 	err.Details = map[string]any{"cause": cause.Error(), "rollback": rollback.Error()}
 	return err
 }

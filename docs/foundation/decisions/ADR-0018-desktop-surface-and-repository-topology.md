@@ -17,7 +17,7 @@
 
 ContentCloud 已经生成包含上下文、来源、知识、生产、结果和交付的本地项目目录，但现有主要呈现通道仍围绕 Web、CLI、MCP Apps 和短期 Browser Workbench。Codex 只会在用户与 AI 交互时渲染当前任务，不能持续承担项目目录、同步队列、上传进度、审批收件箱、大媒体预览和系统通知。
 
-同时，当前仓库把 Web 放在根 `web/`，Go 代码仍分散在宽泛的 `internal/app`、`internal/domain`、`internal/store` 和 `internal/httpapi`。新增 Desktop 时继续沿用这些路径会扩大含混边界，并形成 Electron Node 后端、Go CLI 和服务端三套应用层。
+同时，决策制定时仓库把 Web 放在根 `web/`，Go 代码分散在宽泛的 `internal/app`、`internal/domain`、`internal/store` 和 `internal/httpapi`。新增 Desktop 时继续沿用这些路径会扩大含混边界，并形成 Electron Node 后端、Go CLI 和服务端三套应用层。
 
 项目仍处于早期研发期，没有生产兼容负担。本决策采用一次性目标结构，不保留旧 import、类型别名、兼容 Facade、双写或旧目录转发。
 

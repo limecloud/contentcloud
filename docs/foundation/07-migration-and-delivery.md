@@ -1,8 +1,8 @@
 # 一次性架构整改与交付计划
 
-状态：`目标目录与 Desktop 纵向闭环已冻结；代码切换尚未完成`。
+状态：`执行中；旧顶层包与 import 已清零，Desktop D3-D7 核心链路已完成，正式分发门禁仍未完成`。
 
-更新时间：2026-08-17。
+更新时间：2026-08-18。
 
 关联：[ADR-0018](./decisions/ADR-0018-desktop-surface-and-repository-topology.md)、[ADR-0019](./decisions/ADR-0019-local-cloud-sync-authority.md)、[Content Work OS Desktop](../product/content-work-os-desktop/04-delivery-plan.md)。
 
@@ -80,7 +80,7 @@ flowchart LR
 | 事实 | 新所有者 | 其他 Surface |
 | --- | --- | --- |
 | 本地文件、草稿和目录 | `internal/local/workspace` | Codex 经 Kernel 修改，Desktop 持续展示 |
-| 同步 outbox、上传会话和事件游标 | `internal/local/sync` | Desktop 只读进度和发起命令 |
+| 同步 outbox、上传会话和事件游标 | `internal/local/sync` | Desktop 读取投影并发起版本化命令 |
 | Cloud Revision、Review、Gate、Approval | `internal/review` + Server | Desktop/Web/Codex 使用版本化命令 |
 | Artifact、DeliveryPackage、渠道回执 | `internal/delivery` + Server | Desktop/Web 展示，Runtime 引用 |
 | RuntimeAttempt、Lease、Effect | `internal/runtime` | Desktop/Web 读取投影，Codex 使用受限工具 |
@@ -89,7 +89,7 @@ flowchart LR
 
 ## 6. 删除清单
 
-最终代码中不得出现：
+以下旧路径已经删除，架构门禁禁止其回流：
 
 ```text
 internal/app
@@ -107,7 +107,7 @@ web/
 Go 类型别名、旧路径转发、双写 Adapter、deprecated Facade
 ```
 
-删除前必须把行为迁入目标模块并更新所有测试；删除后由 `rg`、Go import 检查、TypeScript import 检查和脚本治理门禁确认无引用。
+旧路径已经通过 `rg`、Go import 检查和架构脚本确认无生产引用。剩余整改不能把聚合 `application.Application`、兼容别名或新的全局 Repository 当成长期落点；新增能力必须落到命名应用服务和显式 `application.Dependencies`。
 
 ## 7. Desktop 纵向闭环
 

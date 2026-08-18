@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/platform/fault"
 )
 
 var (
@@ -246,5 +246,5 @@ func invalidClaims(message string, cause error) error {
 	if cause != nil {
 		message += ": " + cause.Error()
 	}
-	return domain.Invalid("CONTENTCLOUD_PLUGIN_CLAIMS_INVALID", message)
+	return fault.Invalid("CONTENTCLOUD_PLUGIN_CLAIMS_INVALID", message)
 }

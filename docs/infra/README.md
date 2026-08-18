@@ -108,7 +108,7 @@ Capability + ExecutionProfile + fixed input refs/digests
   -> ApprovedSnapshot pull
 ```
 
-本地 V3 不是“未来 Evidence Intake”，而是当前可运行的 governed workspace 主链。其稳定对象和版本来自 `contracts/` 以及 `internal/localworkspace`，例如：
+本地 V3 不是“未来 Evidence Intake”，而是当前可运行的 governed workspace 主链。其稳定对象和版本来自 `contracts/` 以及 `internal/local/workspace`，例如：
 
 - `contentcloud.local-run/3.0`
 - `contentcloud.evidence-bundle/3.0`
@@ -166,17 +166,17 @@ Infra 文档使用两个维度标记能力：
 
 | 能力 | 当前状态 | 事实入口 |
 | --- | --- | --- |
-| LocalRun、Claim、Handoff、跨对话恢复 | `current-local` | `internal/localworkspace`、Workspace Skill |
-| 本地来源登记、摘要校验、解析、EvidenceBundle | `current-local` | `internal/localworkspace/source.go` |
+| LocalRun、Claim、Handoff、跨对话恢复 | `current-local` | `internal/local/workspace`、Workspace Skill |
+| 本地来源登记、摘要校验、解析、EvidenceBundle | `current-local` | `internal/local/workspace/source.go` |
 | Web 搜索、平台趋势、受控网页采集 | `current-server` / `external-dependency` | `source.search/fetch` Provider、Fetcher、白名单、SSRF/大小限制与 Evidence 物化已实现；搜索源和平台账号仍是外部依赖 |
 | Knowledge、Brief、视频脚本、公众号文章 | `current-local` | V3 本地 Schema、Skills 和 CLI |
-| Submission、内部/客户审核、ApprovedSnapshot | `current-server` | `internal/app`、`internal/httpapi`、Submission contracts |
+| Submission、内部/客户审核、ApprovedSnapshot | `current-server` | `internal/review`、`internal/application` 命名审核服务、`internal/transport/http`、Submission contracts |
 | 资产资料与创作结果投影 | `current-server` / `partial` | WorkspaceMaterialProjection、CreativeResultAssetProjection |
 | Storyboard、媒体登记、Seedance 导出 | `current-local` / `current-server` | `storyboard-package`、`seedance-prompt-package` |
 | 微信交付包和人工操作说明 | `current-local` | `wechat-delivery` contract 和 Skill |
-| Agent Plugin 签名、Registry、宿主安装 | `current` / `partial` | `internal/environment`、`internal/integration/plugin*`，宿主通过 Adapter 选择，不绑定品牌 |
+| Agent Plugin 签名、Registry、宿主安装 | `current` / `partial` | `internal/catalog/environment`、`internal/integration/plugin*`，宿主通过 Adapter 选择，不绑定品牌 |
 | 开放 Agent Harness 与 SaaS 执行适配 | `current-server` | Pi、remote-http、agent-saas Harness、durable callback ingress、事件/结果幂等已实现 |
-| V8 Durable Runtime | `current` | `internal/runtime`、`internal/store/postgres`，租约、Attempt、SessionRef、Outbox/回放已覆盖 |
+| V8 Durable Runtime | `current` | `internal/runtime`、`internal/persistence/postgres`，租约、Attempt、SessionRef、Outbox/回放已覆盖 |
 | 渠道发布、回执、撤回和效果同步 | `current-server` / `partial` | Channel Binding/Publication/Callback/Reconcile/Performance 已实现；真实平台 Adapter 和账号属于 `external-dependency` |
 
 ## 5. 最窄产品闭环
@@ -266,15 +266,15 @@ Camunda 可借鉴设计、连接、人工任务、运营和优化的产品分层
 
 | 需求 | 代码事实 | Contract | API/CLI | Test | 状态 | 外部依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 搜索/趋势/受控采集 | `internal/sourceinfra`、`internal/app/source_infra.go` | `source-intake-1.0` | `source.search/fetch`、`local.source.*` | `internal/app/source_infra_test.go` | `current-server` | 搜索 Provider、目标站点授权 |
-| 数据互通/增量/删除 | `internal/connector`、cursor lease、tombstone、replay | `connector-sync-1.0` | `connector.sync` | `connector_infra_test.go` | `current-server` | OAuth/远端数据源 |
-| 多 Agent/Harness | `internal/agentadapter`、`internal/runtime` | `agent-execution-1.0` | `runtime.worker.*` | Harness/Pi/remote tests | `current` | 具体 Agent 安装和进程 |
-| Agent SaaS durable callback | `internal/httpapi/agent_ingress.go`、`runtime_provider_inbox` | `agent-execution-1.0` | `POST /api/v1/agent-harnesses/{kind}/tenants/{tenant}/callbacks` | `agent_ingress_test.go`、`agent_callback_test.go` | `current-server` | SaaS Webhook、签名 Secret |
-| vLLM/SGLang | `internal/modelprovider` OpenAI-compatible Provider | `model-generation-1.0` | `model.generate` | `model_infra_test.go` | `current-server` / `external-dependency` | 推理端点、模型、GPU 配额 |
-| 微信排版 | `internal/localworkspace/article.go` | `wechat-delivery-1.0` | `local.wechat.package.*` | article/layout tests | `current-local` | 公众号后台账号；人工发布 |
-| 小说 Canon/连续性 | `internal/localworkspace/novel.go` | `novel-*-1.0` | `local.novel.*` | `novel_test.go` | `current-local` | 发布平台账号 |
-| 渠道发布/回执/指标 | `internal/channeladapter`、`internal/app/channel_infra.go` | `channel-publication-1.0`、`channel-callback-1.0` | `channel.publication.*`、HTTP callbacks | `channel_infra_test.go` | `current-server` | 真实渠道 Adapter/账号 |
-| 抖音电商事实校验 | `internal/localworkspace/douyin_commerce.go`、`internal/app/douyin_commerce.go` | `douyin-commerce-validation-1.0` | `local.douyin-commerce.validate/lint`、typed prepare input | `douyin_commerce_test.go`、publication lineage test | `current-local` / `current-server` | 商品锚点、账号、平台发布 |
+| 搜索/趋势/受控采集 | `internal/integration/provider/source`、`internal/application` 命名来源服务 | `source-intake-1.0` | `source.search/fetch`、`local.source.*` | `internal/application/source_infra_test.go` | `current-server` | 搜索 Provider、目标站点授权 |
+| 数据互通/增量/删除 | `internal/integration/connector`、cursor lease、tombstone、replay | `connector-sync-1.0` | `connector.sync` | `connector_infra_test.go` | `current-server` | OAuth/远端数据源 |
+| 多 Agent/Harness | `internal/integration/agent`、`internal/runtime` | `agent-execution-1.0` | `runtime.worker.*` | Harness/Pi/remote tests | `current` | 具体 Agent 安装和进程 |
+| Agent SaaS durable callback | `internal/transport/http/agent_ingress.go`、`runtime_provider_inbox` | `agent-execution-1.0` | `POST /api/v1/agent-harnesses/{kind}/tenants/{tenant}/callbacks` | `agent_ingress_test.go`、`agent_callback_test.go` | `current-server` | SaaS Webhook、签名 Secret |
+| vLLM/SGLang | `internal/integration/provider/model` OpenAI-compatible Provider | `model-generation-1.0` | `model.generate` | `model_infra_test.go` | `current-server` / `external-dependency` | 推理端点、模型、GPU 配额 |
+| 微信排版 | `internal/local/workspace/article.go` | `wechat-delivery-1.0` | `local.wechat.package.*` | article/layout tests | `current-local` | 公众号后台账号；人工发布 |
+| 小说 Canon/连续性 | `internal/local/workspace/novel.go` | `novel-*-1.0` | `local.novel.*` | `novel_test.go` | `current-local` | 发布平台账号 |
+| 渠道发布/回执/指标 | `internal/delivery`、`internal/integration/provider/channel`、`internal/application` 命名交付服务 | `channel-publication-1.0`、`channel-callback-1.0` | `channel.publication.*`、HTTP callbacks | `channel_infra_test.go` | `current-server` | 真实渠道 Adapter/账号 |
+| 抖音电商事实校验 | `internal/local/workspace/douyin_commerce.go`、`internal/application` 命名工作服务 | `douyin-commerce-validation-1.0` | `local.douyin-commerce.validate/lint`、typed prepare input | `douyin_commerce_test.go`、publication lineage test | `current-local` / `current-server` | 商品锚点、账号、平台发布 |
 
 ## 11. 当前系统总图
 

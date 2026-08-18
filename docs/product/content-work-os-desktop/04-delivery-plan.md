@@ -1,8 +1,8 @@
 # Desktop 一次性交付计划
 
-状态：`执行计划`。
+状态：`执行中；D1-D7 核心实现已落地，D8 正式分发门禁未完成`。
 
-更新时间：2026-08-17。
+更新时间：2026-08-18。
 
 ## 1. 交付策略
 
@@ -32,34 +32,24 @@
 
 ## 3. Desktop 首个完整闭环
 
-```mermaid
-flowchart LR
-    A[Desktop 打开 Workspace] --> B[显示项目内容目录]
-    B --> C[Codex 通过 MCP 生成并 Apply]
-    C --> D[Daemon 监听、hash、写 outbox]
-    D --> E[分片上传并创建 Cloud Revision]
-    E --> F[服务端产生 Gate]
-    F --> G[Desktop 收件箱审批]
-    G --> H{决定}
-    H -->|批准| I[Runtime 继续和交付]
-    H -->|修改| J[Handoff 给 Codex 修订]
-    J --> C
-```
+![Desktop、Codex、Daemon 与 ContentCloud 的首个完整交付闭环](../../tech/contentcloud-desktop-delivery-loop.svg)
+
+图源：[Mermaid](../../tech/contentcloud-desktop-delivery-loop.mmd) · [PNG](../../tech/contentcloud-desktop-delivery-loop.png) · [Excalidraw](../../tech/contentcloud-desktop-delivery-loop.excalidraw)
 
 只有该闭环通过真实进程 E2E，Desktop 才能从目标状态进入 Preview。
 
 ## 4. 工作包
 
-| 工作包 | 内容 | 完成门槛 |
-| --- | --- | --- |
-| D1 Repository | `apps/`、业务模块、local、integration、transport、persistence | 旧目录/import 为零 |
-| D2 Electron Shell | Main、Preload、Renderer、Forge、CSP、安全窗口 | 安全 E2E 通过 |
-| D3 Desktop API | bootstrap、project view、commands、events、version negotiation | Renderer 无通用 IPC |
-| D4 Local Sync | watcher、digest、SQLite outbox、cursor、resync、conflict | 离线/重启/多设备测试通过 |
-| D5 Upload | hash、dedupe、multipart、resume、finalize、processing events | 大文件中断恢复通过 |
-| D6 Review Inbox | Gate、diff、comment、approve/reject/change request | stale approval 阻断通过 |
-| D7 Runtime/Delivery | 任务状态、等待条件、交付、发布 preflight 和 receipt | 纵向业务闭环通过 |
-| D8 Distribution | macOS/Windows 构建、签名、更新、卸载、诊断 | 安装与升级矩阵通过 |
+| 工作包 | 内容 | 当前状态 | 完成门槛 |
+| --- | --- | --- | --- |
+| D1 Repository | `apps/`、业务模块、local、integration、transport、persistence | 进行中 | 旧目录/import 为零 |
+| D2 Electron Shell | Main、Preload、Renderer、Forge、CSP、安全窗口 | 基线完成 | 安全 E2E 通过 |
+| D3 Desktop API | snapshot、project projection、commands、events、version negotiation | 已完成 | typed Local API 和 capability 鉴权通过 |
+| D4 Local Sync | digest、SQLite outbox、cursor、resync、conflict | 已完成 | 离线/重启/幂等命令测试通过 |
+| D5 Upload | 4 MiB、512 MiB、hash、dedupe、multipart、resume、finalize | 已完成 | 分片中断恢复和完整摘要校验通过 |
+| D6 Review Inbox | inbox、Revision diff、comment、approve/reject/request changes | 已完成 | 设备项目范围和角色复核通过 |
+| D7 Runtime/Delivery | 项目投影、Runtime 状态、Delivery readiness | 已完成（投影） | Daemon 快照与 Cloud Runtime/Delivery 查询连通 |
+| D8 Distribution | macOS/Windows/Linux 构建、签名、更新、卸载、诊断 | Forge makers、更新通道契约、本地 package 与 CI 矩阵已建立；签名和真实升级仍待外部门禁 | 安装与升级矩阵通过 |
 
 ## 5. 测试分层
 
@@ -98,7 +88,7 @@ Desktop Preview 必须同时满足：
 4. Codex Apply、外部编辑和 Desktop 操作进入同一 Workspace revision。
 5. 多设备冲突不静默覆盖。
 6. 审批绑定精确 revision/digest，stale approval 不能交付。
-7. 512 MiB 级媒体上传、暂停、恢复、预览和失败清理有验收记录。
+7. 512 MiB 级媒体上传、暂停、恢复和失败清理有验收记录；本地预览仍按媒体类型补齐。
 8. macOS 和 Windows 包经过签名、安装、升级和卸载冒烟。
 9. 诊断包默认本地生成、脱敏且不自动上传。
 10. `docs/content` 只描述已经通过上述门禁的能力。
@@ -119,3 +109,9 @@ Desktop Preview 必须同时满足：
 - Desktop、Codex、Web 对同一对象使用一致 revision/digest 和 allowed actions。
 - 同步、上传、审批、Runtime、交付、离线和恢复图中的每条分支均有自动测试或明确真实环境门禁。
 - 所有相关 foundation、product、infra、roadmap、运行手册和用户文档状态口径一致。
+
+当前未关闭事项：
+
+- Daemon 在 Electron 关闭后继续同步的真实进程 E2E。
+- cursor gap、stale Revision、断网重启和多设备冲突的完整 Playwright/fixture Cloud 矩阵。
+- macOS arm64/x64、Windows x64、Linux x64 的签名、安装、升级、卸载和自动更新验证。

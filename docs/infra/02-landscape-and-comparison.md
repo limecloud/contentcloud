@@ -144,14 +144,14 @@ Agent 会话可以帮助完成推理，但以下对象必须脱离会话独立�
 
 | 外部能力类别 | ContentCloud 当前落点 | 当前状态 | 复用/建设决策 |
 | --- | --- | --- | --- |
-| vLLM/SGLang 推理服务 | `internal/modelprovider`、Provider/Capability Binding、`model-generation` receipt | `current-server` / `external-dependency` | Adapter、OpenAI-compatible 请求和回执已实现；真实集群、模型和基准仍需外部接通 |
-| LiteLLM 类模型 Gateway | `internal/modelprovider` 的 Provider-neutral 接口 | `partial` / `external-dependency` | 可作为上游路由，不新增 Gateway 事实模型；账单和路由由现有 ModelGeneration receipt 记录 |
-| LangGraph 类 Agent 编排 | `internal/agentadapter`、Plugin Skill、MCP Gateway、V8 Runtime | `current-local` / `current-server` | 复用 Agent Harness 和 Runtime；编排 SaaS 只提供可替换执行能力 |
-| Temporal 类 durable execution | `internal/runtime`、`internal/store/postgres`、outbox/effect | `current-server` | 现有 JobRun/NodeRun/Attempt/Effect 是唯一执行事实，不引入第二套 Workflow 状态 |
+| vLLM/SGLang 推理服务 | `internal/integration/provider/model`、Provider/Capability Binding、`model-generation` receipt | `current-server` / `external-dependency` | Adapter、OpenAI-compatible 请求和回执已实现；真实集群、模型和基准仍需外部接通 |
+| LiteLLM 类模型 Gateway | `internal/integration/provider/model` 的 Provider-neutral 接口 | `partial` / `external-dependency` | 可作为上游路由，不新增 Gateway 事实模型；账单和路由由现有 ModelGeneration receipt 记录 |
+| LangGraph 类 Agent 编排 | `internal/integration/agent`、Plugin Skill、MCP Gateway、V8 Runtime | `current-local` / `current-server` | 复用 Agent Harness 和 Runtime；编排 SaaS 只提供可替换执行能力 |
+| Temporal 类 durable execution | `internal/runtime`、`internal/persistence/postgres`、outbox/effect | `current-server` | 现有 JobRun/NodeRun/Attempt/Effect 是唯一执行事实，不引入第二套 Workflow 状态 |
 | Camunda Tasklist/Operate | Studio 审核、运营控制台、Runtime Explorer、ReviewGrant | `current-server` / `partial` | 借鉴人工任务和运营诊断面；不用 BPMN 替代 Experience/SOP/V3 Schema |
-| LlamaIndex 类数据接入 | `internal/sourceinfra`、`internal/connector`、`internal/localworkspace/source.go` | `current-server` / `external-dependency` | Search/Fetch/Connector 已落到 SourceRevision/Evidence；企业数据授权和字段映射仍由外部系统提供 |
+| LlamaIndex 类数据接入 | `internal/integration/provider/source`、`internal/integration/connector`、`internal/local/workspace/source.go` | `current-server` / `external-dependency` | Search/Fetch/Connector 已落到 SourceRevision/Evidence；企业数据授权和字段映射仍由外部系统提供 |
 | Langfuse 类观测评测 | Runtime events、usage、PerformanceObservation、RatingDecision | `partial` | 可接 trace/eval；任务、Artifact、发布 Effect 仍由 ContentCloud 拥有 |
-| Agent Plugin 市场/包管理 | `internal/environment`、`internal/integration/plugin*`、`contracts/marketplace-registry-1.0.schema.json` | `current` / `partial` | 复用签名 Registry 和 Environment lock，不重新设计 Capability SDK |
+| Agent Plugin 市场/包管理 | `internal/catalog/environment`、`internal/integration/plugin*`、`contracts/marketplace-registry-1.0.schema.json` | `current` / `partial` | 复用签名 Registry 和 Environment lock，不重新设计 Capability SDK |
 
 ## 7. ContentCloud 当前能力的选择原则
 

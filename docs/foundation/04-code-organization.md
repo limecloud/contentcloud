@@ -1,12 +1,12 @@
 # 代码组织、模块边界与依赖规范
 
-状态：`Accepted 目标规范；本轮一次性物理切换`。
+状态：`Accepted 目标规范；顶层命名空间、业务事实模块、命名应用服务和显式依赖装配已完成`。
 
-更新时间：2026-08-05。
+更新时间：2026-08-18。
 
-## 1. 当前结构诊断
+## 1. 重构前结构诊断
 
-当前 Go 代码按技术层横向组织：
+本次整改开始前，Go 代码按技术层横向组织：
 
 ```text
 internal/domain/      多个业务域的模型和状态
@@ -23,7 +23,7 @@ internal/httpapi/     客户、管理员、CLI 和公开接口处理
 - HTTP DTO、领域对象和投影容易共用同一结构，兼容变更影响扩大。
 - 新功能自然继续加入旧宽包，目录搬迁后仍会复制相同问题。
 
-本轮不保留“先建立逻辑模块、以后再迁移”的中间结构。文档、目标目录和代码在同一次整改中完成切换；验证可以按依赖顺序进行，但最终提交不得包含旧包、旧路径或兼容别名。
+旧顶层包和旧 import 已删除。业务事实已落到命名模块，跨域用例由 `internal/application` 中的命名应用服务协调，启动边界通过 `application.Dependencies` 显式装配；后续新增能力必须直接更新调用方，不得重新建立别名、Facade 或转发包。
 
 ## 2. 目标架构层次
 
@@ -65,6 +65,7 @@ internal/
 ├── source/                   来源、证据、知识和权利
 ├── catalog/                  Experience、SOP、Gate、Capability、发布
 ├── work/                     WorkTask 和客户业务生命周期
+├── application/              命名应用服务、跨域协调器和显式 Dependencies
 ├── runtime/                  Job、Plan、Node、Attempt、Lease、State、Effect
 ├── review/                   Submission、Revision、GateEvaluation、Approval
 ├── delivery/                 Artifact、Media、DeliveryPackage、外部发布回执
@@ -124,17 +125,16 @@ internal/local/
 首阶段避免为每个模块复制复杂分层目录。一个模块默认使用简单 Go 文件：
 
 ```text
-internal/work/
+internal/<module>/
 ├── model.go          聚合和值对象
 ├── command.go        写用例
 ├── query.go          读用例
 ├── repository.go     该模块需要的窄端口
-├── errors.go         稳定领域错误
 ├── projection.go     由本模块拥有的读模型
 └── *_test.go
 ```
 
-只有模块体量和团队所有权证明需要时，才在模块内部增加子包。禁止预先建立空的 `domain/application/infrastructure` 三层模板。
+稳定错误 envelope 位于 `internal/platform/fault`，业务模块只声明自己的错误码和触发条件。只有模块体量和团队所有权证明需要时，才在模块内部增加子包；禁止预先建立空的 `domain/application/infrastructure` 三层模板。
 
 ## 5. 依赖规则
 
@@ -184,7 +184,7 @@ internal/work/
 - 服务商 SDK 类型。
 - 任意 `map[string]any` 作为长期跨模块协议。
 
-## 7. 当前目录迁移映射
+## 7. 已退役路径迁移映射
 
 | 当前路径 | 目标 | 策略 |
 | --- | --- | --- |
@@ -220,7 +220,7 @@ CI 最终必须加入不依赖新大型框架的架构检查：
 - 使用 `go list` 或小型仓库脚本验证禁止的 import 边。
 - 检查 Runtime 不导入内容类型业务包。
 - 检查 `studio` 和 `admin` 前端互相导入。
-- 检查新 Repository 是否继续扩大全局 `store.Store`。
+- 检查 `persistence` 是否只暴露 12 个窄 Repository，禁止恢复聚合 `persistence.Repository` 或全局 `Store`；应用启动通过 `application.Dependencies` 显式装配。
 - 检查跨模块 DTO 是否使用版本化引用而非数据库结构。
 - 检查 `CreativeAssetCatalogItem` 只位于读路径，目录更新不能直接修改 Source、Rights、Approval、Artifact 或 Delivery 状态。
 - 检查旧包、旧 import、兼容别名、双写和通用 IPC 是否为零。

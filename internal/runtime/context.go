@@ -5,7 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+	"github.com/limecloud/contentcloud/internal/platform/idgen"
+	"github.com/limecloud/contentcloud/internal/platform/stablehash"
 )
 
 // ContextViewInput accepts only immutable references and execution policy. A
@@ -25,15 +27,15 @@ type ContextViewInput struct {
 	ExpiresAt    time.Time
 }
 
-func BuildContextView(input ContextViewInput) (domain.ContextView, error) {
+func BuildContextView(input ContextViewInput) (ContextView, error) {
 	if strings.TrimSpace(input.TenantID) == "" || strings.TrimSpace(input.JobRunID) == "" || strings.TrimSpace(input.NodeRunID) == "" || strings.TrimSpace(input.AttemptID) == "" {
-		return domain.ContextView{}, domain.Invalid("CONTEXT_VIEW_INPUT_INVALID", "ContextView 缺少执行引用")
+		return ContextView{}, fault.Invalid("CONTEXT_VIEW_INPUT_INVALID", "ContextView 缺少执行引用")
 	}
 	if input.MaxTokens <= 0 || input.BudgetMinor < 0 || input.CreatedAt.IsZero() || !input.ExpiresAt.After(input.CreatedAt) {
-		return domain.ContextView{}, domain.Invalid("CONTEXT_VIEW_POLICY_INVALID", "ContextView 预算或有效期无效")
+		return ContextView{}, fault.Invalid("CONTEXT_VIEW_POLICY_INVALID", "ContextView 预算或有效期无效")
 	}
-	view := domain.ContextView{ID: domain.NewID(), TenantID: strings.TrimSpace(input.TenantID), JobRunID: strings.TrimSpace(input.JobRunID), NodeRunID: strings.TrimSpace(input.NodeRunID), AttemptID: strings.TrimSpace(input.AttemptID), SchemaVersion: domain.ContextViewSchema, InputRefs: sortedRefs(input.InputRefs), StateRefs: sortedRefs(input.StateRefs), EventRefs: sortedRefs(input.EventRefs), AllowedTools: sortedRefs(input.AllowedTools), MaxTokens: input.MaxTokens, BudgetMinor: input.BudgetMinor, CreatedAt: input.CreatedAt.UTC(), ExpiresAt: input.ExpiresAt.UTC()}
-	digest, err := domain.CanonicalHash(struct {
+	view := ContextView{ID: idgen.New(), TenantID: strings.TrimSpace(input.TenantID), JobRunID: strings.TrimSpace(input.JobRunID), NodeRunID: strings.TrimSpace(input.NodeRunID), AttemptID: strings.TrimSpace(input.AttemptID), SchemaVersion: ContextViewSchema, InputRefs: sortedRefs(input.InputRefs), StateRefs: sortedRefs(input.StateRefs), EventRefs: sortedRefs(input.EventRefs), AllowedTools: sortedRefs(input.AllowedTools), MaxTokens: input.MaxTokens, BudgetMinor: input.BudgetMinor, CreatedAt: input.CreatedAt.UTC(), ExpiresAt: input.ExpiresAt.UTC()}
+	digest, err := stablehash.Sum(struct {
 		SchemaVersion string
 		TenantID      string
 		JobRunID      string
@@ -48,11 +50,11 @@ func BuildContextView(input ContextViewInput) (domain.ContextView, error) {
 		ExpiresAt     time.Time
 	}{view.SchemaVersion, view.TenantID, view.JobRunID, view.NodeRunID, view.AttemptID, view.InputRefs, view.StateRefs, view.EventRefs, view.AllowedTools, view.MaxTokens, view.BudgetMinor, view.ExpiresAt})
 	if err != nil {
-		return domain.ContextView{}, err
+		return ContextView{}, err
 	}
 	view.Digest = "sha256:" + digest
 	if err := view.Validate(); err != nil {
-		return domain.ContextView{}, err
+		return ContextView{}, err
 	}
 	return view, nil
 }
