@@ -229,10 +229,32 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          pnpm --dir apps/desktop exec electron-forge make \
+          pnpm --dir apps/desktop exec electron-forge package \
             --platform "${{ matrix.platform }}" \
-            --arch "${{ matrix.arch }}" \
-            --targets "${{ matrix.forge_targets }}"
+            --arch "${{ matrix.arch }}"
+
+          FORGE_MAKE_LOG="$RUNNER_TEMP/electron-forge-make-${{ matrix.target }}.log"
+          run_forge_make() {
+            set +e
+            pnpm --dir apps/desktop exec electron-forge make \
+              --skip-package \
+              --platform "${{ matrix.platform }}" \
+              --arch "${{ matrix.arch }}" \
+              --targets "${{ matrix.forge_targets }}" 2>&1 | tee "$FORGE_MAKE_LOG"
+            forge_status=${PIPESTATUS[0]}
+            set -e
+          }
+
+          run_forge_make
+          if [[ "$forge_status" -ne 0 && "${{ matrix.platform }}" == darwin ]] \
+            && grep -q "hdiutil detach /Volumes/Content Work OS" "$FORGE_MAKE_LOG" \
+            && grep -q "No such file or directory" "$FORGE_MAKE_LOG"; then
+            echo "DMG volume cleanup raced with hdiutil; retrying Forge make once."
+            hdiutil detach "/Volumes/Content Work OS" -force || true
+            sleep 5
+            run_forge_make
+          fi
+          exit "$forge_status"
 
       - name: Verify macOS signatures and notarization
         if: matrix.platform == 'darwin' && needs.resolve.outputs.publish == 'true'

@@ -76,12 +76,14 @@ resolve (tag / version / channel / source ref)
 - 对已经存在的 GitHub Release，workflow 只追加或重建带桌面前缀的资产，不会改写 Release 标题、正文或 CLI 资产。
 - 同一标签的 publish job 使用标签级并发锁串行上传，防止自动触发和手动回填交错覆盖资产。
 
-每个平台 job 都执行 `electron-forge make`，随后由 `scripts/stage-desktop-release.mjs`：
+每个平台 job 先执行 `electron-forge package`，再用 `make --skip-package` 生成安装器，随后由 `scripts/stage-desktop-release.mjs`：
 
 1. 只接收 `update-channels.json` 声明的格式，并强制要求 DMG+ZIP、Squirrel installer+NUPKG+RELEASES、DEB+RPM 各自完整。
 2. 生成带目标前缀的稳定文件名、目标级 `latest.json` 和 `*-checksums.sha256`。
 3. 正式发布在 macOS 上执行 `codesign` 与 Gatekeeper assessment，在 Windows 上验证 Authenticode 状态；`publish=false` 时跳过签名，只生成不得进入更新通道的预览包。
 4. 在 publish job 复验四个目标、版本和每个文件摘要，汇总为 `desktop-<channel>-latest.json` 和 `desktop-checksums.txt`，再上传 GitHub Release。桌面端使用独立校验文件名，避免覆盖 CLI 的 `checksums.txt`。
+
+macOS DMG 如果遇到 runner 上卷已被清理的 `hdiutil detach ... No such file or directory` 竞态，只重试 `make --skip-package` 一次；其他 Forge 错误不会被重试。Windows Squirrel 使用不带 npm scope 的 `content_work_os` NuGet 名称，桌面包清单必须声明 `author`，否则 NuGet 会拒绝生成安装器。
 
 macOS 的 DMG maker 间接依赖 `macos-alias` 和 `fs-xattr` 原生模块。release job 使用 pnpm hoisted 布局，并由 pnpm 的 `onlyBuiltDependencies` 在安装阶段构建这些原生依赖，不读取 `.pnpm` 内部目录。Linux DEB/RPM maker 直接使用 `apps/desktop/package.json` 中的 `description`、`license` 和统一的可执行文件名，不在 workflow 中修补历史标签源码。
 

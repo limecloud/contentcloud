@@ -45,6 +45,12 @@ if (
 ) {
   fail("desktop package description is required by Linux installers");
 }
+if (
+  typeof desktopPackage.author !== "string" ||
+  desktopPackage.author.trim() === ""
+) {
+  fail("desktop package author is required by Windows Squirrel");
+}
 if (desktopPackage.license !== "Apache-2.0")
   fail("desktop package license must match the repository license");
 for (const nativeDependency of ["macos-alias", "fs-xattr"]) {
@@ -105,7 +111,11 @@ for (const marker of [
   "Verify published source matches release tag",
   "desktop-release-publish-${{ needs.resolve.outputs.tag }}",
   "--config.node-linker=hoisted",
+  "electron-forge package",
   "electron-forge make",
+  "--skip-package",
+  "hdiutil detach /Volumes/Content Work OS",
+  "retrying Forge make once",
   "actions/upload-artifact@v4",
   "actions/download-artifact@v4",
   "gh release view",
