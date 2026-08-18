@@ -6,7 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+	"github.com/limecloud/contentcloud/internal/platform/idgen"
+	"github.com/limecloud/contentcloud/internal/platform/stablehash"
 )
 
 type FanoutItemInput struct {
@@ -25,24 +27,24 @@ type CreateFanoutSetInput struct {
 	Generation       int
 	IdempotencyKey   string
 	Reason           string
-	JoinPolicy       domain.JoinPolicy
-	NodeTemplate     domain.JobPlanNode
+	JoinPolicy       JoinPolicy
+	NodeTemplate     JobPlanNode
 	Items            []FanoutItemInput
 }
 
 type FanoutSetResult struct {
-	Plan    domain.JobPlanRevision `json:"plan"`
-	Job     domain.JobRun          `json:"job"`
-	Set     domain.FanoutSet       `json:"set"`
-	Members []domain.FanoutMember  `json:"members"`
-	Nodes   []domain.NodeRun       `json:"nodes"`
+	Plan    JobPlanRevision `json:"plan"`
+	Job     JobRun          `json:"job"`
+	Set     FanoutSet       `json:"set"`
+	Members []FanoutMember  `json:"members"`
+	Nodes   []NodeRun       `json:"nodes"`
 }
 
-func (s *Service) FanoutSet(ctx context.Context, tenantID, id string) (domain.FanoutSet, error) {
+func (s *Service) FanoutSet(ctx context.Context, tenantID, id string) (FanoutSet, error) {
 	return s.repo.FanoutSet(ctx, tenantID, id)
 }
 
-func (s *Service) FanoutMembers(ctx context.Context, tenantID, setID string) ([]domain.FanoutMember, error) {
+func (s *Service) FanoutMembers(ctx context.Context, tenantID, setID string) ([]FanoutMember, error) {
 	return s.repo.FanoutMembers(ctx, tenantID, setID)
 }
 
@@ -50,18 +52,18 @@ func (s *Service) FanoutMembers(ctx context.Context, tenantID, setID string) ([]
 // child nodes in the same command transaction as the plan/job pointer.
 func (s *Service) CreateFanoutSet(ctx context.Context, input CreateFanoutSetInput) (FanoutSetResult, error) {
 	if s == nil || s.repo == nil {
-		return FanoutSetResult{}, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+		return FanoutSetResult{}, fault.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
 	}
 	if strings.TrimSpace(input.TenantID) == "" || strings.TrimSpace(input.JobRunID) == "" || strings.TrimSpace(input.MapNodeKey) == "" || strings.TrimSpace(input.JoinNodeKey) == "" || strings.TrimSpace(input.IdempotencyKey) == "" {
-		return FanoutSetResult{}, domain.Invalid("FANOUT_INPUT_INVALID", "FanoutSet 缺少执行实例、映射节点、汇聚节点或幂等键")
+		return FanoutSetResult{}, fault.Invalid("FANOUT_INPUT_INVALID", "FanoutSet 缺少执行实例、映射节点、汇聚节点或幂等键")
 	}
 	if strings.TrimSpace(input.MapNodeKey) == strings.TrimSpace(input.JoinNodeKey) {
-		return FanoutSetResult{}, domain.Invalid("FANOUT_NODE_INVALID", "映射节点和汇聚节点不能是同一个节点")
+		return FanoutSetResult{}, fault.Invalid("FANOUT_NODE_INVALID", "映射节点和汇聚节点不能是同一个节点")
 	}
 	if input.Generation < 1 {
 		input.Generation = 1
 	}
-	input.JoinPolicy = domain.NormalizeJoinPolicy(input.JoinPolicy)
+	input.JoinPolicy = NormalizeJoinPolicy(input.JoinPolicy)
 	if err := input.JoinPolicy.Validate(); err != nil {
 		return FanoutSetResult{}, err
 	}
@@ -74,30 +76,30 @@ func (s *Service) CreateFanoutSet(ctx context.Context, input CreateFanoutSetInpu
 		template.Kind = "fanout_item"
 	}
 	if template.OutputSchema == "" {
-		return FanoutSetResult{}, domain.Invalid("FANOUT_NODE_TEMPLATE_INVALID", "Fanout 子节点必须声明输出 Schema")
+		return FanoutSetResult{}, fault.Invalid("FANOUT_NODE_TEMPLATE_INVALID", "Fanout 子节点必须声明输出 Schema")
 	}
 	if template.RetryMaxAttempts < 1 {
 		template.RetryMaxAttempts = 1
 	}
-	requestDigest, err := domain.CanonicalHash(struct {
-		TenantID         string             `json:"tenant_id"`
-		JobRunID         string             `json:"job_run_id"`
-		MapNodeKey       string             `json:"map_node_key"`
-		JoinNodeKey      string             `json:"join_node_key"`
-		SourceCollection string             `json:"source_collection"`
-		SourceRevision   int                `json:"source_revision"`
-		SourceWatermark  int64              `json:"source_watermark"`
-		Generation       int                `json:"generation"`
-		JoinPolicy       domain.JoinPolicy  `json:"join_policy"`
-		NodeTemplate     domain.JobPlanNode `json:"node_template"`
-		Items            []FanoutItemInput  `json:"items"`
+	requestDigest, err := stablehash.Sum(struct {
+		TenantID         string            `json:"tenant_id"`
+		JobRunID         string            `json:"job_run_id"`
+		MapNodeKey       string            `json:"map_node_key"`
+		JoinNodeKey      string            `json:"join_node_key"`
+		SourceCollection string            `json:"source_collection"`
+		SourceRevision   int               `json:"source_revision"`
+		SourceWatermark  int64             `json:"source_watermark"`
+		Generation       int               `json:"generation"`
+		JoinPolicy       JoinPolicy        `json:"join_policy"`
+		NodeTemplate     JobPlanNode       `json:"node_template"`
+		Items            []FanoutItemInput `json:"items"`
 	}{input.TenantID, input.JobRunID, input.MapNodeKey, input.JoinNodeKey, input.SourceCollection, input.SourceRevision, input.SourceWatermark, input.Generation, input.JoinPolicy, template, items})
 	if err != nil {
 		return FanoutSetResult{}, err
 	}
 	if existing, err := s.repo.FanoutSetByIdempotencyKey(ctx, input.TenantID, input.JobRunID, input.IdempotencyKey); err == nil {
 		if existing.RequestDigest != "sha256:"+requestDigest {
-			return FanoutSetResult{}, domain.Conflict("FANOUT_IDEMPOTENCY_MISMATCH", "幂等键已用于不同的 Fanout 准入快照")
+			return FanoutSetResult{}, fault.Conflict("FANOUT_IDEMPOTENCY_MISMATCH", "幂等键已用于不同的 Fanout 准入快照")
 		}
 		members, memberErr := s.repo.FanoutMembers(ctx, input.TenantID, existing.ID)
 		if memberErr != nil {
@@ -116,7 +118,7 @@ func (s *Service) CreateFanoutSet(ctx context.Context, input CreateFanoutSetInpu
 			return FanoutSetResult{}, nodeErr
 		}
 		return FanoutSetResult{Plan: plan, Job: job, Set: existing, Members: members, Nodes: nodes}, nil
-	} else if !domain.IsNotFound(err) {
+	} else if !fault.IsNotFound(err) {
 		return FanoutSetResult{}, err
 	}
 	if err := s.requireDynamicGraph(input.TenantID); err != nil {
@@ -131,10 +133,10 @@ func (s *Service) CreateFanoutSet(ctx context.Context, input CreateFanoutSetInpu
 		return FanoutSetResult{}, err
 	}
 	if !planNodeExists(plan, input.MapNodeKey) || !planNodeExists(plan, input.JoinNodeKey) {
-		return FanoutSetResult{}, domain.Invalid("FANOUT_NODE_NOT_FOUND", "FanoutSet 的映射或汇聚节点不在当前执行计划中")
+		return FanoutSetResult{}, fault.Invalid("FANOUT_NODE_NOT_FOUND", "FanoutSet 的映射或汇聚节点不在当前执行计划中")
 	}
 	if !planHasPath(plan, input.MapNodeKey, input.JoinNodeKey) {
-		return FanoutSetResult{}, domain.Invalid("FANOUT_JOIN_NOT_DOWNSTREAM", "汇聚节点必须位于映射节点的下游")
+		return FanoutSetResult{}, fault.Invalid("FANOUT_JOIN_NOT_DOWNSTREAM", "汇聚节点必须位于映射节点的下游")
 	}
 	existingNodes, err := s.repo.NodeRuns(ctx, input.TenantID, input.JobRunID)
 	if err != nil {
@@ -147,21 +149,21 @@ func (s *Service) CreateFanoutSet(ctx context.Context, input CreateFanoutSetInpu
 		}
 		joinNodeFound = true
 		switch node.State {
-		case domain.NodePending, domain.NodeBlocked, domain.NodeSkipped, domain.NodeCancelled:
+		case NodePending, NodeBlocked, NodeSkipped, NodeCancelled:
 		default:
-			return FanoutSetResult{}, domain.Conflict("FANOUT_JOIN_NODE_ACTIVE", "汇聚节点已经领取或执行，不能再绑定新的 FanoutSet")
+			return FanoutSetResult{}, fault.Conflict("FANOUT_JOIN_NODE_ACTIVE", "汇聚节点已经领取或执行，不能再绑定新的 FanoutSet")
 		}
 	}
 	if !joinNodeFound {
-		return FanoutSetResult{}, domain.NotFound("Fanout 汇聚节点")
+		return FanoutSetResult{}, fault.NotFound("Fanout 汇聚节点")
 	}
 	now := s.now().UTC()
-	setID := domain.NewID()
-	patchNodes := make([]domain.JobPlanNode, 0, len(items))
-	members := make([]domain.FanoutMember, 0, len(items))
-	nodes := make([]domain.NodeRun, 0, len(items))
+	setID := idgen.New()
+	patchNodes := make([]JobPlanNode, 0, len(items))
+	members := make([]FanoutMember, 0, len(items))
+	nodes := make([]NodeRun, 0, len(items))
 	for _, item := range items {
-		memberKey, err := domain.DeterministicFanoutMemberKey(input.JobRunID, input.MapNodeKey, setID, item.ItemKey, input.Generation)
+		memberKey, err := DeterministicFanoutMemberKey(input.JobRunID, input.MapNodeKey, setID, item.ItemKey, input.Generation)
 		if err != nil {
 			return FanoutSetResult{}, err
 		}
@@ -174,22 +176,22 @@ func (s *Service) CreateFanoutSet(ctx context.Context, input CreateFanoutSetInpu
 		}
 		node.DependsOn = append(append([]string{}, node.DependsOn...), input.MapNodeKey)
 		patchNodes = append(patchNodes, node)
-		nodeRun := domain.NodeRun{ID: domain.NewID(), TenantID: input.TenantID, JobRunID: input.JobRunID, NodeKey: memberKey, State: domain.NodePending, OutputRefs: []string{}, Version: 1, CreatedAt: now, UpdatedAt: now}
+		nodeRun := NodeRun{ID: idgen.New(), TenantID: input.TenantID, JobRunID: input.JobRunID, NodeKey: memberKey, State: NodePending, OutputRefs: []string{}, Version: 1, CreatedAt: now, UpdatedAt: now}
 		nodes = append(nodes, nodeRun)
-		members = append(members, domain.FanoutMember{ID: domain.NewID(), TenantID: input.TenantID, FanoutSetID: setID, MemberKey: memberKey, ItemKey: item.ItemKey, ItemDigest: item.ItemDigest, Generation: input.Generation, NodeRunID: nodeRun.ID, State: domain.FanoutMemberPending, OutputRefs: []string{}, Version: 1, CreatedAt: now, UpdatedAt: now})
+		members = append(members, FanoutMember{ID: idgen.New(), TenantID: input.TenantID, FanoutSetID: setID, MemberKey: memberKey, ItemKey: item.ItemKey, ItemDigest: item.ItemDigest, Generation: input.Generation, NodeRunID: nodeRun.ID, State: FanoutMemberPending, OutputRefs: []string{}, Version: 1, CreatedAt: now, UpdatedAt: now})
 	}
 	patched, err := ApplyGraphPatch(plan, plan.GraphVersion, GraphPatch{ExpectedGraphVersion: plan.GraphVersion, IdempotencyKey: input.IdempotencyKey, Reason: input.Reason, AddNodes: patchNodes})
 	if err != nil {
 		return FanoutSetResult{}, err
 	}
-	set := domain.FanoutSet{ID: setID, TenantID: input.TenantID, JobRunID: input.JobRunID, MapNodeKey: input.MapNodeKey, JoinNodeKey: input.JoinNodeKey, SourceCollection: input.SourceCollection, SourceRevision: input.SourceRevision, SourceWatermark: input.SourceWatermark, Generation: input.Generation, IdempotencyKey: input.IdempotencyKey, MembershipDigest: "sha256:" + membershipDigest, RequestDigest: "sha256:" + requestDigest, MemberCount: len(members), JoinPolicy: input.JoinPolicy, Status: domain.FanoutClosed, Version: 1, ClosedAt: &now, CreatedAt: now, UpdatedAt: now}
+	set := FanoutSet{ID: setID, TenantID: input.TenantID, JobRunID: input.JobRunID, MapNodeKey: input.MapNodeKey, JoinNodeKey: input.JoinNodeKey, SourceCollection: input.SourceCollection, SourceRevision: input.SourceRevision, SourceWatermark: input.SourceWatermark, Generation: input.Generation, IdempotencyKey: input.IdempotencyKey, MembershipDigest: "sha256:" + membershipDigest, RequestDigest: "sha256:" + requestDigest, MemberCount: len(members), JoinPolicy: input.JoinPolicy, Status: FanoutClosed, Version: 1, ClosedAt: &now, CreatedAt: now, UpdatedAt: now}
 	job.Version++
 	job.PlanRevisionID, job.PlanDigest, job.UpdatedAt = patched.Plan.ID, patched.Plan.Digest, now
 	commands, err := s.commands()
 	if err != nil {
 		return FanoutSetResult{}, err
 	}
-	updatedJob, err := commands.CreateFanoutSetCommand(ctx, job, job.Version-1, patched.Plan, set, members, nodes, domain.JobEvent{ID: domain.NewID(), TenantID: input.TenantID, JobRunID: input.JobRunID, Type: "fanout.created", ActorType: "runtime", ActorID: "runtime.fanout", IdempotencyKey: "fanout:" + input.IdempotencyKey, Payload: map[string]any{"fanout_set_id": set.ID, "member_count": len(members), "membership_digest": set.MembershipDigest}, OccurredAt: now})
+	updatedJob, err := commands.CreateFanoutSetCommand(ctx, job, job.Version-1, patched.Plan, set, members, nodes, JobEvent{ID: idgen.New(), TenantID: input.TenantID, JobRunID: input.JobRunID, Type: "fanout.created", ActorType: "runtime", ActorID: "runtime.fanout", IdempotencyKey: "fanout:" + input.IdempotencyKey, Payload: map[string]any{"fanout_set_id": set.ID, "member_count": len(members), "membership_digest": set.MembershipDigest}, OccurredAt: now})
 	if err != nil {
 		return FanoutSetResult{}, err
 	}
@@ -202,11 +204,11 @@ func canonicalFanoutMembership(input CreateFanoutSetInput) ([]FanoutItemInput, s
 	seenItems := map[string]bool{}
 	for _, item := range items {
 		if strings.TrimSpace(item.ItemKey) == "" || strings.TrimSpace(item.ItemDigest) == "" || seenItems[item.ItemKey] {
-			return nil, "", domain.Invalid("FANOUT_ITEM_INVALID", "FanoutSet 成员必须有唯一项目键和摘要")
+			return nil, "", fault.Invalid("FANOUT_ITEM_INVALID", "FanoutSet 成员必须有唯一项目键和摘要")
 		}
 		seenItems[item.ItemKey] = true
 	}
-	digest, err := domain.CanonicalHash(struct {
+	digest, err := stablehash.Sum(struct {
 		SourceCollection string            `json:"source_collection"`
 		SourceRevision   int               `json:"source_revision"`
 		SourceWatermark  int64             `json:"source_watermark"`
@@ -216,7 +218,7 @@ func canonicalFanoutMembership(input CreateFanoutSetInput) ([]FanoutItemInput, s
 	return items, digest, err
 }
 
-func planNodeExists(plan domain.JobPlanRevision, key string) bool {
+func planNodeExists(plan JobPlanRevision, key string) bool {
 	for _, node := range plan.Nodes {
 		if node.Key == key {
 			return true
@@ -225,7 +227,7 @@ func planNodeExists(plan domain.JobPlanRevision, key string) bool {
 	return false
 }
 
-func planHasPath(plan domain.JobPlanRevision, from, to string) bool {
+func planHasPath(plan JobPlanRevision, from, to string) bool {
 	adjacency := map[string][]string{}
 	for _, edge := range plan.Edges {
 		adjacency[edge.From] = append(adjacency[edge.From], edge.To)
@@ -247,33 +249,33 @@ func planHasPath(plan domain.JobPlanRevision, from, to string) bool {
 	return false
 }
 
-func (s *Service) JoinFanoutSet(ctx context.Context, tenantID, setID, actorID string) (domain.FanoutSet, error) {
+func (s *Service) JoinFanoutSet(ctx context.Context, tenantID, setID, actorID string) (FanoutSet, error) {
 	set, err := s.repo.FanoutSet(ctx, tenantID, setID)
 	if err != nil {
-		return domain.FanoutSet{}, err
+		return FanoutSet{}, err
 	}
-	if set.Status == domain.FanoutSucceeded || set.Status == domain.FanoutFailed {
+	if set.Status == FanoutSucceeded || set.Status == FanoutFailed {
 		return set, nil
 	}
 	members, err := s.repo.FanoutMembers(ctx, tenantID, setID)
 	if err != nil {
-		return domain.FanoutSet{}, err
+		return FanoutSet{}, err
 	}
 	membersChanged := false
 	for index := range members {
 		before := members[index]
 		node, nodeErr := s.repo.NodeRun(ctx, tenantID, members[index].NodeRunID)
 		if nodeErr != nil {
-			return domain.FanoutSet{}, nodeErr
+			return FanoutSet{}, nodeErr
 		}
 		members[index] = fanoutMemberFromNode(members[index], node)
 		if fanoutMemberChanged(before, members[index]) {
 			membersChanged = true
 		}
 	}
-	decision, err := domain.EvaluateJoin(set, members)
+	decision, err := EvaluateJoin(set, members)
 	if err != nil {
-		return domain.FanoutSet{}, err
+		return FanoutSet{}, err
 	}
 	if decision.Status == "" && len(decision.CancelMemberKeys) == 0 && !membersChanged {
 		return set, nil
@@ -287,34 +289,34 @@ func (s *Service) JoinFanoutSet(ctx context.Context, tenantID, setID, actorID st
 	}
 	commands, err := s.commands()
 	if err != nil {
-		return domain.FanoutSet{}, err
+		return FanoutSet{}, err
 	}
 	eventType := "fanout.progressed"
 	if decision.Terminal || len(decision.CancelMemberKeys) > 0 {
 		eventType = "fanout.joined"
 	}
-	return commands.ApplyFanoutJoinCommand(ctx, next, set.Version, members, decision.CancelMemberKeys, domain.JobEvent{ID: domain.NewID(), TenantID: tenantID, JobRunID: set.JobRunID, Type: eventType, ActorType: "runtime", ActorID: strings.TrimSpace(actorID), IdempotencyKey: "fanout-join:" + set.ID + ":" + strconv.Itoa(next.Version), Payload: map[string]any{"fanout_set_id": set.ID, "status": decision.Status, "successful": decision.Successful, "required_success": decision.RequiredSuccess, "cancelled_member_keys": decision.CancelMemberKeys}, OccurredAt: now})
+	return commands.ApplyFanoutJoinCommand(ctx, next, set.Version, members, decision.CancelMemberKeys, JobEvent{ID: idgen.New(), TenantID: tenantID, JobRunID: set.JobRunID, Type: eventType, ActorType: "runtime", ActorID: strings.TrimSpace(actorID), IdempotencyKey: "fanout-join:" + set.ID + ":" + strconv.Itoa(next.Version), Payload: map[string]any{"fanout_set_id": set.ID, "status": decision.Status, "successful": decision.Successful, "required_success": decision.RequiredSuccess, "cancelled_member_keys": decision.CancelMemberKeys}, OccurredAt: now})
 }
 
-func fanoutMemberChanged(before, after domain.FanoutMember) bool {
+func fanoutMemberChanged(before, after FanoutMember) bool {
 	return before.State != after.State || before.OutputDigest != after.OutputDigest || before.ErrorCode != after.ErrorCode || strings.Join(before.OutputRefs, "\x00") != strings.Join(after.OutputRefs, "\x00")
 }
 
-func fanoutMemberFromNode(member domain.FanoutMember, node domain.NodeRun) domain.FanoutMember {
+func fanoutMemberFromNode(member FanoutMember, node NodeRun) FanoutMember {
 	next := member
 	switch node.State {
-	case domain.NodeRunning, domain.NodeLeased, domain.NodeWaitingExternal, domain.NodeWaitingHuman, domain.NodeWaitingResource, domain.NodeRetryableFailed, domain.NodeLeaseExpired:
-		next.State = domain.FanoutMemberRunning
-	case domain.NodeSucceeded:
-		next.State = domain.FanoutMemberSucceeded
-	case domain.NodeFailed, domain.NodeBlocked:
-		next.State = domain.FanoutMemberFailed
-	case domain.NodeCancelled:
-		next.State = domain.FanoutMemberCancelled
-	case domain.NodeSkipped:
-		next.State = domain.FanoutMemberSkipped
+	case NodeRunning, NodeLeased, NodeWaitingExternal, NodeWaitingHuman, NodeWaitingResource, NodeRetryableFailed, NodeLeaseExpired:
+		next.State = FanoutMemberRunning
+	case NodeSucceeded:
+		next.State = FanoutMemberSucceeded
+	case NodeFailed, NodeBlocked:
+		next.State = FanoutMemberFailed
+	case NodeCancelled:
+		next.State = FanoutMemberCancelled
+	case NodeSkipped:
+		next.State = FanoutMemberSkipped
 	default:
-		next.State = domain.FanoutMemberPending
+		next.State = FanoutMemberPending
 	}
 	next.OutputRefs = append([]string{}, node.OutputRefs...)
 	next.OutputDigest = node.OutputDigest

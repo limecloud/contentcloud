@@ -1,0 +1,16 @@
+%% Offline queue, resync, conflict and authorization recovery states.
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Avenir Next, Segoe UI Variable, PingFang SC, Microsoft YaHei, sans-serif","primaryColor":"#eff6ff","primaryBorderColor":"#4c91ff","primaryTextColor":"#172033","secondaryColor":"#edf4ef","tertiaryColor":"#fff3ed","lineColor":"#52627b","textColor":"#172033"}}}%%
+stateDiagram-v2
+    [*] --> 在线
+    在线 --> 离线: 网络不可用
+    离线 --> 已排队: 产生本地修改
+    已排队 --> 重连中: 网络恢复
+    重连中 --> 重同步: cursor 缺口 / 投影过期
+    重连中 --> 上传中: cursor 连续
+    重同步 --> 冲突待确认: 本地与云端均已修改
+    重同步 --> 上传中: 无冲突
+    上传中 --> 在线: 服务端确认且 digest 校验通过
+    上传中 --> 已排队: 瞬时失败
+    上传中 --> 需要认证: 凭据撤销或过期
+    冲突待确认 --> 上传中: 用户确认解决方案
+    需要认证 --> 重连中: 设备重新授权

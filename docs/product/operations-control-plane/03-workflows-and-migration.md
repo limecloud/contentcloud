@@ -2,7 +2,7 @@
 
 状态：`目标实施计划；用于拆分产品、工程和运营工作`。
 
-更新时间：2026-08-08。
+更新时间：2026-08-17。
 
 ## 1. 工作流总原则
 
@@ -104,9 +104,9 @@ Canary 只使用指定租户、指定比例或内部样例。试跑报告至少�
 
 ### 5.2 本地执行者离线
 
-如果 Codex 或 Claude Code 客户端断开：
+如果 Codex、Claude Code Harness 或 Desktop 管理的本地 Daemon 断开：
 
-- 客户看到“创作工具暂时离线，已保留进度”。
+- Desktop 仍展示本地目录和已持久化队列，并明确标注“离线，尚未同步”；Web 客户看到“创作工具暂时离线，已保留已提交进度”。
 - 运营后台看到最近心跳、受影响步骤和租约过期时间。
 - 如果有预先批准且不扩大权限的回退方式，可以让新尝试使用回退；否则等待重新连接或人工处理。
 - 不能把一个正在运行的本地任务直接改成另一种执行方式。
@@ -161,9 +161,9 @@ Daemon 的同步不依赖页面打开：启动/重连先建立 WSS 并发送完�
 
 启用前显示能力覆盖和风险；暂停后停止新任务，保留历史结果和运行记录。租户管理员只能管理自己的成员、项目和偏好，不能修改平台能力或服务商凭据。
 
-## 8. 分阶段迁移计划
+## 8. 能力交付与一次性收口计划
 
-迁移不是一次性重写。每一阶段都有可验证产物和退出条件。
+产品能力可以按纵向切片交付，但仓库拓扑、包名和事实源不保留并行新旧实现。每个阶段都有可验证产物和退出条件；切换某条实现时必须在同一整改中删除旧路由、旧 DTO、双读、双写和兼容 Facade。
 
 ### O0：统一说法，停止继续堆旧页面
 
@@ -207,9 +207,9 @@ Daemon 的同步不依赖页面打开：启动/重连先建立 WSS 并发送完�
 
 退出条件：结果可安全复用；失效资料能阻止新引用；投影重建不触发外部副作用。
 
-### O7：兼容清理
+### O7：收口门禁
 
-产物：旧入口、旧宽接口、重复配置和临时页面的退场清单与删除记录。当前已删除 `/admin/environments`、`/admin/sops`、`/admin/gates`、`/admin/usage`、`/admin/runtime` 和旧后台聚合页；同时删除没有事实契约的 `/admin/connectors`、`/admin/providers`、`/admin/policies`、`/admin/effects`、`/admin/results`、`/admin/rights`、`/admin/duplicates`、`/admin/projections`、`/admin/users`、`/admin/support` 占位路由。任务记录统一使用 `/admin/jobs`，Runtime BFF 统一使用 `/api/bff/runtime`。
+产物：旧入口、旧宽接口、重复配置和临时页面的零引用扫描与删除记录。当前已删除 `/admin/environments`、`/admin/sops`、`/admin/gates`、`/admin/usage`、`/admin/runtime` 和旧后台聚合页；同时删除没有事实契约的 `/admin/connectors`、`/admin/providers`、`/admin/policies`、`/admin/effects`、`/admin/results`、`/admin/rights`、`/admin/duplicates`、`/admin/projections`、`/admin/users`、`/admin/support` 占位路由。任务记录统一使用 `/admin/jobs`，Runtime BFF 统一使用 `/api/bff/runtime`。
 
 退出条件：旧路径没有活跃调用、历史可读、回退演练通过、代码搜索没有新依赖。当前无活跃用户，首轮前端与 Runtime BFF 兼容清理已经完成；后续新增重复入口由架构检查阻止。
 

@@ -1,9 +1,11 @@
-package runtime
+package runtime_test
 
 import (
 	"testing"
 
-	"github.com/limecloud/contentcloud/internal/store/memory"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
 )
 
 func TestRuntimeRolloutPolicyBlocksNewAdmissionOutsideCanary(t *testing.T) {

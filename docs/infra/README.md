@@ -2,7 +2,7 @@
 
 状态：`当前实现对账 + 外部接通边界`。
 
-更新时间：2026-08-11。
+更新时间：2026-08-17。
 
 ## 0. 首个用户前的 Clean-room 规则
 
@@ -52,6 +52,16 @@ ContentCloud 不应成为另一个 vLLM 或 SGLang。它们解决模型推理的
 
 普通交互创作默认留在本地；服务端只在明确的环境准备、审核、拉取、提交或自动化任务动作中介入。Runtime 协调执行，但不拥有来源正文、知识正文、内容正文、批准事实或交付正文。
 
+执行平面和用户工作面是两个维度。Desktop 不是第四个 Runtime，也不接管 Codex 渲染：
+
+| 工作面 | 连接的执行/治理平面 | 主要职责 |
+| --- | --- | --- |
+| Codex | 本地交互生产 + Runtime Harness | 对话期推理、生成、工具调用、Proposal 确认 |
+| Desktop | 本地工作区 + 服务端治理 + Runtime 摘要 | 持续目录、同步、上传、审批、任务、通知、交付 |
+| Web Studio / Operations | 服务端治理 + Runtime 运营投影 | 团队协作、租户治理、发布配置、跨租户诊断 |
+
+Desktop Renderer 只通过 typed Preload -> Electron Main -> 认证本地 API 访问 Go Daemon。同步、上传、Workspace、审批命令和 Runtime Worker 都留在 Go；SQLite 只保存可重建索引、outbox、上传恢复和事件游标。
+
 ### 2.1 执行者是开放集合，不是 Codex/Claude 专属流程
 
 内容生产 SOP 不得把任何 Agent 品牌写进业务语义。Codex 和 Claude Code 是当前已有实现基础的宿主/Harness；Pi Agent、其他本地或远程 Agent、Agent 工作流 SaaS、垂直创作 SaaS 都可以在满足接入契约后参与同一条内容生产链。
@@ -98,7 +108,7 @@ Capability + ExecutionProfile + fixed input refs/digests
   -> ApprovedSnapshot pull
 ```
 
-本地 V3 不是“未来 Evidence Intake”，而是当前可运行的 governed workspace 主链。其稳定对象和版本来自 `contracts/` 以及 `internal/localworkspace`，例如：
+本地 V3 不是“未来 Evidence Intake”，而是当前可运行的 governed workspace 主链。其稳定对象和版本来自 `contracts/` 以及 `internal/local/workspace`，例如：
 
 - `contentcloud.local-run/3.0`
 - `contentcloud.evidence-bundle/3.0`
@@ -156,17 +166,17 @@ Infra 文档使用两个维度标记能力：
 
 | 能力 | 当前状态 | 事实入口 |
 | --- | --- | --- |
-| LocalRun、Claim、Handoff、跨对话恢复 | `current-local` | `internal/localworkspace`、Workspace Skill |
-| 本地来源登记、摘要校验、解析、EvidenceBundle | `current-local` | `internal/localworkspace/source.go` |
+| LocalRun、Claim、Handoff、跨对话恢复 | `current-local` | `internal/local/workspace`、Workspace Skill |
+| 本地来源登记、摘要校验、解析、EvidenceBundle | `current-local` | `internal/local/workspace/source.go` |
 | Web 搜索、平台趋势、受控网页采集 | `current-server` / `external-dependency` | `source.search/fetch` Provider、Fetcher、白名单、SSRF/大小限制与 Evidence 物化已实现；搜索源和平台账号仍是外部依赖 |
 | Knowledge、Brief、视频脚本、公众号文章 | `current-local` | V3 本地 Schema、Skills 和 CLI |
-| Submission、内部/客户审核、ApprovedSnapshot | `current-server` | `internal/app`、`internal/httpapi`、Submission contracts |
+| Submission、内部/客户审核、ApprovedSnapshot | `current-server` | `internal/review`、`internal/application` 命名审核服务、`internal/transport/http`、Submission contracts |
 | 资产资料与创作结果投影 | `current-server` / `partial` | WorkspaceMaterialProjection、CreativeResultAssetProjection |
 | Storyboard、媒体登记、Seedance 导出 | `current-local` / `current-server` | `storyboard-package`、`seedance-prompt-package` |
 | 微信交付包和人工操作说明 | `current-local` | `wechat-delivery` contract 和 Skill |
-| Agent Plugin 签名、Registry、宿主安装 | `current` / `partial` | `internal/environment`、`internal/integration/plugin*`，宿主通过 Adapter 选择，不绑定品牌 |
+| Agent Plugin 签名、Registry、宿主安装 | `current` / `partial` | `internal/catalog/environment`、`internal/integration/plugin*`，宿主通过 Adapter 选择，不绑定品牌 |
 | 开放 Agent Harness 与 SaaS 执行适配 | `current-server` | Pi、remote-http、agent-saas Harness、durable callback ingress、事件/结果幂等已实现 |
-| V8 Durable Runtime | `current` | `internal/runtime`、`internal/store/postgres`，租约、Attempt、SessionRef、Outbox/回放已覆盖 |
+| V8 Durable Runtime | `current` | `internal/runtime`、`internal/persistence/postgres`，租约、Attempt、SessionRef、Outbox/回放已覆盖 |
 | 渠道发布、回执、撤回和效果同步 | `current-server` / `partial` | Channel Binding/Publication/Callback/Reconcile/Performance 已实现；真实平台 Adapter 和账号属于 `external-dependency` |
 
 ## 5. 最窄产品闭环
@@ -215,6 +225,7 @@ Camunda 可借鉴设计、连接、人工任务、运营和优化的产品分层
 | [03-delivery-roadmap.md](./03-delivery-roadmap.md) | 基于当前 V3/Plugin/Runtime 基线，下一步先补哪些缺口 |
 | [04-architecture-and-flow-diagrams.md](./04-architecture-and-flow-diagrams.md) | 当前架构、搜索/Agent/渠道时序、场景血缘和故障恢复图 |
 | [05-content-production-scenario-matrix.md](./05-content-production-scenario-matrix.md) | 抖音电商、公众号、小说等内容类型的专有工序、执行者组合和交付矩阵 |
+| [Content Work OS Desktop](../product/content-work-os-desktop/README.md) | 持续项目工作面、Electron 技术栈、同步、上传、审批和分发门禁 |
 
 相关事实文档：
 
@@ -255,15 +266,15 @@ Camunda 可借鉴设计、连接、人工任务、运营和优化的产品分层
 
 | 需求 | 代码事实 | Contract | API/CLI | Test | 状态 | 外部依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 搜索/趋势/受控采集 | `internal/sourceinfra`、`internal/app/source_infra.go` | `source-intake-1.0` | `source.search/fetch`、`local.source.*` | `internal/app/source_infra_test.go` | `current-server` | 搜索 Provider、目标站点授权 |
-| 数据互通/增量/删除 | `internal/connector`、cursor lease、tombstone、replay | `connector-sync-1.0` | `connector.sync` | `connector_infra_test.go` | `current-server` | OAuth/远端数据源 |
-| 多 Agent/Harness | `internal/agentadapter`、`internal/runtime` | `agent-execution-1.0` | `runtime.worker.*` | Harness/Pi/remote tests | `current` | 具体 Agent 安装和进程 |
-| Agent SaaS durable callback | `internal/httpapi/agent_ingress.go`、`runtime_provider_inbox` | `agent-execution-1.0` | `POST /api/v1/agent-harnesses/{kind}/tenants/{tenant}/callbacks` | `agent_ingress_test.go`、`agent_callback_test.go` | `current-server` | SaaS Webhook、签名 Secret |
-| vLLM/SGLang | `internal/modelprovider` OpenAI-compatible Provider | `model-generation-1.0` | `model.generate` | `model_infra_test.go` | `current-server` / `external-dependency` | 推理端点、模型、GPU 配额 |
-| 微信排版 | `internal/localworkspace/article.go` | `wechat-delivery-1.0` | `local.wechat.package.*` | article/layout tests | `current-local` | 公众号后台账号；人工发布 |
-| 小说 Canon/连续性 | `internal/localworkspace/novel.go` | `novel-*-1.0` | `local.novel.*` | `novel_test.go` | `current-local` | 发布平台账号 |
-| 渠道发布/回执/指标 | `internal/channeladapter`、`internal/app/channel_infra.go` | `channel-publication-1.0`、`channel-callback-1.0` | `channel.publication.*`、HTTP callbacks | `channel_infra_test.go` | `current-server` | 真实渠道 Adapter/账号 |
-| 抖音电商事实校验 | `internal/localworkspace/douyin_commerce.go`、`internal/app/douyin_commerce.go` | `douyin-commerce-validation-1.0` | `local.douyin-commerce.validate/lint`、typed prepare input | `douyin_commerce_test.go`、publication lineage test | `current-local` / `current-server` | 商品锚点、账号、平台发布 |
+| 搜索/趋势/受控采集 | `internal/integration/provider/source`、`internal/application` 命名来源服务 | `source-intake-1.0` | `source.search/fetch`、`local.source.*` | `internal/application/source_infra_test.go` | `current-server` | 搜索 Provider、目标站点授权 |
+| 数据互通/增量/删除 | `internal/integration/connector`、cursor lease、tombstone、replay | `connector-sync-1.0` | `connector.sync` | `connector_infra_test.go` | `current-server` | OAuth/远端数据源 |
+| 多 Agent/Harness | `internal/integration/agent`、`internal/runtime` | `agent-execution-1.0` | `runtime.worker.*` | Harness/Pi/remote tests | `current` | 具体 Agent 安装和进程 |
+| Agent SaaS durable callback | `internal/transport/http/agent_ingress.go`、`runtime_provider_inbox` | `agent-execution-1.0` | `POST /api/v1/agent-harnesses/{kind}/tenants/{tenant}/callbacks` | `agent_ingress_test.go`、`agent_callback_test.go` | `current-server` | SaaS Webhook、签名 Secret |
+| vLLM/SGLang | `internal/integration/provider/model` OpenAI-compatible Provider | `model-generation-1.0` | `model.generate` | `model_infra_test.go` | `current-server` / `external-dependency` | 推理端点、模型、GPU 配额 |
+| 微信排版 | `internal/local/workspace/article.go` | `wechat-delivery-1.0` | `local.wechat.package.*` | article/layout tests | `current-local` | 公众号后台账号；人工发布 |
+| 小说 Canon/连续性 | `internal/local/workspace/novel.go` | `novel-*-1.0` | `local.novel.*` | `novel_test.go` | `current-local` | 发布平台账号 |
+| 渠道发布/回执/指标 | `internal/delivery`、`internal/integration/provider/channel`、`internal/application` 命名交付服务 | `channel-publication-1.0`、`channel-callback-1.0` | `channel.publication.*`、HTTP callbacks | `channel_infra_test.go` | `current-server` | 真实渠道 Adapter/账号 |
+| 抖音电商事实校验 | `internal/local/workspace/douyin_commerce.go`、`internal/application` 命名工作服务 | `douyin-commerce-validation-1.0` | `local.douyin-commerce.validate/lint`、typed prepare input | `douyin_commerce_test.go`、publication lineage test | `current-local` / `current-server` | 商品锚点、账号、平台发布 |
 
 ## 11. 当前系统总图
 

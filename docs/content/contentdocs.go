@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/limecloud/contentcloud/internal/agentadapter"
+	agentadapter "github.com/limecloud/contentcloud/internal/integration/agent"
 )
 
 const SchemaVersion = "contentcloud.docs-catalog/1.0"
@@ -349,12 +349,12 @@ func mergeClientStatus(page PageSummary) PageSummary {
 func generatedClientMarkdown(client Client) string {
 	var body strings.Builder
 	fmt.Fprintf(&body, "# Content Work OS 与 %s\n\n状态：**%s**。\n\n", client.DisplayName, statusLabel(client.Status))
-	fmt.Fprintf(&body, "Content Work OS 已为 %s 提供稳定的客户端标识、能力目录和文档入口。本页由客户端能力目录自动生成，只说明已经登记的能力状态；在正式教程发布前，不提供安装、工作区初始化、任务交接或内容发布命令。\n\n", client.DisplayName)
-	body.WriteString("## 能力状态\n\n| 能力 | 状态 |\n| --- | --- |\n")
+	fmt.Fprintf(&body, "Content Work OS 已登记 %s 的当前可用情况。本页只说明已经确认的使用范围；在正式教程发布前，不提供安装、准备项目文件夹、继续工作或内容发布命令。\n\n", client.DisplayName)
+	body.WriteString("## 可以做什么\n\n| 能力 | 状态 |\n| --- | --- |\n")
 	for _, capability := range client.Capabilities {
 		fmt.Fprintf(&body, "| %s | %s |\n", capabilityLabel(capability.ID), supportStatusLabel(capability.Status))
 	}
-	body.WriteString("\n## 现在可以做什么\n\n- 在 Content Work OS 工作台中继续项目治理和审核。\n- 使用当前标记为可用的客户端与内容形态场景。\n- 以后继续使用同一个文档地址查看能力状态，无需寻找新的入口。\n\n规划状态不代表相关命令、协议或第三方集成已经可用。\n")
+	body.WriteString("\n## 现在可以做什么\n\n- 在 Content Work OS 工作台中继续项目审核和内容管理。\n- 使用当前标记为可用的连接工具与内容形式。\n- 以后继续使用同一个文档地址查看最新状态。\n\n标记为规划中的内容，暂时不能直接使用。\n")
 	return body.String()
 }
 
@@ -379,15 +379,15 @@ func supportStatusLabel(status string) string {
 func capabilityLabel(id string) string {
 	switch id {
 	case string(agentadapter.CapabilityLocalAutomation):
-		return "本地自动化"
+		return "电脑上的资料整理和修改"
 	case string(agentadapter.CapabilityWorkspaceRegister):
-		return "工作区注册"
+		return "连接项目文件夹"
 	case string(agentadapter.CapabilityWorkspaceBootstrap):
-		return "工作区初始化"
+		return "准备项目文件夹"
 	case string(agentadapter.CapabilityInteractiveHandoff):
-		return "交互式任务交接"
+		return "在网页和电脑之间继续工作"
 	case string(agentadapter.CapabilityCreativeEnvironment):
-		return "创作环境"
+		return "创作所需工具"
 	default:
 		return id
 	}

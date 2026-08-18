@@ -2,9 +2,9 @@
 
 状态：`目标产品设计；第 2 节记录当前真实路由`。
 
-更新时间：2026-08-08。
+更新时间：2026-08-17。
 
-本文件回答“运营人员进入后台后如何完成工作”，不定义客户创作台的页面，也不把任务运行底层的复杂信息直接暴露给客户。英文路径和对象名是给工程实现用的，页面标题和操作提示优先使用中文。
+本文件回答“运营人员进入后台后如何完成工作”，不定义客户创作台或 Desktop 的页面，也不把任务运行底层的复杂信息直接暴露给客户。运营控制面只读取 Cloud Revision、Runtime 和治理投影；Desktop 的本地目录、未提交草稿、上传分片和冲突工作区不进入运营导航。英文路径和对象名是给工程实现用的，页面标题和操作提示优先使用中文。
 
 ### 给运营人员的快速理解
 
@@ -71,7 +71,7 @@
 当前前端边界：
 
 ```text
-web/src/admin/
+apps/web/src/admin/
 ├── AdminRoute.tsx            管理员会话与权限边界
 ├── AdminShell.tsx            当前真实导航和数据刷新
 ├── context.tsx               关键快照与可选目录隔离
@@ -82,7 +82,7 @@ web/src/admin/
     └── AdminRuntimePage.tsx
 ```
 
-`web/src/admin` 只保留当前运营工作面，不再提供 `AdminWorkOSPage`、占位治理页或旧环境、SOP、Gate、Usage、Runtime 兼容路由。客户 `web/src/studio` 不导入上述 feature。
+`apps/web/src/admin` 只保留当前运营工作面，不再提供 `AdminWorkOSPage`、占位治理页或旧环境、SOP、Gate、Usage、Runtime 兼容路由。客户 `apps/web/src/studio` 不导入上述 feature。
 
 ## 3. 统一工作面结构
 

@@ -70,6 +70,17 @@ contentcloud CLI / daemon
 └── lease / heartbeat / result submission
 ```
 
+Desktop 不是 `contentcloud-server` 的另一个 Web 页面，也不是 Codex 的渲染容器。它由 Electron Shell 和用户级 Go Daemon 组成：Electron 管理窗口、系统权限、通知和更新；Go Daemon 管理 Local Workspace、Sync、Upload、Review Inbox 和 Runtime Worker。
+
+```text
+Codex -> stdio MCP -> Local Workspace Kernel
+Desktop -> typed IPC -> Go Daemon -> Local Workspace Kernel
+Desktop/Daemon <-> HTTPS + WebSocket/SSE <-> ContentCloud Server
+Web Studio/Operations ---------------------> ContentCloud Server
+```
+
+Local Workspace 拥有未提交文件和草稿，Cloud Revision 拥有已提交版本、审批、团队协作、正式资产和交付。Desktop SQLite 只保存索引、outbox、上传分片和事件游标，不能成为第三事实源。同步、审批、上传、冲突和离线恢复以 [Desktop 专项协议](../product/content-work-os-desktop/03-sync-review-upload.md) 为准。
+
 模块边界不等于网络边界。只有出现独立扩缩容、故障隔离、合规区域或团队所有权需求，且监控数据证明模块化单体无法满足时，才通过 ADR 拆服务。
 
 ## 3. Runtime 的责任

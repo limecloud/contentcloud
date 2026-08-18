@@ -1,0 +1,60 @@
+%% Content Work OS / ContentCloud target architecture source.
+%% Work surfaces, bounded business facts and runtime facts stay separate.
+flowchart TB
+    subgraph Surfaces["① 三个工作面"]
+        Codex["Codex<br/>任务期推理 · 生成 · 工具"]
+        Desktop["Content Work OS Desktop<br/>目录 · 同步 · 审批 · 交付"]
+        Web["Web Studio / Operations<br/>团队协作 · 平台治理"]
+    end
+
+    subgraph Access["② 接入边界"]
+        MCP["stdio MCP"]
+        DesktopAPI["Electron Main<br/>typed local API"]
+        CloudAPI["Cloud Command / Query API<br/>BFF · event stream"]
+    end
+
+    subgraph Local["③ 本地设备"]
+        Daemon["Go Daemon<br/>Workspace · Sync · Runtime Worker"]
+        Workspace[("Local Workspace<br/>未提交文件与草稿")]
+        Cache[("SQLite<br/>index · outbox · cursor")]
+    end
+
+    subgraph Platform["④ ContentCloud 平台"]
+        Business["边界业务域<br/>Identity · Workspace · Source · Catalog<br/>Work · Review · Delivery · Performance"]
+        Runtime["Agentic Job Runtime<br/>Job · Node · Attempt<br/>Lease · Effect · Event"]
+        CloudFacts[("PostgreSQL / Blob<br/>Cloud Revision 与执行事实")]
+    end
+
+    subgraph Executors["⑤ 可替换执行者"]
+        Harness["Agent Harness<br/>Codex · Claude · Remote"]
+        Worker["Deterministic Worker<br/>parse · lint · render"]
+        External["Provider / Connector / Human<br/>Effect · receipt · gate"]
+    end
+
+    Codex --> MCP --> Daemon
+    Desktop --> DesktopAPI --> Daemon
+    Web --> CloudAPI
+    Daemon <--> Workspace
+    Daemon <--> Cache
+    Daemon <--> CloudAPI
+    CloudAPI --> Business
+    CloudAPI --> Runtime
+    Business --> CloudFacts
+    Runtime --> CloudFacts
+    Runtime --> Harness
+    Runtime --> Worker
+    Runtime --> External
+    Business -. "fixed refs + digest" .-> Runtime
+
+    classDef surface fill:#eff6ff,stroke:#4c91ff,color:#172033
+    classDef access fill:#f8faff,stroke:#52627b,color:#172033
+    classDef local fill:#edf4ef,stroke:#397860,color:#172033
+    classDef platform fill:#edf4f8,stroke:#3b6f8f,color:#172033
+    classDef facts fill:#fff1f2,stroke:#c24f5f,color:#172033
+    classDef exec fill:#fff3ed,stroke:#b45b3c,color:#172033
+    class Codex,Desktop,Web surface
+    class MCP,DesktopAPI,CloudAPI access
+    class Daemon,Workspace,Cache local
+    class Business,Runtime platform
+    class CloudFacts facts
+    class Harness,Worker,External exec

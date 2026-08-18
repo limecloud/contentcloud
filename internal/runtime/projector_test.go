@@ -1,17 +1,19 @@
-package runtime
+package runtime_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/store/memory"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
+	"github.com/limecloud/contentcloud/internal/platform/idgen"
 )
 
 func TestProjectorPersistsExplorerAfterOutboxClaim(t *testing.T) {
 	repo := memory.New()
 	service := New(repo, time.Now)
-	started, err := service.Start(t.Context(), testStartInput("projector-task", domain.NewID()))
+	started, err := service.Start(t.Context(), testStartInput("projector-task", idgen.New()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +44,7 @@ func TestProjectorPersistsExplorerAfterOutboxClaim(t *testing.T) {
 func TestProjectorAcksOutboxWhenProjectionIsAlreadyAhead(t *testing.T) {
 	repo := memory.New()
 	service := New(repo, time.Now)
-	started, err := service.Start(t.Context(), testStartInput("projector-stale-task", domain.NewID()))
+	started, err := service.Start(t.Context(), testStartInput("projector-stale-task", idgen.New()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +57,7 @@ func TestProjectorAcksOutboxWhenProjectionIsAlreadyAhead(t *testing.T) {
 		t.Fatal(err)
 	}
 	projectedAt := time.Now().UTC()
-	if err := repo.SaveRuntimeExplorer(t.Context(), domain.RuntimeExplorerView{TenantID: "tenant-1", JobRunID: started.Job.ID, Job: job, Nodes: nodes, LastEventSeq: 999, SourceEventID: "newer-event", ProjectedAt: projectedAt}); err != nil {
+	if err := repo.SaveRuntimeExplorer(t.Context(), RuntimeExplorerView{TenantID: "tenant-1", JobRunID: started.Job.ID, Job: job, Nodes: nodes, LastEventSeq: 999, SourceEventID: "newer-event", ProjectedAt: projectedAt}); err != nil {
 		t.Fatal(err)
 	}
 	result, err := NewProjector(repo, time.Now).RunOnce(t.Context(), "tenant-1", "projector-stale", time.Minute, 20)

@@ -2,7 +2,7 @@
 
 状态：`当前实现对账 + 首个用户前的收口能力地图`。
 
-更新时间：2026-08-11。
+更新时间：2026-08-17。
 
 ## 1. 状态口径
 
@@ -56,6 +56,18 @@ V8 Runtime
 
 Runtime 只拥有执行事实；业务域拥有来源、知识、内容、审批、产物、交付和外部回执事实。
 
+### 3.1 工作面能力映射
+
+| 能力 | Codex | Desktop | Web Studio / Operations |
+| --- | --- | --- | --- |
+| 项目内容目录 | 当前任务引用与 MCP View | 完整本地目录、业务分组和离线状态 | 已提交的团队目录与云端投影 |
+| 内容修改 | Claim -> Proposal -> Apply | 外部编辑观察、冲突处理和受控命令 | 基于 Cloud Revision 创建团队修订 |
+| 同步与上传 | 可发起显式命令，不维护队列 | 持久队列、分片恢复、游标和状态 | 服务端策略、配额和治理结果 |
+| 审批 | 解释反馈、生成修订，不作决定 | 个人收件箱和精确版本决定 | 公开/团队审核与运营治理 |
+| Runtime | 交互执行或 Harness | 用户可理解的进度、等待和恢复动作 | Runtime Explorer 与跨租户运维 |
+
+Desktop 当前为 `target`，不能写成已经发布。其完成门槛以 [Desktop 一次性交付计划](../product/content-work-os-desktop/04-delivery-plan.md) 为准。
+
 ## 4. 任务入口与需求定义
 
 | 能力 | ContentCloud 当前对象 | 状态 | 真实边界 |
@@ -74,7 +86,7 @@ Runtime 只拥有执行事实；业务域拥有来源、知识、内容、审批
 | --- | --- | --- | --- |
 | 人工补充灵感 | `current-server` | Studio 保存任务输入，可选项目参考 | 搜索结果与人工输入仍需统一候选契约 |
 | 本地资料选择 | `current-local` / `current-server` | WorkspaceMaterial、SourceRevision、摘要固定 | OCR/ASR 等派生能力仍有限 |
-| `source.search` Capability | `current-server` | `internal/sourceinfra` Provider、查询摘要和结果物化 | 搜索供应商账号和配额 |
+| `source.search` Capability | `current-server` | `internal/integration/provider/source` Provider、查询摘要和结果物化 | 搜索供应商账号和配额 |
 | `source.fetch` Capability | `current-server` | 受控 Fetcher、白名单、SSRF/大小限制和 Evidence 生成 | 目标站点授权、robots 和网络可达性 |
 | Web 搜索 | `current-server` / `external-dependency` | `source.search` API、SearchReceipt、SourceRevision | 搜索 Provider、计费和平台合规 |
 | 趋势/热榜 | `partial` / `external-dependency` | 统一查询/采集边界可复用 | 平台热榜 API、时效与授权 |

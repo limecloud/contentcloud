@@ -2,7 +2,7 @@
 
 状态：`实施中；“我的资产”上传首切片、客户结果目录、独立详情页与类型化查看工作面已落地，连接器导入、结果持久化 Projector、客户修订编辑器、运营治理与 Canary 待完成`。
 
-更新时间：2026-08-07。
+更新时间：2026-08-17。
 
 ## 0. 当前实现基线
 
@@ -10,7 +10,7 @@
 
 | 能力 | 当前状态 | 后续收口 |
 | --- | --- | --- |
-| 五类生成结果目录 | 已实现；查询时从现有 `WorkTask` 事实动态组装 | 迁移到可重建的持久化投影，并保持 DTO 兼容 |
+| 五类生成结果目录 | 已实现；查询时从现有 `WorkTask` 事实动态组装 | 一次性切换到可重建的持久化投影，删除动态组装路径 |
 | 我的资产工作区 | 首切片已实现 | 已交付文件夹、上传、预览、固定引用、加入任务与最近使用；连接器导入、外链、移动/删除和 AI 理解待完成 |
 | 最近使用 | 未实现 | 从工作区资料和创作结果访问事件派生，不建立第三套资产事实 |
 | 结果类型与七项状态 | 已实现客户契约和筛选；只有 `confirmed`、`delivered` 可复用 | 补齐状态推导的领域契约与边界测试 |
@@ -18,14 +18,16 @@
 | 独立结果详情与类型渲染 | 已实现独立 URL；人物原型、剧本、分镜、图片、视频按结果类型渲染 | 增加历史版本、媒体缩略图和渲染失败观测 |
 | 工作区资料详情 | 已实现文档、图片、视频、音频、CSV 预览；Word/PPTX/XLSX 提供文件信息与下载降级 | 增加解析服务后再发布在线编辑 |
 | 客户编辑器 | 尚未实现可写修订 API；详情页固定版本只读，编辑动作回到来源任务 | 以 `based_on_version` 创建新候选，保存、校验、确认后产生新结果 |
-| 项目参考边界 | 已实现 `keep_as_project_reference`；旧 `save_for_reuse` 仅作兼容读取 | 兼容期结束后删除旧字段，不生成输入型资产目录项 |
+| 项目参考边界 | 已实现 `keep_as_project_reference`；`save_for_reuse` 属于待删除旧字段 | 本次整改直接删除旧字段，不生成输入型资产目录项 |
 | 运营治理与发布验证 | 未实现 | 完成目录重建、影响查询、指标、Canary 和回退演练 |
 
-当前动态组装是迁移期的“创作结果”实现，不新增第二套结果目录模型。A1 的持久化 Projector 验证完成后，应以同一 `CreativeAssetCatalogItem` 契约替换查询实现。“我的资产”走独立窄契约，不扩张现有结果 DTO。
+当前动态组装是待替换实现，不新增第二套结果目录模型。A1 的持久化 Projector 与消费者在同一整改中切换后直接删除动态查询；不保留双读、旧字段或兼容 DTO。“我的资产”走独立窄契约，不扩张现有结果 DTO。
 
 ## 1. 交付策略
 
 资产入口不等待新 Runtime 全部完成，也不先建设一个独立 DAM。使用现有事实对象和 `ProjectProjection` 模式，分两个可独立交付的闭环推进：先稳定创作结果复用，再补齐工作区资料管理。
+
+持续工作入口由 Desktop 承担，跨设备团队目录由 Web Studio 承担；二者必须在同一 Cloud Revision、投影和命令契约上验收。Desktop 首切片不能只做文件浏览器，必须覆盖本地目录 -> 上传/同步 -> 云端 Revision -> 审批 -> 修订回流。
 
 ```text
 客户上传/导入资料 --------> WorkspaceMaterialProjection --+
@@ -151,11 +153,11 @@ internal/experience/projection/creativeassets/  Projector、游标和重建
 internal/experience/projection/workspacematerials/ 工作区资料 Projector
 contracts/business/creative-asset-catalog/      CatalogItem 与 CreativeAssetRef Schema
 contracts/business/workspace-materials/          Folder、Material 与 MaterialRef Schema
-web/src/studio/assets/                           客户资产 feature
-web/src/admin/assets/                            运营治理 feature
+apps/web/src/studio/assets/                           客户资产 feature
+apps/web/src/admin/assets/                            运营治理 feature
 ```
 
-实际迁移期可以在现有 `internal/app`、`internal/domain/projection.go` 和 Web Shell 中以窄接口实现，不要求先创建完整目标目录。新代码不得继续扩大全局 `Store`、`Service` 或现有 `StudioAssetItem`；若暂时使用兼容接口，必须登记退场条件。
+当前实现继续位于 `internal/application`、`internal/experience/projection/projectview.go` 和 Web Shell，并通过命名应用服务与窄接口收敛；新代码不得扩大全局 `Store`、`Service` 或现有 `StudioAssetItem`，也不创建兼容接口。
 
 ## 6. 测试路径
 

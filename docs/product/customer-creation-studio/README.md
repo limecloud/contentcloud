@@ -6,6 +6,8 @@
 
 本目录定义 ContentCloud Agentic Job Runtime 之上的产品层：平台运营人员如何配置、发布和维护创作流水线，客户如何通过简单的创作页面使用这些流水线，以及 Codex、Claude Code、确定性 Worker、外部服务商和人工如何作为不同执行者参与同一项任务。
 
+持续项目目录、上传、同步、审批、通知和交付由 [Content Work OS Desktop](../content-work-os-desktop/README.md) 承担。Desktop 与本目录的 Web Studio 使用同一业务事实和服务端契约，但不是同一个渲染面；Codex 仍只负责任务期 AI 交互。
+
 本文档描述下一阶段目标，不代表相关契约、页面、API 或运行时能力已经实现。当前能力仍以仓库代码、变更记录和 [`docs/content`](../../content/README.md) 中标记为“可用”的用户文档为准。
 
 上位规范为 [ContentCloud 平台基线](../../foundation/README.md)，对外表达遵循[产品叙事规范](../00-product-narrative.md)。本目录只定义客户创作体验和运营产品层，不重新定义业务事实所有权、Runtime 状态机或工程边界。
@@ -20,7 +22,7 @@ ContentCloud 不是把所有创作操作堆在同一个工作台中的通用后�
 任务输入与项目参考 -> Content Work OS 创作任务 -> 创作资产、交付和后续专业工具
 ```
 
-以下平台关系图用于解释三个清晰分离的表面和一个共享内核，不作为客户首图：
+以下平台关系图用于解释四个清晰分离的表面和一个共享内核，不作为客户首图：
 
 ```text
 平台运营人员
@@ -33,11 +35,11 @@ ContentCloud 运营控制台
 ContentCloud Agentic Job Runtime
 保存权威状态，调度程序、智能体、服务商和人工
     |
-    +-----------------------------+
-    |                             |
-    v                             v
-客户创作台                    运营诊断台
-简单完成业务目标              查看执行、费用、故障和审计
+    +----------------------+----------------------+
+    |                      |                      |
+    v                      v                      v
+客户 Web Studio       Desktop 项目工作面        运营诊断台
+简单完成业务目标       目录、同步、审批和交付    查看执行、费用、故障和审计
 ```
 
 Codex、Claude Code 等智能体客户端只是 Runtime 可以选择的执行者之一。固定校验、转换、渲染、版本、审核、外部请求对账和交付等工作，应由 ContentCloud 服务端或受控 Worker 完成。
@@ -55,6 +57,7 @@ Codex、Claude Code 等智能体客户端只是 Runtime 可以选择的执行者
 | [04-execution-client-connection.md](./04-execution-client-connection.md) | 项目级执行客户端连接、当前 Codex 协议和多客户端发布门槛 |
 | [05-local-workbench-browser.md](./05-local-workbench-browser.md) | 本地工作台实现事实源：Skills、stdio MCP、Go loopback Presenter、Browser Handoff、SSE、Range、Claim v2、Proposal/Apply、分发与验收 |
 | [06-reference-workbench-analysis.md](./06-reference-workbench-analysis.md) | 三类公开参考实现的匿名化全维度分析、证据等级、安全审计、对比矩阵和采用/拒绝依据 |
+| [../content-work-os-desktop/README.md](../content-work-os-desktop/README.md) | 持续项目目录、Electron、Go Daemon、同步、上传、审批、离线和交付 |
 
 ## 3. 与现有文档的关系
 
@@ -84,6 +87,7 @@ V8 Runtime：系统怎样可靠执行
 - 横向复用闭环：`我的资产或已确认结果 -> 新任务 -> 新结果继续沉淀`。
 - 客户目标：不理解 SOP、JobRun、NodeRun 或执行器，也能开始任务、补充资料、确认结果并进入下一步。
 - 连接目标：客户只需在项目级完成一次受控客户端连接；当前首切片使用 Codex，其他客户端按能力和连接协议逐步发布。
+- Desktop 目标：客户可以在不打开 Codex 的情况下持续查看项目目录、同步队列、审批和交付；需要 AI 时通过对象引用 Handoff 回 Codex。
 - 运营目标：不修改客户页面代码，也能控制场景版本、SOP 绑定、执行能力、租户开关、审核规则和回退。
 - Runtime 目标：同一个业务阶段可以由搜索 API、受控爬虫、本地 Codex MCP、确定性 Worker 或人工完成，并产生统一、可追溯的结果。
 
@@ -114,3 +118,4 @@ V8 Runtime：系统怎样可靠执行
 | 2026-08-07 | 客户资产入口组合我的资产与创作结果 | 客户需要管理上传/导入资料，但两个视图不能合并成超级 Asset 写模型 |
 | 2026-08-05 | 客户叙事图与平台架构图分离 | 先解释客户输入和结果，再按需要展开 Runtime 与执行者边界 |
 | 2026-08-14 | 本地控制面与 Browser 呈现面分离 | Skills + stdio MCP 保持可移植控制面；Go CLI 按需启动同进程 loopback Presenter，本地与云端共用 handoff，所有写入进入同一 Workspace Kernel |
+| 2026-08-17 | Desktop 与 Codex 分离渲染 | Codex 负责任务期 AI 交互，Desktop 负责持续项目目录、同步、审批、上传和交付；两者共享 revision/digest 与 Workspace Kernel |

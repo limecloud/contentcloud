@@ -7,11 +7,31 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const version = (await readFile(resolve(root, 'VERSION'), 'utf8')).trim();
+const plugin = JSON.parse(await readFile(resolve(root, 'plugins/contentcloud-video-production/plugin.json'), 'utf8'));
+const version = plugin.version;
 const reportPath = resolve(root, `.agents/plugins/evaluations/contentcloud-video-production-${version}.json`);
 const report = JSON.parse(await readFile(reportPath, 'utf8'));
 const pluginDigest = execFileSync(process.execPath, ['scripts/validate-plugin-release.mjs', '--digest-only'], { cwd: root, encoding: 'utf8' }).trim();
 const failures = [];
+const internalPath = (...parts) => `./${['internal', ...parts].join('/')}`;
+const packagePaths = new Map([
+  [internalPath('agentadapter'), internalPath('integration', 'agent')],
+  [internalPath('app'), internalPath('application')],
+  [internalPath('automationworkspace'), internalPath('local', 'automation')],
+  [internalPath('bootstrapcheck'), internalPath('bootstrap', 'check')],
+  [internalPath('capabilitycatalog'), internalPath('catalog', 'capability')],
+  [internalPath('cli'), internalPath('transport', 'cli')],
+  [internalPath('environment'), internalPath('catalog', 'environment')],
+  [internalPath('httpapi'), internalPath('transport', 'http')],
+  [internalPath('localworkspace'), internalPath('local', 'workspace')],
+  [internalPath('serverconfig'), internalPath('bootstrap', 'serverconfig')],
+  [internalPath('store', 'postgres'), internalPath('persistence', 'postgres')],
+  [internalPath('workbench'), internalPath('local', 'workbench')],
+]);
+
+function currentScenarioCommand(command) {
+  return command.map((value) => packagePaths.get(value) ?? value);
+}
 
 if (report.schema_version !== '1.0' || report.scope !== 'deterministic_release_contract' || report.status !== 'passed') {
   failures.push('evaluation report identity or status is invalid');
@@ -28,7 +48,8 @@ for (const scenario of report.scenarios ?? []) {
     failures.push(`${scenario.id}: only structured go test commands are allowed`);
     continue;
   }
-  const result = spawnSync(scenario.command[0], scenario.command.slice(1), { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const command = currentScenarioCommand(scenario.command);
+  const result = spawnSync(command[0], command.slice(1), { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   if (result.status !== 0) {
     failures.push(`${scenario.id}: ${result.stderr || result.stdout || `exit ${result.status}`}`.trim());
     continue;

@@ -13,7 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 )
 
@@ -114,7 +115,7 @@ func New(config Config, runner CommandRunner) (*Host, error) {
 		config.MarketplaceName = "contentcloud"
 	}
 	if strings.TrimSpace(config.ProjectionRoot) == "" {
-		return nil, domain.Invalid("CODEX_PLUGIN_HOST_CONFIG_INVALID", "Codex 插件宿主缺少本地 Marketplace 投影目录")
+		return nil, fault.Invalid("CODEX_PLUGIN_HOST_CONFIG_INVALID", "Codex 插件宿主缺少本地 Marketplace 投影目录")
 	}
 	projectionRoot, err := filepath.Abs(config.ProjectionRoot)
 	if err != nil {
@@ -266,7 +267,7 @@ func (h *Host) Apply(ctx context.Context, request pluginhost.NativeApply) (plugi
 	change.MarketplaceAdded = !marketplace.AlreadyAdded
 	change.AddedMarketplaceName = marketplace.MarketplaceName
 	if marketplace.MarketplaceName != h.config.MarketplaceName {
-		return h.change(change), nil, domain.Conflict("CODEX_MARKETPLACE_ADD_MISMATCH", "Codex 返回的 Marketplace 身份与设备投影不一致")
+		return h.change(change), nil, fault.Conflict("CODEX_MARKETPLACE_ADD_MISMATCH", "Codex 返回的 Marketplace 身份与设备投影不一致")
 	}
 
 	installed, err := h.addPlugin(ctx, change.PluginID)
@@ -276,7 +277,7 @@ func (h *Host) Apply(ctx context.Context, request pluginhost.NativeApply) (plugi
 	change.PluginAdded = true
 	change.AddedPluginID = installed.PluginID
 	if installed.PluginID != change.PluginID || installed.Name != change.PluginName || installed.MarketplaceName != h.config.MarketplaceName || installed.Version != request.Target.Release.Version {
-		return h.change(change), nil, domain.Conflict("CODEX_PLUGIN_ADD_MISMATCH", "Codex 返回的插件身份或版本与目标 Release 不一致")
+		return h.change(change), nil, fault.Conflict("CODEX_PLUGIN_ADD_MISMATCH", "Codex 返回的插件身份或版本与目标 Release 不一致")
 	}
 
 	state, err := h.Detect(ctx, request.Target)
@@ -284,7 +285,7 @@ func (h *Host) Apply(ctx context.Context, request pluginhost.NativeApply) (plugi
 		return h.change(change), nil, err
 	}
 	if state.Status != pluginhost.StatusReady {
-		return h.change(change), nil, domain.Conflict("CODEX_PLUGIN_VERIFY_FAILED", state.Reason)
+		return h.change(change), nil, fault.Conflict("CODEX_PLUGIN_VERIFY_FAILED", state.Reason)
 	}
 	components := make([]pluginhost.InstalledComponent, 0, len(state.Components))
 	for _, item := range state.Components {
@@ -337,7 +338,7 @@ func (h *Host) Remove(ctx context.Context, request pluginhost.NativeRemove) (plu
 		return h.change(change), err
 	}
 	if state.Status != pluginhost.StatusAbsent {
-		return h.change(change), domain.Conflict("CODEX_PLUGIN_REMOVE_VERIFY_FAILED", "Codex 插件删除后仍处于可见状态")
+		return h.change(change), fault.Conflict("CODEX_PLUGIN_REMOVE_VERIFY_FAILED", "Codex 插件删除后仍处于可见状态")
 	}
 	return h.change(change), nil
 }
@@ -345,10 +346,10 @@ func (h *Host) Remove(ctx context.Context, request pluginhost.NativeRemove) (plu
 func (h *Host) Rollback(ctx context.Context, native pluginhost.NativeChange) error {
 	var change nativeChange
 	if err := json.Unmarshal(native.Data, &change); err != nil {
-		return domain.Invalid("CODEX_PLUGIN_ROLLBACK_INVALID", "Codex 插件原生回滚状态无法解析")
+		return fault.Invalid("CODEX_PLUGIN_ROLLBACK_INVALID", "Codex 插件原生回滚状态无法解析")
 	}
 	if len(change.PreviousProjection) == 0 {
-		return domain.Invalid("CODEX_PLUGIN_ROLLBACK_INVALID", "Codex 插件原生回滚状态缺少先前投影")
+		return fault.Invalid("CODEX_PLUGIN_ROLLBACK_INVALID", "Codex 插件原生回滚状态缺少先前投影")
 	}
 	var rollbackErrors []string
 	if change.Operation == "install" && change.PluginAdded {
@@ -478,7 +479,7 @@ func (h *Host) marketplaces(ctx context.Context) ([]marketplaceListItem, error) 
 		return nil, err
 	}
 	if response.Marketplaces == nil {
-		return nil, domain.Invalid("CODEX_MARKETPLACE_LIST_INVALID", "Codex Marketplace 列表缺少 marketplaces 字段")
+		return nil, fault.Invalid("CODEX_MARKETPLACE_LIST_INVALID", "Codex Marketplace 列表缺少 marketplaces 字段")
 	}
 	return response.Marketplaces, nil
 }
@@ -489,7 +490,7 @@ func (h *Host) plugins(ctx context.Context) ([]pluginListItem, error) {
 		return nil, err
 	}
 	if response.Installed == nil || response.Available == nil {
-		return nil, domain.Invalid("CODEX_PLUGIN_LIST_INVALID", "Codex 插件列表缺少 installed 或 available 字段")
+		return nil, fault.Invalid("CODEX_PLUGIN_LIST_INVALID", "Codex 插件列表缺少 installed 或 available 字段")
 	}
 	return response.Installed, nil
 }
@@ -518,7 +519,7 @@ func (h *Host) version(ctx context.Context) (string, error) {
 			return parts[0], nil
 		}
 	}
-	return "", domain.Invalid("CODEX_VERSION_INVALID", "Codex --version 未返回可识别的语义版本")
+	return "", fault.Invalid("CODEX_VERSION_INVALID", "Codex --version 未返回可识别的语义版本")
 }
 
 type marketplaceAddResult struct {
@@ -533,7 +534,7 @@ func (h *Host) addMarketplace(ctx context.Context) (marketplaceAddResult, error)
 		return response, err
 	}
 	if strings.TrimSpace(response.MarketplaceName) == "" || strings.TrimSpace(response.InstalledRoot) == "" {
-		return response, domain.Invalid("CODEX_MARKETPLACE_ADD_INVALID", "Codex Marketplace 安装结果缺少身份或路径")
+		return response, fault.Invalid("CODEX_MARKETPLACE_ADD_INVALID", "Codex Marketplace 安装结果缺少身份或路径")
 	}
 	return response, nil
 }
@@ -552,7 +553,7 @@ func (h *Host) addPlugin(ctx context.Context, pluginID string) (pluginAddResult,
 		return response, err
 	}
 	if strings.TrimSpace(response.PluginID) == "" || strings.TrimSpace(response.InstalledPath) == "" {
-		return response, domain.Invalid("CODEX_PLUGIN_ADD_INVALID", "Codex 插件安装结果缺少身份或路径")
+		return response, fault.Invalid("CODEX_PLUGIN_ADD_INVALID", "Codex 插件安装结果缺少身份或路径")
 	}
 	return response, nil
 }
@@ -577,13 +578,13 @@ func (h *Host) runJSON(ctx context.Context, operation string, target any, args .
 	}
 	decoder := json.NewDecoder(bytes.NewReader(result.Stdout))
 	if err := decoder.Decode(target); err != nil {
-		domainErr := domain.Invalid("CODEX_JSON_INVALID", "Codex 命令没有返回可解析的 JSON")
+		domainErr := fault.Invalid("CODEX_JSON_INVALID", "Codex 命令没有返回可解析的 JSON")
 		domainErr.Details = map[string]any{"operation": operation, "error": err.Error()}
 		return domainErr
 	}
 	var extra any
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return domain.Invalid("CODEX_JSON_INVALID", "Codex 命令返回了多个 JSON 值")
+		return fault.Invalid("CODEX_JSON_INVALID", "Codex 命令返回了多个 JSON 值")
 	}
 	return nil
 }
@@ -658,8 +659,8 @@ func canonicalPath(path string) (string, error) {
 	return pluginhost.CanonicalPath(path)
 }
 
-func commandError(operation string, result CommandResult, cause error) *domain.Error {
-	domainErr := domain.E("runtime", "codex", "CODEX_COMMAND_FAILED", "Codex 插件命令执行失败", 5)
+func commandError(operation string, result CommandResult, cause error) *fault.Error {
+	domainErr := fault.E("runtime", "codex", "CODEX_COMMAND_FAILED", "Codex 插件命令执行失败", 5)
 	domainErr.Retryable = true
 	domainErr.Details = map[string]any{
 		"operation": operation,

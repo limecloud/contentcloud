@@ -1,14 +1,15 @@
-package runtime
+package runtime_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/store/memory"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
 )
 
-func startAgentRuntime(t *testing.T) (*Service, *memory.Store, StartResult, domain.NodeRun, time.Time) {
+func startAgentRuntime(t *testing.T) (*Service, *memory.Store, StartResult, NodeRun, time.Time) {
 	t.Helper()
 	now := time.Date(2026, 8, 6, 8, 0, 0, 0, time.UTC)
 	repo := memory.New()
@@ -23,7 +24,7 @@ func startAgentRuntime(t *testing.T) (*Service, *memory.Store, StartResult, doma
 	return service, repo, started, started.Nodes[0], now
 }
 
-func createAgentContext(t *testing.T, service *Service, started StartResult, node domain.NodeRun, now time.Time, attemptID string, tools []string, budget int64) domain.ContextView {
+func createAgentContext(t *testing.T, service *Service, started StartResult, node NodeRun, now time.Time, attemptID string, tools []string, budget int64) ContextView {
 	t.Helper()
 	view, err := service.CreateContextView(t.Context(), ContextViewInput{
 		TenantID:     started.Job.TenantID,
@@ -85,7 +86,7 @@ func TestContextViewAndAgentInstancePersistence(t *testing.T) {
 		t.Fatalf("unexpected AgentInstance list: %#v", agents)
 	}
 
-	transitioned, err := service.TransitionAgentInstance(t.Context(), "tenant-1", agent.ID, domain.AgentRunnable, "session-1", 20, agent.Version)
+	transitioned, err := service.TransitionAgentInstance(t.Context(), "tenant-1", agent.ID, AgentRunnable, "session-1", 20, agent.Version)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,7 +9,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const CSS_PATH = new URL('../web/src/styles.css', import.meta.url);
+const CSS_PATH = new URL('../apps/web/src/styles.css', import.meta.url);
 const START = '/* === 设计体系精修 (redesign) === */';
 const END = '/* === 设计体系精修 end === */';
 

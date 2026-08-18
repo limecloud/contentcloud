@@ -1,0 +1,40 @@
+{
+  "schema_version": "contentcloud.desktop-update-policy/1.0",
+  "app_id": "run.zhongcao.contentcloud.desktop",
+  "default_channel": "stable",
+  "channels": {
+    "stable": {
+      "metadata_path": "desktop/stable/latest.json",
+      "requires_signed_artifacts": true,
+      "allows_downgrade": false
+    },
+    "beta": {
+      "metadata_path": "desktop/beta/latest.json",
+      "requires_signed_artifacts": true,
+      "allows_downgrade": false
+    }
+  },
+  "targets": {
+    "darwin-arm64": {
+      "package_formats": ["dmg", "zip"],
+      "update_formats": ["zip"]
+    },
+    "darwin-x64": {
+      "package_formats": ["dmg", "zip"],
+      "update_formats": ["zip"]
+    },
+    "win32-x64": {
+      "package_formats": ["squirrel"],
+      "update_formats": ["squirrel"]
+    },
+    "linux-x64": {
+      "package_formats": ["deb", "rpm"],
+      "update_formats": []
+    }
+  },
+  "signing": {
+    "macos": "external-release-gate",
+    "windows": "external-release-gate",
+    "linux": "not-required-for-preview"
+  }
+}

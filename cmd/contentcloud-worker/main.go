@@ -8,10 +8,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/app"
-	"github.com/limecloud/contentcloud/internal/blob"
-	"github.com/limecloud/contentcloud/internal/store/postgres"
-	"github.com/limecloud/contentcloud/internal/worker"
+	"github.com/limecloud/contentcloud/internal/application"
+	"github.com/limecloud/contentcloud/internal/persistence/blob"
+	"github.com/limecloud/contentcloud/internal/persistence/postgres"
+	"github.com/limecloud/contentcloud/internal/runtime/worker"
 )
 
 func main() {
@@ -40,16 +40,17 @@ func main() {
 		logger.Error("initialize object storage", "error", err)
 		os.Exit(1)
 	}
-	serviceOptions := []app.Option{}
-	seedance25Provider, seedance25Err := app.Seedance25ProviderFromEnv(store, blobs)
+	serviceOptions := []application.Option{}
+	dependencies := application.DependenciesFrom(store)
+	seedance25Provider, seedance25Err := application.Seedance25ProviderFromEnv(dependencies.Artifacts, dependencies.Review, blobs)
 	if seedance25Err != nil {
 		logger.Error("configure Seedance 2.5 Provider", "error", seedance25Err)
 		os.Exit(1)
 	}
 	if seedance25Provider != nil {
-		serviceOptions = append(serviceOptions, app.WithMediaProviderAdapter(app.Seedance25ProviderID, seedance25Provider))
+		serviceOptions = append(serviceOptions, application.WithMediaProviderAdapter(application.Seedance25ProviderID, seedance25Provider))
 	}
-	service := app.NewWithBlob(store, logger, blobs, serviceOptions...)
+	service := application.NewWithBlob(dependencies, logger, blobs, serviceOptions...)
 	runtimeWorkerID := worker.RuntimeEventWorkerID()
 	capabilities := []string{"runtime_event_delivery", "business_result_materialization", "runtime_projection", "source_ingestion", "policy_validation", "context_compile", "export"}
 	if seedance25Provider != nil {
@@ -64,7 +65,7 @@ func main() {
 			logger.Info("worker stopped")
 			return
 		case <-ticker.C:
-			runtimeEvents, runtimeErr := worker.ProcessRuntimeEvents(ctx, store, service, runtimeWorkerID, 50)
+			runtimeEvents, runtimeErr := worker.ProcessRuntimeEvents(ctx, dependencies.Identity, dependencies.Runtime, service, runtimeWorkerID, 50)
 			if runtimeErr != nil {
 				logger.Error("process runtime events", "error", runtimeErr)
 			} else if runtimeEvents.BusinessClaimed > 0 || runtimeEvents.ProjectionClaims > 0 {
@@ -76,7 +77,7 @@ func main() {
 			} else if processed > 0 {
 				logger.Info("processed sources", "count", processed)
 			}
-			mediaProcessed, mediaErr := worker.ProcessPendingMedia(ctx, service, 10)
+			mediaProcessed, mediaErr := worker.ProcessPendingMedia(ctx, service.Delivery, 10)
 			if mediaErr != nil {
 				logger.Error("process media jobs", "error", mediaErr)
 			} else if mediaProcessed > 0 {

@@ -1,19 +1,20 @@
-package runtime
+package runtime_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/store/memory"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
 )
 
 func TestApplyGraphPatchOnlyAppendsNewDownstreamNodes(t *testing.T) {
-	plan, err := NewCompiler(domain.DefaultRuntimeLimits()).CompileSOP(testSOP(), "tenant-1", "user-1", fixedRuntimeTime())
+	plan, err := NewCompiler(DefaultRuntimeLimits()).CompileSOP(testSOP(), "tenant-1", "user-1", fixedRuntimeTime())
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := ApplyGraphPatch(plan, 1, GraphPatch{ExpectedGraphVersion: 1, IdempotencyKey: "fanout-1", Reason: "为新受众创建脚本候选", AddNodes: []domain.JobPlanNode{{Key: "audience:1", Kind: "stage", Name: "受众一脚本", OutputSchema: "contentcloud.script/1.0", DependsOn: []string{"stage:sources"}, RetryMaxAttempts: 1}}, CancelPendingNodeKeys: []string{"stage:delivery"}})
+	result, err := ApplyGraphPatch(plan, 1, GraphPatch{ExpectedGraphVersion: 1, IdempotencyKey: "fanout-1", Reason: "为新受众创建脚本候选", AddNodes: []JobPlanNode{{Key: "audience:1", Kind: "stage", Name: "受众一脚本", OutputSchema: "contentcloud.script/1.0", DependsOn: []string{"stage:sources"}, RetryMaxAttempts: 1}}, CancelPendingNodeKeys: []string{"stage:delivery"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +34,7 @@ func TestPatchGraphPersistsRevisionNodesAndEventAtomically(t *testing.T) {
 		ExpectedGraphVersion: 1,
 		IdempotencyKey:       "expand-audiences",
 		Reason:               "为已确认受众生成候选",
-		AddNodes: []domain.JobPlanNode{{
+		AddNodes: []JobPlanNode{{
 			Key: "audience:1", Kind: "stage", Name: "受众一脚本", OutputSchema: "contentcloud.script/1.0",
 			DependsOn: []string{"stage:sources"}, RetryMaxAttempts: 1,
 		}},
@@ -56,7 +57,7 @@ func TestPatchGraphPersistsRevisionNodesAndEventAtomically(t *testing.T) {
 	found := false
 	for _, node := range nodes {
 		if node.NodeKey == "audience:1" {
-			found = node.State == domain.NodePending
+			found = node.State == NodePending
 		}
 	}
 	if !found {
@@ -72,15 +73,15 @@ func TestPatchGraphPersistsRevisionNodesAndEventAtomically(t *testing.T) {
 }
 
 func TestApplyGraphPatchRejectsExistingDependencyMutationAndCycles(t *testing.T) {
-	plan, err := NewCompiler(domain.DefaultRuntimeLimits()).CompileSOP(testSOP(), "tenant-1", "user-1", fixedRuntimeTime())
+	plan, err := NewCompiler(DefaultRuntimeLimits()).CompileSOP(testSOP(), "tenant-1", "user-1", fixedRuntimeTime())
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = ApplyGraphPatch(plan, 1, GraphPatch{ExpectedGraphVersion: 1, IdempotencyKey: "invalid-existing", Reason: "修改已有节点", AddEdges: []domain.JobPlanEdge{{From: "stage:delivery", To: "stage:sources"}}})
+	_, err = ApplyGraphPatch(plan, 1, GraphPatch{ExpectedGraphVersion: 1, IdempotencyKey: "invalid-existing", Reason: "修改已有节点", AddEdges: []JobPlanEdge{{From: "stage:delivery", To: "stage:sources"}}})
 	if err == nil {
 		t.Fatal("existing node dependency mutation unexpectedly accepted")
 	}
-	_, err = ApplyGraphPatch(plan, 1, GraphPatch{ExpectedGraphVersion: 1, IdempotencyKey: "invalid-cycle", Reason: "创建环", AddNodes: []domain.JobPlanNode{{Key: "cycle", Kind: "stage", Name: "环", OutputSchema: "contentcloud.test/1.0", DependsOn: []string{"cycle"}}}})
+	_, err = ApplyGraphPatch(plan, 1, GraphPatch{ExpectedGraphVersion: 1, IdempotencyKey: "invalid-cycle", Reason: "创建环", AddNodes: []JobPlanNode{{Key: "cycle", Kind: "stage", Name: "环", OutputSchema: "contentcloud.test/1.0", DependsOn: []string{"cycle"}}}})
 	if err == nil {
 		t.Fatal("cycle graph patch unexpectedly accepted")
 	}

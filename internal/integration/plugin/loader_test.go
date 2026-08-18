@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+
 	"github.com/limecloud/contentcloud/internal/integration/plugin"
 )
 
@@ -202,7 +203,7 @@ func assertDiagnostic(t *testing.T, diagnostics []plugin.Diagnostic, code, compo
 
 func assertDomainCode(t *testing.T, err error, code string) {
 	t.Helper()
-	var domainErr *domain.Error
+	var domainErr *fault.Error
 	if !errors.As(err, &domainErr) || domainErr.Code != code {
 		t.Fatalf("error = %v, want domain code %s", err, code)
 	}

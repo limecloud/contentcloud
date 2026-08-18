@@ -12,8 +12,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+
 	"github.com/google/uuid"
-	"github.com/limecloud/contentcloud/internal/domain"
 	"github.com/limecloud/contentcloud/internal/integration/plugin"
 )
 
@@ -40,7 +41,7 @@ func DefaultStoreRoot() (string, error) {
 func NewStore(root string) (*Store, error) {
 	root = filepath.Clean(root)
 	if root == "." || root == string(filepath.Separator) || strings.TrimSpace(root) == "" {
-		return nil, domain.Invalid("PLUGIN_HOST_STORE_INVALID", "插件宿主存储目录必须是明确的客户端目录")
+		return nil, fault.Invalid("PLUGIN_HOST_STORE_INVALID", "插件宿主存储目录必须是明确的客户端目录")
 	}
 	for _, name := range []string{"packages", "receipts", "locks", "staging"} {
 		if err := os.MkdirAll(filepath.Join(root, name), 0o700); err != nil {
@@ -113,10 +114,10 @@ func (s *Store) LoadReceipt(host HostID, pluginID string) (*Receipt, error) {
 	}
 	var receipt Receipt
 	if err := json.Unmarshal(body, &receipt); err != nil {
-		return nil, domain.Invalid("PLUGIN_HOST_RECEIPT_INVALID", "本地插件安装回执无法解析")
+		return nil, fault.Invalid("PLUGIN_HOST_RECEIPT_INVALID", "本地插件安装回执无法解析")
 	}
 	if receipt.SchemaVersion != SchemaVersion || receipt.HostID != host || receipt.Release.PluginID != pluginID {
-		return nil, domain.Invalid("PLUGIN_HOST_RECEIPT_INVALID", "本地插件安装回执身份不一致")
+		return nil, fault.Invalid("PLUGIN_HOST_RECEIPT_INVALID", "本地插件安装回执身份不一致")
 	}
 	return &receipt, nil
 }
@@ -141,7 +142,7 @@ func (s *Store) Lock(host HostID) (func(), error) {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			return nil, domain.Conflict("PLUGIN_HOST_CAS_CONFLICT", "同一宿主上的插件变更正在进行")
+			return nil, fault.Conflict("PLUGIN_HOST_CAS_CONFLICT", "同一宿主上的插件变更正在进行")
 		}
 		return nil, err
 	}
@@ -157,12 +158,12 @@ func (s *Store) Stage(pkg plugin.Package, installationID string) (string, error)
 	}
 	if err := copyTree(pkg.Root, stage); err != nil {
 		_ = os.RemoveAll(stage)
-		return "", domain.Invalid("PLUGIN_HOST_STAGE_FAILED", err.Error())
+		return "", fault.Invalid("PLUGIN_HOST_STAGE_FAILED", err.Error())
 	}
 	loaded, err := plugin.Load(stage)
 	if err != nil || loaded.Digest != pkg.Digest {
 		_ = os.RemoveAll(stage)
-		return "", domain.Conflict("PLUGIN_HOST_STAGE_DIGEST_MISMATCH", "插件 staging 内容与计划摘要不一致")
+		return "", fault.Conflict("PLUGIN_HOST_STAGE_DIGEST_MISMATCH", "插件 staging 内容与计划摘要不一致")
 	}
 	return stage, nil
 }
@@ -171,7 +172,7 @@ func (s *Store) CommitStage(stage string, ref ReleaseRef) (string, error) {
 	destination := s.PackagePath(ref)
 	if existing, err := os.Stat(destination); err == nil {
 		if !existing.IsDir() {
-			return "", domain.Conflict("PLUGIN_HOST_PACKAGE_PATH_INVALID", "已有插件包路径不是目录")
+			return "", fault.Conflict("PLUGIN_HOST_PACKAGE_PATH_INVALID", "已有插件包路径不是目录")
 		}
 		_ = os.RemoveAll(stage)
 		return destination, nil

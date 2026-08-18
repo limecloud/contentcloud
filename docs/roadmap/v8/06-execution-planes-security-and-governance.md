@@ -10,6 +10,8 @@ V8 不再使用含糊的“零执行”说法。准确的安全边界是：
 
 这不等于操作系统级安全沙箱。当前 Automation 工作目录的 `0700` 权限、只读契约和进程组取消机制可以降低误操作风险，但无法阻止拥有较高本机权限的智能体读取当前用户可访问的其他文件。因此，V8 在动态创建智能体之前，必须把隔离等级作为明确的调度条件进行校验。
 
+Electron Desktop 是额外的 UI 安全边界，不是新的业务信任边界：Renderer 使用 `sandbox + contextIsolation + nodeIntegration=false`，不能访问文件系统、Cloud API、设备 Token 或任意命令；Main 只管理窗口、通知、协议和 Daemon 生命周期；Go Daemon 重新校验 Workspace、revision、digest、权限、幂等和上传范围。Desktop 关闭后 Daemon 可继续收敛队列，但 Renderer 崩溃不能改变 Runtime 权威状态。
+
 ## 2. 信任边界
 
 ```text

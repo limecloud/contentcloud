@@ -2,7 +2,7 @@
 
 状态：`当前架构图 + 外部接通边界`。
 
-更新时间：2026-08-11。
+更新时间：2026-08-17。
 
 ## 1. 阅读规则
 
@@ -16,6 +16,49 @@
 - 图中的 Agent/SaaS 名称是执行适配示例；业务节点只绑定 Capability、Schema、ExecutionProfile 和固定引用。
 
 ## 2. 当前三执行平面架构图
+
+先区分工作面与执行平面：
+
+```mermaid
+flowchart TB
+    subgraph Surfaces[用户工作面]
+        Codex[Codex\n任务期 AI 工作面]
+        Desktop[Content Work OS Desktop\n持续项目工作面]
+        Web[Web Studio / Operations\n团队与组织工作面]
+    end
+
+    subgraph Local[本地设备]
+        MCP[stdio MCP Adapter]
+        Renderer[Electron Renderer]
+        Preload[typed Preload]
+        Main[Electron Main]
+        Daemon[Go Daemon]
+        Kernel[Local Workspace Kernel]
+        Sync[Sync / Upload / Review Inbox]
+        Workspace[(Local Workspace)]
+    end
+
+    subgraph Cloud[ContentCloud]
+        API[Command / Query API]
+        Events[Event Stream]
+        Runtime[Agentic Job Runtime]
+        Facts[(Cloud Revision / Review / Delivery)]
+    end
+
+    Codex --> MCP --> Kernel
+    Desktop --> Renderer --> Preload --> Main --> Daemon
+    Daemon --> Kernel
+    Daemon --> Sync
+    Kernel <--> Workspace
+    Sync <--> API
+    Sync <--> Events
+    Daemon <--> Runtime
+    Web --> API
+    API <--> Facts
+    Runtime <--> Facts
+```
+
+Codex 与 Desktop 进入同一 Local Workspace Kernel，但使用不同 View；Desktop 不嵌入第二套 Chat，Codex 不承担持续项目目录。完整图源见 [`docs/tech/contentcloud-desktop-architecture.mmd`](../tech/contentcloud-desktop-architecture.mmd)。
 
 这张图是当前系统的事实图，不把本地交互生产误画成云端 Runtime 工作流。
 
@@ -637,10 +680,11 @@ flowchart TB
 | 图 | 事实来源 | 状态 |
 | --- | --- | --- |
 | 三执行平面 | Workspace Skill、LocalRun、Submission、Foundation、V8 | `current` |
+| 三工作面与 Desktop 进程边界 | ADR-0018/0019、Desktop 产品与技术规范 | `target`，Electron 尚未实现 |
 | 本地到服务端主链 | CLI/MCP publish、V3 contracts、Review tests | `current` |
 | 公众号交付 | WeChatDelivery contract/Skill/CLI | `current-local` |
 | V3 对象血缘 | localworkspace、app submission、asset projections | `current-server` / `current-local` |
-| 搜索采集 | `internal/sourceinfra`、`internal/connector`、SourceRevision/Evidence | `current-server` / `external-dependency` |
+| 搜索采集 | `internal/integration/provider/source`、`internal/integration/connector`、SourceRevision/Evidence | `current-server` / `external-dependency` |
 | Runtime 自动化 | Runtime V8、Effect、Provider inbox | `current-server` |
 | 开放执行生态 | AgentHarnessAdapter、ExecutionProfile、Plugin claims、Effect | `current-server` / `external-dependency` |
 | 公众号排版派生 | Article/WeChatDelivery、DOM digest、移动 lint | `current-local` |

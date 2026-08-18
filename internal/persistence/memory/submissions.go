@@ -1,0 +1,303 @@
+package memory
+
+import (
+	"context"
+	"sort"
+
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+	reviewdomain "github.com/limecloud/contentcloud/internal/review"
+	workspacedomain "github.com/limecloud/contentcloud/internal/workspace"
+)
+
+func (s *Store) CreateWorkspaceBinding(_ context.Context, value workspacedomain.WorkspaceBinding) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.workspaceBindings {
+		if existing.CredentialHash == value.CredentialHash {
+			return fault.Conflict("WORKSPACE_CREDENTIAL_EXISTS", "工作区凭据已存在")
+		}
+	}
+	s.workspaceBindings[value.ID] = value
+	return nil
+}
+
+func (s *Store) WorkspaceBindingByTokenHash(_ context.Context, hash string) (workspacedomain.WorkspaceBinding, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, value := range s.workspaceBindings {
+		if value.CredentialHash == hash && value.Status == "active" && value.RevokedAt == nil {
+			return value, nil
+		}
+	}
+	return workspacedomain.WorkspaceBinding{}, fault.NotFound("工作区凭据")
+}
+
+func (s *Store) WorkspaceBinding(_ context.Context, tenantID, id string) (workspacedomain.WorkspaceBinding, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.workspaceBindings[id]
+	if !ok || value.TenantID != tenantID {
+		return value, fault.NotFound("工作区绑定")
+	}
+	value.CredentialHash = ""
+	return value, nil
+}
+
+func (s *Store) SaveWorkspaceBinding(_ context.Context, value workspacedomain.WorkspaceBinding) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.workspaceBindings[value.ID]
+	if !ok || existing.TenantID != value.TenantID {
+		return fault.NotFound("工作区绑定")
+	}
+	if value.CredentialHash == "" {
+		value.CredentialHash = existing.CredentialHash
+	}
+	s.workspaceBindings[value.ID] = value
+	return nil
+}
+
+func (s *Store) CreateSubmissionRevision(_ context.Context, submission reviewdomain.Submission, revision reviewdomain.SubmissionRevision, disclosures []reviewdomain.SourceDisclosure, cycle reviewdomain.ReviewCycle) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.submissionRevisions {
+		if existing.WorkspaceID == revision.WorkspaceID && existing.IdempotencyKey == revision.IdempotencyKey {
+			return fault.Conflict("SUBMISSION_IDEMPOTENCY_CONFLICT", "该幂等键已创建提交版本")
+		}
+	}
+	if existing, ok := s.submissions[submission.ID]; ok {
+		if existing.TenantID != submission.TenantID || existing.ProjectID != submission.ProjectID {
+			return fault.NotFound("提交")
+		}
+	}
+	for index := range disclosures {
+		disclosures[index].TenantID = revision.TenantID
+		disclosures[index].ProjectID = revision.ProjectID
+		disclosures[index].SubmissionRevisionID = revision.ID
+	}
+	revision.SourceDisclosures = append([]reviewdomain.SourceDisclosure(nil), disclosures...)
+	cycle.CycleNumber = 1
+	s.submissions[submission.ID] = submission
+	s.submissionRevisions[revision.ID] = revision
+	s.reviewCycles[cycle.ID] = cycle
+	for id, grant := range s.reviewGrants {
+		grantRevision, ok := s.submissionRevisions[grant.SubjectID]
+		if grant.SubjectType == "submission_revision" && ok && grantRevision.SubmissionID == submission.ID && grant.SubjectID != revision.ID && grant.RevokedAt == nil && grant.DecisionAt == nil {
+			revokedAt := revision.CreatedAt
+			grant.RevokedAt = &revokedAt
+			s.reviewGrants[id] = grant
+		}
+	}
+	return nil
+}
+
+func (s *Store) SubmissionByWorkspaceType(_ context.Context, tenantID, projectID, workspaceID, submissionType string) (reviewdomain.Submission, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, value := range s.submissions {
+		if value.TenantID == tenantID && value.ProjectID == projectID && value.WorkspaceID == workspaceID && value.SubmissionType == submissionType {
+			return value, nil
+		}
+	}
+	return reviewdomain.Submission{}, fault.NotFound("提交")
+}
+
+func (s *Store) Submissions(_ context.Context, tenantID, projectID string) ([]reviewdomain.Submission, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	values := []reviewdomain.Submission{}
+	for _, value := range s.submissions {
+		if value.TenantID == tenantID && (projectID == "" || value.ProjectID == projectID) {
+			values = append(values, value)
+		}
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i].UpdatedAt.After(values[j].UpdatedAt) })
+	return values, nil
+}
+
+func (s *Store) Submission(_ context.Context, tenantID, id string) (reviewdomain.Submission, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.submissions[id]
+	if !ok || value.TenantID != tenantID {
+		return value, fault.NotFound("提交")
+	}
+	return value, nil
+}
+
+func (s *Store) SubmissionRevision(_ context.Context, tenantID, id string) (reviewdomain.SubmissionRevision, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.submissionRevisions[id]
+	if !ok || value.TenantID != tenantID {
+		return value, fault.NotFound("提交修订版本")
+	}
+	return value, nil
+}
+
+func (s *Store) SubmissionRevisions(_ context.Context, tenantID, submissionID string) ([]reviewdomain.SubmissionRevision, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	values := []reviewdomain.SubmissionRevision{}
+	for _, value := range s.submissionRevisions {
+		if value.TenantID == tenantID && value.SubmissionID == submissionID {
+			values = append(values, value)
+		}
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i].RevisionNo > values[j].RevisionNo })
+	return values, nil
+}
+
+func (s *Store) ApprovedSnapshots(_ context.Context, tenantID, projectID, submissionType string) ([]reviewdomain.ApprovedSnapshot, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	values := []reviewdomain.ApprovedSnapshot{}
+	for _, value := range s.approvedSnapshots {
+		if value.TenantID == tenantID && (projectID == "" || value.ProjectID == projectID) && (submissionType == "" || value.SubmissionType == submissionType) {
+			values = append(values, value)
+		}
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i].CreatedAt.After(values[j].CreatedAt) })
+	return values, nil
+}
+
+func (s *Store) ApprovedSnapshot(_ context.Context, tenantID, id string) (reviewdomain.ApprovedSnapshot, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.approvedSnapshots[id]
+	if !ok || value.TenantID != tenantID {
+		return value, fault.NotFound("批准快照")
+	}
+	return value, nil
+}
+
+func (s *Store) RecordSubmissionApproval(_ context.Context, submission reviewdomain.Submission, decision reviewdomain.ApprovalDecision) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.submissions[submission.ID]
+	if !ok || existing.TenantID != submission.TenantID {
+		return fault.NotFound("提交")
+	}
+	if !submissionTransitionMatches(existing, submission, decision.PreviousState) {
+		return fault.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
+	}
+	s.submissions[submission.ID] = submission
+	s.approvals[decision.ID] = decision
+	return nil
+}
+
+func (s *Store) ApproveSubmissionRevision(_ context.Context, submission reviewdomain.Submission, snapshot reviewdomain.ApprovedSnapshot, decision reviewdomain.ApprovalDecision) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.submissions[submission.ID]
+	if !ok || existing.TenantID != submission.TenantID {
+		return fault.NotFound("提交")
+	}
+	if !submissionTransitionMatches(existing, submission, decision.PreviousState) {
+		return fault.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
+	}
+	if _, ok := s.submissionRevisions[snapshot.SubmissionRevisionID]; !ok {
+		return fault.NotFound("提交修订版本")
+	}
+	s.submissions[submission.ID] = submission
+	s.approvedSnapshots[snapshot.ID] = snapshot
+	s.approvals[decision.ID] = decision
+	return nil
+}
+
+func (s *Store) RequestSubmissionChanges(_ context.Context, submission reviewdomain.Submission, decision reviewdomain.ApprovalDecision, comment reviewdomain.ReviewComment) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.submissions[submission.ID]
+	if !ok || existing.TenantID != submission.TenantID {
+		return fault.NotFound("提交")
+	}
+	if !submissionTransitionMatches(existing, submission, decision.PreviousState) {
+		return fault.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
+	}
+	s.submissions[submission.ID] = submission
+	s.approvals[decision.ID] = decision
+	s.reviewComments[comment.ID] = comment
+	for id, grant := range s.reviewGrants {
+		if grant.TenantID == submission.TenantID && grant.SubjectID == submission.CurrentRevisionID && grant.SubjectType == "submission_revision" && grant.RevokedAt == nil && grant.DecisionAt == nil {
+			revokedAt := decision.CreatedAt
+			grant.RevokedAt = &revokedAt
+			s.reviewGrants[id] = grant
+		}
+	}
+	return nil
+}
+
+func (s *Store) RejectSubmission(_ context.Context, submission reviewdomain.Submission, decision reviewdomain.ApprovalDecision, comment reviewdomain.ReviewComment) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.submissions[submission.ID]
+	if !ok || existing.TenantID != submission.TenantID {
+		return fault.NotFound("提交")
+	}
+	if !submissionTransitionMatches(existing, submission, decision.PreviousState) {
+		return fault.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
+	}
+	s.submissions[submission.ID] = submission
+	s.approvals[decision.ID] = decision
+	s.reviewComments[comment.ID] = comment
+	for id, grant := range s.reviewGrants {
+		if grant.TenantID == submission.TenantID && grant.SubjectID == submission.CurrentRevisionID && grant.SubjectType == "submission_revision" && grant.RevokedAt == nil && grant.DecisionAt == nil {
+			revokedAt := decision.CreatedAt
+			grant.RevokedAt = &revokedAt
+			s.reviewGrants[id] = grant
+		}
+	}
+	return nil
+}
+
+func (s *Store) CreateSubmissionReviewGrant(_ context.Context, submission reviewdomain.Submission, grant reviewdomain.ReviewGrant) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.submissions[submission.ID]
+	if !ok || existing.TenantID != submission.TenantID {
+		return fault.NotFound("提交")
+	}
+	if existing.CurrentRevisionID != submission.CurrentRevisionID || (existing.Status != "internally_approved" && existing.Status != "client_review") {
+		return fault.Conflict("SUBMISSION_STATE_INVALID", "提交版本的当前版本号或状态已变化")
+	}
+	if _, ok := s.submissionRevisions[grant.SubjectID]; !ok {
+		return fault.NotFound("提交修订版本")
+	}
+	s.submissions[submission.ID] = submission
+	s.reviewGrants[grant.ID] = grant
+	return nil
+}
+
+func (s *Store) CompleteSubmissionClientReview(_ context.Context, submission reviewdomain.Submission, grant reviewdomain.ReviewGrant, decision reviewdomain.ApprovalDecision, comment *reviewdomain.ReviewComment, snapshot *reviewdomain.ApprovedSnapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.submissions[submission.ID]
+	if !ok || existing.TenantID != submission.TenantID {
+		return fault.NotFound("提交")
+	}
+	if !submissionTransitionMatches(existing, submission, decision.PreviousState) {
+		return fault.Conflict("REVIEW_SUBJECT_CHANGED", "审批对象已失效或状态已变化")
+	}
+	storedGrant, ok := s.reviewGrants[grant.ID]
+	if !ok || storedGrant.DecisionAt != nil || storedGrant.RevokedAt != nil || grant.DecisionAt == nil || !grant.DecisionAt.Before(storedGrant.ExpiresAt) {
+		return fault.Conflict("REVIEW_ALREADY_DECIDED", "该审批链接已失效或已完成最终决策")
+	}
+	s.submissions[submission.ID] = submission
+	s.reviewGrants[grant.ID] = grant
+	s.approvals[decision.ID] = decision
+	if comment != nil {
+		s.reviewComments[comment.ID] = *comment
+	}
+	if snapshot != nil {
+		if _, exists := s.approvedSnapshots[snapshot.ID]; exists {
+			return fault.Conflict("APPROVED_SNAPSHOT_EXISTS", "批准快照已存在")
+		}
+		s.approvedSnapshots[snapshot.ID] = *snapshot
+	}
+	return nil
+}
+
+func submissionTransitionMatches(existing, updated reviewdomain.Submission, previousState string) bool {
+	return existing.CurrentRevisionID == updated.CurrentRevisionID && existing.Status == previousState
+}

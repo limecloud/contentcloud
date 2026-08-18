@@ -5,7 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+	"github.com/limecloud/contentcloud/internal/platform/stablehash"
 )
 
 type RuntimeSchemaInput struct {
@@ -18,16 +19,16 @@ type RuntimeSchemaInput struct {
 	CreatedBy       string
 }
 
-func (s *Service) CreateRuntimeSchema(ctx context.Context, input RuntimeSchemaInput) (domain.RuntimeSchema, error) {
+func (s *Service) CreateRuntimeSchema(ctx context.Context, input RuntimeSchemaInput) (RuntimeSchema, error) {
 	repo, err := s.schemaRepository()
 	if err != nil {
-		return domain.RuntimeSchema{}, err
+		return RuntimeSchema{}, err
 	}
 	if strings.TrimSpace(input.TenantID) == "" || strings.TrimSpace(input.SchemaID) == "" || input.Revision < 1 || input.Definition == nil || strings.TrimSpace(input.CreatedBy) == "" {
-		return domain.RuntimeSchema{}, domain.Invalid("RUNTIME_SCHEMA_INPUT_INVALID", "Runtime Schema 缺少租户、标识、版本、定义或创建者")
+		return RuntimeSchema{}, fault.Invalid("RUNTIME_SCHEMA_INPUT_INVALID", "Runtime Schema 缺少租户、标识、版本、定义或创建者")
 	}
 	if rootType, _ := input.Definition["type"].(string); rootType != "object" {
-		return domain.RuntimeSchema{}, domain.Invalid("RUNTIME_SCHEMA_DEFINITION_INVALID", "Runtime Schema 首版只接受根类型为 object 的 JSON Schema")
+		return RuntimeSchema{}, fault.Invalid("RUNTIME_SCHEMA_DEFINITION_INVALID", "Runtime Schema 首版只接受根类型为 object 的 JSON Schema")
 	}
 	compatibility := strings.TrimSpace(input.Compatibility)
 	if compatibility == "" {
@@ -35,50 +36,50 @@ func (s *Service) CreateRuntimeSchema(ctx context.Context, input RuntimeSchemaIn
 	}
 	retention := normalizeSchemaRetention(input.RetentionPolicy)
 	if retention == "" {
-		return domain.RuntimeSchema{}, domain.Invalid("RUNTIME_SCHEMA_RETENTION_INVALID", "Runtime Schema 保留策略无效")
+		return RuntimeSchema{}, fault.Invalid("RUNTIME_SCHEMA_RETENTION_INVALID", "Runtime Schema 保留策略无效")
 	}
-	digest, err := domain.CanonicalHash(struct {
+	digest, err := stablehash.Sum(struct {
 		SchemaID      string         `json:"schema_id"`
 		Revision      int            `json:"revision"`
 		Compatibility string         `json:"compatibility"`
 		Definition    map[string]any `json:"definition"`
 	}{input.SchemaID, input.Revision, compatibility, input.Definition})
 	if err != nil {
-		return domain.RuntimeSchema{}, err
+		return RuntimeSchema{}, err
 	}
 	now := s.now().UTC()
-	schema := domain.RuntimeSchema{TenantID: input.TenantID, SchemaID: input.SchemaID, Revision: input.Revision, Status: "draft", Compatibility: compatibility, Definition: input.Definition, Digest: "sha256:" + digest, RetentionPolicy: retention, CreatedBy: input.CreatedBy, CreatedAt: now, Version: 1}
+	schema := RuntimeSchema{TenantID: input.TenantID, SchemaID: input.SchemaID, Revision: input.Revision, Status: "draft", Compatibility: compatibility, Definition: input.Definition, Digest: "sha256:" + digest, RetentionPolicy: retention, CreatedBy: input.CreatedBy, CreatedAt: now, Version: 1}
 	if err := schema.Validate(); err != nil {
-		return domain.RuntimeSchema{}, err
+		return RuntimeSchema{}, err
 	}
 	if err := repo.CreateRuntimeSchema(ctx, schema); err != nil {
-		return domain.RuntimeSchema{}, err
+		return RuntimeSchema{}, err
 	}
 	return schema, nil
 }
 
-func (s *Service) PublishRuntimeSchema(ctx context.Context, tenantID, schemaID string, revision, expectedVersion int) (domain.RuntimeSchema, error) {
+func (s *Service) PublishRuntimeSchema(ctx context.Context, tenantID, schemaID string, revision, expectedVersion int) (RuntimeSchema, error) {
 	repo, err := s.schemaRepository()
 	if err != nil {
-		return domain.RuntimeSchema{}, err
+		return RuntimeSchema{}, err
 	}
 	schema, err := repo.RuntimeSchema(ctx, tenantID, schemaID, revision)
 	if err != nil {
-		return domain.RuntimeSchema{}, err
+		return RuntimeSchema{}, err
 	}
 	if schema.Status != "draft" {
-		return domain.RuntimeSchema{}, domain.Conflict("RUNTIME_SCHEMA_NOT_DRAFT", "只有 draft Runtime Schema 可以发布")
+		return RuntimeSchema{}, fault.Conflict("RUNTIME_SCHEMA_NOT_DRAFT", "只有 draft Runtime Schema 可以发布")
 	}
 	if revision > 1 {
 		previous, previousErr := repo.RuntimeSchema(ctx, tenantID, schemaID, revision-1)
 		if previousErr != nil || previous.Status != "published" {
-			return domain.RuntimeSchema{}, domain.Conflict("RUNTIME_SCHEMA_PREVIOUS_NOT_PUBLISHED", "新 Schema 版本必须建立在已发布的前一版本上")
+			return RuntimeSchema{}, fault.Conflict("RUNTIME_SCHEMA_PREVIOUS_NOT_PUBLISHED", "新 Schema 版本必须建立在已发布的前一版本上")
 		}
 		if (schema.Compatibility == "backward" || schema.Compatibility == "full") && !schemaDefinitionsBackwardCompatible(previous.Definition, schema.Definition) {
-			return domain.RuntimeSchema{}, domain.Conflict("RUNTIME_SCHEMA_COMPATIBILITY_FAILED", "Runtime Schema 未通过 backward 兼容检查")
+			return RuntimeSchema{}, fault.Conflict("RUNTIME_SCHEMA_COMPATIBILITY_FAILED", "Runtime Schema 未通过 backward 兼容检查")
 		}
 		if schema.Compatibility == "full" && !schemaDefinitionsBackwardCompatible(schema.Definition, previous.Definition) {
-			return domain.RuntimeSchema{}, domain.Conflict("RUNTIME_SCHEMA_COMPATIBILITY_FAILED", "Runtime Schema 未通过 full 兼容检查")
+			return RuntimeSchema{}, fault.Conflict("RUNTIME_SCHEMA_COMPATIBILITY_FAILED", "Runtime Schema 未通过 full 兼容检查")
 		}
 	}
 	now := s.now().UTC()
@@ -86,22 +87,22 @@ func (s *Service) PublishRuntimeSchema(ctx context.Context, tenantID, schemaID s
 	schema.PublishedAt = &now
 	schema.Version++
 	if err := schema.Validate(); err != nil {
-		return domain.RuntimeSchema{}, err
+		return RuntimeSchema{}, err
 	}
 	return repo.PublishRuntimeSchema(ctx, schema, expectedVersion)
 }
 
-func (s *Service) RetireRuntimeSchema(ctx context.Context, tenantID, schemaID string, revision, expectedVersion int) (domain.RuntimeSchema, error) {
+func (s *Service) RetireRuntimeSchema(ctx context.Context, tenantID, schemaID string, revision, expectedVersion int) (RuntimeSchema, error) {
 	repo, err := s.schemaRepository()
 	if err != nil {
-		return domain.RuntimeSchema{}, err
+		return RuntimeSchema{}, err
 	}
 	schema, err := repo.RuntimeSchema(ctx, tenantID, schemaID, revision)
 	if err != nil {
-		return domain.RuntimeSchema{}, err
+		return RuntimeSchema{}, err
 	}
 	if schema.Status != "published" {
-		return domain.RuntimeSchema{}, domain.Conflict("RUNTIME_SCHEMA_NOT_PUBLISHED", "只有 published Runtime Schema 可以退役")
+		return RuntimeSchema{}, fault.Conflict("RUNTIME_SCHEMA_NOT_PUBLISHED", "只有 published Runtime Schema 可以退役")
 	}
 	now := s.now().UTC()
 	schema.Status = "retired"
@@ -109,20 +110,20 @@ func (s *Service) RetireRuntimeSchema(ctx context.Context, tenantID, schemaID st
 	schema.RetainUntil = schemaRetentionDeadline(now, schema.RetentionPolicy)
 	schema.Version++
 	if err := schema.Validate(); err != nil {
-		return domain.RuntimeSchema{}, err
+		return RuntimeSchema{}, err
 	}
 	return repo.RetireRuntimeSchema(ctx, schema, expectedVersion)
 }
 
-func (s *Service) RuntimeSchema(ctx context.Context, tenantID, schemaID string, revision int) (domain.RuntimeSchema, error) {
+func (s *Service) RuntimeSchema(ctx context.Context, tenantID, schemaID string, revision int) (RuntimeSchema, error) {
 	repo, err := s.schemaRepository()
 	if err != nil {
-		return domain.RuntimeSchema{}, err
+		return RuntimeSchema{}, err
 	}
 	return repo.RuntimeSchema(ctx, tenantID, schemaID, revision)
 }
 
-func (s *Service) RuntimeSchemas(ctx context.Context, tenantID, schemaID string) ([]domain.RuntimeSchema, error) {
+func (s *Service) RuntimeSchemas(ctx context.Context, tenantID, schemaID string) ([]RuntimeSchema, error) {
 	repo, err := s.schemaRepository()
 	if err != nil {
 		return nil, err
@@ -132,7 +133,7 @@ func (s *Service) RuntimeSchemas(ctx context.Context, tenantID, schemaID string)
 
 func (s *Service) schemaRepository() (Repository, error) {
 	if s == nil || s.repo == nil {
-		return nil, domain.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+		return nil, fault.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
 	}
 	return s.repo, nil
 }

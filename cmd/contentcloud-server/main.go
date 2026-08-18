@@ -12,21 +12,20 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/app"
-	"github.com/limecloud/contentcloud/internal/blob"
-	"github.com/limecloud/contentcloud/internal/httpapi"
+	"github.com/limecloud/contentcloud/internal/application"
+	"github.com/limecloud/contentcloud/internal/bootstrap/serverconfig"
+	"github.com/limecloud/contentcloud/internal/persistence/blob"
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
+	"github.com/limecloud/contentcloud/internal/persistence/postgres"
 	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
-	"github.com/limecloud/contentcloud/internal/serverconfig"
-	storepkg "github.com/limecloud/contentcloud/internal/store"
-	"github.com/limecloud/contentcloud/internal/store/memory"
-	"github.com/limecloud/contentcloud/internal/store/postgres"
-	"github.com/limecloud/contentcloud/internal/worker"
+	"github.com/limecloud/contentcloud/internal/runtime/worker"
+	httpapi "github.com/limecloud/contentcloud/internal/transport/http"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
-	var st storepkg.Store = memory.New()
+	var st any = memory.New()
 	var closeStore func()
 	databaseURL := os.Getenv("CONTENTCLOUD_DATABASE_URL")
 	if databaseURL != "" {
@@ -54,7 +53,7 @@ func main() {
 		os.Exit(1)
 	}
 	addr := env("CONTENTCLOUD_ADDR", ":8080")
-	webDist := env("CONTENTCLOUD_WEB_DIST", "web/dist")
+	webDist := env("CONTENTCLOUD_WEB_DIST", "apps/web/dist")
 	devMode := os.Getenv("CONTENTCLOUD_DEV_MODE") == "1" || os.Getenv("CONTENTCLOUD_DEV_MODE") == "true"
 	adminEmails := splitValues(os.Getenv("CONTENTCLOUD_PLATFORM_ADMIN_EMAILS"))
 	if devMode {
@@ -65,28 +64,29 @@ func main() {
 		logger.Error("initialize Environment Control Plane", "error", err)
 		os.Exit(1)
 	}
-	serviceOptions := []app.Option{app.WithPlatformAdminEmails(adminEmails...)}
+	serviceOptions := []application.Option{application.WithPlatformAdminEmails(adminEmails...)}
 	rolloutPolicy, err := runtimeRolloutFromEnv()
 	if err != nil {
 		logger.Error("configure Runtime rollout", "error", err)
 		os.Exit(1)
 	}
-	serviceOptions = append(serviceOptions, app.WithRuntimeRolloutPolicy(rolloutPolicy))
+	serviceOptions = append(serviceOptions, application.WithRuntimeRolloutPolicy(rolloutPolicy))
 	if environmentRuntime.Enabled {
-		serviceOptions = append(serviceOptions, app.WithEnvironmentControlPlane(environmentRuntime.ControlPlane))
+		serviceOptions = append(serviceOptions, application.WithEnvironmentControlPlane(environmentRuntime.ControlPlane))
 		if len(environmentRuntime.AutomationRequirements) > 0 {
-			serviceOptions = append(serviceOptions, app.WithAutomationExecutionPolicy(environmentRuntime.AutomationRequirements, environmentRuntime.AutomationPackIDs))
+			serviceOptions = append(serviceOptions, application.WithAutomationExecutionPolicy(environmentRuntime.AutomationRequirements, environmentRuntime.AutomationPackIDs))
 		}
 	}
-	seedance25Provider, seedance25Err := app.Seedance25ProviderFromEnv(st, blobStore)
+	dependencies := application.DependenciesFrom(st)
+	seedance25Provider, seedance25Err := application.Seedance25ProviderFromEnv(dependencies.Artifacts, dependencies.Review, blobStore)
 	if seedance25Err != nil {
 		logger.Error("configure Seedance 2.5 Provider", "error", seedance25Err)
 		os.Exit(1)
 	}
 	if seedance25Provider != nil {
-		serviceOptions = append(serviceOptions, app.WithMediaProviderAdapter(app.Seedance25ProviderID, seedance25Provider))
+		serviceOptions = append(serviceOptions, application.WithMediaProviderAdapter(application.Seedance25ProviderID, seedance25Provider))
 	}
-	service := app.NewWithBlob(st, logger, blobStore, serviceOptions...)
+	service := application.NewWithBlob(dependencies, logger, blobStore, serviceOptions...)
 	logger.Info("Environment Control Plane configured", "enabled", environmentRuntime.Enabled, "automation_policy", len(environmentRuntime.AutomationRequirements) > 0, "seedance25_enabled", seedance25Provider != nil)
 	logger.Info("Runtime rollout configured", "admission_enabled", rolloutPolicy.AdmissionEnabled, "dynamic_graph_enabled", rolloutPolicy.DynamicGraphEnabled, "canary_tenant_count", len(rolloutPolicy.TenantIDs))
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
@@ -101,13 +101,13 @@ func main() {
 				case <-workerCtx.Done():
 					return
 				case <-ticker.C:
-					if _, err := worker.ProcessRuntimeEvents(workerCtx, st, service, runtimeWorkerID, 50); err != nil {
+					if _, err := worker.ProcessRuntimeEvents(workerCtx, dependencies.Identity, dependencies.Runtime, service, runtimeWorkerID, 50); err != nil {
 						logger.Error("development runtime event delivery", "error", err)
 					}
 					if _, err := worker.ProcessPendingSources(workerCtx, service, 5); err != nil {
 						logger.Error("development source ingestion", "error", err)
 					}
-					if _, err := worker.ProcessPendingMedia(workerCtx, service, 5); err != nil {
+					if _, err := worker.ProcessPendingMedia(workerCtx, service.Delivery, 5); err != nil {
 						logger.Error("development media processing", "error", err)
 					}
 				}

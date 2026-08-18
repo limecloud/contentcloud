@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/limecloud/contentcloud/internal/domain"
+	"github.com/limecloud/contentcloud/internal/platform/fault"
 )
 
 func Load(root string) (Package, error) {
@@ -17,11 +17,11 @@ func LoadWithLimits(root string, limits Limits) (Package, error) {
 	}
 	resolved, files, total, err := inspectPackageRoot(root, limits)
 	if err != nil {
-		return Package{}, domain.Invalid("AGENT_PLUGIN_PACKAGE_INVALID", err.Error())
+		return Package{}, fault.Invalid("AGENT_PLUGIN_PACKAGE_INVALID", err.Error())
 	}
 	manifestBody, err := readPackageFile(resolved, "plugin.json", limits.MaxFileBytes)
 	if err != nil {
-		return Package{}, domain.Invalid("AGENT_PLUGIN_MANIFEST_MISSING", "plugin root must contain a regular plugin.json")
+		return Package{}, fault.Invalid("AGENT_PLUGIN_MANIFEST_MISSING", "plugin root must contain a regular plugin.json")
 	}
 	manifest, diagnostics, err := loadManifest(manifestBody)
 	if err != nil {
@@ -46,7 +46,7 @@ func LoadWithLimits(root string, limits Limits) (Package, error) {
 	})
 	digest, err := packageDigest(resolved, files)
 	if err != nil {
-		return Package{}, domain.Invalid("AGENT_PLUGIN_DIGEST_FAILED", err.Error())
+		return Package{}, fault.Invalid("AGENT_PLUGIN_DIGEST_FAILED", err.Error())
 	}
 	return Package{
 		Root: resolved, SpecVersion: SpecVersion, Manifest: manifest, Skills: skills,
@@ -57,7 +57,7 @@ func LoadWithLimits(root string, limits Limits) (Package, error) {
 
 func validateLimits(limits Limits) error {
 	if limits.MaxFiles < 1 || limits.MaxFileBytes < 1 || limits.MaxPackBytes < limits.MaxFileBytes || limits.MaxDepth < 1 {
-		return domain.Invalid("AGENT_PLUGIN_LIMITS_INVALID", fmt.Sprintf("invalid package limits: %+v", limits))
+		return fault.Invalid("AGENT_PLUGIN_LIMITS_INVALID", fmt.Sprintf("invalid package limits: %+v", limits))
 	}
 	return nil
 }

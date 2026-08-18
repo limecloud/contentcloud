@@ -2,11 +2,11 @@
 
 状态：`实施中；ADR-0011/0013/0014 已接受，工作区资料上传首切片与 Customer Studio 动态结果投影已实现，结果持久化 Projector 待完成`。
 
-更新时间：2026-08-07。
+更新时间：2026-08-17。
 
 ## 1. 核心决定
 
-客户“资产”入口组合跨域只读投影，不创建吞并所有内容的超级 `Asset` 聚合。“我的资产”读取客户明确上传或导入的工作区资料，“创作结果”读取流水线生成结果；输入候选和治理对象仍由任务参考投影与运营投影管理。
+客户“资产”入口组合跨域只读投影，不创建吞并所有内容的超级 `Asset` 聚合。“我的资产”读取客户明确上传或导入的工作区资料，“创作结果”读取流水线生成结果；输入候选和治理对象仍由任务参考投影与运营投影管理。Desktop 的 SQLite 索引和传输记录同样不是资产事实源。
 
 当前 `CustomerStudioAssets` 在查询时从 `WorkTask` 相关事实确定性组装 `CreativeAssetCatalogItem`，只验证了“创作结果”边界。目标 `Creative Result Projector` 落地后应替换这一动态组装路径；“我的资产”使用新的窄契约，不给现有结果行契约增加文件夹、上传和处理字段。
 
@@ -49,7 +49,7 @@ result_status: draft / pending_confirmation / changes_requested /
 | `DeliveryPackage` | 正式交付集合 | Artifact & Delivery | 只进入交付视图，并参与推导已有结果的 `delivered` 状态 |
 | `PerformanceObservation` | 对已确认内容的效果观察 | Performance & Learning | 首期只供运营分析，不作为资产正文 |
 
-现有代码事实以 `internal/domain/content.go`、`internal/app/assets.go`、`internal/app/lineage.go` 和 `internal/domain/projection.go` 为准。
+现有代码事实以 `internal/work/work_model.go`、`internal/application/assets.go`、`internal/application/lineage.go` 和 `internal/experience/projection/projectview.go` 为准；跨域写入通过命名应用服务和窄 Repository 完成。
 
 ### 3.1 工作区资料投影契约
 

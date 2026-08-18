@@ -1,0 +1,21 @@
+%% Cloud event cursor, scoped resync and local projection invalidation.
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Avenir Next, Segoe UI Variable, PingFang SC, Microsoft YaHei, sans-serif","primaryColor":"#eff6ff","primaryBorderColor":"#4c91ff","primaryTextColor":"#172033","secondaryColor":"#edf4ef","tertiaryColor":"#fff3ed","lineColor":"#52627b","textColor":"#172033","actorBkg":"#ffffff","actorBorder":"#52627b","actorTextColor":"#172033","signalColor":"#52627b","signalTextColor":"#172033","noteBkgColor":"#fbfdff","noteBorderColor":"#e3eaf3","noteTextColor":"#172033","activationBkgColor":"#edf3f9","activationBorderColor":"#52627b"}}}%%
+sequenceDiagram
+    participant Server as Cloud Event Stream
+    participant Sync as Sync Engine
+    participant Cache as Local Projection Cache
+    participant UI as Desktop
+    participant MCP as Codex MCP
+
+    Server-->>Sync: event(id, subject_ref, revision, type)
+    Sync->>Sync: 校验 cursor 与设备/项目范围
+    alt cursor continuous
+        Sync->>Server: 查询变化投影
+    else event gap
+        Sync->>Server: 从 checkpoint 范围化 resync
+    end
+    Server-->>Sync: typed projection + digest
+    Sync->>Cache: 原子替换 projection + cursor
+    Sync-->>UI: projection invalidated
+    Sync-->>MCP: workspace/cloud context invalidated
+    UI->>Sync: 重载受影响视图

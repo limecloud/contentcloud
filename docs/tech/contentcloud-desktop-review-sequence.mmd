@@ -1,0 +1,42 @@
+%% Revision- and digest-bound review decisions with Codex handoff.
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Avenir Next, Segoe UI Variable, PingFang SC, Microsoft YaHei, sans-serif","primaryColor":"#eff6ff","primaryBorderColor":"#4c91ff","primaryTextColor":"#172033","secondaryColor":"#edf4ef","tertiaryColor":"#fff3ed","lineColor":"#52627b","textColor":"#172033","actorBkg":"#ffffff","actorBorder":"#52627b","actorTextColor":"#172033","signalColor":"#52627b","signalTextColor":"#172033","noteBkgColor":"#fbfdff","noteBorderColor":"#e3eaf3","noteTextColor":"#172033","activationBkgColor":"#edf3f9","activationBorderColor":"#52627b"}}}%%
+sequenceDiagram
+    actor Reviewer as 审批人
+    participant UI as Desktop
+    participant Main as Electron Main
+    participant Daemon as Go Daemon / Desktop API
+    participant Review as Cloud Review API
+    participant Runtime as Job Runtime
+    participant Codex as Codex
+    participant Workspace as Local Workspace
+
+    Daemon->>Review: desktop.review.inbox(device capability)
+    Review-->>Daemon: inbox + allowed_actions
+    Daemon-->>Main: typed review projection
+    Main-->>UI: gate pending(subject, revision, digest)
+    Reviewer->>UI: 打开精确版本、diff、来源和风险
+    alt 批准
+        UI->>Main: approve(revision, reason)
+        Main->>Daemon: typed IPC command
+        Daemon->>Review: desktop.review.approve(device, revision, digest, reason)
+        Review->>Review: 再校验权限、Gate、revision
+        Review-->>Runtime: gate satisfied event
+        Review-->>Daemon: ApprovedSnapshot
+        Daemon-->>UI: ApprovedSnapshot
+    else 要求修改
+        UI->>Main: request changes(comment, revision)
+        Main->>Daemon: typed IPC command
+        Daemon->>Review: desktop.review.request_changes(device, revision, digest, comment)
+        Review-->>Daemon: changes_requested
+        Daemon-->>UI: changes_requested
+        Reviewer->>Codex: 对象 Handoff 请求修订
+        Codex->>Workspace: Claim → Proposal → Apply
+        Workspace-->>UI: new local revision
+        UI->>Review: submit new cloud revision
+        Review-->>UI: old review expired，new review pending
+    else 驳回
+        UI->>Main: reject(revision, reason)
+        Main->>Daemon: typed IPC command
+        Daemon->>Review: desktop.review.reject(device, revision, digest, reason)
+        Review-->>Runtime: branch rejected / cancelled
+    end

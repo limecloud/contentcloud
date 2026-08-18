@@ -1,0 +1,23 @@
+%% First complete Desktop/Codex/Cloud governed delivery loop.
+flowchart TB
+    Local["① 本地创作<br/>Desktop 展示内容目录<br/>Codex Proposal → 用户 Apply<br/>Daemon hash → outbox"]
+    Cloud["② 云端治理<br/>4 MiB 分片 / 512 MiB 文件上限<br/>finalize → Cloud Revision → Gate"]
+    Review{"③ Desktop 人工审批<br/>绑定精确 revision / digest"}
+    Deliver["批准<br/>Runtime 投影继续<br/>DeliveryPackage / Receipt"]
+    Revise["要求修改<br/>对象 Handoff 回 Codex<br/>产生新 Revision"]
+
+    Local --> Cloud --> Review
+    Review -->|"批准"| Deliver
+    Review -->|"要求修改"| Revise
+    Deliver -->|"状态事件"| Local
+
+    classDef surface fill:#eff6ff,stroke:#4c91ff,color:#172033
+    classDef local fill:#edf4ef,stroke:#397860,color:#172033
+    classDef cloud fill:#edf4f8,stroke:#3b6f8f,color:#172033
+    classDef production fill:#fff3ed,stroke:#b45b3c,color:#172033
+    classDef review fill:#fff1f2,stroke:#c24f5f,color:#172033
+    class Local surface
+    class Revise local
+    class Cloud cloud
+    class Review review
+    class Deliver production

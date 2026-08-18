@@ -13,7 +13,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const CSS_PATH = new URL('../web/src/styles.css', import.meta.url);
+const CSS_PATH = new URL('../apps/web/src/styles.css', import.meta.url);
 
 const SCALE = {
   2: '--r-xs',    // 6px  装饰小块（empty-mark / severity 条）
@@ -50,7 +50,7 @@ console.log(`\n未迁移（胶囊/百分比等）：${[...new Set(left)].join(',
 
 if (!dry) {
   writeFileSync(CSS_PATH, out);
-  console.log('\n已写入 web/src/styles.css');
+  console.log('\n已写入 apps/web/src/styles.css');
 } else {
   console.log('\n(dry run，未写入)');
 }

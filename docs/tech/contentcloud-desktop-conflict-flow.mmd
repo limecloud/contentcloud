@@ -1,0 +1,19 @@
+%% Conflict resolution never uses last-write-wins.
+flowchart LR
+    Stale["收到 stale base<br/>或 remote changed"] --> Modified{"本地已修改?"}
+    Modified -->|"否"| Pull["安全拉取<br/>Cloud Revision"]
+    Modified -->|"是"| Type{"对象类型"}
+    Type -->|"结构化文本"| Text["生成三方 diff<br/>自动合并也只产出 Proposal"]
+    Type -->|"二进制"| Binary["保留 local / remote<br/>两个独立版本"]
+    Text --> Choice["用户选择、编辑<br/>或对象 Handoff 给 Codex"]
+    Binary --> Choice
+    Choice --> Resubmit["用户确认 Apply<br/>以最新 base 重提"]
+
+    classDef source fill:#eff6ff,stroke:#4c91ff,color:#172033
+    classDef local fill:#edf4ef,stroke:#397860,color:#172033
+    classDef decision fill:#edf4f8,stroke:#3b6f8f,color:#172033
+    classDef review fill:#fff1f2,stroke:#c24f5f,color:#172033
+    class Stale source
+    class Pull,Text,Binary local
+    class Modified,Type decision
+    class Choice,Resubmit review

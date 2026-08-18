@@ -2,7 +2,7 @@
 
 状态：`目标规范`。
 
-更新时间：2026-08-07。
+更新时间：2026-08-17。
 
 ## 1. 目的
 
@@ -22,7 +22,7 @@
 | API 契约 | Studio BFF、Operations BFF、CLI envelope | 对应接口所有者 |
 | 事件契约 | JobEvent、AuditEvent、Projection cursor | 事件生产者所有者 |
 
-当前代码证据：`internal/agentadapter/harness.go` 提供 `AgentHarnessAdapter`、能力探测、结构化事件流和 FakeHarness；`internal/agentadapter/codex_harness.go` 使用 Codex CLI JSONL 协议保存真实 thread ID，并通过 `codex exec resume <thread_id>` 支持跨 worker 进程恢复；`internal/agentadapter/claude_harness.go` 使用 Claude `stream-json`、真实 `session_id` 和 `--resume` 支持跨 Harness 实例恢复；`internal/runtime/context.go` 只从引用和策略构建不可变 `ContextView`；`internal/runtime/agent.go` 与迁移 `00015_runtime_agent_instances.sql` 已实现 ContextView/AgentInstance 持久化及父子权限收敛；`internal/runtime/graph_patch.go` 只负责受限 GraphPatch 的纯校验与新计划摘要。Runtime 的 Yield/Resume 已落地，但真实 Codex/Claude 在线冒烟、Provider 端到端和动态图生产切流仍是独立门槛。
+当前代码证据：`internal/integration/agent/harness.go` 提供 `AgentHarnessAdapter`、能力探测、结构化事件流和 FakeHarness；`internal/integration/agent/codex_harness.go` 使用 Codex CLI JSONL 协议保存真实 thread ID，并通过 `codex exec resume <thread_id>` 支持跨 worker 进程恢复；`internal/integration/agent/claude_harness.go` 使用 Claude `stream-json`、真实 `session_id` 和 `--resume` 支持跨 Harness 实例恢复；`internal/runtime/context.go` 只从引用和策略构建不可变 `ContextView`；`internal/runtime/agent.go` 与迁移 `00015_runtime_agent_instances.sql` 已实现 ContextView/AgentInstance 持久化及父子权限收敛；`internal/runtime/graph_patch.go` 只负责受限 GraphPatch 的纯校验与新计划摘要。Runtime 的 Yield/Resume 已落地，但真实 Codex/Claude 在线冒烟、Provider 端到端和动态图生产切流仍是独立门槛。
 
 ## 3. 版本规则
 
@@ -40,14 +40,14 @@ contentcloud.experience.creative-asset-catalog/1.0
 contentcloud.work.creative-asset-ref/1.0
 ```
 
-现有契约名称在迁移期保持兼容，不为统一外观进行无价值重命名。
+当前尚无外部生产消费者；内部契约按目标语义一次性切换，不保留旧名称、别名或双写。已经真实对外发布的契约未来必须通过独立 ADR 决定版本窗口，不能把这条例外扩展到内部 Go 包、开发 Fixture 或未发布 API。
 
 ### 3.2 兼容变更
 
 - 新增可选字段或枚举的可忽略值：minor。
 - 删除字段、改变语义、收紧已接受输入或改变摘要算法：major。
 - 任何消费者必须拒绝不支持的 major，不能静默按旧语义处理。
-- 生产者在兼容期继续生成旧 major，直到消费者覆盖率达到退场门槛。
+- 当前整改中的生产者只生成目标 major；旧 major 的代码、Fixture 和正向测试同步删除。
 - Schema 文件、Go 类型、OpenAPI 和示例 Fixture 必须在同一变更中更新。
 
 ### 3.3 摘要与固定
@@ -123,7 +123,7 @@ WorkspaceMaterialRef
 
 ### 5.1 创作结果目录与引用
 
-`CreativeAssetCatalogItem` 是现有兼容契约名称，语义由 ADR-0013 收紧为“客户创作结果目录项”。它是 `CreativeResultAssetProjection` 的可重建行模型，不得再收录来源、灵感、知识、参考素材、权利记录或交付包，也不得并行创建语义相同的 `CreativeResultAssetCatalogItem` 第二套契约。
+`CreativeAssetCatalogItem` 是当前契约名称，语义由 ADR-0013 收紧为“客户创作结果目录项”。它是 `CreativeResultAssetProjection` 的可重建行模型，不得再收录来源、灵感、知识、参考素材、权利记录或交付包，也不得并行创建语义相同的 `CreativeResultAssetCatalogItem` 第二套契约。
 
 ```text
 CreativeAssetCatalogItem
@@ -159,7 +159,7 @@ CreativeAssetRef
 - 目录投影 Schema 与引用 Schema 分别版本化；目录展示字段 minor 变更不能改变引用语义。
 - 新增可收录对象类型前必须定义事实所有者、版本、失效、权限和重建规则。
 
-若已发布旧版目录 Schema 曾允许输入型对象，停止收录属于语义收紧，必须通过新的 major、兼容读取映射和明确退场指标迁移，不能静默改变旧消费者行为。
+当前未发布旧版目录 Schema；停止收录输入型对象时直接更新 major、消费者、Fixture 和测试并删除旧读取映射。未来若存在真实外部消费者，必须另立 ADR 后才允许限时版本窗口。
 
 ## 6. SOP 与 JobPlanRevision
 

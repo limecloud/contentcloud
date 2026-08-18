@@ -1,0 +1,228 @@
+package httpapi_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"log/slog"
+	"mime/multipart"
+	"net/http"
+	"net/http/cookiejar"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+
+	sourceinfra "github.com/limecloud/contentcloud/internal/integration/provider/source"
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
+	httpapi "github.com/limecloud/contentcloud/internal/transport/http"
+
+	"github.com/limecloud/contentcloud/internal/application"
+	sourcedomain "github.com/limecloud/contentcloud/internal/source"
+	workspacedomain "github.com/limecloud/contentcloud/internal/workspace"
+)
+
+type httpFixtureSearch struct{}
+
+func (httpFixtureSearch) Search(context.Context, string, int) ([]sourceinfra.SearchResult, error) {
+	return []sourceinfra.SearchResult{{Title: "公开来源", URL: "https://example.com/source", Rank: 1}}, nil
+}
+
+func TestSourceUploadBFFCreatesRealRevisions(t *testing.T) {
+	service := application.New(application.DependenciesFrom(memory.New()), slog.Default())
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	project := callBFF[workspacedomain.Project](t, client, http.MethodPost, server.URL+"/api/bff/projects", application.CreateProjectInput{BrandName: "来源品牌", ProductName: "来源产品"})
+
+	first := callMultipartBFF[sourcedomain.SourceRevision](t, client, server.URL+"/api/bff/projects/"+project.ID+"/sources/upload", "brief.txt", []byte("第一版真实来源"), map[string]string{"name": "品牌 Brief", "source_type": "local_import", "file_type": "text/plain"})
+	if first.SourceID == "" || first.SHA256 == "" || first.ByteSize != int64(len([]byte("第一版真实来源"))) || first.ProcessingStatus != "pending" {
+		t.Fatalf("unexpected uploaded source revision: %#v", first)
+	}
+	second := callMultipartBFF[sourcedomain.SourceRevision](t, client, server.URL+"/api/bff/sources/"+first.SourceID+"/revisions/upload", "brief.txt", []byte("第二版真实来源"), map[string]string{"file_type": "text/plain"})
+	if second.SourceID != first.SourceID || second.SupersedesID != first.ID || second.SHA256 == first.SHA256 {
+		t.Fatalf("source revision did not preserve history: first=%#v second=%#v", first, second)
+	}
+	fetched := callBFF[sourcedomain.SourceRevision](t, client, http.MethodGet, server.URL+"/api/bff/source-revisions/"+second.ID, nil)
+	if fetched.ID != second.ID || fetched.SupersedesID != first.ID {
+		t.Fatalf("source revision detail mismatch: %#v", fetched)
+	}
+}
+
+func TestSourceSearchAndFetchBFFVerticalSlice(t *testing.T) {
+	sourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<article>受控采集正文</article>"))
+	}))
+	defer sourceServer.Close()
+	fetcher := &sourceinfra.Fetcher{AllowedHosts: []string{strings.TrimPrefix(sourceServer.URL, "http://")}, Client: sourceServer.Client(), MaxBytes: 1024}
+	service := application.New(application.DependenciesFrom(memory.New()), slog.Default(), application.WithSourceSearchProvider(httpFixtureSearch{}), application.WithSourceFetcher(fetcher))
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	project := callBFF[workspacedomain.Project](t, client, http.MethodPost, server.URL+"/api/bff/projects", application.CreateProjectInput{BrandName: "搜索品牌", ProductName: "搜索产品"})
+	search := callBFF[application.SearchSourcesResult](t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/sources/search", application.SearchSourcesInput{Query: "公开来源", Limit: 5})
+	if len(search.Results) != 1 || search.Results[0].URL != "https://example.com/source" {
+		t.Fatalf("unexpected search result %#v", search)
+	}
+	fetched := callBFF[application.FetchSourceReceipt](t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/sources/fetch", application.FetchSourceInput{URL: sourceServer.URL + "/article"})
+	if fetched.Revision.ID == "" || fetched.Revision.ProcessingStatus != "pending" || fetched.MIME != "text/html" {
+		t.Fatalf("unexpected fetch receipt %#v", fetched)
+	}
+}
+
+func callMultipartBFF[T any](t *testing.T, client *http.Client, target, fileName string, content []byte, fields map[string]string) T {
+	t.Helper()
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	part, err := writer.CreateFormFile("file", fileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, target, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var envelope struct {
+		OK    bool         `json:"ok"`
+		Data  T            `json:"data"`
+		Error *fault.Error `json:"error"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK || !envelope.OK {
+		t.Fatalf("multipart request failed: status=%d error=%#v", response.StatusCode, envelope.Error)
+	}
+	return envelope.Data
+}
+
+func TestKnowledgeBFFVerticalSlice(t *testing.T) {
+	service := application.New(application.DependenciesFrom(memory.New()), slog.Default())
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	project := callBFF[workspacedomain.Project](t, client, http.MethodPost, server.URL+"/api/bff/projects", application.CreateProjectInput{BrandName: "知识品牌", ProductName: "知识产品"})
+	session, err := service.Identity.Login(t.Context(), "demo@contentcloud.local", "contentcloud-demo-2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, _, err := service.Identity.SessionActor(t.Context(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := service.Source.UploadSource(t.Context(), actor, project.ID, "规格来源", "brand_manual", "weight.txt", "text/plain", []byte("净重 50g"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := actor
+	worker.Type = "worker"
+	if _, err := service.Source.CompleteSource(t.Context(), worker, revision.ID, application.CompleteSourceInput{DetectedMIME: "text/plain", Status: "ready", ParserVersion: "test", Evidence: []application.CreateEvidenceInput{{LocatorKind: "paragraph", Locator: map[string]any{"paragraph": 1}, QuoteText: "净重 50g"}}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	spans, err := service.Source.Evidence(t.Context(), actor, revision.ID)
+	if err != nil || len(spans) != 1 {
+		t.Fatalf("expected one accepted evidence span, got %d: %v", len(spans), err)
+	}
+	fact := callBFF[sourcedomain.KnowledgeObject](t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/knowledge-objects", map[string]any{"id": "fact:weight", "object_type": "FactAssertion", "layer": "product", "title": "净重", "evidence_refs": []string{spans[0].ID}})
+	encodedFactID := strings.ReplaceAll(url.PathEscape(fact.ID), ":", "%3A")
+	reviewed := callBFF[struct {
+		Object   sourcedomain.KnowledgeObject   `json:"object"`
+		Decision sourcedomain.KnowledgeDecision `json:"decision"`
+	}](t, client, http.MethodPost, server.URL+"/api/bff/knowledge-objects/"+encodedFactID+"/transitions", application.ReviewKnowledgeObjectInput{ExpectedVersion: fact.Version, ExpectedDigest: fact.Digest, Decision: "approve", Reason: "已复核规格来源"})
+	fact = reviewed.Object
+	if fact.Status != "verified" || reviewed.Decision.ID == "" {
+		t.Fatalf("unexpected knowledge review result: %#v", reviewed)
+	}
+	gap := callBFF[sourcedomain.KnowledgeObject](t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/knowledge-objects", map[string]any{"id": "gap:audience", "object_type": "KnowledgeGap", "layer": "market", "status": "open", "title": "受众缺口", "next_action": "REQUEST_SOURCE"})
+	pack := callBFF[sourcedomain.KnowledgePack](t, client, http.MethodPost, server.URL+"/api/bff/projects/"+project.ID+"/knowledge-packs", application.CreateKnowledgePackInput{ID: "pack:launch", Name: "上市知识包", Purpose: "launch", ObjectRefs: []sourcedomain.KnowledgePackObjectRef{{ObjectID: fact.ID, Version: fact.Version}, {ObjectID: gap.ID, Version: gap.Version}}})
+	if !pack.QueryPolicy.RequireEvidence || !pack.QueryPolicy.BlockOnConflict || !pack.QueryPolicy.BlockOnRights {
+		t.Fatalf("hard knowledge gates were not applied: %#v", pack.QueryPolicy)
+	}
+	published := callBFF[struct {
+		Pack     sourcedomain.KnowledgePack     `json:"pack"`
+		Snapshot sourcedomain.KnowledgeSnapshot `json:"snapshot"`
+	}](t, client, http.MethodPost, server.URL+"/api/bff/knowledge-packs/"+strings.ReplaceAll(url.PathEscape(pack.ID), ":", "%3A")+"/publish", map[string]any{})
+	if published.Pack.Status != "published" || published.Snapshot.ID == "" {
+		t.Fatalf("unexpected published pack: %#v", published)
+	}
+	query := callBFF[sourcedomain.KnowledgeQueryResult](t, client, http.MethodPost, server.URL+"/api/bff/knowledge/query", map[string]any{"project_id": project.ID, "snapshot_id": published.Snapshot.ID, "channel": "short_video", "at": time.Date(2026, 8, 1, 8, 0, 0, 0, time.UTC)})
+	if len(query.Eligible) != 1 || query.Eligible[0].ObjectID != fact.ID || len(query.Gaps) != 1 || query.Gaps[0].ObjectID != gap.ID {
+		t.Fatalf("unexpected knowledge query: %#v", query)
+	}
+	objects := callBFF[[]sourcedomain.KnowledgeObject](t, client, http.MethodGet, server.URL+"/api/bff/projects/"+project.ID+"/knowledge-objects", nil)
+	if len(objects) != 3 {
+		t.Fatalf("unexpected knowledge objects: %#v", objects)
+	}
+	decisions := callBFF[[]sourcedomain.KnowledgeDecision](t, client, http.MethodGet, server.URL+"/api/bff/knowledge-objects/"+encodedFactID+"/decisions", nil)
+	if len(decisions) != 1 || decisions[0].ResultVersion != fact.Version {
+		t.Fatalf("unexpected knowledge decisions: %#v", decisions)
+	}
+	snapshot := callBFF[sourcedomain.KnowledgeSnapshot](t, client, http.MethodGet, server.URL+"/api/bff/knowledge-snapshots/"+strings.ReplaceAll(url.PathEscape(published.Snapshot.ID), ":", "%3A"), nil)
+	if snapshot.ID != published.Snapshot.ID || snapshot.PackID != pack.ID {
+		t.Fatalf("unexpected knowledge snapshot: %#v", snapshot)
+	}
+	snapshots := callBFF[[]sourcedomain.KnowledgeSnapshot](t, client, http.MethodGet, server.URL+"/api/bff/projects/"+project.ID+"/knowledge-packs/"+strings.ReplaceAll(url.PathEscape(pack.ID), ":", "%3A")+"/snapshots", nil)
+	if len(snapshots) != 1 || snapshots[0].ID != published.Snapshot.ID {
+		t.Fatalf("unexpected knowledge snapshots: %#v", snapshots)
+	}
+}
+
+func TestStudioKnowledgeRoutesExposeTheGovernedKnowledgeContract(t *testing.T) {
+	service := application.New(application.DependenciesFrom(memory.New()), slog.Default())
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	response, err := client.Post(server.URL+"/api/v1/dev/bootstrap", "application/json", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	project := callBFF[workspacedomain.Project](t, client, http.MethodPost, server.URL+"/api/bff/projects", application.CreateProjectInput{BrandName: "Studio 知识品牌", ProductName: "Studio 知识产品"})
+
+	objects := callBFF[[]sourcedomain.KnowledgeObject](t, client, http.MethodGet, server.URL+"/api/studio/projects/"+project.ID+"/knowledge-objects", nil)
+	packs := callBFF[[]sourcedomain.KnowledgePack](t, client, http.MethodGet, server.URL+"/api/studio/projects/"+project.ID+"/knowledge-packs", nil)
+	sources := callBFF[[]sourcedomain.Source](t, client, http.MethodGet, server.URL+"/api/studio/projects/"+project.ID+"/sources", nil)
+	if objects == nil || packs == nil || sources == nil {
+		t.Fatalf("Studio knowledge routes returned null collections: objects=%#v packs=%#v sources=%#v", objects, packs, sources)
+	}
+}

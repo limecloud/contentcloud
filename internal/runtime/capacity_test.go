@@ -1,4 +1,4 @@
-package runtime
+package runtime_test
 
 import (
 	"fmt"
@@ -6,18 +6,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/limecloud/contentcloud/internal/agentadapter"
-	"github.com/limecloud/contentcloud/internal/domain"
-	"github.com/limecloud/contentcloud/internal/store/memory"
+	. "github.com/limecloud/contentcloud/internal/runtime"
+
+	agentadapter "github.com/limecloud/contentcloud/internal/integration/agent"
+	"github.com/limecloud/contentcloud/internal/platform/fault"
+
+	catalogdomain "github.com/limecloud/contentcloud/internal/catalog"
+	"github.com/limecloud/contentcloud/internal/persistence/memory"
 )
 
 func TestRuntimeClaimsOneHundredIndependentNodesWithTwentyConcurrentWorkers(t *testing.T) {
 	sop := testSOP()
 	sop.ID, sop.SOPID, sop.Name = "capacity-sop-v1", "capacity-sop", "Runtime Capacity"
 	sop.Gates = nil
-	sop.Stages = make([]domain.StageDefinition, 0, 100)
+	sop.Stages = make([]catalogdomain.StageDefinition, 0, 100)
 	for index := 0; index < 100; index++ {
-		sop.Stages = append(sop.Stages, domain.StageDefinition{ID: fmt.Sprintf("node-%03d", index), Name: fmt.Sprintf("Node %03d", index), Order: index + 1, OutputSchema: "contentcloud.capacity/1.0", ExecutionModes: []string{"agent"}})
+		sop.Stages = append(sop.Stages, catalogdomain.StageDefinition{ID: fmt.Sprintf("node-%03d", index), Name: fmt.Sprintf("Node %03d", index), Order: index + 1, OutputSchema: "contentcloud.capacity/1.0", ExecutionModes: []string{"agent"}})
 	}
 	repo := memory.New()
 	service := New(repo, time.Now)
@@ -70,7 +74,7 @@ func TestRuntimeClaimsOneHundredIndependentNodesWithTwentyConcurrentWorkers(t *t
 	if len(claimedNodes) != 100 || len(claimedAttempts) != 100 {
 		t.Fatalf("100-node/20-worker claim lost work: nodes=%d attempts=%d", len(claimedNodes), len(claimedAttempts))
 	}
-	if _, err := service.PrepareRemoteDispatch(t.Context(), DispatchInput{TenantID: "tenant-1", JobRunID: started.Job.ID, Owner: "worker-overflow", HarnessKind: "fake", Role: "capacity", ExecutionProfileID: "profile-capacity", MaxTokens: 128, LeaseFor: time.Minute}, capabilities); !domain.IsNotFound(err) {
+	if _, err := service.PrepareRemoteDispatch(t.Context(), DispatchInput{TenantID: "tenant-1", JobRunID: started.Job.ID, Owner: "worker-overflow", HarnessKind: "fake", Role: "capacity", ExecutionProfileID: "profile-capacity", MaxTokens: 128, LeaseFor: time.Minute}, capabilities); !fault.IsNotFound(err) {
 		t.Fatalf("scheduler returned work after all 100 nodes were leased: %v", err)
 	}
 }

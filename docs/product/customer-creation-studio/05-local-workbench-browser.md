@@ -6,7 +6,7 @@
 
 上位规范：[ContentCloud 平台基线](../../foundation/README.md)、[客户创作台产品层](./README.md)、[项目级执行客户端连接](./04-execution-client-connection.md)、[Agent Plugin 架构](../../plugin/README.md)、[Runtime 运行手册](../../roadmap/v8/10-runtime-operations-runbook.md)。调研证据见[参考工作台实现分析](./06-reference-workbench-analysis.md)。
 
-本文是本地 Workbench 的唯一技术事实源。它同时说明当前实现、目标架构、宿主差异和发布门禁；不再保留旧静态 HTML renderer、presentation Resource/cache 或长期 Node sidecar 的兼容方案。MCP Apps 是 MCP 扩展，不是 Agent Plugins 1.0.0 核心字段，两者必须独立协商和测试。
+本文是 Codex/Browser 本地 Workbench 的唯一技术事实源。它同时说明当前实现、目标架构、宿主差异和发布门禁；不再保留旧静态 HTML renderer、presentation Resource/cache 或长期 Node sidecar 的兼容方案。Content Work OS Desktop 的持续项目面、同步、上传、审批和 Electron 进程边界见 [Desktop 专项技术方案](../content-work-os-desktop/02-architecture-and-technology.md)，不在本文件中复制。MCP Apps 是 MCP 扩展，不是 Agent Plugins 1.0.0 核心字段，两者必须独立协商和测试。
 
 ## 1. 结论
 
@@ -31,6 +31,8 @@
 5. Workspace 是未发布本地事实源；Cloud Revision 是已提交云端事实源。两者只通过明确 pull/publish 交换。
 6. 云端发布仍只通过 `publish_preflight`/`publish_apply`，任何本地 UI 都不能越过现有确认边界。
 7. “官方兼容目录存在”只证明某项协议能力候选，不等于 ContentCloud 已完成安装投影、工作区绑定、生命周期、UI 和安全验收。
+
+Direct Browser Presenter 仍然是按需启动的短期呈现进程；它不能被误认为 Desktop 长期 Daemon。Desktop 长期 Daemon 负责同步、上传、通知和 Runtime 生命周期，两者共享 Local Workspace Kernel 但拥有不同生命周期。
 
 ## 2. 当前能力边界
 
@@ -834,16 +836,16 @@ flowchart LR
 
 | 能力 | 唯一实现 |
 | --- | --- |
-| View/Resource | `internal/localworkspace/view.go` |
-| Claim v2/takeover/Handoff | `internal/localworkspace/runcoordination.go` |
-| Proposal/Apply/rollback | `internal/localworkspace/proposal.go` |
-| 原子文件替换 | `internal/localworkspace/workspace.go` |
-| Presenter/session/security/SSE/Range | `internal/workbench/manager.go` |
-| Embedded SPA | `internal/workbench/ui/` |
-| stdio MCP Tool/私有 handoff envelope | `internal/cli/workspace_commands.go` |
-| Claude Code 稳定项目根注入 | `internal/integration/pluginhost/claude/projection.go`、`internal/cli/workspace_commands.go` |
+| View/Resource | `internal/local/workspace/view.go` |
+| Claim v2/takeover/Handoff | `internal/local/workspace/runcoordination.go` |
+| Proposal/Apply/rollback | `internal/local/workspace/proposal.go` |
+| 原子文件替换 | `internal/local/workspace/workspace.go` |
+| Presenter/session/security/SSE/Range | `internal/local/workbench/manager.go` |
+| Embedded SPA | `internal/local/workbench/ui/` |
+| stdio MCP Tool/私有 handoff envelope | `internal/transport/cli/workspace_commands.go` |
+| Claude Code 稳定项目根注入 | `internal/integration/pluginhost/claude/projection.go`、`internal/transport/cli/workspace_commands.go` |
 | MCP Apps Resource/metadata/App lifecycle | 已实现最小协议闭环；正式宿主 Bridge/沙箱 E2E 待验收 |
-| MCP 生命周期接线 | `internal/cli/root.go`、`internal/cli/local_commands.go` |
+| MCP 生命周期接线 | `internal/transport/cli/root.go`、`internal/transport/cli/local_commands.go` |
 | Canonical workflow | `plugins/contentcloud-video-production/skills/contentcloud-workspace/SKILL.md` |
 
 ## 19. 测试覆盖图
@@ -961,15 +963,15 @@ workspace_open_workbench
 ### 21.1 自动门禁
 
 ```bash
-go test ./internal/localworkspace ./internal/workbench ./internal/cli -count=1
+go test ./internal/local/workspace ./internal/local/workbench ./internal/transport/cli -count=1
 go test ./... -count=1
-go test -race ./internal/localworkspace ./internal/workbench ./internal/cli ./internal/runtime -count=1
+go test -race ./internal/local/workspace ./internal/local/workbench ./internal/transport/cli ./internal/runtime -count=1
 go vet ./...
-node --check internal/workbench/ui/app.js
-node --check internal/workbench/ui/sw.js
-pnpm --dir web test
-pnpm --dir web typecheck
-pnpm --dir web build
+node --check internal/local/workbench/ui/app.js
+node --check internal/local/workbench/ui/sw.js
+pnpm --dir apps/web test
+pnpm --dir apps/web typecheck
+pnpm --dir apps/web build
 pnpm architecture
 pnpm check:plugin
 pnpm governance:content

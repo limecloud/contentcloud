@@ -23,32 +23,32 @@ if (!contentKinds.includes('video_script') || !contentKinds.includes('wechat_art
   failures.push('ContentBatch schema must route both current content kinds')
 }
 
-const publicReview = read('web/src/views/PublicViews.tsx')
+const publicReview = read('apps/web/src/views/PublicViews.tsx')
 requireText(publicReview, 'reviewSubject(projection)', 'public review must route through reviewSubject')
 requireText(publicReview, '<ReviewContent', 'public review must render the routed review subject')
 for (const token of ['.shots', 'duration_ms', 'contentcloud.content-item/3.0']) {
   forbidText(publicReview, token, `public review shell must not assume video field ${token}`)
 }
-const reviewRouter = read('web/src/views/reviewSubject.ts')
+const reviewRouter = read('apps/web/src/views/reviewSubject.ts')
 for (const token of ["kind:'video_script'", "kind:'wechat_article'", "contentcloud.content-item/3.0", "contentcloud.article/1.0"]) {
   requireText(reviewRouter, token, `review subject router is missing ${token}`)
 }
 
-const publish = read('internal/cli/submission_commands.go')
+const publish = read('internal/transport/cli/submission_commands.go')
 for (const token of ['case localworkspace.ContentItemSchema:', 'case localworkspace.ArticleSchema:']) {
   requireText(publish, token, `publish validation must explicitly route ${token}`)
 }
-const mcp = read('internal/cli/workspace_commands.go')
+const mcp = read('internal/transport/cli/workspace_commands.go')
 for (const name of ['article_brief_lint', 'article_batch_create', 'article_item_lint', 'article_batch_lint', 'article_batch_finalize', 'article_item_diff', 'wechat_package_export', 'wechat_package_lint']) {
   const marker = `case "${name}":`
   const start = mcp.indexOf(marker)
   const end = mcp.indexOf('\n\tcase "', start + marker.length)
   const branch = start >= 0 ? mcp.slice(start, end >= 0 ? end : undefined) : ''
-  if (!branch.includes('requireMCPContentType') || !branch.includes('domain.ContentTypeWeChatArticle')) {
+  if (!branch.includes('requireMCPContentType') || !branch.includes('identitydomain.ContentTypeWeChatArticle')) {
     failures.push(`${name} must verify the signed tenant content capability before acting`)
   }
 }
-const localCommands = read('internal/cli/local_commands.go')
+const localCommands = read('internal/transport/cli/local_commands.go')
 if ((localCommands.match(/requireLocalContentType\(/g) ?? []).length < 9) {
   failures.push('every local article and WeChat command must verify the tenant content capability')
 }
@@ -79,20 +79,20 @@ if (plugin.name !== 'contentcloud-wechat-article' || plugin.extensions?.['run.zh
   failures.push('WeChat Skill Pack must expose its governed run claims')
 }
 
-const tenantDomain = read('internal/domain/platform.go')
+const tenantDomain = read('internal/identity/work_identity_model.go')
 if (!/DefaultProjectContentType\s*=\s*ContentTypeMarketingVideo/.test(tenantDomain)) failures.push('marketing_video must remain the default Project content type')
 requireText(tenantDomain, 'result := []string{ContentTypeVideoScript}', 'video_script must remain the always-enabled baseline content type')
 if (!/ContentTypeMarketingVideo:\s*\{\}/.test(tenantDomain)) failures.push('marketing_video must remain an optional tenant capability')
 if (!/ContentTypeWeChatArticle:\s*\{\}/.test(tenantDomain)) failures.push('wechat_article must remain an optional tenant capability')
-for (const file of ['internal/cli/local_commands.go', 'internal/cli/workspace_commands.go', ...expectedSkills.map((skill) => `${skillRoot}/${skill}/SKILL.md`)]) {
+for (const file of ['internal/transport/cli/local_commands.go', 'internal/transport/cli/workspace_commands.go', ...expectedSkills.map((skill) => `${skillRoot}/${skill}/SKILL.md`)]) {
   forbidText(read(file), 'UpdatePlatformTenantContentCapability', `${file} must not enable tenant content capabilities`)
 }
 
-const workspaceRouter = read('web/src/router.tsx')
+const workspaceRouter = read('apps/web/src/router.tsx')
 if ((workspaceRouter.match(/web\/src\/workspace|\.TaskProductionPage/g) ?? []).length !== 0) {
   failures.push('retired workspace task routes must not be reintroduced')
 }
-forbidText(workspaceRouter, 'WorkOSTaskDetailPage', 'web/src/router.tsx must not restore the retired task detail page')
+forbidText(workspaceRouter, 'WorkOSTaskDetailPage', 'apps/web/src/router.tsx must not restore the retired task detail page')
 
 if (failures.length > 0) {
   console.error(failures.join('\n'))
