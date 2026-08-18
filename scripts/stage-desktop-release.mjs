@@ -134,11 +134,15 @@ async function stageTarget({
   tag,
   repository,
   signed,
+  preview,
 }) {
   const definition = targetDefinitions[target];
   if (!definition) throw new Error(`unsupported desktop target: ${target}`);
   validateReleaseIdentity({ version, channel, tag });
-  if (definition.signed && signed !== true) {
+  if (signed === true && preview === true) {
+    throw new Error("desktop target cannot be both signed and preview-only");
+  }
+  if (definition.signed && signed !== true && preview !== true) {
     throw new Error(
       `${target} requires verified signing before it can enter ${channel}`,
     );
@@ -195,7 +199,10 @@ async function stageTarget({
     arch: definition.arch,
     generated_at: new Date().toISOString(),
     signing: definition.signed
-      ? { required: true, status: "verified" }
+      ? {
+          required: true,
+          status: signed === true ? "verified" : "unverified-preview",
+        }
       : { required: false, status: "not-required-for-preview" },
     artifacts: stagedArtifacts.map((artifact) => ({
       ...artifact,
@@ -368,6 +375,7 @@ async function main() {
     tag: required(args, "tag"),
     repository: args.repository?.trim(),
     signed: args.signed === true,
+    preview: args.preview === true,
   });
   process.stdout.write(`${JSON.stringify(metadata, null, 2)}\n`);
 }

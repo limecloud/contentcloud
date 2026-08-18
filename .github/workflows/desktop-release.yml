@@ -151,7 +151,7 @@ jobs:
           }
 
       - name: Validate macOS signing secrets
-        if: matrix.platform == 'darwin'
+        if: matrix.platform == 'darwin' && needs.resolve.outputs.publish == 'true'
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -173,7 +173,7 @@ jobs:
           fi
 
       - name: Import macOS signing certificate
-        if: matrix.platform == 'darwin'
+        if: matrix.platform == 'darwin' && needs.resolve.outputs.publish == 'true'
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -193,7 +193,7 @@ jobs:
           echo "CONTENTCLOUD_DESKTOP_MAC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
 
       - name: Validate Windows signing secrets
-        if: matrix.platform == 'win32'
+        if: matrix.platform == 'win32' && needs.resolve.outputs.publish == 'true'
         shell: bash
         env:
           WINDOWS_SIGNING_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
@@ -204,7 +204,7 @@ jobs:
           [[ -n "${WINDOWS_SIGNING_CERTIFICATE_PASSWORD:-}" ]] || { echo "::error::missing WINDOWS_SIGNING_CERTIFICATE_PASSWORD"; exit 1; }
 
       - name: Prepare Windows signing certificate
-        if: matrix.platform == 'win32'
+        if: matrix.platform == 'win32' && needs.resolve.outputs.publish == 'true'
         shell: bash
         env:
           WINDOWS_SIGNING_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
@@ -222,7 +222,7 @@ jobs:
       - name: Build Electron packages
         shell: bash
         env:
-          CONTENTCLOUD_DESKTOP_SIGN: ${{ matrix.signing == 'required' && '1' || '' }}
+          CONTENTCLOUD_DESKTOP_SIGN: ${{ needs.resolve.outputs.publish == 'true' && matrix.signing == 'required' && '1' || '' }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -235,7 +235,7 @@ jobs:
             --targets "${{ matrix.forge_targets }}"
 
       - name: Verify macOS signatures and notarization
-        if: matrix.platform == 'darwin'
+        if: matrix.platform == 'darwin' && needs.resolve.outputs.publish == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -251,7 +251,7 @@ jobs:
           done
 
       - name: Verify Windows Authenticode signature
-        if: matrix.platform == 'win32'
+        if: matrix.platform == 'win32' && needs.resolve.outputs.publish == 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -272,11 +272,21 @@ jobs:
           RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
           RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
           RELEASE_CHANNEL: ${{ needs.resolve.outputs.channel }}
-          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_REPOSITORY: ${{ needs.resolve.outputs.publish == 'true' && github.repository || '' }}
         run: |
           set -euo pipefail
-          signing_flag=()
-          if [[ "${{ matrix.signing }}" == required ]]; then signing_flag+=(--signed); fi
+          repository_flags=()
+          if [[ -n "$RELEASE_REPOSITORY" ]]; then
+            repository_flags+=(--repository "$RELEASE_REPOSITORY")
+          fi
+          signing_flags=()
+          if [[ "${{ matrix.signing }}" == required ]]; then
+            if [[ "${{ needs.resolve.outputs.publish }}" == true ]]; then
+              signing_flags+=(--signed)
+            else
+              signing_flags+=(--preview)
+            fi
+          fi
           node scripts/stage-desktop-release.mjs stage \
             --forge-dir apps/desktop/out \
             --out-dir "desktop-staged/${{ matrix.target }}" \
@@ -284,8 +294,8 @@ jobs:
             --version "$RELEASE_VERSION" \
             --channel "$RELEASE_CHANNEL" \
             --tag "$RELEASE_TAG" \
-            --repository "$RELEASE_REPOSITORY" \
-            "${signing_flag[@]}"
+            "${repository_flags[@]}" \
+            "${signing_flags[@]}"
 
       - name: Upload staged desktop assets
         uses: actions/upload-artifact@v4

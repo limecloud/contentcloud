@@ -63,6 +63,43 @@ test("rejects unsigned macOS release staging", async () => {
   );
 });
 
+test("stages unsigned macOS previews without claiming verified signing", async () => {
+  const fixture = await fixtureTarget("darwin-arm64");
+  const metadata = await stageTarget({
+    ...fixture,
+    version: "0.28.0",
+    channel: "stable",
+    tag: "v0.28.0",
+    signed: false,
+    preview: true,
+  });
+  assert.deepEqual(metadata.signing, {
+    required: true,
+    status: "unverified-preview",
+  });
+  assert.equal(metadata.artifacts[0].download_url, undefined);
+});
+
+test("rejects unsigned previews when aggregating a release", async () => {
+  const fixture = await fixtureTarget("darwin-arm64");
+  await stageTarget({
+    ...fixture,
+    version: "0.28.0",
+    channel: "stable",
+    tag: "v0.28.0",
+    preview: true,
+  });
+  await assert.rejects(
+    aggregateRelease({
+      inputDir: fixture.outDir,
+      outDir: join(fixture.root, "release"),
+      channel: "stable",
+      tag: "v0.28.0",
+    }),
+    /staged target is not signed/,
+  );
+});
+
 test("rejects incomplete Forge release output", async () => {
   const fixture = await fixtureTarget("darwin-arm64");
   const incompleteForgeDir = join(fixture.root, "incomplete-forge");

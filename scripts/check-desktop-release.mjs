@@ -111,6 +111,10 @@ for (const marker of [
   "gh release upload",
   "mv github-release-assets/checksums.txt github-release-assets/desktop-checksums.txt",
   "CONTENTCLOUD_DESKTOP_SIGN",
+  "needs.resolve.outputs.publish == 'true' && matrix.signing == 'required'",
+  'repository_flags+=(--repository "$RELEASE_REPOSITORY")',
+  "signing_flags+=(--preview)",
+  "signing_flags+=(--signed)",
 ]) {
   if (!workflow.includes(marker))
     fail(`desktop release workflow is missing ${marker}`);
@@ -125,6 +129,15 @@ if (workflow.includes("Prepare Linux package metadata"))
   fail("Linux package metadata must come from apps/desktop/package.json");
 if (workflow.includes("desktop-v"))
   fail("desktop-only tags must not diverge from the project v* release");
+for (const platform of ["darwin", "win32"]) {
+  const publishGate = `if: matrix.platform == '${platform}' && needs.resolve.outputs.publish == 'true'`;
+  const count = workflow.split(publishGate).length - 1;
+  if (count !== 3) {
+    fail(
+      `${platform} must gate signing validation, preparation and verification on publish mode`,
+    );
+  }
+}
 for (const marker of [
   "published desktop releases must build from",
   "inputSourceRef",
