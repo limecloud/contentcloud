@@ -8,6 +8,7 @@ import {
   copyFile,
 } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const metadataSchema = "contentcloud.desktop-update-metadata/1.0";
 const indexSchema = "contentcloud.desktop-update-index/1.0";
@@ -380,7 +381,8 @@ async function main() {
   process.stdout.write(`${JSON.stringify(metadata, null, 2)}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const entrypoint = process.argv[1];
+if (entrypoint && import.meta.url === pathToFileURL(resolve(entrypoint)).href) {
   try {
     await main();
   } catch (error) {

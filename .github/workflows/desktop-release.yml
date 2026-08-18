@@ -316,12 +316,18 @@ jobs:
             fi
           fi
           node scripts/stage-desktop-release.mjs stage "${stage_args[@]}"
+          staged_dir="desktop-staged/${{ matrix.target }}"
+          if [[ -z "$(find "$staged_dir" -maxdepth 1 -type f -print -quit)" ]]; then
+            echo "::error::desktop release staging produced no files under $staged_dir"
+            exit 1
+          fi
+          find "$staged_dir" -maxdepth 1 -type f -print | sort
 
       - name: Upload staged desktop assets
         uses: actions/upload-artifact@v4
         with:
           name: desktop-release-${{ matrix.target }}
-          path: desktop-staged/${{ matrix.target }}/*
+          path: desktop-staged/${{ matrix.target }}
           if-no-files-found: error
           retention-days: 14
 

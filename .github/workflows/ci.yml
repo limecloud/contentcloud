@@ -93,6 +93,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm desktop:release:check
+      - run: pnpm test:desktop-release
       - run: pnpm --dir apps/desktop exec electron-forge package --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
       - uses: actions/upload-artifact@v4
         with:
