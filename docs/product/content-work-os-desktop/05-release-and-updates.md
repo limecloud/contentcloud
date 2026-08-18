@@ -76,10 +76,10 @@ resolve (tag / version / channel / source ref)
 
 每个平台 job 都执行 `electron-forge make`，随后由 `scripts/stage-desktop-release.mjs`：
 
-1. 只接收 `update-channels.json` 声明的格式，拒绝空产物或未知平台。
+1. 只接收 `update-channels.json` 声明的格式，并强制要求 DMG+ZIP、Squirrel installer+NUPKG+RELEASES、DEB+RPM 各自完整。
 2. 生成带目标前缀的稳定文件名、目标级 `latest.json` 和 `*-checksums.sha256`。
-3. 为 macOS/Windows 强制要求签名标记；Linux 仅作为不提供自动更新的预览包。
-4. 在 publish job 汇总为 `desktop-<channel>-latest.json` 和 `checksums.txt`，再上传 GitHub Release。
+3. 在 macOS 上执行 `codesign` 与 Gatekeeper assessment，在 Windows 上验证 Authenticode 状态；Linux 仅作为不提供自动更新的预览包。
+4. 在 publish job 复验四个目标、版本和每个文件摘要，汇总为 `desktop-<channel>-latest.json` 和 `checksums.txt`，再上传 GitHub Release。
 
 正式 Release 所需 GitHub Actions secrets：
 

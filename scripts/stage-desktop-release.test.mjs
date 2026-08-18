@@ -63,6 +63,27 @@ test("rejects unsigned macOS release staging", async () => {
   );
 });
 
+test("rejects incomplete Forge release output", async () => {
+  const fixture = await fixtureTarget("darwin-arm64");
+  const incompleteForgeDir = join(fixture.root, "incomplete-forge");
+  await mkdir(join(incompleteForgeDir, "make", "dmg"), { recursive: true });
+  await writeFile(
+    join(incompleteForgeDir, "make", "dmg", "Content Work OS.dmg"),
+    "dmg",
+  );
+  await assert.rejects(
+    stageTarget({
+      ...fixture,
+      forgeDir: incompleteForgeDir,
+      version: "0.28.0",
+      channel: "stable",
+      tag: "desktop-v0.28.0",
+      signed: true,
+    }),
+    /incomplete; missing zip/,
+  );
+});
+
 test("aggregates target metadata into a release index", async () => {
   const fixture = await fixtureTarget("darwin-arm64");
   await stageTarget({
@@ -85,5 +106,47 @@ test("aggregates target metadata into a release index", async () => {
   assert.match(
     await readFile(join(aggregateDir, "checksums.txt"), "utf8"),
     /desktop-beta-latest\.json/,
+  );
+});
+
+test("rejects an incomplete release matrix", async () => {
+  const fixture = await fixtureTarget("darwin-arm64");
+  await stageTarget({
+    ...fixture,
+    version: "0.28.0",
+    channel: "stable",
+    tag: "desktop-v0.28.0",
+    signed: true,
+  });
+  await assert.rejects(
+    aggregateRelease({
+      inputDir: fixture.outDir,
+      outDir: join(fixture.root, "release"),
+      channel: "stable",
+      tag: "desktop-v0.28.0",
+      requireAllTargets: true,
+    }),
+    /missing targets/,
+  );
+});
+
+test("rejects a staged artifact integrity mismatch", async () => {
+  const fixture = await fixtureTarget("darwin-arm64");
+  const metadata = await stageTarget({
+    ...fixture,
+    version: "0.28.0",
+    channel: "stable",
+    tag: "desktop-v0.28.0",
+    signed: true,
+  });
+  await writeFile(join(fixture.outDir, metadata.artifacts[0].name), "tampered");
+  await assert.rejects(
+    aggregateRelease({
+      inputDir: fixture.outDir,
+      outDir: join(fixture.root, "release"),
+      channel: "stable",
+      tag: "desktop-v0.28.0",
+    }),
+    /integrity mismatch/,
   );
 });

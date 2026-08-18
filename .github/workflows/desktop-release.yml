@@ -9,7 +9,6 @@ on:
       version:
         description: "版本号或 desktop-v 标签，例如 0.28.0-beta.1"
         required: true
-        default: "0.28.0"
       source_ref:
         description: "构建来源 ref；留空使用 main"
         required: false
@@ -21,7 +20,7 @@ on:
         options:
           - beta
           - stable
-        default: stable
+        default: beta
       publish:
         description: "是否创建或更新 GitHub Release；手动运行默认只上传 CI artifact"
         required: true
@@ -89,6 +88,10 @@ jobs:
           fi
           if [[ "$channel" == stable && "$version" == *-* ]]; then
             echo "::error::a prerelease version cannot enter stable"
+            exit 1
+          fi
+          if [[ "$publish" == true && "$channel" == beta && "$version" != *-* ]]; then
+            echo "::error::a published beta requires a prerelease version"
             exit 1
           fi
           if [[ "$publish" != true && "$publish" != false ]]; then
@@ -262,6 +265,38 @@ jobs:
             --arch "${{ matrix.arch }}" \
             --targets "${{ matrix.forge_targets }}"
 
+      - name: Verify macOS signatures and notarization
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          apps=()
+          while IFS= read -r -d '' app; do apps+=("$app"); done < <(find apps/desktop/out -type d -name '*.app' -not -path '*.app/*' -print0)
+          if (( ${#apps[@]} == 0 )); then
+            echo "::error::Electron Forge produced no macOS app bundle"
+            exit 1
+          fi
+          for app in "${apps[@]}"; do
+            codesign --verify --deep --strict --verbose=4 "$app"
+            spctl --assess --type execute --verbose=4 "$app"
+          done
+
+      - name: Verify Windows Authenticode signature
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installers = Get-ChildItem "apps/desktop/out/make" -Recurse -File -Filter "*.exe"
+          if ($installers.Count -eq 0) {
+            throw "Electron Forge produced no Windows Squirrel installer"
+          }
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature $installer.FullName
+            if ($signature.Status -ne "Valid") {
+              throw "Invalid Authenticode signature for $($installer.FullName): $($signature.Status)"
+            }
+          }
+
       - name: Stage release assets and generate metadata
         shell: bash
         env:
@@ -329,7 +364,8 @@ jobs:
             --out-dir github-release-assets \
             --channel "$RELEASE_CHANNEL" \
             --tag "$RELEASE_TAG" \
-            --repository "$RELEASE_REPOSITORY"
+            --repository "$RELEASE_REPOSITORY" \
+            --require-all-targets
           cp desktop-staged/* github-release-assets/
           find github-release-assets -maxdepth 1 -type f -print | sort
 

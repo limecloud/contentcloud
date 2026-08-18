@@ -25,5 +25,13 @@
     "typecheck:web": "pnpm --dir apps/web typecheck",
     "typecheck:desktop": "pnpm --dir apps/desktop typecheck",
     "typecheck": "pnpm typecheck:web && pnpm typecheck:desktop"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron-winstaller",
+      "esbuild",
+      "fs-xattr",
+      "macos-alias"
+    ]
   }
 }

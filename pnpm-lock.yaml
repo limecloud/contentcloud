@@ -74,6 +74,9 @@ importers:
       electron:
         specifier: 43.4.0
         version: 43.4.0
+      lodash:
+        specifier: 4.18.1
+        version: 4.18.1
       typescript:
         specifier: 5.7.2
         version: 5.7.2
@@ -5565,8 +5568,7 @@ snapshots:
 
   lodash.get@4.4.2: {}
 
-  lodash@4.18.1:
-    optional: true
+  lodash@4.18.1: {}
 
   log-symbols@4.1.0:
     dependencies:

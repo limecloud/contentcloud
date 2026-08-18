@@ -17,43 +17,44 @@ const targetDefinitions = {
     platform: "darwin",
     arch: "arm64",
     formats: ["dmg", "zip"],
+    requiredAssets: ["dmg", "zip"],
     signed: true,
   },
   "darwin-x64": {
     platform: "darwin",
     arch: "x64",
     formats: ["dmg", "zip"],
+    requiredAssets: ["dmg", "zip"],
     signed: true,
   },
   "win32-x64": {
     platform: "win32",
     arch: "x64",
     formats: ["squirrel"],
+    requiredAssets: ["exe", "nupkg", "RELEASES"],
     signed: true,
   },
   "linux-x64": {
     platform: "linux",
     arch: "x64",
     formats: ["deb", "rpm"],
+    requiredAssets: ["deb", "rpm"],
     signed: false,
   },
 };
 
-const formatForFile = (file, target) => {
+const describeAsset = (file, target) => {
   const extension = extname(file).toLowerCase().replace(/^\./, "");
   if (target === "win32-x64") {
-    if (
-      extension === "exe" ||
-      extension === "nupkg" ||
-      basename(file).toUpperCase() === "RELEASES"
-    ) {
-      return "squirrel";
-    }
+    if (extension === "exe") return { format: "squirrel", kind: "exe" };
+    if (extension === "nupkg") return { format: "squirrel", kind: "nupkg" };
+    if (basename(file).toUpperCase() === "RELEASES")
+      return { format: "squirrel", kind: "RELEASES" };
   }
   if (target.startsWith("darwin-") && ["dmg", "zip"].includes(extension))
-    return extension;
+    return { format: extension, kind: extension };
   if (target === "linux-x64" && ["deb", "rpm"].includes(extension))
-    return extension;
+    return { format: extension, kind: extension };
   return undefined;
 };
 
@@ -146,24 +147,38 @@ async function stageTarget({
   const makeDir = join(forgeDir, "make");
   const sourceFiles = await filesUnder(makeDir);
   const assets = sourceFiles
-    .map((file) => ({ file, format: formatForFile(file, target) }))
+    .map((file) => ({ file, ...describeAsset(file, target) }))
     .filter((item) => item.format);
   if (assets.length === 0) {
     throw new Error(
       `Electron Forge produced no ${target} release assets under ${makeDir}`,
     );
   }
+  const missingAssets = definition.requiredAssets.filter(
+    (kind) => !assets.some((asset) => asset.kind === kind),
+  );
+  if (missingAssets.length > 0) {
+    throw new Error(
+      `Electron Forge output for ${target} is incomplete; missing ${missingAssets.join(", ")}`,
+    );
+  }
 
   await ensureEmptyDirectory(outDir);
   const stagedArtifacts = [];
+  const stagedNames = new Set();
   for (const asset of assets) {
     const name = normalizeArtifactName(target, asset.file);
+    if (stagedNames.has(name)) {
+      throw new Error(`duplicate staged desktop asset name: ${name}`);
+    }
+    stagedNames.add(name);
     const destination = join(outDir, name);
     await copyFile(asset.file, destination);
     const fileStat = await stat(destination);
     stagedArtifacts.push({
       name,
       format: asset.format,
+      kind: asset.kind,
       size_bytes: fileStat.size,
       sha256: await sha256(destination),
     });
@@ -209,13 +224,23 @@ async function aggregateRelease({
   channel,
   tag,
   repository,
+  requireAllTargets = false,
 }) {
-  const metadataFiles = (await filesUnder(inputDir)).filter((file) =>
+  const inputFiles = await filesUnder(inputDir);
+  const metadataFiles = inputFiles.filter((file) =>
     file.endsWith("-latest.json"),
   );
   if (metadataFiles.length === 0)
     throw new Error(`no staged target metadata under ${inputDir}`);
   const targets = {};
+  const filesByName = new Map();
+  for (const file of inputFiles) {
+    const name = basename(file);
+    if (filesByName.has(name)) {
+      throw new Error(`duplicate staged release filename: ${name}`);
+    }
+    filesByName.set(name, file);
+  }
   for (const file of metadataFiles) {
     const metadata = JSON.parse(await readFile(file, "utf8"));
     if (metadata.channel !== channel || metadata.tag !== tag) {
@@ -223,12 +248,69 @@ async function aggregateRelease({
         `staged metadata identity mismatch: ${relative(inputDir, file)}`,
       );
     }
+    const definition = targetDefinitions[metadata.target];
+    if (!definition || targets[metadata.target]) {
+      throw new Error(`invalid or duplicate staged target: ${metadata.target}`);
+    }
+    if (
+      metadata.schema_version !== metadataSchema ||
+      metadata.app_id !== "run.zhongcao.contentcloud.desktop" ||
+      metadata.platform !== definition.platform ||
+      metadata.arch !== definition.arch
+    ) {
+      throw new Error(`invalid staged metadata contract: ${metadata.target}`);
+    }
+    if (
+      definition.signed &&
+      (metadata.signing?.required !== true ||
+        metadata.signing?.status !== "verified")
+    ) {
+      throw new Error(`staged target is not signed: ${metadata.target}`);
+    }
+    const artifacts = metadata.artifacts ?? [];
+    const missingAssets = definition.requiredAssets.filter(
+      (kind) => !artifacts.some((artifact) => artifact.kind === kind),
+    );
+    if (missingAssets.length > 0) {
+      throw new Error(
+        `staged target ${metadata.target} is incomplete; missing ${missingAssets.join(", ")}`,
+      );
+    }
+    for (const artifact of artifacts) {
+      const artifactPath = filesByName.get(artifact.name);
+      if (!artifactPath) {
+        throw new Error(`staged artifact is missing: ${artifact.name}`);
+      }
+      const fileStat = await stat(artifactPath);
+      if (
+        fileStat.size !== artifact.size_bytes ||
+        (await sha256(artifactPath)) !== artifact.sha256
+      ) {
+        throw new Error(`staged artifact integrity mismatch: ${artifact.name}`);
+      }
+    }
     if (repository) {
       for (const artifact of metadata.artifacts) {
         artifact.download_url = `https://github.com/${repository}/releases/download/${tag}/${encodeURIComponent(artifact.name)}`;
       }
     }
     targets[metadata.target] = metadata;
+  }
+  const versions = new Set(
+    Object.values(targets).map((metadata) => metadata.version),
+  );
+  if (versions.size !== 1) {
+    throw new Error("staged target versions must be identical");
+  }
+  if (requireAllTargets) {
+    const missingTargets = Object.keys(targetDefinitions).filter(
+      (target) => !targets[target],
+    );
+    if (missingTargets.length > 0) {
+      throw new Error(
+        `desktop release is missing targets: ${missingTargets.join(", ")}`,
+      );
+    }
   }
   await ensureEmptyDirectory(outDir);
   const index = {
@@ -271,6 +353,7 @@ async function main() {
       channel: required(args, "channel"),
       tag: required(args, "tag"),
       repository: args.repository?.trim(),
+      requireAllTargets: args["require-all-targets"] === true,
     });
     return;
   }
