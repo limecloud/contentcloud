@@ -1,23 +1,25 @@
-import type { ForgeConfig } from '@electron-forge/shared-types';
-import { FusesPlugin } from '@electron-forge/plugin-fuses';
-import { VitePlugin } from '@electron-forge/plugin-vite';
-import { FuseV1Options, FuseVersion } from '@electron/fuses';
-import { MakerDeb } from '@electron-forge/maker-deb';
-import { MakerDMG } from '@electron-forge/maker-dmg';
-import { MakerRpm } from '@electron-forge/maker-rpm';
-import { MakerSquirrel } from '@electron-forge/maker-squirrel';
-import { MakerZIP } from '@electron-forge/maker-zip';
+import type { ForgeConfig } from "@electron-forge/shared-types";
+import { FusesPlugin } from "@electron-forge/plugin-fuses";
+import { VitePlugin } from "@electron-forge/plugin-vite";
+import { FuseV1Options, FuseVersion } from "@electron/fuses";
+import { MakerDeb } from "@electron-forge/maker-deb";
+import { MakerDMG } from "@electron-forge/maker-dmg";
+import { MakerRpm } from "@electron-forge/maker-rpm";
+import { MakerSquirrel } from "@electron-forge/maker-squirrel";
+import { MakerZIP } from "@electron-forge/maker-zip";
 
-const releaseSigningEnabled = process.env.CONTENTCLOUD_DESKTOP_SIGN === '1';
+const releaseSigningEnabled = process.env.CONTENTCLOUD_DESKTOP_SIGN === "1";
 
 function macSignOptions() {
-  if (process.platform !== 'darwin' || !releaseSigningEnabled) {
+  if (process.platform !== "darwin" || !releaseSigningEnabled) {
     return undefined;
   }
 
   const identity = process.env.APPLE_SIGNING_IDENTITY?.trim();
   if (!identity) {
-    throw new Error('APPLE_SIGNING_IDENTITY is required for a signed desktop release');
+    throw new Error(
+      "APPLE_SIGNING_IDENTITY is required for a signed desktop release",
+    );
   }
 
   return {
@@ -30,7 +32,7 @@ function macSignOptions() {
 }
 
 function macNotarizeOptions() {
-  if (process.platform !== 'darwin' || !releaseSigningEnabled) {
+  if (process.platform !== "darwin" || !releaseSigningEnabled) {
     return undefined;
   }
 
@@ -39,7 +41,7 @@ function macNotarizeOptions() {
   const teamId = process.env.APPLE_TEAM_ID?.trim();
   if (!appleId || !appleIdPassword || !teamId) {
     throw new Error(
-      'APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID are required for notarization',
+      "APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID are required for notarization",
     );
   }
 
@@ -47,15 +49,17 @@ function macNotarizeOptions() {
 }
 
 function squirrelOptions() {
-  if (process.platform !== 'win32' || !releaseSigningEnabled) {
+  if (process.platform !== "win32" || !releaseSigningEnabled) {
     return {};
   }
 
-  const certificateFile = process.env.CONTENTCLOUD_DESKTOP_WINDOWS_CERTIFICATE_FILE?.trim();
-  const certificatePassword = process.env.CONTENTCLOUD_DESKTOP_WINDOWS_CERTIFICATE_PASSWORD;
+  const certificateFile =
+    process.env.CONTENTCLOUD_DESKTOP_WINDOWS_CERTIFICATE_FILE?.trim();
+  const certificatePassword =
+    process.env.CONTENTCLOUD_DESKTOP_WINDOWS_CERTIFICATE_PASSWORD;
   if (!certificateFile || !certificatePassword) {
     throw new Error(
-      'CONTENTCLOUD_DESKTOP_WINDOWS_CERTIFICATE_FILE and CONTENTCLOUD_DESKTOP_WINDOWS_CERTIFICATE_PASSWORD are required for a signed desktop release',
+      "CONTENTCLOUD_DESKTOP_WINDOWS_CERTIFICATE_FILE and CONTENTCLOUD_DESKTOP_WINDOWS_CERTIFICATE_PASSWORD are required for a signed desktop release",
     );
   }
 
@@ -65,22 +69,22 @@ function squirrelOptions() {
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
-    name: 'Content Work OS',
-    executableName: 'content-work-os',
-    appBundleId: 'run.zhongcao.contentcloud.desktop',
-    protocols: [{ name: 'Content Work OS', schemes: ['contentcloud'] }],
+    name: "Content Work OS",
+    executableName: "content-work-os",
+    appBundleId: "run.zhongcao.contentcloud.desktop",
+    protocols: [{ name: "Content Work OS", schemes: ["contentcloud"] }],
     osxSign: macSignOptions(),
     osxNotarize: macNotarizeOptions(),
     win32metadata: {
-      CompanyName: 'ContentCloud',
-      ProductName: 'Content Work OS',
-      FileDescription: 'ContentCloud project workspace desktop',
+      CompanyName: "ContentCloud",
+      ProductName: "Content Work OS",
+      FileDescription: "ContentCloud project workspace desktop",
     },
   },
   rebuildConfig: {},
   makers: [
     new MakerSquirrel(squirrelOptions()),
-    new MakerZIP({}, ['darwin']),
+    new MakerZIP({}, ["darwin"]),
     new MakerDMG({}),
     new MakerDeb({}),
     new MakerRpm({}),
@@ -88,10 +92,18 @@ const config: ForgeConfig = {
   plugins: [
     new VitePlugin({
       build: [
-        { entry: 'src/main/main.ts', config: 'vite.main.config.ts', target: 'main' },
-        { entry: 'src/preload/preload.ts', config: 'vite.preload.config.ts', target: 'preload' },
+        {
+          entry: "src/main/main.ts",
+          config: "vite.main.config.ts",
+          target: "main",
+        },
+        {
+          entry: "src/preload/preload.ts",
+          config: "vite.preload.config.ts",
+          target: "preload",
+        },
       ],
-      renderer: [{ name: 'main_window', config: 'vite.renderer.config.ts' }],
+      renderer: [{ name: "main_window", config: "vite.renderer.config.ts" }],
     }),
     new FusesPlugin({
       version: FuseVersion.V1,

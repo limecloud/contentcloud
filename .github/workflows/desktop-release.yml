@@ -3,27 +3,27 @@ name: Desktop Release
 on:
   push:
     tags:
-      - 'desktop-v*'
+      - "desktop-v*"
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号或 desktop-v 标签，例如 0.28.0-beta.1'
+        description: "版本号或 desktop-v 标签，例如 0.28.0-beta.1"
         required: true
-        default: '0.28.0-beta.1'
+        default: "0.28.0"
       source_ref:
-        description: '构建来源 ref；留空使用 main'
+        description: "构建来源 ref；留空使用 main"
         required: false
-        default: ''
+        default: ""
       channel:
-        description: '更新通道；稳定版只能使用已签名产物'
+        description: "更新通道；稳定版只能使用已签名产物"
         required: true
         type: choice
         options:
           - beta
           - stable
-        default: beta
+        default: stable
       publish:
-        description: '是否创建或更新 GitHub Release；手动运行默认只上传 CI artifact'
+        description: "是否创建或更新 GitHub Release；手动运行默认只上传 CI artifact"
         required: true
         type: boolean
         default: false
@@ -37,8 +37,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '22'
-  PNPM_VERSION: '10.8.1'
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.8.1"
   ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
 
 jobs:
@@ -82,6 +82,8 @@ jobs:
           version="${tag#desktop-v}"
           if [[ "$version" == *-* ]]; then
             channel=beta
+          elif [[ "$EVENT_NAME" == push ]]; then
+            channel=stable
           else
             channel="${INPUT_CHANNEL:-stable}"
           fi

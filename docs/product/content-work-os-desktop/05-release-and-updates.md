@@ -10,12 +10,12 @@ Electron Forge 是唯一打包工具，配置位于 `apps/desktop/forge.config.t
 
 当前目标矩阵：
 
-| 目标 | 打包格式 | 更新格式 | CI runner |
-| --- | --- | --- | --- |
-| macOS arm64 | DMG、ZIP | ZIP | `macos-14` |
-| macOS x64 | DMG、ZIP | ZIP | `macos-15-intel` |
-| Windows x64 | Squirrel | Squirrel | `windows-2022` |
-| Linux x64 | DEB、RPM | 暂不提供自动更新 | `ubuntu-22.04` |
+| 目标        | 打包格式 | 更新格式         | CI runner        |
+| ----------- | -------- | ---------------- | ---------------- |
+| macOS arm64 | DMG、ZIP | ZIP              | `macos-14`       |
+| macOS x64   | DMG、ZIP | ZIP              | `macos-15-intel` |
+| Windows x64 | Squirrel | Squirrel         | `windows-2022`   |
+| Linux x64   | DEB、RPM | 暂不提供自动更新 | `ubuntu-22.04`   |
 
 ## 2. 更新通道
 
@@ -83,15 +83,15 @@ resolve (tag / version / channel / source ref)
 
 正式 Release 所需 GitHub Actions secrets：
 
-| Secret | 用途 |
-| --- | --- |
-| `APPLE_CERTIFICATE` | base64 编码的 Developer ID `.p12` |
-| `APPLE_CERTIFICATE_PASSWORD` | `.p12` 密码 |
-| `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` | notarization 账号 |
-| `APPLE_SIGNING_IDENTITY` / `APPLE_TEAM_ID` | macOS 签名身份与团队 |
-| `KEYCHAIN_PASSWORD` | CI 临时 keychain |
-| `WINDOWS_SIGNING_CERTIFICATE` | base64 编码的 Authenticode `.pfx` |
-| `WINDOWS_SIGNING_CERTIFICATE_PASSWORD` | `.pfx` 密码 |
+| Secret                                     | 用途                              |
+| ------------------------------------------ | --------------------------------- |
+| `APPLE_CERTIFICATE`                        | base64 编码的 Developer ID `.p12` |
+| `APPLE_CERTIFICATE_PASSWORD`               | `.p12` 密码                       |
+| `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` | notarization 账号                 |
+| `APPLE_SIGNING_IDENTITY` / `APPLE_TEAM_ID` | macOS 签名身份与团队              |
+| `KEYCHAIN_PASSWORD`                        | CI 临时 keychain                  |
+| `WINDOWS_SIGNING_CERTIFICATE`              | base64 编码的 Authenticode `.pfx` |
+| `WINDOWS_SIGNING_CERTIFICATE_PASSWORD`     | `.pfx` 密码                       |
 
 缺少任一 macOS/Windows 签名 secret 时，构建 job 失败，不会上传可被误认为正式版本的未签名安装包。GitHub token 只用于 Release 元数据和 asset 上传；不会传入 Electron Renderer，也不会接收 Workspace 正文、设备 token 或 Cloud 凭据。
 
