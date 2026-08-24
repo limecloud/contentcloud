@@ -1402,7 +1402,11 @@ func (s *WorkService) CreateWorkTask(ctx context.Context, actor Actor, input Cre
 	if len(idempotencyKey) > 128 {
 		return WorkTaskView{}, fault.Invalid("IDEMPOTENCY_KEY_INVALID", "幂等键（Idempotency-Key）不能超过 128 个字符")
 	}
-	task := work.WorkTask{ID: idgen.New(), TenantID: actor.TenantID, ProjectID: project.ID, EnvironmentID: environment.ID, SOPID: sop.SOPID, SOPVersion: sop.Version, SOPDigest: sop.Digest, Title: strings.TrimSpace(input.Title), Intent: input.Intent, ContentType: contentType, InputRefs: input.InputRefs, RequestedOutput: input.RequestedOutput, AssigneeUserID: input.AssigneeUserID, Priority: defaultString(input.Priority, "normal"), DueAt: input.DueAt, RiskProfile: defaultString(input.RiskProfile, "low"), IdempotencyKey: idempotencyKey, Status: status, CurrentStageID: stageID, NextAction: nextAction, CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now}
+	requestedOutput := input.RequestedOutput
+	if requestedOutput == nil {
+		requestedOutput = map[string]any{}
+	}
+	task := work.WorkTask{ID: idgen.New(), TenantID: actor.TenantID, ProjectID: project.ID, EnvironmentID: environment.ID, SOPID: sop.SOPID, SOPVersion: sop.Version, SOPDigest: sop.Digest, Title: strings.TrimSpace(input.Title), Intent: input.Intent, ContentType: contentType, InputRefs: input.InputRefs, RequestedOutput: requestedOutput, AssigneeUserID: input.AssigneeUserID, Priority: defaultString(input.Priority, "normal"), DueAt: input.DueAt, RiskProfile: defaultString(input.RiskProfile, "low"), IdempotencyKey: idempotencyKey, Status: status, CurrentStageID: stageID, NextAction: nextAction, CreatedBy: actor.UserID, CreatedAt: now, UpdatedAt: now}
 	if err := task.Validate(); err != nil {
 		return WorkTaskView{}, err
 	}

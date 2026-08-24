@@ -143,6 +143,13 @@ func jsonArrayValue[T any](value []T) []byte {
 	return jsonValue(value)
 }
 
+func jsonObjectValue(value map[string]any) []byte {
+	if value == nil {
+		value = map[string]any{}
+	}
+	return jsonValue(value)
+}
+
 func decodeJSON[T any](body []byte) (T, error) {
 	var value T
 	err := json.Unmarshal(body, &value)
