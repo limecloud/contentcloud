@@ -45,7 +45,7 @@ func TestValidateV3MigrationSetRejectsTenantCapabilitiesWithoutV5(t *testing.T) 
 }
 
 func currentMigrationSet() []string {
-	return []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration, runProgressEventsMigration, knowledgeInfrastructureMigration, orchestrationInfrastructureMigration, taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration, runtimeFencingAndResourcesMigration, runtimeStateToolCallsMigration, runtimeProjectionMigration, runtimeJobContractMigration, runtimePlanRelationalMigration, runtimeFanoutJoinMigration, runtimeProviderInboxMigration, runtimeYieldResumeMigration, runtimeProjectionRebuildMigration, runtimeSessionMirrorCreationMigration, runtimeBusinessBindingMigration, runtimeInputSnapshotMigration, runtimeBusinessOutputMigration, removeV7ExecutionMigration, runtimeOutboxSubscribersMigration, removeRuntimeSessionMirrorMigration, runtimeMaintenanceHealthMigration, providerPollRecoveryMigration, providerPollDeadlineMigration, mediaRuntimeEffectLinksMigration, runtimeSchemaRegistryMigration, runtimeReadPaginationMigration, runtimeToolCallResultsMigration, channelDeliveryReceiptsMigration, modelGenerationReceiptsMigration, connectorSyncMigration, contentProfilesMigration, channelCallbacksMigration, deviceDaemonInstancesMigration, runtimeExecutionBindingSnapshotsMigration, runtimeAttemptGatewayTokensMigration, desktopWorkspaceRevisionsMigration, runtimeCleanupDiagnosticsMigration, workbenchRegistryMigration, commerceContentTypeMigration}
+	return []string{v3BaselineMigration, v5SubmissionTypesMigration, tenantContentCapabilitiesMigration, runProgressEventsMigration, knowledgeInfrastructureMigration, orchestrationInfrastructureMigration, taskGovernanceMigration, builtinSOPMetadataMigration, conversationImportsMigration, inputItemsMigration, workTaskIdempotencyMigration, mediaPipelineMigration, projectContentTypeMigration, agenticJobRuntimeMigration, runtimeAgentInstancesMigration, runtimeAttemptsMigration, workspaceMaterialsMigration, runtimeCommandKernelMigration, runtimeOutboxDeliveryMigration, runtimeAppendOnlyPermissionsMigration, runtimeFencingAndResourcesMigration, runtimeStateToolCallsMigration, runtimeProjectionMigration, runtimeJobContractMigration, runtimePlanRelationalMigration, runtimeFanoutJoinMigration, runtimeProviderInboxMigration, runtimeYieldResumeMigration, runtimeProjectionRebuildMigration, runtimeSessionMirrorCreationMigration, runtimeBusinessBindingMigration, runtimeInputSnapshotMigration, runtimeBusinessOutputMigration, removeV7ExecutionMigration, runtimeOutboxSubscribersMigration, removeRuntimeSessionMirrorMigration, runtimeMaintenanceHealthMigration, providerPollRecoveryMigration, providerPollDeadlineMigration, mediaRuntimeEffectLinksMigration, runtimeSchemaRegistryMigration, runtimeReadPaginationMigration, runtimeToolCallResultsMigration, channelDeliveryReceiptsMigration, modelGenerationReceiptsMigration, connectorSyncMigration, contentProfilesMigration, channelCallbacksMigration, deviceDaemonInstancesMigration, runtimeExecutionBindingSnapshotsMigration, runtimeAttemptGatewayTokensMigration, desktopWorkspaceRevisionsMigration, runtimeCleanupDiagnosticsMigration, workbenchRegistryMigration, commerceContentTypeMigration, runtimeCleanupHeartbeatKindMigration}
 }
 
 func TestCommerceContentTypeMigrationExtendsProjectAndTenantConstraints(t *testing.T) {
@@ -470,6 +470,22 @@ func TestRuntimeCleanupDiagnosticsMigrationAddsDurableTenantScopedFacts(t *testi
 	} {
 		if !strings.Contains(up, required) {
 			t.Fatalf("runtime cleanup diagnostics migration must contain %q", required)
+		}
+	}
+}
+
+func TestRuntimeCleanupHeartbeatKindMigrationExtendsDatabaseConstraint(t *testing.T) {
+	body, err := migrations.Files.ReadFile(runtimeCleanupHeartbeatKindMigration)
+	if err != nil {
+		t.Fatalf("read runtime cleanup heartbeat kind migration: %v", err)
+	}
+	up := strings.SplitN(string(body), "-- +goose Down", 2)[0]
+	for _, required := range []string{
+		"DROP CONSTRAINT runtime_maintenance_heartbeats_kind_check",
+		"CHECK (kind IN ('runtime_reaper','runtime_delivery','runtime_cleanup'))",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("runtime cleanup heartbeat kind migration must contain %q", required)
 		}
 	}
 }

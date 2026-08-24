@@ -2,6 +2,17 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.29.1] - 2026-08-24
+
+### Fixed
+
+- 修复 PostgreSQL 运维心跳约束未接受 `runtime_cleanup`，导致独立 Worker 反复拒绝清理恢复循环的问题。
+- 增加清理心跳增量迁移、迁移集合校验和真实 PostgreSQL 回归用例。
+
+### Changed
+
+- Server、Worker、Web、Desktop、CLI 和 npm 启动包版本元数据同步升级到 `0.29.1`。
+
 ## [0.29.0] - 2026-08-24
 
 ### Added

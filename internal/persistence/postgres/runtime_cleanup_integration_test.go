@@ -42,6 +42,13 @@ func TestRuntimeCleanupDiagnosticCASWithPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	heartbeat := contentruntime.RuntimeMaintenanceHeartbeat{
+		TenantID: actor.TenantID, Kind: contentruntime.RuntimeMaintenanceCleanup, WorkerID: "cleanup-pg-worker",
+		State: "running", LastStartedAt: now, UpdatedAt: now,
+	}
+	if err := store.SaveRuntimeMaintenanceHeartbeat(ctx, heartbeat); err != nil {
+		t.Fatalf("save runtime cleanup heartbeat: %v", err)
+	}
 	diagnostic := contentruntime.RuntimeCleanupDiagnostic{
 		ID: "cleanup-pg-" + suffix, TenantID: actor.TenantID, ProjectID: "project-1", TaskID: "task-1", RequestID: "request-1",
 		ManifestDigest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
