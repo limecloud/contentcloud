@@ -44,6 +44,13 @@ func scanWorkbenchEntry(row interface{ Scan(...any) error }) (workbenchdomain.En
 	return entry, nil
 }
 
+func workbenchStringArray(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}
+
 func (s *Store) WorkbenchEntries(ctx context.Context) ([]workbenchdomain.Entry, error) {
 	entries := []workbenchdomain.Entry{}
 	err := s.withPlatform(ctx, func(tx pgx.Tx) error {
@@ -102,7 +109,7 @@ func (s *Store) CreateWorkbenchEntry(ctx context.Context, value workbenchdomain.
 		return fault.Invalid("WORKBENCH_REGISTRATION_MUST_BE_DRAFT", "业务工作台必须先登记为草稿，再通过独立发布门禁启用")
 	}
 	return s.withPlatform(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO workbench_plugin_versions(id,version,manifest,digest,status,lifecycle_reason,template_aliases,tenant_ids) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, value.Manifest.ID, value.Manifest.Version, jsonValue(value.Manifest), value.Digest, value.Status, value.LifecycleReason, value.TemplateAliases, value.TenantIDs)
+		_, err := tx.Exec(ctx, `INSERT INTO workbench_plugin_versions(id,version,manifest,digest,status,lifecycle_reason,template_aliases,tenant_ids) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, value.Manifest.ID, value.Manifest.Version, jsonValue(value.Manifest), value.Digest, value.Status, value.LifecycleReason, workbenchStringArray(value.TemplateAliases), workbenchStringArray(value.TenantIDs))
 		return dbError(err)
 	})
 }
@@ -154,7 +161,7 @@ func (s *Store) UpdateWorkbenchEntryState(ctx context.Context, id, version, expe
 		if status == "revoked" {
 			lifecycleReason = strings.TrimSpace(reason)
 		}
-		row := tx.QueryRow(ctx, `UPDATE workbench_plugin_versions SET status=$4,tenant_ids=$5,lifecycle_reason=$6,updated_at=now() WHERE id=$1 AND version=$2 AND status=$3 RETURNING id,version,manifest,digest,status,lifecycle_reason,template_aliases,tenant_ids`, strings.TrimSpace(id), strings.TrimSpace(version), expectedStatus, status, tenantIDs, lifecycleReason)
+		row := tx.QueryRow(ctx, `UPDATE workbench_plugin_versions SET status=$4,tenant_ids=$5,lifecycle_reason=$6,updated_at=now() WHERE id=$1 AND version=$2 AND status=$3 RETURNING id,version,manifest,digest,status,lifecycle_reason,template_aliases,tenant_ids`, strings.TrimSpace(id), strings.TrimSpace(version), expectedStatus, status, workbenchStringArray(tenantIDs), lifecycleReason)
 		var scanErr error
 		entry, scanErr = scanWorkbenchEntry(row)
 		if errors.Is(scanErr, pgx.ErrNoRows) {

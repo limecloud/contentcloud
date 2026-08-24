@@ -328,6 +328,15 @@ func TestPostgresFinalRenderAtomicityWithPostgres(t *testing.T) {
 
 func createPostgresMediaTask(t *testing.T, ctx context.Context, store *storepg.Store, service *application.Application, actor application.Actor, suffix string) (project struct{ ID string }, task work.WorkTask, stageRun work.StageRun) {
 	t.Helper()
+	if err := store.SetTenantContentCapability(ctx, identitydomain.TenantContentCapability{
+		TenantID:    actor.TenantID,
+		ContentType: identitydomain.ContentTypeMarketingVideo,
+		Enabled:     true,
+		UpdatedBy:   actor.UserID,
+		UpdatedAt:   time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	createdProject, err := service.Workspace.CreateProject(ctx, actor, application.CreateProjectInput{BrandName: "Media Brand " + suffix, ProductName: "Media Product", ContentType: identitydomain.ContentTypeMarketingVideo, Channel: "douyin"}, "")
 	if err != nil {
 		t.Fatal(err)
