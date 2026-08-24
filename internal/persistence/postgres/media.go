@@ -197,7 +197,7 @@ func (s *Store) MediaProviderUsage(ctx context.Context, tenantID, providerID str
 	return result, err
 }
 
-const mediaGenerationJobSelect = `SELECT tenant_id,id,project_id,task_id,stage_run_id,storyboard_snapshot_id,prompt_package_artifact_id,provider_id,profile_version,profile_digest,model,mode,aspect_ratio,duration_seconds,input_artifact_refs,runtime_job_run_id,runtime_node_run_id,runtime_attempt_id,runtime_effect_id,state,idempotency_key,estimated_cost_minor,actual_cost_minor,currency,attempt_count,max_attempts,lease_owner,lease_expires_at,cancel_requested_at,error_code,error_detail_safe,row_version,created_by,created_at,updated_at FROM media_generation_jobs`
+const mediaGenerationJobSelect = `SELECT tenant_id,id,project_id,task_id,stage_run_id,storyboard_snapshot_id,prompt_package_artifact_id,provider_id,profile_version,profile_digest,model,mode,aspect_ratio,duration_seconds,input_artifact_refs,COALESCE(runtime_job_run_id,''),COALESCE(runtime_node_run_id,''),COALESCE(runtime_attempt_id,''),COALESCE(runtime_effect_id,''),state,idempotency_key,estimated_cost_minor,actual_cost_minor,currency,attempt_count,max_attempts,lease_owner,lease_expires_at,cancel_requested_at,error_code,error_detail_safe,row_version,created_by,created_at,updated_at FROM media_generation_jobs`
 
 func scanMediaGenerationJob(row pgx.Row) (deliverydomain.MediaGenerationJob, error) {
 	var value deliverydomain.MediaGenerationJob
@@ -348,7 +348,7 @@ func (s *Store) SaveMediaGenerationJob(ctx context.Context, value deliverydomain
 	})
 }
 
-const providerAttemptSelect = `SELECT tenant_id,id,project_id,generation_job_id,attempt_number,provider_id,request_digest,runtime_job_run_id,runtime_node_run_id,runtime_attempt_id,runtime_effect_id,external_job_id,provider_state,safe_request_summary,safe_response_summary,disclosure_manifest,http_status,provider_request_id,estimated_cost_minor,actual_cost_minor,currency,last_polled_at,next_poll_at,submitted_at,downloaded_at,completed_at,retry_after_seconds,error_code,error_detail_safe,created_at,updated_at FROM provider_attempts`
+const providerAttemptSelect = `SELECT tenant_id,id,project_id,generation_job_id,attempt_number,provider_id,request_digest,COALESCE(runtime_job_run_id,''),COALESCE(runtime_node_run_id,''),COALESCE(runtime_attempt_id,''),COALESCE(runtime_effect_id,''),external_job_id,provider_state,safe_request_summary,safe_response_summary,disclosure_manifest,http_status,provider_request_id,estimated_cost_minor,actual_cost_minor,currency,last_polled_at,next_poll_at,submitted_at,downloaded_at,completed_at,retry_after_seconds,error_code,error_detail_safe,created_at,updated_at FROM provider_attempts`
 
 func scanProviderAttempt(row pgx.Row) (deliverydomain.ProviderAttempt, error) {
 	var value deliverydomain.ProviderAttempt
