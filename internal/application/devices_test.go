@@ -59,6 +59,10 @@ func TestDaemonInstanceRejectsDuplicateAndSameEpochResurrection(t *testing.T) {
 	if _, err := service.Workspace.ReportDaemonInstance(t.Context(), deviceActor, input); err != nil {
 		t.Fatal(err)
 	}
+	project, err := service.Workspace.Project(t.Context(), actor, connect.ProjectID)
+	if err != nil || project.ConnectedDevices != 1 {
+		t.Fatalf("daemon heartbeat duplicated the connected device projection: project=%#v error=%v", project, err)
+	}
 	if _, err := service.Workspace.ReportDaemonInstance(t.Context(), deviceActor, input); !hasAppDomainCode(err, "DAEMON_INSTANCE_REPORT_STALE") {
 		t.Fatalf("duplicate daemon report was accepted: %v", err)
 	}
@@ -76,5 +80,12 @@ func TestDaemonInstanceRejectsDuplicateAndSameEpochResurrection(t *testing.T) {
 	input.ReportSequence = 1
 	if _, err := service.Workspace.ReportDaemonInstance(t.Context(), deviceActor, input); err != nil {
 		t.Fatalf("new daemon connection epoch was rejected: %v", err)
+	}
+	if _, err := service.Workspace.RevokeDevice(t.Context(), actor, connected.Device.ID, "revoke-daemon-device"); err != nil {
+		t.Fatal(err)
+	}
+	project, err = service.Workspace.Project(t.Context(), actor, connect.ProjectID)
+	if err != nil || project.ConnectedDevices != 0 {
+		t.Fatalf("revoked device remained in the connected device projection: project=%#v error=%v", project, err)
 	}
 }

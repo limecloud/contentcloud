@@ -862,6 +862,19 @@ type StoryboardAsset struct {
 	RightsRefs []string `json:"rights_refs"`
 }
 
+// StoryboardVisualBinding fixes one reusable visual identity to an immutable
+// source digest and a local identity anchor. It is deliberately a projection
+// inside the storyboard package: SourceRevision, WorkspaceMaterial and
+// Artifact remain the owners of their respective source and media facts.
+type StoryboardVisualBinding struct {
+	ID            string   `json:"id"`
+	Kind          string   `json:"kind"`
+	SourceRef     string   `json:"source_ref"`
+	SourceDigest  string   `json:"source_digest"`
+	AnchorAssetID string   `json:"anchor_asset_id"`
+	RightsRefs    []string `json:"rights_refs"`
+}
+
 type StoryboardShot struct {
 	ShotID               string   `json:"shot_id"`
 	StartMS              int      `json:"start_ms"`
@@ -884,6 +897,7 @@ type StoryboardShot struct {
 	ProductLock          string   `json:"product_lock"`
 	Anchors              []string `json:"anchors"`
 	AssetRefs            []string `json:"asset_refs"`
+	VisualBindingRefs    []string `json:"visual_binding_refs"`
 	RightsRefs           []string `json:"rights_refs"`
 	KnowledgeRefs        []string `json:"knowledge_refs"`
 	ClaimRefs            []string `json:"claim_refs"`
@@ -893,20 +907,21 @@ type StoryboardShot struct {
 }
 
 type StoryboardPackage struct {
-	ID                    string            `json:"id"`
-	Type                  string            `json:"type"`
-	SchemaVersion         string            `json:"schema_version"`
-	ProjectID             string            `json:"project_id"`
-	ApprovedSnapshotID    string            `json:"approved_snapshot_id"`
-	ContentItemID         string            `json:"content_item_id"`
-	GeneratorCapability   CapabilityRef     `json:"generator_capability"`
-	Status                string            `json:"status"`
-	Shots                 []StoryboardShot  `json:"shots"`
-	Assets                []StoryboardAsset `json:"assets"`
-	ReviewSheetArtifactID string            `json:"review_sheet_artifact_id,omitempty"`
-	RightsRefs            []string          `json:"rights_refs"`
-	SourceDigest          string            `json:"source_digest"`
-	LockedDigest          string            `json:"locked_digest"`
+	ID                    string                    `json:"id"`
+	Type                  string                    `json:"type"`
+	SchemaVersion         string                    `json:"schema_version"`
+	ProjectID             string                    `json:"project_id"`
+	ApprovedSnapshotID    string                    `json:"approved_snapshot_id"`
+	ContentItemID         string                    `json:"content_item_id"`
+	GeneratorCapability   CapabilityRef             `json:"generator_capability"`
+	Status                string                    `json:"status"`
+	Shots                 []StoryboardShot          `json:"shots"`
+	Assets                []StoryboardAsset         `json:"assets"`
+	VisualBindings        []StoryboardVisualBinding `json:"visual_bindings"`
+	ReviewSheetArtifactID string                    `json:"review_sheet_artifact_id,omitempty"`
+	RightsRefs            []string                  `json:"rights_refs"`
+	SourceDigest          string                    `json:"source_digest"`
+	LockedDigest          string                    `json:"locked_digest"`
 }
 
 func (v StoryboardPackage) Validate(requireReviewReady bool) error {
@@ -935,9 +950,19 @@ func (v StoryboardPackage) Validate(requireReviewReady bool) error {
 		}
 		assetIndex[asset.ID] = asset
 	}
+	bindingIndex := map[string]StoryboardVisualBinding{}
+	for _, binding := range v.VisualBindings {
+		if err := binding.Validate(assetIndex); err != nil {
+			return err
+		}
+		if _, exists := bindingIndex[binding.ID]; exists {
+			return fault.Invalid("STORYBOARD_VISUAL_BINDING_DUPLICATE", "分镜视觉资产绑定 ID 不能重复")
+		}
+		bindingIndex[binding.ID] = binding
+	}
 	shotIDs := map[string]bool{}
 	for _, shot := range v.Shots {
-		if err := shot.Validate(assetIndex, requireReviewReady); err != nil {
+		if err := shot.Validate(assetIndex, bindingIndex, requireReviewReady); err != nil {
 			return err
 		}
 		if shotIDs[shot.ShotID] {
@@ -961,6 +986,7 @@ func (v StoryboardPackage) ComputedLockedDigest() (string, error) {
 	v.LockedDigest = ""
 	v.Assets = append([]StoryboardAsset(nil), v.Assets...)
 	v.Shots = append([]StoryboardShot(nil), v.Shots...)
+	v.VisualBindings = append([]StoryboardVisualBinding(nil), v.VisualBindings...)
 	v.RightsRefs = sortedUniqueV5Strings(v.RightsRefs)
 	sort.Slice(v.Assets, func(i, j int) bool { return v.Assets[i].ID < v.Assets[j].ID })
 	sort.Slice(v.Shots, func(i, j int) bool {
@@ -969,6 +995,7 @@ func (v StoryboardPackage) ComputedLockedDigest() (string, error) {
 		}
 		return v.Shots[i].ShotID < v.Shots[j].ShotID
 	})
+	sort.Slice(v.VisualBindings, func(i, j int) bool { return v.VisualBindings[i].ID < v.VisualBindings[j].ID })
 	hash, err := stablehash.Sum(v)
 	if err != nil {
 		return "", err
@@ -987,7 +1014,21 @@ func (v StoryboardAsset) Validate() error {
 	return nil
 }
 
-func (v StoryboardShot) Validate(assets map[string]StoryboardAsset, requireMedia bool) error {
+func (v StoryboardVisualBinding) Validate(assets map[string]StoryboardAsset) error {
+	if strings.TrimSpace(v.ID) == "" || !validStoryboardVisualBindingKind(v.Kind) || strings.TrimSpace(v.SourceRef) == "" || !strings.HasPrefix(v.SourceDigest, "sha256:") || !stablehash.Matches(v.SourceDigest) || !uniqueNonEmpty(v.RightsRefs) {
+		return fault.Invalid("STORYBOARD_VISUAL_BINDING_INVALID", "视觉资产绑定缺少 ID、类别、来源引用、固定摘要或权利引用")
+	}
+	anchor, ok := assets[v.AnchorAssetID]
+	if !ok || anchor.Role != "identity_anchor" {
+		return fault.Invalid("STORYBOARD_VISUAL_BINDING_ANCHOR_INVALID", "视觉资产绑定必须引用 identity_anchor 分镜素材")
+	}
+	if !containsAllStrings(anchor.RightsRefs, v.RightsRefs) {
+		return fault.Policy("STORYBOARD_VISUAL_BINDING_RIGHTS_INVALID", "视觉资产绑定的权利引用必须由身份锚点素材覆盖", "补齐身份锚点的权利引用后重新准备审核")
+	}
+	return nil
+}
+
+func (v StoryboardShot) Validate(assets map[string]StoryboardAsset, bindings map[string]StoryboardVisualBinding, requireMedia bool) error {
 	if !storyboardShotIDPattern.MatchString(v.ShotID) || v.StartMS < 0 || v.EndMS <= v.StartMS || strings.TrimSpace(v.Role) == "" || strings.TrimSpace(v.ImagePromptZH) == "" || strings.TrimSpace(v.PlanB) == "" || len(v.NegativeConstraints) == 0 || len(v.AcceptanceCriteria) == 0 {
 		return fault.Invalid("STORYBOARD_SHOT_INVALID", "分镜镜头缺少 ID、时间、提示词、禁止项、验收或 Plan B")
 	}
@@ -1001,6 +1042,14 @@ func (v StoryboardShot) Validate(assets map[string]StoryboardAsset, requireMedia
 			if !ok || end.Role != "end_frame" || end.ShotID != v.ShotID {
 				return fault.Invalid("STORYBOARD_END_FRAME_INVALID", "尾帧必须引用同一镜头的 end_frame 素材")
 			}
+		}
+	}
+	if len(v.VisualBindingRefs) > 0 && !uniqueNonEmpty(v.VisualBindingRefs) {
+		return fault.Invalid("STORYBOARD_VISUAL_BINDING_REFS_INVALID", "镜头视觉资产绑定引用不能为空或重复")
+	}
+	for _, ref := range v.VisualBindingRefs {
+		if _, ok := bindings[ref]; !ok {
+			return fault.Invalid("STORYBOARD_VISUAL_BINDING_REF_UNKNOWN", "镜头引用了未锁定的视觉资产绑定："+ref)
 		}
 	}
 	return nil
@@ -1202,6 +1251,23 @@ func validExperimentVariable(value string) bool {
 
 func validStoryboardAssetRole(value string) bool {
 	return value == "first_frame" || value == "end_frame" || value == "identity_anchor" || value == "review_sheet" || value == "reference_video" || value == "reference_audio"
+}
+
+func validStoryboardVisualBindingKind(value string) bool {
+	return value == "character" || value == "scene" || value == "prop" || value == "product"
+}
+
+func containsAllStrings(values, required []string) bool {
+	present := map[string]bool{}
+	for _, value := range values {
+		present[value] = true
+	}
+	for _, value := range required {
+		if !present[value] {
+			return false
+		}
+	}
+	return true
 }
 
 func validAspect(value string) bool {

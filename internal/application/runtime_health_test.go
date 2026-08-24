@@ -35,7 +35,7 @@ func TestPlatformRuntimeHealthReportsHeartbeatAndBacklogThresholds(t *testing.T)
 		t.Fatalf("missing reaper heartbeat was not critical: %#v", report)
 	}
 
-	for _, kind := range []string{contentruntime.RuntimeMaintenanceReaper, contentruntime.RuntimeMaintenanceDelivery} {
+	for _, kind := range []string{contentruntime.RuntimeMaintenanceReaper, contentruntime.RuntimeMaintenanceDelivery, contentruntime.RuntimeMaintenanceCleanup} {
 		success := now
 		if err := store.SaveRuntimeMaintenanceHeartbeat(t.Context(), contentruntime.RuntimeMaintenanceHeartbeat{TenantID: actor.TenantID, Kind: kind, WorkerID: "worker-1", State: "succeeded", LastStartedAt: now, LastSuccessAt: &success, UpdatedAt: now}); err != nil {
 			t.Fatal(err)

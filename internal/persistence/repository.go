@@ -7,6 +7,7 @@ import (
 	auditdomain "github.com/limecloud/contentcloud/internal/audit"
 	catalogdomain "github.com/limecloud/contentcloud/internal/catalog"
 	deliverydomain "github.com/limecloud/contentcloud/internal/delivery"
+	workbenchdomain "github.com/limecloud/contentcloud/internal/experience/workbench"
 	identitydomain "github.com/limecloud/contentcloud/internal/identity"
 	performancedomain "github.com/limecloud/contentcloud/internal/performance"
 	reviewdomain "github.com/limecloud/contentcloud/internal/review"
@@ -189,7 +190,9 @@ type DeliveryRepository interface {
 	ProviderProfile(context.Context, string, string) (deliverydomain.ProviderProfile, error)
 	SaveProviderBinding(context.Context, deliverydomain.ProviderBinding) error
 	ProviderBinding(context.Context, string, string) (deliverydomain.ProviderBinding, error)
+	MediaProviderUsage(context.Context, string, string, time.Time, time.Time) (deliverydomain.MediaProviderUsage, error)
 	CreateMediaGenerationJob(context.Context, deliverydomain.MediaGenerationJob) error
+	CreateMediaGenerationJobs(context.Context, []deliverydomain.MediaGenerationJob) error
 	PendingMediaGenerationJobs(context.Context, int) ([]deliverydomain.MediaGenerationJob, error)
 	MediaGenerationJob(context.Context, string, string) (deliverydomain.MediaGenerationJob, error)
 	MediaGenerationJobs(context.Context, string, string) ([]deliverydomain.MediaGenerationJob, error)
@@ -270,8 +273,26 @@ type ArtifactRepository interface {
 	ArtifactsByApprovedSnapshot(context.Context, string, string) ([]deliverydomain.Artifact, error)
 	Artifact(context.Context, string, string) (deliverydomain.Artifact, error)
 	CreateDeliveryPackage(context.Context, deliverydomain.DeliveryPackage, []deliverydomain.Artifact) error
+	DeliveryPackageBySnapshotAndContentItem(context.Context, string, string, string) (deliverydomain.DeliveryPackage, error)
 	DeliveryPackages(context.Context, string, string) ([]deliverydomain.DeliveryPackage, error)
 	DeliveryPackage(context.Context, string, string) (deliverydomain.DeliveryPackage, error)
+}
+
+// WorkbenchRepository persists the platform-owned customer surface registry.
+// It stores declarative manifests and lifecycle/tenant assignment only. SOP,
+// Gate, Runtime and Artifact facts remain in their owning repositories.
+type WorkbenchRepository interface {
+	WorkbenchEntries(context.Context) ([]workbenchdomain.Entry, error)
+	WorkbenchEntry(context.Context, string, string) (workbenchdomain.Entry, error)
+	CreateWorkbenchEntry(context.Context, workbenchdomain.Entry) error
+	UpdateWorkbenchEntryState(context.Context, string, string, string, string, []string, string) (workbenchdomain.Entry, error)
+}
+
+// FinalRenderRepository atomically persists a rendered Artifact and its
+// pending final MediaReview. Implementations must leave both facts absent
+// when either validation or insertion fails.
+type FinalRenderRepository interface {
+	CreateFinalRender(context.Context, deliverydomain.Artifact, deliverydomain.MediaReview) error
 }
 
 type PerformanceRepository interface {

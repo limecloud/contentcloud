@@ -366,6 +366,8 @@ type RenderedContentFile struct {
 }
 
 type RenderedContentDelivery struct {
+	ItemID      string
+	SchemaID    string
 	Item        ContentItem
 	ContentHash string
 	Files       []RenderedContentFile
@@ -841,6 +843,25 @@ func ExportApprovedContentItem(root, contentItemID, outputDirectory string, now 
 }
 
 func RenderContentItem(raw json.RawMessage) (RenderedContentDelivery, error) {
+	var identity struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(raw, &identity); err != nil {
+		return RenderedContentDelivery{}, fault.Invalid("APPROVED_CONTENT_ITEM_INVALID", "批准快照中的内容对象不是有效 JSON")
+	}
+	switch identity.SchemaVersion {
+	case ArticleSchema:
+		return renderArticleContentDelivery(raw)
+	case CommerceContentSchema:
+		return renderCommerceContentDelivery(raw)
+	case VideoScriptSchema:
+		return renderVideoScriptContentDelivery(raw)
+	case NovelChapterSchema:
+		return RenderNovelChapterDelivery(raw)
+	case ContentItemSchema:
+	default:
+		return RenderedContentDelivery{}, fault.Invalid("APPROVED_CONTENT_SCHEMA_UNSUPPORTED", "批准快照中的内容格式不支持服务端交付")
+	}
 	var pkg ContentItem
 	if err := strictUnmarshal(raw, &pkg); err != nil {
 		return RenderedContentDelivery{}, fault.Invalid("APPROVED_CONTENT_ITEM_INVALID", "批准快照中的 ContentItem V3 无效："+err.Error())
@@ -867,7 +888,7 @@ func RenderContentItem(raw json.RawMessage) (RenderedContentDelivery, error) {
 		{Format: "xlsx", Name: "content.xlsx", MediaType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Body: xlsx, SHA256: digest(xlsx)},
 	}
 	files[1].SHA256 = digest(files[1].Body)
-	return RenderedContentDelivery{Item: pkg, ContentHash: "sha256:" + hash, Files: files}, nil
+	return RenderedContentDelivery{ItemID: pkg.ID, SchemaID: ContentItemSchema, Item: pkg, ContentHash: "sha256:" + hash, Files: files}, nil
 }
 
 func lintContentItem(pkg ContentItem, batch ContentBatch, query KnowledgeQueryResult, refs map[string]LocalKnowledgeItem) ContentItemLintReport {

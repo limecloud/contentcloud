@@ -42,7 +42,7 @@ func validateBootstrapSession(value string) error {
 }
 
 func (r *Root) withBootstrapPrerequisites(ctx context.Context, plan bootstrapPlan, sessionID string) (bootstrapPlan, error) {
-	options := bootstrapcheck.Options{Directory: plan.Workspace.Root, ServerURL: plan.ServerURL}
+	options := bootstrapcheck.Options{Directory: plan.Workspace.Root, ServerURL: plan.ServerURL, Host: plan.Host}
 	report := bootstrapcheck.Run(ctx, options)
 	if r.bootstrapCheckHook != nil {
 		report = r.bootstrapCheckHook(ctx, options)

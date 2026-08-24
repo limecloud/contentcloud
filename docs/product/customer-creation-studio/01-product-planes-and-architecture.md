@@ -37,6 +37,27 @@ Content Work OS 创作任务
 
 中心不能命名为“ContentCloud Agent”。Content Work OS 是客户产品品牌；ContentCloud Agentic Job Runtime 是中心背后的技术执行内核。完整表达规则见[产品叙事规范](../00-product-narrative.md)。
 
+## 1.1 首个业务工作台：视频生产
+
+视频生产工作台是 ContentCloud 的第一个旗舰业务工作台，用成熟的视频生产工作节奏验证“按业务定制顶层界面、共享底层能力”的方向：使用者围绕项目、素材、创作阶段、预览、确认和交付连续工作，而不是先理解 SOP、Runtime 或 Provider。
+
+它复用 ContentCloud 的项目、资产、任务、审核、版本、交付和 Runtime 能力，只定制以下内容：
+
+- 视频业务的输入表单：素材、受众、品牌约束和创作目标。
+- 视频业务的阶段：剧本、分镜、候选生成、成片确认和交付。
+- 视频业务的结果呈现：候选比较、预览、成片和剪辑工具交接。
+- 视频业务的客户状态与动作：补资料、确认、要求修改、生成交付包和复用结果。
+
+正式图谱：
+
+- [视频工作台主流程（源图）](../../../diagrams/contentcloud-video-workbench-flow.mmd) · [SVG](../../../diagrams/contentcloud-video-workbench-flow.svg) · [PNG](../../../diagrams/contentcloud-video-workbench-flow.png) · [Excalidraw](../../../diagrams/contentcloud-video-workbench-flow.excalidraw)
+- [视频工作台时序图（源图）](../../../diagrams/contentcloud-video-workbench-sequence.mmd) · [SVG](../../../diagrams/contentcloud-video-workbench-sequence.svg) · [PNG](../../../diagrams/contentcloud-video-workbench-sequence.png)
+- [视频工作台客户状态图（源图）](../../../diagrams/contentcloud-video-workbench-state.mmd) · [SVG](../../../diagrams/contentcloud-video-workbench-state.svg) · [PNG](../../../diagrams/contentcloud-video-workbench-state.png)
+
+页面级 UI 规范见[业务工作台层 UI 设计](./07-business-workbench-ui-design.md)，其中定义工作台选择器、阶段轨道、业务画布、上下文栏、决策栏、候选比较和移动端折叠规则。可切换的视频、文章、电商和连载小说 UI 原型见[业务工作台原型说明](./08-business-workbench-prototype.md)及其[可点击 HTML 原型](./prototypes/business-workbench-prototype.html)。
+
+这里的“工作台”是 `ExperienceTemplate` 的业务化呈现，不是第二套平台。未来文章创作、电商内容等场景只需提供自己的模板、输入输出契约和阶段映射，即可复用同一套共享产品层与系统执行层。新任务会固定工作台 `plugin_id`、版本和摘要；运营撤回版本只停止新任务选择，不改变历史任务的界面绑定，更不能改变底层流程、审批、产物和交付事实。
+
 ## 2. 五个边界清晰的部分
 
 ### 2.1 客户创作台

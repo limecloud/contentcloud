@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Activity, AlertTriangle, Boxes, CircleDollarSign, FolderKanban, Gauge, GitBranch, LayoutDashboard, LogOut, Menu, RefreshCw, Settings2, ShieldCheck, Users, Workflow, X, type LucideIcon, PlugZap } from 'lucide-react';
+import { Activity, AlertTriangle, Boxes, CircleDollarSign, FolderKanban, Gauge, GitBranch, LayoutDashboard, LogOut, Menu, RefreshCw, Settings2, ShieldCheck, Users, Workflow, X, type LucideIcon, PlugZap, Trash2 } from 'lucide-react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { post } from '../api';
 import { Banner, IconButton, Loading } from '../components/ui';
@@ -13,12 +13,14 @@ const routeTitles:Record<string,string>={
   [adminPath('products')]:'创作流程',
   [adminPath('releases')]:'发布版本',
   [adminPath('customers')]:'客户设置',
+  [adminPath('workbenches')]:'业务工作台',
   [adminPath('capabilities')]:'功能清单',
   [adminPath('skills')]:'自动化工具',
   [adminPath('executors')]:'连接的电脑',
   [adminPath('providers')]:'视频服务',
   [adminPath('jobs')]:'任务进度',
   [adminPath('alerts')]:'需要处理',
+  [adminPath('cleanup')]:'清理诊断',
   [adminPath('tenants')]:'客户列表',
   [adminPath('audit')]:'变更记录',
   [adminPath('costs')]:'任务统计'
@@ -40,6 +42,7 @@ export function AdminShell() {
         <AdminNav to={adminPath('products')} icon={FolderKanban} label="创作流程" onClick={()=>setMobileOpen(false)}/>
         <AdminNav to={adminPath('releases')} icon={GitBranch} label="发布版本" onClick={()=>setMobileOpen(false)}/>
         <AdminNav to={adminPath('customers')} icon={Users} label="客户设置" onClick={()=>setMobileOpen(false)}/>
+        {session.is_platform_admin&&<AdminNav to={adminPath('workbenches')} icon={LayoutDashboard} label="业务工作台" onClick={()=>setMobileOpen(false)}/>}
         <div className="admin-nav-label">功能设置</div>
         <AdminNav to={adminPath('capabilities')} icon={Settings2} label="功能清单" onClick={()=>setMobileOpen(false)}/>
         <AdminNav to={adminPath('skills')} icon={Boxes} label="自动化工具" onClick={()=>setMobileOpen(false)}/>
@@ -48,6 +51,7 @@ export function AdminShell() {
         <div className="admin-nav-label">任务跟进</div>
         <AdminNav to={adminPath('jobs')} icon={Activity} label="任务进度" onClick={()=>setMobileOpen(false)}/>
         <AdminNav to={adminPath('alerts')} icon={AlertTriangle} label="需要处理" onClick={()=>setMobileOpen(false)}/>
+        <AdminNav to={adminPath('cleanup')} icon={Trash2} label="清理诊断" onClick={()=>setMobileOpen(false)}/>
         <div className="admin-nav-label">账号与记录</div>
         <AdminNav to={adminPath('tenants')} icon={Users} label="客户列表" onClick={()=>setMobileOpen(false)}/>
         <AdminNav to={adminPath('audit')} icon={ShieldCheck} label="变更记录" onClick={()=>setMobileOpen(false)}/>

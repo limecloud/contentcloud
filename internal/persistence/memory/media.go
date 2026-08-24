@@ -172,6 +172,37 @@ func (s *Store) ProviderBinding(_ context.Context, tenantID, providerID string) 
 	return value, nil
 }
 
+func (s *Store) MediaProviderUsage(_ context.Context, tenantID, providerID string, monthStart, monthEnd time.Time) (deliverydomain.MediaProviderUsage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	usage := deliverydomain.MediaProviderUsage{ProviderID: providerID}
+	for _, job := range s.mediaJobs {
+		if job.TenantID != tenantID || job.ProviderID != providerID {
+			continue
+		}
+		if !job.CreatedAt.Before(monthStart) && job.CreatedAt.Before(monthEnd) {
+			usage.ActualCostMinor += job.ActualCostMinor
+			if !isTerminalMediaJobState(job.State) {
+				usage.EstimatedCostMinor += job.EstimatedCostMinor
+			}
+		}
+		if !isTerminalMediaJobState(job.State) {
+			usage.ActiveJobs++
+		}
+	}
+	usage.CommittedCostMinor = usage.ActualCostMinor + usage.EstimatedCostMinor
+	return usage, nil
+}
+
+func isTerminalMediaJobState(state string) bool {
+	switch state {
+	case deliverydomain.MediaJobSucceeded, deliverydomain.MediaJobFailed, deliverydomain.MediaJobCancelled, deliverydomain.MediaJobOutputInvalid, deliverydomain.MediaJobRetryableFailed:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Store) CreateMediaGenerationJob(_ context.Context, value deliverydomain.MediaGenerationJob) error {
 	value.NormalizeCollections()
 	if err := value.Validate(); err != nil {
@@ -188,6 +219,36 @@ func (s *Store) CreateMediaGenerationJob(_ context.Context, value deliverydomain
 		}
 	}
 	s.mediaJobs[value.ID] = cloneMediaJob(value)
+	return nil
+}
+
+func (s *Store) CreateMediaGenerationJobs(_ context.Context, values []deliverydomain.MediaGenerationJob) error {
+	for index := range values {
+		values[index].NormalizeCollections()
+		if err := values[index].Validate(); err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := map[string]bool{}
+	for _, value := range values {
+		if seen[value.IdempotencyKey] {
+			return fault.Conflict("MEDIA_JOB_IDEMPOTENCY_CONFLICT", "同一批不能重复使用媒体生成任务幂等键")
+		}
+		seen[value.IdempotencyKey] = true
+		if _, exists := s.mediaJobs[value.ID]; exists {
+			return fault.Conflict("MEDIA_JOB_EXISTS", "媒体生成任务已存在")
+		}
+		for _, existing := range s.mediaJobs {
+			if existing.TenantID == value.TenantID && existing.IdempotencyKey == value.IdempotencyKey {
+				return fault.Conflict("MEDIA_JOB_IDEMPOTENCY_CONFLICT", "相同幂等键已创建媒体生成任务")
+			}
+		}
+	}
+	for _, value := range values {
+		s.mediaJobs[value.ID] = cloneMediaJob(value)
+	}
 	return nil
 }
 

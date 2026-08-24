@@ -1,0 +1,34 @@
+flowchart TB
+    Registry[工作台 Registry<br/>版本 · 摘要 · 模板绑定 · 租户启用]
+    Video[视频工作台<br/>镜头与候选画布]
+    Article[文章工作台<br/>目录与正文编辑]
+    Commerce[电商工作台<br/>商品事实与渠道变体]
+    Novel[连载小说工作台<br/>Canon · 卷章 · 连续性]
+    Actions[Customer BFF + Action Contract<br/>权限 · 租户 · 幂等 · 安全投影]
+    App[应用编排层<br/>命令 · 查询 · 跨域协调 · 审计]
+    Facts[统一业务事实层<br/>Identity · Workspace · Source · Knowledge · Catalog · WorkTask]
+    Control[流程治理层<br/>SOP · Gate · Review · Capability]
+    Runtime[执行层<br/>JobRun · NodeRun · Attempt · Effect · Provider · Worker · Agent]
+    Outputs[产物闭环层<br/>SubmissionRevision · ApprovedSnapshot · Artifact · DeliveryPackage]
+    Learning[效果与学习<br/>PerformanceObservation · RatingDecision]
+    Storage[(持久化与队列<br/>PostgreSQL · Blob · Queue)]
+
+    Registry --> Video
+    Registry --> Article
+    Registry --> Commerce
+    Registry --> Novel
+    Video --> Actions
+    Article --> Actions
+    Commerce --> Actions
+    Novel --> Actions
+    Actions --> App
+    App --> Facts
+    App --> Control
+    Control --> Runtime
+    Runtime --> Outputs
+    Facts --> Outputs
+    Outputs --> Learning
+    Learning -. 下一任务候选 .-> App
+    Facts --> Storage
+    Runtime --> Storage
+    Outputs --> Storage

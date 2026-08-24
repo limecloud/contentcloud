@@ -560,6 +560,7 @@ func templateWithCLIVersion(targets []string, cliVersion string) ([]templateFile
 		{path: "30-knowledge/schema/local-run-3.0.schema.json", mode: "managed_replace", body: contracts.LocalRunV3Schema},
 		{path: "30-knowledge/schema/handoff-1.0.schema.json", mode: "managed_replace", body: contracts.HandoffV1Schema},
 		{path: "30-knowledge/schema/content-batch-3.0.schema.json", mode: "managed_replace", body: contracts.ContentBatchV3Schema},
+		{path: "30-knowledge/schema/commerce-content-1.0.schema.json", mode: "managed_replace", body: contracts.CommerceContentV1Schema},
 		{path: "30-knowledge/schema/submission-bundle-3.0.schema.json", mode: "managed_replace", body: contracts.SubmissionBundleV3Schema},
 		{path: "30-knowledge/schema/audience-taxonomy-1.0.schema.json", mode: "managed_replace", body: contracts.AudienceTaxonomyV1Schema},
 		{path: "30-knowledge/schema/audience-strategy-1.0.schema.json", mode: "managed_replace", body: contracts.AudienceStrategyV1Schema},
@@ -592,6 +593,11 @@ func targets(value string) ([]string, error) {
 	switch normalized {
 	case "", "codex-plugin":
 		return []string{"codex-plugin"}, nil
+	case "claude-plugin":
+		if _, err := agentadapter.RequireCapability("claude", agentadapter.CapabilityWorkspaceBootstrap); err != nil {
+			return nil, err
+		}
+		return []string{"claude-plugin"}, nil
 	case "none":
 		return []string{}, nil
 	}

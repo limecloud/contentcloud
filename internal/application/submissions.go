@@ -395,6 +395,17 @@ func validateGovernedSubmissionObjects(submissionType, projectID string, baseSna
 			}
 		}
 		switch submissionType {
+		case "content_batch":
+			if object.Type == "video_script" {
+				if err := localworkspace.ValidateVideoScriptForSubmission(object.Content, projectID); err != nil {
+					return err
+				}
+			}
+			if object.Type == "novel_chapter" {
+				if _, err := localworkspace.ValidateNovelChapterForSubmission(object.Content); err != nil {
+					return err
+				}
+			}
 		case "strategy":
 			switch object.Type {
 			case "audience_taxonomy_snapshot":
@@ -482,6 +493,11 @@ func (s *ReviewService) validateTenantSubmissionContentTypes(ctx context.Context
 			}
 		case "content_batch":
 			switch identity.SchemaVersion {
+			case localworkspace.VideoScriptSchema:
+				if err := localworkspace.ValidateVideoScriptForSubmission(object.Content, projectID); err != nil {
+					return err
+				}
+				objectContentType = identitydomain.ContentTypeVideoScript
 			case localworkspace.ContentItemSchema:
 				var itemIdentity struct {
 					ContentKind string `json:"content_kind"`
@@ -501,6 +517,16 @@ func (s *ReviewService) validateTenantSubmissionContentTypes(ctx context.Context
 					return err
 				}
 				objectContentType = identitydomain.ContentTypeWeChatArticle
+			case localworkspace.CommerceContentSchema:
+				if _, err := localworkspace.ValidateCommerceContentForSubmission(object.Content, projectID); err != nil {
+					return err
+				}
+				objectContentType = identitydomain.ContentTypeCommerce
+			case localworkspace.NovelChapterSchema:
+				if _, err := localworkspace.ValidateNovelChapterForSubmission(object.Content); err != nil {
+					return err
+				}
+				objectContentType = identitydomain.ContentTypeSerializedNovel
 			case localworkspace.ContentBatchSchema:
 				var batchIdentity struct {
 					ContentKind string `json:"content_kind"`

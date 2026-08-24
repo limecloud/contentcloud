@@ -9,6 +9,7 @@ const capabilities: AgentClient['capabilities'] = [
   {id:'creative_environment',status:'available'},
 ];
 const codex:AgentClient={id:'codex',display_name:'Codex',capabilities};
+const claude:AgentClient={id:'claude-code',display_name:'Claude Code',capabilities};
 const digest=`sha256:${'a'.repeat(64)}`;
 
 function handoff(overrides:Partial<AgentHandoff>={}):AgentHandoff {
@@ -29,12 +30,22 @@ describe('Agent handoff contract',()=>{
     expect(value.client.id).toBe('codex');
   });
 
+  it('accepts the Claude Code command strategy',()=>{
+    const prompt='[@ContentCloud](plugin://contentcloud-video-production) project project-1; workspace_context';
+    const value=handoff({client:claude,launch:{mode:'command',command:['claude',prompt]},fallback_url:'/claude-code',prompt});
+    expect(validateAgentHandoff(value,{client:claude,projectID:'project-1',targetKind:'project',targetID:'project-1'}).launch.mode).toBe('command');
+  });
+
   it('rejects unsafe or drifting launch contracts',()=>{
     for(const url of ['codex://new?path=%2FUsers%2Fprivate&prompt=x','codex://new?prompt=x&extra=y','https://contentcloud.test/codex']){
       expect(()=>validateAgentHandoff(handoff({prompt:'x',launch:{mode:'deep_link',url}}),{client:codex,projectID:'project-1',targetKind:'project',targetID:'project-1'})).toThrow();
     }
+    expect(()=>validateAgentHandoff(handoff({launch:{mode:'deep_link',url:`codex://new?prompt=${encodeURIComponent(handoff().prompt)}`,debug:'true'} as any}),{client:codex,projectID:'project-1',targetKind:'project',targetID:'project-1'})).toThrow('继续工作目标无效');
     expect(()=>validateAgentHandoff(handoff({project_id:'other'}),{client:codex,projectID:'project-1',targetKind:'project',targetID:'project-1'})).toThrow();
     expect(()=>validateAgentHandoff(handoff({prompt:'workspace_context for a different project'}),{client:codex,projectID:'project-1',targetKind:'project',targetID:'project-1'})).toThrow('Codex 继续工作信息无效');
+    const prompt='[@ContentCloud](plugin://contentcloud-video-production) project project-1; workspace_context';
+    expect(()=>validateAgentHandoff(handoff({client:claude,launch:{mode:'command',command:['claude',prompt]},fallback_url:'/claude-code',prompt, integration:{kind:'plugin',id:'contentcloud-video-production',version:'0.27.0'}, target:{kind:'project',id:'project-1'}}),{client:claude,projectID:'project-1',targetKind:'project',targetID:'project-1'})).not.toThrow();
+    expect(()=>validateAgentHandoff(handoff({client:claude,launch:{mode:'command',command:['claude','other'],url:'claude://new'},fallback_url:'/claude-code',prompt}),{client:claude,projectID:'project-1',targetKind:'project',targetID:'project-1'})).toThrow('Claude Code 继续工作信息无效');
   });
 
   it('requires review prompts to bind the exact revision and digest',()=>{

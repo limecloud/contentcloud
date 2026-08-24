@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -14,8 +15,200 @@ import (
 	"github.com/limecloud/contentcloud/internal/application"
 	"github.com/limecloud/contentcloud/internal/persistence/memory"
 	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 	httpapi "github.com/limecloud/contentcloud/internal/transport/http"
 )
+
+func TestRuntimeCleanupDiagnosticsBFFIsTenantScopedAndRetryable(t *testing.T) {
+	store := memory.New()
+	service := application.New(application.DependenciesFrom(store), nil, application.WithPlatformAdminEmails("demo@contentcloud.local"))
+	server := httptest.NewServer(httpapi.New(service, nil, true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	bootstrap := mustStudioBootstrap(t, client, server.URL)
+	if len(bootstrap.Projects) == 0 {
+		t.Fatal("bootstrap did not return a project")
+	}
+	actor, _, err := service.Identity.SessionActor(t.Context(), sessionIDFromJar(t, jar, server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	diagnostic := contentruntime.RuntimeCleanupDiagnostic{
+		ID: "cleanup-http-1", TenantID: actor.TenantID, ProjectID: bootstrap.Projects[0].ID, TaskID: "task-http-1", RequestID: "request-http-1",
+		ManifestDigest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		ObjectKey:      "media/" + actor.TenantID + "/final/http.mp4", CauseCode: "FINAL_RENDER_STORE_FAILED", CauseSummary: "最终成片事实写入失败",
+		Status: contentruntime.RuntimeCleanupPending, CreatedAt: now, UpdatedAt: now, Version: 1,
+	}
+	if err := store.CreateRuntimeCleanupDiagnostic(t.Context(), diagnostic); err != nil {
+		t.Fatal(err)
+	}
+	items := callBFF[[]contentruntime.RuntimeCleanupDiagnostic](t, client, http.MethodGet, server.URL+"/api/bff/runtime/cleanup-diagnostics?status=pending", nil)
+	if len(items) != 1 || items[0].ID != diagnostic.ID {
+		t.Fatalf("cleanup diagnostic list = %#v", items)
+	}
+	detail := callBFF[contentruntime.RuntimeCleanupDiagnostic](t, client, http.MethodGet, server.URL+"/api/bff/runtime/cleanup-diagnostics/"+diagnostic.ID, nil)
+	if detail.ObjectKey != diagnostic.ObjectKey || detail.TenantID != actor.TenantID {
+		t.Fatalf("cleanup diagnostic detail = %#v", detail)
+	}
+	retry := callBFF[application.RuntimeCleanupDiagnosticSummary](t, client, http.MethodPost, server.URL+"/api/bff/runtime/cleanup-diagnostics/"+diagnostic.ID+"/retry", nil)
+	if retry.Diagnostic.Status != contentruntime.RuntimeCleanupNotFound || !retry.DeleteAttempted {
+		t.Fatalf("cleanup diagnostic retry = %#v", retry)
+	}
+}
+
+func TestRuntimeCleanupDiagnosticsBFFRejectsCrossTenantReadAndRetry(t *testing.T) {
+	store := memory.New()
+	service := application.New(application.DependenciesFrom(store), nil)
+	ownerSession, err := service.Identity.Register(t.Context(), "cleanup-owner@example.com", "long-enough-password", "Cleanup Owner", "Cleanup Owner Tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerActor, _, err := service.Identity.SessionActor(t.Context(), ownerSession.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.Workspace.CreateProject(t.Context(), ownerActor, application.CreateProjectInput{BrandName: "Cleanup Brand", ProductName: "Cleanup Product"}, "cleanup-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	diagnostic := contentruntime.RuntimeCleanupDiagnostic{
+		ID: "cleanup-cross-tenant", TenantID: ownerActor.TenantID, ProjectID: project.ID, TaskID: "task-cross-tenant", RequestID: "request-cross-tenant",
+		ManifestDigest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		ObjectKey:      "media/" + ownerActor.TenantID + "/final/cross-tenant.mp4", CauseCode: "FINAL_RENDER_STORE_FAILED", CauseSummary: "最终成片事实写入失败",
+		Status: contentruntime.RuntimeCleanupPending, CreatedAt: now, UpdatedAt: now, Version: 1,
+	}
+	if err := store.CreateRuntimeCleanupDiagnostic(t.Context(), diagnostic); err != nil {
+		t.Fatal(err)
+	}
+
+	foreignSession, err := service.Identity.Register(t.Context(), "cleanup-foreign@example.com", "long-enough-password", "Foreign Operator", "Foreign Tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(httpapi.New(service, nil, false, "").Handler())
+	defer server.Close()
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignJar, _ := cookiejar.New(nil)
+	foreignJar.SetCookies(baseURL, []*http.Cookie{{Name: "cc_session", Value: foreignSession.ID, Path: "/"}})
+	foreignClient := &http.Client{Jar: foreignJar}
+
+	listed := callBFF[[]contentruntime.RuntimeCleanupDiagnostic](t, foreignClient, http.MethodGet, server.URL+"/api/bff/runtime/cleanup-diagnostics?status=pending", nil)
+	if len(listed) != 0 {
+		t.Fatalf("cross-tenant cleanup list leaked diagnostics: %#v", listed)
+	}
+	for _, target := range []string{
+		server.URL + "/api/bff/runtime/cleanup-diagnostics/" + diagnostic.ID,
+		server.URL + "/api/bff/runtime/cleanup-diagnostics/" + diagnostic.ID + "/retry",
+	} {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
+		if strings.HasSuffix(target, "/retry") {
+			request, err = http.NewRequestWithContext(t.Context(), http.MethodPost, target, strings.NewReader("{}"))
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Content-Type", "application/json")
+		response, err := foreignClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, readErr := io.ReadAll(response.Body)
+		response.Body.Close()
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if response.StatusCode != http.StatusNotFound {
+			t.Fatalf("cross-tenant cleanup endpoint %s returned %d, want 404: %s", target, response.StatusCode, body)
+		}
+		if strings.Contains(string(body), diagnostic.ID) || strings.Contains(string(body), diagnostic.ObjectKey) || strings.Contains(string(body), diagnostic.ManifestDigest) {
+			t.Fatalf("cross-tenant cleanup endpoint leaked diagnostic data: %s", body)
+		}
+	}
+}
+
+func TestRuntimeCleanupDiagnosticsBFFRejectsDeviceToken(t *testing.T) {
+	store := memory.New()
+	service := application.New(application.DependenciesFrom(store), nil)
+	session, err := service.Identity.Register(t.Context(), "cleanup-device@example.com", "long-enough-password", "Device Owner", "Device Tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, _, err := service.Identity.SessionActor(t.Context(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.Workspace.CreateProject(t.Context(), actor, application.CreateProjectInput{BrandName: "Device Brand", ProductName: "Device Product"}, "cleanup-device-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	connect, err := service.Workspace.CreateConnectSession(t.Context(), actor, project.ID, "cleanup-device-connect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	connected, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, application.ConnectDeviceInput{Hostname: "cleanup-device", Platform: "darwin", Arch: "arm64", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	diagnostic := contentruntime.RuntimeCleanupDiagnostic{
+		ID: "cleanup-device-token", TenantID: actor.TenantID, ProjectID: project.ID, TaskID: "task-device-token", RequestID: "request-device-token",
+		ManifestDigest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		ObjectKey:      "media/" + actor.TenantID + "/final/device-token.mp4", CauseCode: "FINAL_RENDER_STORE_FAILED", CauseSummary: "最终成片事实写入失败",
+		Status: contentruntime.RuntimeCleanupPending, CreatedAt: now, UpdatedAt: now, Version: 1,
+	}
+	if err := store.CreateRuntimeCleanupDiagnostic(t.Context(), diagnostic); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(httpapi.New(service, nil, false, "").Handler())
+	defer server.Close()
+	client := &http.Client{}
+	requests := []struct {
+		method string
+		target string
+	}{
+		{method: http.MethodGet, target: server.URL + "/api/bff/runtime/cleanup-diagnostics?status=pending"},
+		{method: http.MethodGet, target: server.URL + "/api/bff/runtime/cleanup-diagnostics/" + diagnostic.ID},
+		{method: http.MethodPost, target: server.URL + "/api/bff/runtime/cleanup-diagnostics/" + diagnostic.ID + "/retry"},
+	}
+	for _, item := range requests {
+		request, err := http.NewRequestWithContext(t.Context(), item.method, item.target, http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+connected.DeviceToken)
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, readErr := io.ReadAll(response.Body)
+		response.Body.Close()
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if response.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("device token reached cleanup BFF %s: status=%d body=%s", item.target, response.StatusCode, body)
+		}
+		if strings.Contains(string(body), diagnostic.ID) || strings.Contains(string(body), diagnostic.ObjectKey) || strings.Contains(string(body), diagnostic.ManifestDigest) {
+			t.Fatalf("device token response leaked cleanup diagnostic data: %s", body)
+		}
+	}
+
+	persisted, err := store.RuntimeCleanupDiagnostic(t.Context(), actor.TenantID, diagnostic.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != contentruntime.RuntimeCleanupPending || persisted.Version != diagnostic.Version || persisted.AttemptCount != 0 {
+		t.Fatalf("device token changed cleanup diagnostic: %#v", persisted)
+	}
+}
 
 func TestRuntimeExplorerBFFShowsOperationsProjection(t *testing.T) {
 	service := application.New(application.DependenciesFrom(memory.New()), nil, application.WithPlatformAdminEmails("demo@contentcloud.local"))
@@ -211,6 +404,87 @@ func TestRuntimeRecoveryBFFStartsUnknownEffectReconciliation(t *testing.T) {
 	reconciled := callBFF[application.RuntimeJobDetail](t, client, http.MethodPost, server.URL+"/api/bff/runtime/effects/"+effect.ID+"/reconcile", map[string]int{"expected_version": effect.Version})
 	if len(reconciled.Effects) != 1 || reconciled.Effects[0].State != contentruntime.EffectReconciling {
 		t.Fatalf("unknown effect was not moved to reconciling: %#v", reconciled.Effects)
+	}
+}
+
+func TestRuntimeDynamicGraphBFFKeepsRuntimeAsAuthority(t *testing.T) {
+	service := application.New(application.DependenciesFrom(memory.New()), nil, application.WithPlatformAdminEmails("demo@contentcloud.local"))
+	server := httptest.NewServer(httpapi.New(service, nil, true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	bootstrap := mustStudioBootstrap(t, client, server.URL)
+	task := callBFF[application.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks", application.StudioCreateTaskInput{ExperienceID: bootstrap.Experiences[0].ID, ProjectID: bootstrap.Projects[0].ID, Title: "动态图运营", Goal: "验证动态图和 Fanout 仍由 Runtime 统一编排"})
+	list := callBFF[application.RuntimeJobList](t, client, http.MethodGet, server.URL+"/api/bff/runtime/jobs", nil)
+	job := runtimeJobForTask(t, list, task.Task.ID)
+	initial := callBFF[application.RuntimeJobDetail](t, client, http.MethodGet, server.URL+"/api/bff/runtime/jobs/"+job.ID, nil)
+	if initial.Plan.GraphVersion < 1 || len(initial.Plan.Nodes) == 0 || len(initial.Plan.Edges) == 0 || initial.FanoutSets == nil {
+		t.Fatalf("dynamic runtime projection is incomplete: %#v", initial.Plan)
+	}
+	mapKey := initial.Plan.Nodes[0].Key
+	joinKey := initial.Plan.Nodes[len(initial.Plan.Nodes)-1].Key
+	patched := callBFF[application.RuntimeJobDetail](t, client, http.MethodPost, server.URL+"/api/bff/runtime/jobs/"+job.ID+"/graph-patches", map[string]any{
+		"expected_graph_version": initial.Plan.GraphVersion,
+		"idempotency_key":        "http-graph-patch-1",
+		"reason":                 "为已确认集合追加一条候选处理步骤",
+		"add_nodes":              []map[string]any{{"key": "dynamic:candidate:1", "kind": "stage", "name": "动态候选", "depends_on": []string{mapKey}, "output_schema": "contentcloud.dynamic_candidate/1.0", "retry_max_attempts": 1}},
+	})
+	if patched.Plan.GraphVersion != initial.Plan.GraphVersion+1 || len(patched.Plan.Nodes) != len(initial.Plan.Nodes)+1 {
+		t.Fatalf("graph patch was not projected from Runtime: before=%d after=%d nodes=%d", initial.Plan.GraphVersion, patched.Plan.GraphVersion, len(patched.Plan.Nodes))
+	}
+	fanout := callBFF[application.RuntimeJobDetail](t, client, http.MethodPost, server.URL+"/api/bff/runtime/jobs/"+job.ID+"/fanout-sets", map[string]any{
+		"map_node_key": mapKey, "join_node_key": joinKey, "generation": 1, "idempotency_key": "http-fanout-1", "reason": "按冻结项目集合展开",
+		"join_policy":   map[string]any{"strategy": "best_effort", "zero_member_policy": "fail"},
+		"node_template": map[string]any{"kind": "fanout_item", "name": "集合项目", "output_schema": "contentcloud.fanout_item/1.0", "retry_max_attempts": 1},
+		"items":         []map[string]any{{"item_key": "item:a", "item_digest": "sha256:item-a"}, {"item_key": "item:b", "item_digest": "sha256:item-b"}},
+	})
+	if len(fanout.FanoutSets) != 1 || fanout.FanoutSets[0].MemberCount != 2 || len(fanout.FanoutSets[0].Members) != 2 {
+		t.Fatalf("fanout set was not projected with frozen membership: %#v", fanout.FanoutSets)
+	}
+	joined := callBFF[application.RuntimeJobDetail](t, client, http.MethodPost, server.URL+"/api/bff/runtime/fanout-sets/"+fanout.FanoutSets[0].ID+"/join", nil)
+	if len(joined.FanoutSets) != 1 || joined.FanoutSets[0].Status == "open" {
+		t.Fatalf("fanout join did not return Runtime status: %#v", joined.FanoutSets)
+	}
+}
+
+func TestRuntimeDynamicGraphBFFRejectsCrossTenantMutation(t *testing.T) {
+	service := application.New(application.DependenciesFrom(memory.New()), nil, application.WithPlatformAdminEmails("demo@contentcloud.local"))
+	server := httptest.NewServer(httpapi.New(service, nil, true, "").Handler())
+	defer server.Close()
+	ownerJar, _ := cookiejar.New(nil)
+	ownerClient := &http.Client{Jar: ownerJar}
+	bootstrap := mustStudioBootstrap(t, ownerClient, server.URL)
+	task := callBFF[application.StudioTaskView](t, ownerClient, http.MethodPost, server.URL+"/api/studio/tasks", application.StudioCreateTaskInput{ExperienceID: bootstrap.Experiences[0].ID, ProjectID: bootstrap.Projects[0].ID, Title: "租户隔离动态图", Goal: "确认其他租户不能改写执行图"})
+	list := callBFF[application.RuntimeJobList](t, ownerClient, http.MethodGet, server.URL+"/api/bff/runtime/jobs", nil)
+	job := runtimeJobForTask(t, list, task.Task.ID)
+	foreignSession, err := service.Identity.Register(t.Context(), "runtime-foreign@example.com", "long-enough-password", "Foreign Operator", "Foreign Tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignJar, _ := cookiejar.New(nil)
+	foreignJar.SetCookies(baseURL, []*http.Cookie{{Name: "cc_session", Value: foreignSession.ID, Path: "/"}})
+	foreignClient := &http.Client{Jar: foreignJar}
+	body := strings.NewReader(`{"expected_graph_version":1,"idempotency_key":"cross-tenant-patch","reason":"不应成功","add_nodes":[]}`)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/api/bff/runtime/jobs/"+job.ID+"/graph-patches", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := foreignClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseBody, readErr := io.ReadAll(response.Body)
+	response.Body.Close()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if response.StatusCode != http.StatusNotFound || strings.Contains(string(responseBody), job.ID) {
+		t.Fatalf("cross-tenant graph patch leaked or mutated a runtime job: status=%d body=%s", response.StatusCode, responseBody)
 	}
 }
 

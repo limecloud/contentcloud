@@ -2,7 +2,7 @@
 
 状态：`当前架构图 + 外部接通边界`。
 
-更新时间：2026-08-17。
+更新时间：2026-08-23。
 
 ## 1. 阅读规则
 
@@ -14,6 +14,20 @@
 - 实线表示正式引用或已验证调用；虚线表示候选、事件、投影或外部接通边界。
 - 图中的模块边界不是网络拆分建议，首阶段继续使用模块化单体和本地 Plugin。
 - 图中的 Agent/SaaS 名称是执行适配示例；业务节点只绑定 Capability、Schema、ExecutionProfile 和固定引用。
+
+## 1.1 产品分层与业务工作台
+
+本目录同时维护两种图谱：产品图回答“使用者如何完成业务”，工程图回答“系统怎样执行和治理”。阅读产品入口时先看：
+
+| 图谱 | 用途 | 图源与预览 |
+| --- | --- | --- |
+| 产品分层架构 | 说明四类业务工作台如何进入统一应用编排、业务事实、流程治理、执行、产物和效果闭环 | [MMD](../../diagrams/contentcloud-product-layered-architecture.mmd) · [SVG](../../diagrams/contentcloud-product-layered-architecture.svg) · [PNG](../../diagrams/contentcloud-product-layered-architecture.png) · [Excalidraw](../../diagrams/contentcloud-product-layered-architecture.excalidraw) |
+| 视频工作台主流程 | 说明从选择场景到交付和结果复用的客户主链 | [MMD](../../diagrams/contentcloud-video-workbench-flow.mmd) · [SVG](../../diagrams/contentcloud-video-workbench-flow.svg) · [PNG](../../diagrams/contentcloud-video-workbench-flow.png) · [Excalidraw](../../diagrams/contentcloud-video-workbench-flow.excalidraw) |
+| 视频工作台时序 | 说明使用者、客户 BFF、业务域、Runtime 和 Provider 的交互 | [MMD](../../diagrams/contentcloud-video-workbench-sequence.mmd) · [SVG](../../diagrams/contentcloud-video-workbench-sequence.svg) · [PNG](../../diagrams/contentcloud-video-workbench-sequence.png) |
+| 视频工作台状态 | 说明客户可见状态及补资料、修改、阻断和交付转移 | [MMD](../../diagrams/contentcloud-video-workbench-state.mmd) · [SVG](../../diagrams/contentcloud-video-workbench-state.svg) · [PNG](../../diagrams/contentcloud-video-workbench-state.png) |
+| 小说工作台主流程 | 说明 Canon、卷章规划、章节提交、审批、交付和效果回流如何进入统一底层 | [MMD](../../diagrams/contentcloud-novel-workbench-flow.mmd) · [SVG](../../diagrams/contentcloud-novel-workbench-flow.svg) · [PNG](../../diagrams/contentcloud-novel-workbench-flow.png) · [Excalidraw](../../diagrams/contentcloud-novel-workbench-flow.excalidraw) |
+
+上述工作台图谱共同说明：视频、文章、电商和连载小说可以拥有不同导航、阶段、画布、对象语言和主题，但只定制顶层体验，不另建项目、任务、SOP、审批、资产、交付、效果或 Runtime。下文继续作为本地执行、服务端治理、Runtime、渠道和故障恢复的工程视图。
 
 ## 2. 当前三执行平面架构图
 
@@ -259,8 +273,10 @@ flowchart LR
     Studio["Studio / Review UI"] --> API["通用 Agent Handoff API\ncontentcloud.agent-handoff/1.0"]
     API --> Catalog{"Client capability available?"}
     Catalog -->|Codex current| Codex["Codex Adapter\ndeep link + plugin + prompt"]
-    Catalog -.->|Claude / Pi / SaaS\nAdapter + capability validation| Other["各自 Adapter\nlaunch / auth / validation"]
+    Catalog -->|Claude Code current| Claude["Claude Code Adapter\ncommand + plugin + prompt"]
+    Catalog -.->|Pi / remote / SaaS\nAdapter + capability validation| Other["各自 Adapter\nlaunch / auth / validation"]
     Codex --> Context["宿主选择 workspace\n首次 workspace_context"]
+    Claude --> Context
     Other -.-> Context
     Context --> Verify{"project_id / scope / digest 匹配?"}
     Verify -->|否| Stop["停止，不扫描其他目录"]
@@ -268,7 +284,7 @@ flowchart LR
     Local --> Candidate["候选输出 / 检查 / Submission"]
 ```
 
-`contentcloud.agent-handoff/1.0` 是通用契约，Codex 只是当前第一个可用 Adapter。新增 Claude Code、Pi Agent、远程 Agent 或 Agent SaaS 时，只新增客户端能力、启动/鉴权 Adapter 和契约测试，不新增品牌专用业务路由。
+`contentcloud.agent-handoff/1.0` 是通用契约，Codex 和 Claude Code 是当前已验证的 Adapter。新增 Pi Agent、远程 Agent 或 Agent SaaS 时，只新增客户端能力、启动/鉴权 Adapter 和契约测试，不新增品牌专用业务路由。
 
 ### 5.1 LocalRun 跨对话恢复时序
 
@@ -507,11 +523,15 @@ flowchart LR
     Canon --> Outline["Novel Outline\n卷幕 / 章节 / 伏笔台账"]
     Outline --> Chapter["Novel Chapter\n候选 -> 修订 -> ApprovedSnapshot"]
     Chapter --> Lint["continuity lint\n时间 / 地点 / 状态 / 知识边界"]
-    Lint --> Release["Novel Release\n章节包 / 封面 / 元数据 / 排期"]
+    Lint --> Submit["SubmissionRevision\nchapter schema + fixed refs"]
+    Submit --> Review["Internal Review + Client OTP"]
+    Review --> Approved["ApprovedSnapshot"]
+    Approved --> Release["Novel Release / Artifact\nJSON + Markdown + XLSX"]
     Release --> Delivery["DeliveryPackage"]
     Delivery --> Publication["ChannelPublication\n平台上架/连载"]
     Publication --> Receipt["外部回执 + 章节指标"]
-    Receipt -. "反馈候选" .-> Outline
+    Receipt --> Performance["PerformanceObservation\n+ RatingDecision"]
+    Performance -. "反馈候选" .-> Outline
 ```
 
 ### 10.3 抖音电商完整发布血缘

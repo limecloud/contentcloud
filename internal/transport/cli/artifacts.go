@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"os"
 
 	deliverydomain "github.com/limecloud/contentcloud/internal/delivery"
@@ -55,6 +56,53 @@ func (r *Root) artifactCommand() *cobra.Command {
 	download.Flags().StringVar(&outputPath, "out", "", "输出文件路径")
 
 	cmd.AddCommand(export, download)
+
+	var snapshotID, finalReviewID, packageID, manifestPath, projectID, output string
+	jianying := &cobra.Command{Use: "jianying-export", Short: "导出已批准成片的确定性剪映归档", RunE: func(cmd *cobra.Command, args []string) error {
+		_, client, _, err := r.userClient()
+		if err != nil {
+			return err
+		}
+		manifestBody, err := os.ReadFile(manifestPath)
+		if err != nil {
+			return err
+		}
+		var manifest deliverydomain.CompositionManifest
+		if err := json.Unmarshal(manifestBody, &manifest); err != nil {
+			return err
+		}
+		var result struct {
+			FileName       string `json:"file_name"`
+			ContentBase64  string `json:"content_base64"`
+			ManifestDigest string `json:"manifest_digest"`
+			ArchiveDigest  string `json:"archive_digest"`
+			ByteSize       int    `json:"byte_size"`
+		}
+		if err := client.Dispatch(cmd.Context(), "jianying.export", map[string]any{"project_id": projectID, "approved_snapshot_id": snapshotID, "final_review_id": finalReviewID, "delivery_package_id": packageID, "manifest": manifest}, &result); err != nil {
+			return err
+		}
+		body, err := base64.StdEncoding.DecodeString(result.ContentBase64)
+		if err != nil {
+			return err
+		}
+		if output == "" {
+			output = result.FileName
+		}
+		if err := os.WriteFile(output, body, 0o600); err != nil {
+			return err
+		}
+		return r.writeOK("jianying.export", map[string]any{"path": output, "manifest_digest": result.ManifestDigest, "archive_digest": result.ArchiveDigest, "byte_size": len(body)})
+	}}
+	jianying.Flags().StringVar(&projectID, "project", "", "项目 ID")
+	jianying.Flags().StringVar(&snapshotID, "approved-snapshot-id", "", "批准快照 ID")
+	jianying.Flags().StringVar(&finalReviewID, "final-review-id", "", "最终成片审核 ID")
+	jianying.Flags().StringVar(&packageID, "delivery-package-id", "", "交付包 ID")
+	jianying.Flags().StringVar(&manifestPath, "manifest", "", "CompositionManifest JSON 文件")
+	jianying.Flags().StringVar(&output, "out", "", "ZIP 输出路径")
+	for _, name := range []string{"project", "approved-snapshot-id", "final-review-id", "delivery-package-id", "manifest"} {
+		_ = jianying.MarkFlagRequired(name)
+	}
+	cmd.AddCommand(jianying)
 	return cmd
 }
 

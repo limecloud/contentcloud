@@ -47,7 +47,7 @@ func TestAgentClientCatalogExposesPlannedClientsByCapability(t *testing.T) {
 	}
 	for _, client := range envelope.Data.Clients {
 		want := agentadapter.SupportPlanned
-		if client.ID == agentadapter.ClientCodex {
+		if client.ID == agentadapter.ClientCodex || client.ID == agentadapter.ClientClaudeCode {
 			want = agentadapter.SupportAvailable
 		}
 		if got := client.CapabilityStatus(agentadapter.CapabilityInteractiveHandoff); got != want {
@@ -101,6 +101,20 @@ func TestGenericAgentHandoffUsesStrategyAndRejectsPlannedClient(t *testing.T) {
 	}
 	if envelope.Data.SchemaVersion != agentadapter.HandoffSchemaVersion || envelope.Data.Client.ID != agentadapter.ClientCodex || envelope.Data.Integration.Kind != "plugin" || !strings.HasPrefix(envelope.Data.Launch.URL, "codex://new?") {
 		t.Fatalf("unexpected generic handoff: %#v", envelope.Data)
+	}
+	claudeResponse := agentHandoffRequest(t, client, base+"?client=claude-code")
+	defer claudeResponse.Body.Close()
+	if claudeResponse.StatusCode != http.StatusOK {
+		t.Fatalf("Claude Code agent handoff status=%d", claudeResponse.StatusCode)
+	}
+	var claudeEnvelope struct {
+		Data agentadapter.Handoff `json:"data"`
+	}
+	if err := json.NewDecoder(claudeResponse.Body).Decode(&claudeEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if claudeEnvelope.Data.Client.ID != agentadapter.ClientClaudeCode || claudeEnvelope.Data.Launch.Mode != "command" || len(claudeEnvelope.Data.Launch.Command) != 2 || claudeEnvelope.Data.Launch.Command[0] != "claude" || claudeEnvelope.Data.Launch.Command[1] != claudeEnvelope.Data.Prompt || claudeEnvelope.Data.Launch.URL != "" {
+		t.Fatalf("unexpected Claude Code handoff: %#v", claudeEnvelope.Data)
 	}
 
 	planned := agentHandoffRequest(t, client, base+"?client=cursor")

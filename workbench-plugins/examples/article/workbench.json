@@ -1,0 +1,27 @@
+{
+  "$schema": "https://contentcloud.run/schemas/workbench-plugin/1.0.0/workbench-plugin.schema.json",
+  "id": "contentcloud-workbench-article",
+  "version": "1.0.0",
+  "name": "文章创作工作台",
+  "content_types": ["article", "wechat_article", "article_content"],
+  "experience": {"template_id": "article_content"},
+  "ui": {
+    "renderer": "approved",
+    "layout": "article-editor",
+    "density": "comfortable",
+    "theme": "editorial-green",
+    "navigation": [
+      {"id": "overview", "label": "文章首页", "icon": "pen-line"},
+      {"id": "tasks", "label": "文章任务", "icon": "list-checks"},
+      {"id": "library", "label": "资料与引用", "icon": "book-open"},
+      {"id": "deliveries", "label": "文章交付", "icon": "file-check"}
+    ],
+    "stages": [
+      {"id": "topic", "label": "选题", "outcome": "确定文章主题", "primary_action": "save_brief"},
+      {"id": "sources", "label": "资料与引用", "outcome": "固定可追溯引用", "primary_action": "attach_sources"},
+      {"id": "draft", "label": "文章草稿", "outcome": "完成文章草稿", "primary_action": "save_draft"},
+      {"id": "proofing", "label": "校对与确认", "outcome": "确认文章版本", "primary_action": "approve_article"},
+      {"id": "delivery", "label": "交付", "outcome": "生成发布交付包", "primary_action": "create_delivery"}
+    ]
+  }
+}

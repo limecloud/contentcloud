@@ -64,6 +64,38 @@ func TestArticleSubmissionRequiresTenantCapabilityAndApprovedEvidence(t *testing
 	if revision.ID == "" || len(revision.BaseSnapshotIDs) != 2 {
 		t.Fatalf("unexpected ArticleItem revision: %#v", revision)
 	}
+	internalApproval, err := service.Review.ApproveSubmission(t.Context(), actor, revision.ID, "文章内部审核通过", "article-internal-approve")
+	must(t, err)
+	if internalApproval.ApprovedSnapshot != nil || internalApproval.Submission.Status != "internally_approved" {
+		t.Fatalf("article internal approval bypassed client review: %#v", internalApproval)
+	}
+	grant, err := service.Review.CreateReviewGrant(t.Context(), actor, revision.ID, "article-client@example.com", "article-client-grant")
+	must(t, err)
+	if _, err := service.Review.VerifyReviewGrant(t.Context(), grant.PlaintextToken, grant.PlaintextOTP); err != nil {
+		t.Fatal(err)
+	}
+	clientDecision, err := service.Review.DecideReviewGrant(t.Context(), grant.PlaintextToken, "approve", "文章客户确认通过", "", "article-client-approve")
+	must(t, err)
+	if clientDecision.ApprovedSnapshot == nil {
+		t.Fatal("article client approval did not create an ApprovedSnapshot")
+	}
+	delivery, err := service.Review.CreateDeliveryPackage(t.Context(), actor, clientDecision.ApprovedSnapshot.ID, item.ID, "article-delivery")
+	must(t, err)
+	if delivery.ContentItemID != item.ID || len(delivery.Manifest) != 3 {
+		t.Fatalf("article delivery did not use the approved snapshot renderer: %#v", delivery)
+	}
+	formats := map[string]bool{}
+	for _, artifact := range delivery.Manifest {
+		formats[artifact.Metadata["format"].(string)] = true
+		if artifact.ApprovedSnapshotID != clientDecision.ApprovedSnapshot.ID {
+			t.Fatalf("article artifact lost snapshot lineage: %#v", artifact)
+		}
+	}
+	for _, format := range []string{"json", "markdown", "xlsx"} {
+		if !formats[format] {
+			t.Fatalf("article delivery is missing %s: %#v", format, formats)
+		}
+	}
 }
 
 type fixtureSubmissionObject struct {

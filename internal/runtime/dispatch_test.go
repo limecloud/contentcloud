@@ -159,7 +159,8 @@ func TestDispatchHeartbeatKeepsShortLeaseAlive(t *testing.T) {
 	fake := agentadapter.NewFakeHarness()
 	result := json.RawMessage(`{"output_refs":[],"safe_summary":{},"used_cost_minor":0}`)
 	fake.QueueScript(agentadapter.FakeHarnessScript{Events: []agentadapter.FakeHarnessScriptEvent{{Type: "result.completed", Data: result, Delay: 120 * time.Millisecond}}})
-	service, _, started := newDispatchRuntime(t, fake, time.Now)
+	now := time.Date(2026, 8, 24, 9, 0, 0, 0, time.UTC)
+	service, _, started := newDispatchRuntime(t, fake, func() time.Time { return now })
 	input := dispatchInput(started.Job.ID)
 	input.LeaseFor = 60 * time.Millisecond
 

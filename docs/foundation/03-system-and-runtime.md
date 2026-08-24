@@ -8,6 +8,10 @@
 
 下图是工程架构图，用于说明组件、信任和执行边界，不是客户产品首图。客户叙事使用“资料与已有资产 -> Content Work OS 创作任务 -> 可确认结果与专业工具”，见[产品叙事规范](../product/00-product-narrative.md)。
 
+产品入口与工程执行是两个维度。客户先从[产品分层架构图](../../diagrams/contentcloud-product-layered-architecture.svg)理解“业务工作台 -> 共享产品 -> 治理 -> 执行 -> 事实存储”；本文件的 Runtime 图只解释下层如何可靠执行，不应被直接复制为客户页面。
+
+首个垂直工作台的业务链路、跨域调用和客户状态分别见：[视频工作台流程图](../../diagrams/contentcloud-video-workbench-flow.svg)、[视频工作台时序图](../../diagrams/contentcloud-video-workbench-sequence.svg)、[视频工作台状态图](../../diagrams/contentcloud-video-workbench-state.svg)。这些图描述客户语言和业务阶段，JobRun、NodeRun、Attempt、Effect 等工程对象仍由本文件后续章节定义。
+
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ Human Surfaces                                               │
@@ -186,6 +190,17 @@ Studio form
   -> JobRun created
   -> customer projection returns first business step
 ```
+
+启动是跨域编排边界，不允许先写客户运行状态、再尝试 Runtime 准入：
+
+```text
+准备 WorkTask / StageRun 的候选状态
+  -> Runtime admission（SOP、ExecutionBinding、InputDigest、幂等）
+  -> admission 成功后写入 WorkTask=running、StageRun=running
+  -> 任一业务事实写入失败：取消本次非终态 JobRun，并恢复阶段候选
+```
+
+因此 Runtime 拒绝、执行绑定漂移或限额失败时，客户任务仍保持 `ready`/原状态，不会显示为“运行中”；暂停任务的重试会取消旧 JobRun 并创建新的幂等执行事实，终态 JobRun 不原地复用。
 
 影子路径：
 

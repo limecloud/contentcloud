@@ -4,7 +4,7 @@
 
 > 阅读路线：产品和设计重点阅读第 1-6、10 节；前端重点阅读第 2-7、10 节；运维重点阅读第 8-9 节。
 
-当前实现：运营入口统一为 `/admin/jobs`，提供 JobRun 列表、准入冻结身份、节点概览、脱敏 AgentInstance/ContextView 摘要、事件时间线、外部副作用、检查点和服务端授权动作；列表和 nodes/effects/checkpoints 子资源提供服务端 `after/limit` 分页，events 提供单次上限和带 `Last-Event-ID` 的 SSE 增量游标；支持事件完整性校验与投影重建、从安全检查点创建新分支、`unknown` Effect 发起对账。重放与分支不调用 Harness 或 Provider，Agent 诊断不返回原始会话引用或上下文正文。完整执行图操作、Attempt/租约操作和支持案例仍按 V8 工作包逐步交付。
+当前实现：运营入口统一为 `/admin/jobs`，提供 JobRun 列表、准入冻结身份、节点概览、脱敏 AgentInstance/ContextView 摘要、事件时间线、外部副作用、检查点和服务端授权动作；列表和 nodes/effects/checkpoints 子资源提供服务端 `after/limit` 分页，events 提供单次上限和带 `Last-Event-ID` 的 SSE 增量游标；支持事件完整性校验与投影重建、从安全检查点创建新分支、`unknown` Effect 发起对账。执行图视图通过 BFF 投影不可变计划版本、节点依赖、FanoutSet 冻结成员和 Join 策略；GraphPatch、FanoutSet 创建和 Join 重新评估均由应用层完成租户/角色/状态/幂等校验后调用 Runtime 原子命令，Web 不直连 Runtime 存储。重放与分支不调用 Harness 或 Provider，Agent 诊断不返回原始会话引用或上下文正文。Attempt/租约细粒度控制、真实数据库故障矩阵和生产支持案例仍按 V8 工作包逐步交付。
 
 ## 1. Runtime Explorer
 

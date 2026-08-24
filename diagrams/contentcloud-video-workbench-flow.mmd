@@ -1,0 +1,16 @@
+graph TD
+    Start[选择视频工作台] --> Project[创建或继续项目]
+    Project --> Inputs[加入素材与项目参考]
+    Inputs --> Brief[确认受众与创作目标]
+    Brief --> Script[生成并确认剧本]
+    Script --> Storyboard[生成并确认分镜]
+    Storyboard --> Generate[生成候选视频]
+    Generate --> Review[比较候选并确认成片]
+    Review --> Delivery[生成剪映草稿与交付包]
+    Delivery --> Reuse[保存为创作结果\n用于下一次创作]
+    Inputs -. 缺少资料 .-> NeedsInput[补充资料]
+    Script -. 需要修改 .-> Changes[修改剧本]
+    Storyboard -. 需要修改 .-> Changes
+    Review -. 退回候选 .-> Generate
+    NeedsInput --> Inputs
+    Changes --> Script

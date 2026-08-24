@@ -17,6 +17,17 @@ func New() string {
 	return value.String()
 }
 
+// Deterministic returns a UUID-shaped identifier for a stable business key.
+// It is used where retries must converge on one durable fact without adding
+// a second idempotency table.
+func Deterministic(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	value := uuid.UUID(sum[:16])
+	value[6] = (value[6] & 0x0f) | 0x50
+	value[8] = (value[8] & 0x3f) | 0x80
+	return value.String()
+}
+
 func NewOpaqueToken(prefix string, size int) (plain string, hash string, err error) {
 	value := make([]byte, size)
 	if _, err = rand.Read(value); err != nil {

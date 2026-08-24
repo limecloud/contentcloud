@@ -53,6 +53,7 @@ interface BootstrapPromptInput {
   serverURL: string;
   sessionID: string;
   projectName: string;
+  host?: 'codex'|'claude';
 }
 
 export interface BootstrapCommands {
@@ -68,28 +69,32 @@ export interface ConnectStateCopy {
   tone: 'waiting'|'progress'|'success'|'error';
 }
 
-export const CONTENTCLOUD_CLI='npx --yes @limecloud/contentcloud@0.28.0';
+export const CONTENTCLOUD_CLI='npx --yes @limecloud/contentcloud@0.29.0';
 export const BOOTSTRAP_PLAN_CONFIRMATION='Codex 会先展示准备执行的步骤和编号（plan_id）；你确认后，Codex 才会执行 apply。电脑状态变化时，系统会要求重新确认。';
 
 const stageNames:Record<string,string>={
   prerequisites:'检查电脑',codex_ready:'检查连接工具',network_ready:'检查网络',workspace_selected:'选择项目文件夹',
+  claude_ready:'检查 Claude Code',
   plan_ready:'准备连接步骤',awaiting_confirmation:'等待确认',plugin_installing:'准备连接功能',authorizing:'确认这台电脑',
   workspace_initializing:'准备项目文件夹',doctor_running:'检查项目文件夹',registering:'记录电脑连接',opening_desktop:'打开连接页面',complete:'连接准备完成'
 };
 
-export function buildBootstrapPrompt({serverURL,sessionID,projectName}:BootstrapPromptInput):string {
+export function buildBootstrapPrompt({serverURL,sessionID,projectName,host='codex'}:BootstrapPromptInput):string {
   const origin=singleLine(serverURL.replace(/\/+$/,''));
   const safeProject=singleLine(projectName)||'Content Work OS 项目';
-  return `请读取 ${origin}/api/bootstrap，并按照其中的步骤在 Codex 中把这台电脑连接到 Content Work OS 项目。\n\nserver-url: ${origin}\nsession-id: ${singleLine(sessionID)}\ncontentcloud-cli: ${CONTENTCLOUD_CLI}\nproject: ${JSON.stringify(safeProject)}`;
+  const safeHost=host==='claude'?'claude':'codex';
+  const clientName=safeHost==='claude'?'Claude Code':'Codex';
+  return `请读取 ${origin}/api/bootstrap，并按照其中的步骤在 ${clientName} 中把这台电脑连接到 Content Work OS 项目。\n\nserver-url: ${origin}\nsession-id: ${singleLine(sessionID)}\ncontentcloud-cli: ${CONTENTCLOUD_CLI}\nhost: ${safeHost}\nproject: ${JSON.stringify(safeProject)}`;
 }
 
-export function buildBootstrapCommands({serverURL,sessionID,attemptID}:Omit<BootstrapPromptInput,'projectName'>&{attemptID?:string}):BootstrapCommands {
+export function buildBootstrapCommands({serverURL,sessionID,attemptID,host='codex'}:Omit<BootstrapPromptInput,'projectName'>&{attemptID?:string}):BootstrapCommands {
   const origin=shellArg(singleLine(serverURL.replace(/\/+$/,'')));
   const directory='.';
+  const safeHost=host==='claude'?'claude':'codex';
   const commands:BootstrapCommands={
-    preflight:`${CONTENTCLOUD_CLI} bootstrap preflight ${directory} --server-url ${origin} --json`,
-    plan:`${CONTENTCLOUD_CLI} bootstrap plan ${directory} --server-url ${origin} --session ${shellArg(singleLine(sessionID))} --json`,
-    resume:`${CONTENTCLOUD_CLI} bootstrap resume ${directory} --accept --json`
+    preflight:`${CONTENTCLOUD_CLI} bootstrap preflight ${directory} --server-url ${origin} --host ${safeHost} --json`,
+    plan:`${CONTENTCLOUD_CLI} bootstrap plan ${directory} --server-url ${origin} --host ${safeHost} --session ${shellArg(singleLine(sessionID))} --json`,
+    resume:`${CONTENTCLOUD_CLI} bootstrap resume ${directory} --host ${safeHost} --accept --json`
   };
   if(attemptID)commands.diagnostics=`${CONTENTCLOUD_CLI} bootstrap diagnostics ${directory} --attempt ${shellArg(singleLine(attemptID))} --json`;
   return commands;

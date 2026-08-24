@@ -1,14 +1,14 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Route, Routes, StaticRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AdminWorkOSView, OperationsExecutorDirectory, OperationsSkillDirectory, PlatformOverview, Session } from '../types';
+import type { AdminWorkOSView, OperationsExecutorDirectory, OperationsSkillDirectory, PlatformOverview, Session, WorkbenchRegistryView } from '../types';
 
 const adminState=vi.hoisted(()=>({value:{} as Record<string,unknown>}));
 
 vi.mock('./context',()=>({useAdmin:()=>adminState.value}));
 
 import { AdminShell } from './AdminShell';
-import { AdminCapabilityCatalogPage, AdminCapabilityDetailPage, AdminCustomerDetailPage, AdminCustomersPage, AdminExecutorDetailPage, AdminExecutorsPage, AdminOperationsOverview, AdminProductDetailPage, AdminProductReleasesPage, AdminProductsPage, AdminReleaseResultPage, AdminSkillDetailPage, AdminSkillsPage } from './views/AdminOperationsPages';
+import { AdminCapabilityCatalogPage, AdminCapabilityDetailPage, AdminCustomerDetailPage, AdminCustomersPage, AdminExecutorDetailPage, AdminExecutorsPage, AdminOperationsOverview, AdminProductDetailPage, AdminProductReleasesPage, AdminProductsPage, AdminReleaseResultPage, AdminSkillDetailPage, AdminSkillsPage, AdminWorkbenchRegistryPage, buildWorkbenchStatePayload, WorkbenchStateModal, workbenchLifecycleLabel } from './views/AdminOperationsPages';
 
 const session:Session={user:{id:'user-1',email:'operator@example.com',display_name:'运营人员'},tenant:{id:'tenant-1',name:'平台运营',slug:'platform',status:'active',created_at:'2026-08-01T08:00:00Z'},role:'tenant_admin',is_platform_admin:true};
 const overview:PlatformOverview={counts:{tenants:1,active_tenants:1,users:1,projects:1,online_devices:1,active_runs:1},tenants:[],users:[],generated_at:'2026-08-08T02:30:00Z'};
@@ -25,6 +25,7 @@ const workOS:AdminWorkOSView={
 
 const executorDirectory:OperationsExecutorDirectory={executors:[{id:'executor-1',tenant_id:'tenant-1',display_name:'分镜工作站',executor_type:'contentcloud_device',status:'online',status_reason:'instance_connected',presence_status:'online',presence_reason:'instance_connected',environment_status:'repair_required',environment_reason:'plugin_drift',runtime_status:'throttled',runtime_reason:'capacity_limit',daemon_instance_id:'instance-1',connection_epoch:3,active_attempt_ids:['attempt-1'],runtimes:[{kind:'codex',version:'codex 1.2.3',status:'healthy',selected:true,capabilities:{events:true,resume:true,mcp_stdio:true,structured_output:true,max_parallel_sessions:8}},{kind:'claude',status:'unhealthy',error_code:'CLAUDE_AUTH_REQUIRED',selected:false,capabilities:{}}],workspaces:[{workspace_id:'workspace-1',project_id:'project-1',status:'repair_required',reason:'skill_drift',generation:'sha256:generation',plugin_receipt_digest:'sha256:plugin-receipt',observed_at:'2026-08-08T02:29:00Z'}],hostname:'storyboard.local',platform:'darwin',arch:'arm64',version:'0.21.0',capabilities:[{id:'inspiration_collection',version:'1.0.0',kind:'business_capability',input_schema:'contentcloud.inspiration-query/1.0',output_schema:'contentcloud.inspiration-result/1.0',presentation_profiles:['candidate-list'],local_only:true,digest:'capability-digest'}],projects:[{id:'project-1',brand_name:'果木食品',product_name:'品牌短片',status:'active'}],last_seen_at:'2026-08-08T02:29:00Z'}],generated_at:'2026-08-08T02:30:00Z',online_window_seconds:45};
 const skillDirectory:OperationsSkillDirectory={configured:true,source:'verified_plugin_registry',registry_schema_version:'1.0',generated_at:'2026-08-08T02:30:00Z',skills:[{id:'contentcloud-script-writing',version:'1.2.0',digest:'sha256:skill',kind:'skill_pack',lifecycle:'published',available_for_new_runs:true,source:{repository:'https://github.com/limecloud/contentcloud',ref:'v1.2.0',license:'Apache-2.0'},signature:{status:'verified',algorithm:'ed25519',key_id:'plugin-release'},compatible_profiles:['contentcloud.video-production'],permissions:['workspace:read'],data_flow:{local_by_default:true,cloud_actions:[]},cost:{model:'included',notice:'Included in subscription.'},output_schemas:['contracts/content-item-3.0.schema.json'],evaluation:{status:'passed',report:'.agents/plugins/evaluations/script.json',digest:'sha256:evaluation',evidence:['contract-tests']},revocation:{status:'active'}}]};
+const workbenchRegistry:WorkbenchRegistryView={generated_at:'2026-08-08T02:30:00Z',entries:[{digest:'sha256:workbench',status:'published',template_aliases:['article_content'],tenant_ids:[],manifest:{'$schema':'https://contentcloud.run/schemas/workbench-plugin/1.0.0/workbench-plugin.schema.json',id:'contentcloud-workbench-article',version:'1.0.0',name:'文章创作工作台',content_types:['article'],experience:{template_id:'article_content'},ui:{renderer:'approved',layout:'article-editor',density:'comfortable',theme:'editorial-green',navigation:[{id:'overview',label:'文章首页',icon:'pen-line'}],stages:[{id:'draft',label:'文章草稿',outcome:'完成文章草稿',primary_action:'save_draft'}]}}}]};
 
 function setAdminView(nextWorkOS:AdminWorkOSView=workOS,nextExecutors:OperationsExecutorDirectory=executorDirectory,nextSkills:OperationsSkillDirectory=skillDirectory){
   adminState.value={session,data:overview,workOS:nextWorkOS,executorDirectory:nextExecutors,skillDirectory:nextSkills,executorDirectoryError:'',skillDirectoryError:'',loading:false,refreshing:false,error:'',clearError:()=>{},refresh:async()=>{},setTenantStatus:async()=>session.tenant,setTenantContentCapability:async()=>{throw new Error('not used')}};
@@ -75,6 +76,42 @@ describe('operations control plane pages',()=>{
     expect(skillMarkup).toContain('contentcloud-script-writing');
     expect(skillMarkup).toContain('href="/admin/skills/contentcloud-script-writing/versions/1.2.0"');
     expect(skillMarkup).toContain('可用于新任务');
+  });
+
+  it('shows workbench registration only to platform administrators',()=>{
+    setAdminView();
+    adminState.value.workbenchRegistry=workbenchRegistry;
+    const platformMarkup=render(<AdminWorkbenchRegistryPage/>,'/admin/workbenches');
+    expect(platformMarkup).toContain('登记版本');
+    expect(platformMarkup).toContain('文章创作工作台');
+
+    adminState.value={...adminState.value,session:{...session,is_platform_admin:false},workbenchRegistry:undefined};
+    const tenantMarkup=render(<AdminWorkbenchRegistryPage/>,'/admin/workbenches');
+    expect(tenantMarkup).toContain('业务工作台仅限平台管理员');
+    expect(tenantMarkup).not.toContain('登记版本');
+  });
+
+  it('keeps workbench lifecycle actions explicit and refuses unsafe payloads',()=>{
+    expect(workbenchLifecycleLabel('draft')).toBe('发布');
+    expect(workbenchLifecycleLabel('published')).toBe('正常退役');
+    expect(workbenchLifecycleLabel('retired')).toBe('恢复发布');
+    expect(workbenchLifecycleLabel('revoked')).toBe('已安全撤销');
+    expect(()=>buildWorkbenchStatePayload(workbenchRegistry.entries[0],'revoked','tenant-a','')).toThrow('必须填写原因');
+    expect(()=>buildWorkbenchStatePayload({...workbenchRegistry.entries[0],status:'revoked'},'published','tenant-a')).toThrow('不能恢复');
+    expect(()=>buildWorkbenchStatePayload(workbenchRegistry.entries[0],'draft','tenant-a')).toThrow('不能退回草稿');
+    expect(buildWorkbenchStatePayload(workbenchRegistry.entries[0],'published','tenant-a\ntenant-a, tenant-b',' 来源校验失败 ')).toEqual({status:'published',tenant_ids:['tenant-a','tenant-b'],reason:'来源校验失败'});
+  });
+
+  it('renders the separate scope, retirement, and security-revocation controls',()=>{
+    const publishedMarkup=render(<WorkbenchStateModal entry={workbenchRegistry.entries[0]} scope="tenant-a" setScope={()=>{}} reason="" setReason={()=>{}} busy={false} notice="" onClose={()=>{}} onUpdate={()=>{}}/>);
+    expect(publishedMarkup).toContain('保存租户范围');
+    expect(publishedMarkup).toContain('正常退役');
+    expect(publishedMarkup).toContain('永久安全撤销');
+    expect(publishedMarkup).toContain('撤销后不可恢复');
+    const revokedMarkup=render(<WorkbenchStateModal entry={{...workbenchRegistry.entries[0],status:'revoked',lifecycle_reason:'签名验证失败'} } scope="tenant-a" setScope={()=>{}} reason="" setReason={()=>{}} busy={false} notice="" onClose={()=>{}} onUpdate={()=>{}}/>);
+    expect(revokedMarkup).toContain('不能恢复、发布或调整租户范围');
+    expect(revokedMarkup).toContain('签名验证失败');
+    expect(revokedMarkup).not.toContain('安全撤销原因');
   });
 
   it('keeps an unconfigured skill registry explicit and empty',()=>{

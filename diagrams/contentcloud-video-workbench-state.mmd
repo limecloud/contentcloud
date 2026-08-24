@@ -1,0 +1,27 @@
+stateDiagram-v2
+    state "尚未开始" as not_started
+    state "可以开始" as ready
+    state "处理中" as working
+    state "需要补资料" as needs_input
+    state "等待确认" as needs_decision
+    state "受阻" as blocked
+    state "已要求修改" as changes_requested
+    state "已完成" as completed
+    state "已交付" as delivered
+    state "已被新版本替代" as superseded
+
+    [*] --> not_started
+    not_started --> ready: 输入齐全
+    ready --> working: 开始当前步骤
+    working --> needs_input: 缺少资料
+    working --> needs_decision: 等待确认
+    working --> blocked: 规则或能力阻断
+    needs_input --> working: 补充资料
+    needs_decision --> completed: 确认当前版本
+    needs_decision --> changes_requested: 要求修改
+    changes_requested --> working: 重新处理
+    blocked --> ready: 阻断解除
+    completed --> delivered: 生成交付包
+    completed --> superseded: 新版本替代
+    delivered --> superseded: 新版本替代
+    superseded --> [*]

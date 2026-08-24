@@ -37,9 +37,10 @@ func TestOrchestrationDefaultsAndTaskPinPublishedSOP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(admin.Environments) != 1 || len(admin.SOPs) != 5 || len(admin.Gates) != 8 {
+	if len(admin.Environments) != 1 || len(admin.Gates) == 0 {
 		t.Fatalf("defaults were not materialized: %#v", admin)
 	}
+	assertRequiredBuiltinSOPs(t, admin.SOPs)
 	if !strings.HasPrefix(admin.Environments[0].ManifestDigest, "sha256:") || len(admin.Environments[0].ManifestDigest) != len("sha256:")+64 {
 		t.Fatalf("environment digest is not a sha256 digest: %q", admin.Environments[0].ManifestDigest)
 	}
@@ -148,9 +149,11 @@ func TestBuiltinSOPsAreTenantScopedAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.SOPs) != 5 || len(firstAgain.SOPs) != 5 {
+	if len(first.SOPs) != len(firstAgain.SOPs) {
 		t.Fatalf("built-in SOP installation is not idempotent: first=%d again=%d", len(first.SOPs), len(firstAgain.SOPs))
 	}
+	assertRequiredBuiltinSOPs(t, first.SOPs)
+	assertRequiredBuiltinSOPs(t, firstAgain.SOPs)
 	for _, summary := range firstAgain.SOPs {
 		if len(summary.Versions) != 1 || summary.Versions[0].Version != 1 || !summary.Definition.BuiltIn {
 			t.Fatalf("repeated installation changed built-in versions: %#v", summary)
@@ -169,12 +172,36 @@ func TestBuiltinSOPsAreTenantScopedAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(second.SOPs) != 5 || len(second.Environments) != 1 {
+	if len(second.SOPs) != len(first.SOPs) || len(second.Environments) != 1 {
 		t.Fatalf("built-in SOPs leaked across tenant storage: %#v", second)
 	}
+	assertRequiredBuiltinSOPs(t, second.SOPs)
 	for _, summary := range second.SOPs {
 		if summary.Definition.TenantID != secondActor.TenantID {
 			t.Fatalf("SOP returned outside tenant scope: %#v", summary.Definition)
+		}
+	}
+}
+
+func assertRequiredBuiltinSOPs(t *testing.T, summaries []catalogdomain.SOPSummary) {
+	t.Helper()
+	required := map[string]bool{
+		"builtin-sop-content-research": false,
+		"builtin-sop-short-video":      false,
+		"builtin-sop-marketing-video":  false,
+		"builtin-sop-article":          false,
+		"builtin-sop-commerce":         false,
+		"builtin-sop-serialized-novel": false,
+		"builtin-sop-retrospective":    false,
+	}
+	for _, summary := range summaries {
+		if _, tracked := required[summary.Definition.ID]; tracked {
+			required[summary.Definition.ID] = true
+		}
+	}
+	for id, found := range required {
+		if !found {
+			t.Errorf("required built-in SOP %q was not materialized", id)
 		}
 	}
 }

@@ -16,6 +16,7 @@
     "status": {"enum": ["candidate", "review_ready", "superseded"]},
     "shots": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/shot"}},
     "assets": {"type": "array", "items": {"$ref": "#/$defs/asset"}},
+    "visual_bindings": {"type": "array", "items": {"$ref": "#/$defs/visualBinding"}},
     "review_sheet_artifact_id": {"type": "string"},
     "rights_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
     "source_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
@@ -36,6 +37,18 @@
         "rights_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
       }
     },
+    "visualBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "source_ref", "source_digest", "anchor_asset_id", "rights_refs"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["character", "scene", "prop", "product"]},
+        "source_ref": {"type": "string", "minLength": 1},
+        "source_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "anchor_asset_id": {"type": "string", "minLength": 1},
+        "rights_refs": {"type": "array", "uniqueItems": true, "minItems": 1, "items": {"type": "string"}}
+      }
+    },
     "shot": {
       "type": "object", "additionalProperties": false,
       "required": ["shot_id", "start_ms", "end_ms", "role", "first_frame_artifact_id", "end_frame_artifact_id", "image_prompt_zh", "subject", "product", "scene", "composition", "lighting", "camera", "action", "incoming_state", "outgoing_state", "movement_axis", "lighting_lock", "product_lock", "anchors", "asset_refs", "rights_refs", "knowledge_refs", "claim_refs", "negative_constraints", "acceptance_criteria", "plan_b"],
@@ -44,7 +57,7 @@
         "first_frame_artifact_id": {"type": "string"}, "end_frame_artifact_id": {"type": "string"}, "image_prompt_zh": {"type": "string", "minLength": 1},
         "subject": {"type": "string"}, "product": {"type": "string"}, "scene": {"type": "string"}, "composition": {"type": "string"}, "lighting": {"type": "string"}, "camera": {"type": "string"}, "action": {"type": "string"},
         "incoming_state": {"type": "string"}, "outgoing_state": {"type": "string"}, "movement_axis": {"type": "string"}, "lighting_lock": {"type": "string"}, "product_lock": {"type": "string"},
-        "anchors": {"type": "array", "items": {"type": "string"}}, "asset_refs": {"type": "array", "items": {"type": "string"}}, "rights_refs": {"type": "array", "items": {"type": "string"}}, "knowledge_refs": {"type": "array", "items": {"type": "string"}}, "claim_refs": {"type": "array", "items": {"type": "string"}},
+        "anchors": {"type": "array", "items": {"type": "string"}}, "asset_refs": {"type": "array", "items": {"type": "string"}}, "visual_binding_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}, "rights_refs": {"type": "array", "items": {"type": "string"}}, "knowledge_refs": {"type": "array", "items": {"type": "string"}}, "claim_refs": {"type": "array", "items": {"type": "string"}},
         "negative_constraints": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "acceptance_criteria": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "plan_b": {"type": "string", "minLength": 1}
       }
     }

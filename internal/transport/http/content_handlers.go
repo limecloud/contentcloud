@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -8,7 +9,29 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/limecloud/contentcloud/internal/application"
 )
+
+func (s *Server) exportJianying(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input application.JianyingExportInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	input.ProjectID = chi.URLParam(r, "projectID")
+	value, err := s.service.Delivery.ExportJianying(r.Context(), actor, input)
+	if err != nil {
+		s.fail(w, r, "jianying.export", err)
+		return
+	}
+	s.ok(w, r, "jianying.export", map[string]any{
+		"file_name":       "contentcloud-jianying-" + input.ProjectID + ".zip",
+		"content_base64":  base64.StdEncoding.EncodeToString(value.Body),
+		"manifest_digest": value.ManifestDigest,
+		"archive_digest":  value.ArchiveDigest,
+		"byte_size":       len(value.Body),
+	})
+}
 
 func (s *Server) revokeDevice(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)

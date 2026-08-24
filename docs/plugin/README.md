@@ -1,5 +1,7 @@
 # ContentCloud Agent Plugin 架构
 
+> 本文只定义 Agent Plugin（Skill、MCP、宿主安装和本地执行能力）。客户导航、业务阶段、画布和对象语言属于独立的 Business Workbench Plugin，目录与契约见 [`workbench-plugins/README.md`](../../workbench-plugins/README.md) 和 [`contracts/workbench-plugins/1.0.0/workbench-plugin.schema.json`](../../contracts/workbench-plugins/1.0.0/workbench-plugin.schema.json)。不要使用 Agent Plugin 的 `plugin.json` 代替业务工作台 manifest。
+
 本文是 ContentCloud 插件化的架构和运行手册。它定义标准插件包、ContentCloud 控制面、设备本地存储以及多宿主之间的边界。目标不是保留旧插件安装方式，而是让一个不可变的 Agent Plugins 包在正式宿主中可验证、可安装、可升级、可诊断和可撤回。
 
 营销业务的完整 Skill Pack 方案见[ContentCloud 营销 Skill Pack 技术方案](marketing-skill-pack.md)，包括能力编排、客户 Workspace 边界、视频/文章交接、Codex/Claude 宿主和端到端流程图。

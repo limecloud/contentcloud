@@ -11,7 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	workbenchdomain "github.com/limecloud/contentcloud/internal/experience/workbench"
 	"github.com/limecloud/contentcloud/internal/platform/fault"
+	"github.com/limecloud/contentcloud/internal/testsupport"
 
 	"github.com/limecloud/contentcloud/internal/persistence/memory"
 	httpapi "github.com/limecloud/contentcloud/internal/transport/http"
@@ -40,6 +42,12 @@ func TestCustomerStudioProjectionAndTenantIsolation(t *testing.T) {
 	if got, want := strings.Join(bootstrap.Experiences[0].StepTitles, ","), "灵感采集,人物原型,营销剧本,视频分镜,候选成片,交付准备"; got != want {
 		t.Fatalf("customer experience leaked runtime stage names: got %q want %q", got, want)
 	}
+	if got, want := bootstrap.Experiences[0].Workbench.PluginID, "contentcloud-workbench-marketing-video"; got != want {
+		t.Fatalf("customer bootstrap returned workbench plugin %q want %q", got, want)
+	}
+	if bootstrap.Experiences[0].Workbench.Digest == "" || bootstrap.Experiences[0].Workbench.Layout != "stage-canvas-context" {
+		t.Fatalf("customer bootstrap returned incomplete workbench contract: %#v", bootstrap.Experiences[0].Workbench)
+	}
 
 	raw := getStudioRaw(t, client, server.URL+"/api/studio/bootstrap")
 	for _, forbidden := range []string{`"tenant_id"`, `"sop_id"`, `"sop_digest"`, `"environment_id"`, `"stage_runs"`, `"executor_kind"`, `"capability_id"`, `"checks"`} {
@@ -53,6 +61,9 @@ func TestCustomerStudioProjectionAndTenantIsolation(t *testing.T) {
 	second := callBFFWithHeaders[application.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks", input, map[string]string{"Idempotency-Key": "studio-idempotent-1"})
 	if first.Task.ID == "" || first.Task.ID != second.Task.ID {
 		t.Fatalf("studio create is not idempotent: first=%s second=%s", first.Task.ID, second.Task.ID)
+	}
+	if first.Pipeline.StageCount == 0 || first.Pipeline.ExecutionCount == 0 {
+		t.Fatalf("studio task did not expose the shared platform pipeline projection: %#v", first.Pipeline)
 	}
 	rawTask := getStudioRaw(t, client, server.URL+"/api/studio/tasks/"+first.Task.ID)
 	for _, forbidden := range []string{`"tenant_id"`, `"sop_id"`, `"sop_digest"`, `"environment_id"`, `"stage_runs"`, `"runs"`, `"executor_kind"`, `"capability_id"`, `"checks"`} {
@@ -76,6 +87,200 @@ func TestCustomerStudioProjectionAndTenantIsolation(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != http.StatusNotFound {
 		t.Fatalf("foreign tenant could read customer task, status=%d", response.StatusCode)
+	}
+}
+
+func TestCustomerStudioUsesTenantScopedWorkbenchDeclaration(t *testing.T) {
+	store := memory.New()
+	service := application.New(application.DependenciesFrom(store), slog.Default(), application.WithPlatformAdminEmails("demo@contentcloud.local"))
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), true, "").Handler())
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	bootstrap := mustStudioBootstrap(t, client, server.URL)
+	actor, _, err := service.Identity.SessionActor(t.Context(), sessionIDFromJar(t, jar, server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var base workbenchdomain.Entry
+	for _, candidate := range workbenchdomain.DefaultRegistry().Entries() {
+		if candidate.Manifest.ID == "contentcloud-workbench-marketing-video" {
+			base = candidate
+			break
+		}
+	}
+	if base.Manifest.ID == "" {
+		t.Fatal("marketing video first-party workbench is missing")
+	}
+	base.Manifest.ID = "tenant-video-workbench"
+	base.Manifest.Version = "2.0.0"
+	base.Manifest.UI.Stages[0].Label = "客户目标"
+	base.Manifest.UI.Stages[0].Outcome = "固定客户目标"
+	base.Manifest.UI.Stages[1].Label = "客户交付"
+	base.Manifest.UI.Stages[1].Outcome = "固定客户交付"
+	base.Manifest.UI.Panels = []workbenchdomain.Panel{{ID: "customer-flow", Title: "客户流程", Detail: "客户自己的工作语言", Tone: "source", Icon: "folder", StageIDs: []string{base.Manifest.UI.Stages[0].ID, base.Manifest.UI.Stages[1].ID}, Target: "start", ActionLabel: "开始客户流程"}}
+	created, err := service.Operations.RegisterWorkbench(t.Context(), application.Actor{PlatformAdmin: true, UserID: actor.UserID}, application.RegisterWorkbenchInput{Manifest: base.Manifest, TemplateAliases: base.TemplateAliases, TenantIDs: []string{actor.TenantID}}, "custom-workbench")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Operations.UpdateWorkbenchState(t.Context(), application.Actor{PlatformAdmin: true, UserID: actor.UserID}, created.Manifest.ID, created.Manifest.Version, application.UpdateWorkbenchStateInput{Status: "published", TenantIDs: []string{actor.TenantID}}, "publish-custom-workbench"); err != nil {
+		t.Fatal(err)
+	}
+	updated := callBFF[application.StudioBootstrap](t, client, http.MethodGet, server.URL+"/api/studio/bootstrap", nil)
+	if len(updated.Experiences) != len(bootstrap.Experiences) || updated.Experiences[0].Workbench.PluginID != "tenant-video-workbench" {
+		t.Fatalf("tenant scoped workbench was not projected: %#v", updated.Experiences)
+	}
+	if updated.Experiences[0].Workbench.Stages[0].Label != "客户目标" || len(updated.Experiences[0].Workbench.Panels) != 1 {
+		t.Fatalf("custom workbench declaration was lost at the customer boundary: %#v", updated.Experiences[0].Workbench)
+	}
+	task := callBFF[application.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks", application.StudioCreateTaskInput{
+		ExperienceID: updated.Experiences[0].ID,
+		ProjectID:    updated.Projects[0].ID,
+		Title:        "固定客户工作台版本",
+		Goal:         "验证工作台撤回后历史任务仍使用创建时的界面声明",
+	})
+	if task.Workbench.PluginID != created.Manifest.ID || task.Workbench.Version != created.Manifest.Version || task.Workbench.Digest != created.Digest {
+		t.Fatalf("created task did not pin the resolved workbench: %#v", task.Workbench)
+	}
+	if _, err := service.Operations.UpdateWorkbenchState(t.Context(), application.Actor{PlatformAdmin: true, UserID: actor.UserID}, created.Manifest.ID, created.Manifest.Version, application.UpdateWorkbenchStateInput{Status: "retired", TenantIDs: []string{actor.TenantID}}, "retire-custom-workbench"); err != nil {
+		t.Fatal(err)
+	}
+	pinned := callBFF[application.StudioTaskView](t, client, http.MethodGet, server.URL+"/api/studio/tasks/"+task.Task.ID, nil)
+	if pinned.Workbench.PluginID != created.Manifest.ID || pinned.Workbench.Version != created.Manifest.Version || pinned.Workbench.Digest != created.Digest {
+		t.Fatalf("retiring a workbench changed the historical task surface: %#v", pinned.Workbench)
+	}
+}
+
+func TestCustomerStudioBusinessWorkbenchesUseSharedTaskAndRuntime(t *testing.T) {
+	store := memory.New()
+	service := application.New(application.DependenciesFrom(store), slog.Default())
+	session, err := service.Identity.Register(t.Context(), "multi-workbench@example.com", "long-enough-password", "业务负责人", "多业务租户")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, _, err := service.Identity.SessionActor(t.Context(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contentType := range []string{identitydomain.ContentTypeWeChatArticle, identitydomain.ContentTypeCommerce, identitydomain.ContentTypeSerializedNovel} {
+		if err := store.SetTenantContentCapability(t.Context(), identitydomain.TenantContentCapability{TenantID: actor.TenantID, ContentType: contentType, Enabled: true, UpdatedBy: actor.UserID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	articleProject, err := service.Workspace.CreateProject(t.Context(), actor, application.CreateProjectInput{BrandName: "文章品牌", ProductName: "内容专栏", ContentType: identitydomain.ContentTypeWeChatArticle, Channel: "wechat_official_account"}, "multi-workbench-article-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commerceProject, err := service.Workspace.CreateProject(t.Context(), actor, application.CreateProjectInput{BrandName: "商品品牌", ProductName: "低糖点心", ContentType: identitydomain.ContentTypeCommerce, Channel: "douyin"}, "multi-workbench-commerce-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	novelProject, err := service.Workspace.CreateProject(t.Context(), actor, application.CreateProjectInput{BrandName: "长篇故事", ProductName: "雾城连载", ContentType: identitydomain.ContentTypeSerializedNovel, Channel: "web_novel"}, "multi-workbench-novel-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, project := range []workspacedomain.Project{articleProject, commerceProject, novelProject} {
+		connect, err := service.Workspace.CreateConnectSession(t.Context(), actor, project.ID, "multi-workbench-connect-"+project.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := testsupport.ConnectBootstrap(t.Context(), service, actor, connect, application.ConnectDeviceInput{Hostname: "multi-workbench-" + project.ID, Platform: "darwin", Arch: "arm64", Version: "test"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	server := httptest.NewServer(httpapi.New(service, slog.Default(), false, "").Handler())
+	defer server.Close()
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jar, _ := cookiejar.New(nil)
+	jar.SetCookies(baseURL, []*http.Cookie{{Name: "cc_session", Value: session.ID, Path: "/"}})
+	client := &http.Client{Jar: jar}
+	bootstrap := callBFF[application.StudioBootstrap](t, client, http.MethodGet, server.URL+"/api/studio/bootstrap", nil)
+
+	experiences := map[string]application.StudioExperience{}
+	for _, experience := range bootstrap.Experiences {
+		experiences[experience.Workbench.PluginID] = experience
+	}
+	articleExperience := experiences["contentcloud-workbench-article"]
+	commerceExperience := experiences["contentcloud-workbench-commerce"]
+	novelExperience := experiences["contentcloud-workbench-serialized-novel"]
+	if articleExperience.ID == "" || articleExperience.Workbench.Layout != "article-editor" || !containsStringValue(articleExperience.ProjectIDs, articleProject.ID) {
+		t.Fatalf("article workbench did not resolve through its built-in SOP alias: %#v", articleExperience)
+	}
+	if commerceExperience.ID == "" || commerceExperience.Workbench.Layout != "product-variants" || !containsStringValue(commerceExperience.ProjectIDs, commerceProject.ID) {
+		t.Fatalf("commerce workbench did not resolve through its built-in SOP: %#v", commerceExperience)
+	}
+	if novelExperience.ID == "" || novelExperience.Workbench.Layout != "novel-editor" || !containsStringValue(novelExperience.ProjectIDs, novelProject.ID) {
+		t.Fatalf("serialized novel workbench did not resolve through the shared built-in SOP: %#v", novelExperience)
+	}
+
+	articleTask := callBFF[application.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks", application.StudioCreateTaskInput{
+		ExperienceID: articleExperience.ID, ProjectID: articleProject.ID, Title: "公众号文章任务", Goal: "形成有来源的公众号文章",
+		BusinessBrief: application.StudioBusinessBrief{Audience: "新客户", Channel: "公众号", Tone: "可信", Keywords: []string{"成分", "使用方法"}}, IdempotencyKey: "multi-workbench-article-task",
+	})
+	commerceTask := callBFF[application.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks", application.StudioCreateTaskInput{
+		ExperienceID: commerceExperience.ID, ProjectID: commerceProject.ID, Title: "电商内容任务", Goal: "生成遵守商品事实的渠道内容变体",
+		BusinessBrief: application.StudioBusinessBrief{Channel: "抖音", TargetAudience: "控糖人群", ProductFacts: map[string]string{"净含量": "500g"}, OfferPoints: []string{"低糖", "独立包装"}}, IdempotencyKey: "multi-workbench-commerce-task",
+	})
+	novelTask := callBFF[application.StudioTaskView](t, client, http.MethodPost, server.URL+"/api/studio/tasks", application.StudioCreateTaskInput{
+		ExperienceID: novelExperience.ID, ProjectID: novelProject.ID, Title: "连载小说章节任务", Goal: "在既定 Canon 下完成下一章并通过连续性校验",
+		BusinessBrief: application.StudioBusinessBrief{Audience: "悬疑读者", Channel: "连载平台", Tone: "克制悬疑", Keywords: []string{"雾城", "失踪案", "双时间线"}}, IdempotencyKey: "multi-workbench-novel-task",
+	})
+
+	for _, item := range []struct {
+		view          application.StudioTaskView
+		contentType   string
+		pluginID      string
+		layout        string
+		expectedSteps int
+		expectedNodes int
+	}{
+		{view: articleTask, contentType: identitydomain.ContentTypeWeChatArticle, pluginID: "contentcloud-workbench-article", layout: "article-editor", expectedSteps: 5, expectedNodes: 6},
+		{view: commerceTask, contentType: identitydomain.ContentTypeCommerce, pluginID: "contentcloud-workbench-commerce", layout: "product-variants", expectedSteps: 5, expectedNodes: 7},
+		{view: novelTask, contentType: identitydomain.ContentTypeSerializedNovel, pluginID: "contentcloud-workbench-serialized-novel", layout: "novel-editor", expectedSteps: 7, expectedNodes: 11},
+	} {
+		if item.view.Task.ContentType != item.contentType || item.view.Workbench.PluginID != item.pluginID || item.view.Workbench.Layout != item.layout {
+			t.Fatalf("business workbench task lost its pinned surface: %#v", item.view)
+		}
+		if item.view.Pipeline.ExecutionCount != 1 || item.view.Pipeline.StageCount != len(item.view.Steps) || len(item.view.Steps) != item.expectedSteps {
+			t.Fatalf("business workbench did not use the shared task/runtime pipeline: %#v", item.view.Pipeline)
+		}
+		stored, err := service.Work.WorkTask(t.Context(), actor, item.view.Task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := stored.Task.RequestedOutput["business_brief"].(map[string]any); !ok {
+			t.Fatalf("business brief was not frozen in WorkTask.RequestedOutput: %#v", stored.Task.RequestedOutput)
+		}
+		if _, ok := stored.Task.RequestedOutput["workbench"].(map[string]any); !ok {
+			t.Fatalf("workbench reference was not frozen in WorkTask.RequestedOutput: %#v", stored.Task.RequestedOutput)
+		}
+	}
+
+	jobs, err := service.Runtime.RuntimeJobs(t.Context(), actor, "", "", 0, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobByTask := map[string]application.RuntimeJobSummary{}
+	for _, job := range jobs.Items {
+		jobByTask[job.WorkTaskID] = job
+	}
+	for _, item := range []struct {
+		taskID        string
+		expectedNodes int
+	}{
+		{taskID: articleTask.Task.ID, expectedNodes: 6},
+		{taskID: commerceTask.Task.ID, expectedNodes: 7},
+		{taskID: novelTask.Task.ID, expectedNodes: 11},
+	} {
+		job := jobByTask[item.taskID]
+		if job.ID == "" || job.RuntimePolicyID != "runtime-policy/customer-studio-v1" || job.ContractMajor != 1 || job.NodeCount != item.expectedNodes {
+			t.Fatalf("task %s did not enter the shared Runtime contract: %#v", item.taskID, job)
+		}
 	}
 }
 
@@ -252,10 +457,17 @@ func TestCustomerStudioExecutionClientHTTPFlow(t *testing.T) {
 	if len(catalog.Clients) == 0 || catalog.Clients[0].ID != "codex" || !catalog.Clients[0].Available {
 		t.Fatalf("unexpected execution client catalog: %#v", catalog)
 	}
+	availableClients := map[string]bool{}
 	for _, client := range catalog.Clients {
-		if client.ID != "codex" && client.Available {
+		if client.Available {
+			availableClients[client.ID] = true
+		}
+		if client.ID != "codex" && client.ID != "claude-code" && client.Available {
 			t.Fatalf("customer bootstrap exposed an unsupported connection client: %#v", client)
 		}
+	}
+	if !availableClients["codex"] || !availableClients["claude-code"] {
+		t.Fatalf("customer bootstrap did not expose the supported host clients: %#v", catalog)
 	}
 
 	connect := callBFF[application.StudioConnectSession](t, client, http.MethodPost, server.URL+"/api/studio/projects/"+project.ID+"/connect-sessions", map[string]any{})

@@ -1,8 +1,8 @@
 # 代码组织、模块边界与依赖规范
 
-状态：`Accepted 目标规范；顶层命名空间、业务事实模块、命名应用服务和显式依赖装配已完成`。
+状态：`Accepted 目标规范；顶层命名空间、业务事实模块、命名应用服务和显式依赖装配已完成，业务工作台插件层已冻结 1.0.0 契约`。
 
-更新时间：2026-08-18。
+更新时间：2026-08-23。
 
 ## 1. 重构前结构诊断
 
@@ -91,15 +91,23 @@ internal/
 contracts/
 ├── business/                 内容、业务包、资产目录与引用 JSON Schema
 ├── runtime/                  Job、Node、State、Effect 契约
-├── integration/              Agent、Connector、Provider 契约
+├── integration/              Agent、Connector、Provider、Composition Worker 契约
 └── openapi/                  按表面拆分或生成的 OpenAPI
 
 apps/web/src/
-├── studio/                   客户创作台 Shell、routes、features
+├── app/                      Router 和根级 Provider 装配
+├── platform/                 会话、租户、权限、错误边界和平台契约
+├── workbench/                工作台宿主、manifest 校验和 registry
+├── workbenches/              按业务拆分的客户 UI feature
+│   ├── marketing-video/      视频导航、阶段、画布和业务上下文
+│   ├── article/              文章目录、编辑器、引用和校对
+│   ├── commerce/             商品事实、内容变体和渠道预览
+│   └── serialized-novel/     Canon、卷章、章节编辑、连续性和交付
+├── studio/                   迁移中的客户路由和公共旧 feature；不得继续加入业务专有面板
 ├── admin/                    平台运营控制台（发布、能力、运行、资产治理）
 ├── public/                   官网、登录、公开审核和文档
 ├── shared/                   纯 UI 原语、品牌、格式化和 API 基础设施
-└── app/                      Router 和根级 Provider 装配
+└── plugins/                  业务插件投影和租户启用状态（不执行插件代码）
 
 apps/desktop/
 ├── src/main/                 Electron 生命周期、系统权限、更新和通知
@@ -116,9 +124,76 @@ internal/local/
 ├── workbench/                Direct Browser 和 MCP Apps Presenter
 ├── desktopapi/               Desktop command/query/event surface
 └── config/                   设备、绑定和本地配置
+
+contracts/workbench-plugins/1.0.0/  业务工作台插件 manifest 与版本化 JSON Schema
+workbench-plugins/                  业务工作台插件包和示例
+plugins/                            Agent Plugin 包（Skill、MCP、宿主投影），与上者分开
 ```
 
 目录必须由真实实现一次性填充，不创建没有所有权和测试的空壳包。
+
+### 3.1 业务工作台插件层
+
+业务工作台插件是产品层扩展，不是执行层插件。它只提供声明式的客户体验描述，并通过已发布 `ExperienceTemplate` 进入客户面：
+
+```text
+workbench-plugins/<id>/workbench.json
+        |
+        v
+internal/experience/workbench
+  DecodeManifest -> schema / id / layout / stage / action 校验
+        |
+        v
+ExperienceTemplate Registry
+  运营预览 -> 租户启用 -> Customer BFF Projection
+        |
+        v
+apps/web/src/workbench (宿主)
+        |
+        +--> apps/web/src/workbenches/<business> (业务 feature)
+        +--> apps/web/src/platform (公共会话、权限、错误和可访问性)
+```
+
+业务工作台的导航、阶段、面板文案和业务简报字段必须与业务 feature 同目录维护：
+
+```text
+apps/web/src/workbenches/marketing-video/definition.ts
+apps/web/src/workbenches/marketing-video/VideoBriefFields.tsx
+apps/web/src/workbenches/article/definition.ts
+apps/web/src/workbenches/article/ArticleBriefFields.tsx
+apps/web/src/workbenches/commerce/definition.ts
+apps/web/src/workbenches/commerce/CommerceBriefFields.tsx
+apps/web/src/workbenches/serialized-novel/definition.ts
+apps/web/src/workbenches/serialized-novel/NovelBriefFields.tsx
+apps/web/src/workbenches/serialized-novel/NovelTaskCanvas.tsx
+```
+
+`apps/web/src/workbench` 只负责宿主解析、平台路由映射、版本化简报契约和安全回退；不得重新集中保存任一业务的导航、阶段或表单文案。
+
+工作台插件可以声明：
+
+- 支持的 `content_types` 和已发布 `experience.template_id`。
+- 客户导航、阶段、阶段结果、唯一主要动作、布局、密度和主题 token key。
+- 已审核的帮助、字段说明和静态预览资源。
+
+工作台插件不能声明或携带：
+
+- Go 服务端代码、数据库迁移、Runtime 状态机或 Provider 凭据。
+- 任意浏览器脚本、远程 iframe、任意 API URL 或自定义状态写路径。
+- 超出服务端 action contract 的批准、发布、费用和租户权限。
+
+`plugins/` 根目录保留给 Agent Plugin；它负责 Skill、MCP、宿主安装和本地执行能力。两类插件的 manifest、摘要、审核、撤回和安装回执不可互换。一个业务工作台可以引用一个或多个 Agent Plugin，但引用关系由 `ExperienceTemplate`/能力绑定维护，不写入客户页面的执行逻辑。
+
+### 3.2 渐进迁移顺序
+
+当前 `apps/web/src/studio` 仍是已上线客户路由，先禁止新增业务专有组件，再按以下顺序迁移：
+
+1. 将会话、租户、权限、错误边界和公共 API 边界收敛到 `platform/`。
+2. 将工作台选择、manifest 解析和公共 stage/action contract 放入 `workbench/`。
+3. 将视频、文章、电商和连载小说页面分别维护在 `workbenches/<business>/`，每次只迁移一个业务并保留现有路由验收。
+4. 运营端完成插件预览、租户启用和回退后，再允许外部 `workbench-plugins/<id>` 进入 registry。
+
+迁移期间不创建 `common-business`、`generic-workbench`、全局 `types.ts` 或把不同业务重新合并的兼容层。所有共享内容必须证明自己是平台契约或无业务所有权的 UI 原语。
 
 ## 4. 模块内部结构
 
@@ -239,3 +314,7 @@ CI 最终必须加入不依赖新大型框架的架构检查：
 8. 页面是否按客户或运营表面读取正确 BFF？
 9. 文档是否区分当前实现与目标能力？
 10. 跨任务资产是否固定底层事实版本与摘要，而不是复制正文或只保存目录 ID？
+
+## 11. 统一事实链的兼容边界（2026-08-23）
+
+`internal/application/task_governance.go` 中的旧内容版本入口只负责兼容协议和 DTO 转换。视频脚本、文章和电商正式提交必须经过 `SubmissionBundle`、`SubmissionRevision` 和既有 Review 门禁；`TaskRevision` 只能由统一事实投影或历史兼容读取构造，不能成为新的审批、Artifact 或 Delivery 所有者。唯一受控例外是模型 Provider 返回的 `draft` 候选：它只与 `ModelGenerationReceipt` 原子绑定，不可批准、不可交付，选中后仍须重新经过业务 Schema 校验并提交到 Submission。普通视频脚本在既有流程已经进入 accepted 时使用显式 `automated_gate` 决定锁定批准快照，不代表工作台拥有审批事实。交付包校验通过 ApprovedSnapshot 引用回溯任务工作区，业务对象 ID 不得承担跨域事实关联职责。新增业务工作台时，应复用该入口或直接调用 Submission 命令，不得新增业务专用版本表。

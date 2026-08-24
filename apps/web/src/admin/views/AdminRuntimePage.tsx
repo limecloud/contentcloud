@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, Ban, Bot, CheckCircle2, ChevronRight, CircleDollarSign, Clock3, GitFork, History, Pause, Play, RefreshCw, ScanSearch, ServerCog, ShieldAlert, ShieldCheck, Workflow } from 'lucide-react';
+import { Activity, AlertTriangle, Ban, Bot, CheckCircle2, ChevronRight, CircleDollarSign, Clock3, GitFork, History, Merge, Pause, Play, Plus, RefreshCw, ScanSearch, ServerCog, ShieldAlert, ShieldCheck, Split, Workflow } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, post } from '../../api';
 import type { RuntimeAttemptView, RuntimeEffectView, RuntimeGateView, RuntimeJobDetail, RuntimeJobList, RuntimeJobSummary, RuntimeReplayResult, RuntimeStateCollectionView } from '../../types';
@@ -33,7 +33,7 @@ const actorLabel = (value: string) => ({ user: '用户', worker: '后台服务',
   const effectLabel = (value: string) => ({ 'media.generate': '生成视频', 'media.render': '生成成片', 'knowledge.query': '查询知识', 'content.generate': '生成内容' } as Record<string, string>)[value] || '外部服务处理';
 
 type RuntimeMutation = 'pause' | 'resume' | 'cancel' | 'refresh';
-type RuntimeTab = 'overview' | 'steps' | 'requests' | 'gates' | 'cost' | 'events' | 'technical';
+type RuntimeTab = 'overview' | 'graph' | 'steps' | 'requests' | 'gates' | 'cost' | 'events' | 'technical';
 
 export function AdminRuntimePage() {
   const { jobID = '' } = useParams();
@@ -150,13 +150,43 @@ export function AdminRuntimePage() {
     }
   };
 
+  const patchGraph = async (input: Record<string, unknown>) => {
+    if (!selectedID) return;
+    setBusy('graph-patch'); setError(''); setNotice('');
+    try {
+      const next = await post<RuntimeJobDetail>(`/api/bff/runtime/jobs/${encodeURIComponent(selectedID)}/graph-patches`, input);
+      setDetail(next); await loadList(selectedID); setNotice('执行图已追加新的不可变版本，原有节点和结果保持不变。');
+    } catch (value) { setError(value instanceof Error ? value.message : '执行图变更失败'); }
+    finally { setBusy(''); }
+  };
+
+  const createFanout = async (input: Record<string, unknown>) => {
+    if (!selectedID) return;
+    setBusy('fanout-create'); setError(''); setNotice('');
+    try {
+      const next = await post<RuntimeJobDetail>(`/api/bff/runtime/jobs/${encodeURIComponent(selectedID)}/fanout-sets`, input);
+      setDetail(next); await loadList(selectedID); setNotice('FanoutSet 已冻结成员快照，并交由 Runtime 统一调度。');
+    } catch (value) { setError(value instanceof Error ? value.message : '创建 FanoutSet 失败'); }
+    finally { setBusy(''); }
+  };
+
+  const joinFanout = async (setID: string) => {
+    if (!selectedID) return;
+    setBusy(`fanout-join:${setID}`); setError('');
+    try {
+      const next = await post<RuntimeJobDetail>(`/api/bff/runtime/fanout-sets/${encodeURIComponent(setID)}/join`);
+      setDetail(next); await loadList(selectedID); setNotice('Runtime 已重新评估 FanoutSet 的 Join 状态，未提交重复任务。');
+    } catch (value) { setError(value instanceof Error ? value.message : 'Fanout Join 失败'); }
+    finally { setBusy(''); }
+  };
+
   return <div className="admin-runtime-page">
     <div className="admin-heading"><div><span className="eyebrow">任务跟进 / 任务进度</span><h1>任务进度</h1><p>查看客户任务停在哪一步，并在需要时暂停、恢复或核对结果。</p></div><div className="admin-runtime-actions"><label className="admin-runtime-filter"><span>筛选</span><select value={state} onChange={event => setState(event.target.value)}><option value="">全部任务</option><option value="running">进行中</option><option value="waiting_human">等待确认</option><option value="failed">需要处理</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select></label><button className="icon-button" aria-label="刷新任务进度" title="刷新任务进度" disabled={loading} onClick={() => void loadList()}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /></button></div></div>
     {error && <div className="admin-runtime-error" role="alert"><AlertTriangle size={16} /><span>{error}</span></div>}
     {notice && <div className="admin-runtime-notice" role="status"><CheckCircle2 size={16} /><span>{notice}</span></div>}
     <div className="admin-runtime-layout">
       <section className="section admin-runtime-list"><header className="section-header"><div><span className="section-kicker">任务进展</span><h2>需要留意的任务</h2></div><span className="admin-muted">{list?.items.length || 0} 条</span></header>{loading ? <div className="admin-runtime-empty">正在读取任务进度…</div> : !list?.items.length ? <div className="admin-runtime-empty"><ServerCog size={22} /><span>当前没有匹配的任务</span></div> : <div className="admin-runtime-job-list">{list.items.map(item => <RuntimeJobRow key={item.id} item={item} selected={item.id === selectedID} onClick={() => { setSelectedID(item.id); setReplay(undefined); setNotice(''); navigate(adminJobPath(item.id)); void loadDetail(item.id); }} />)}</div>}</section>
-      <section className="section admin-runtime-detail">{!detail ? <div className="admin-runtime-empty"><Workflow size={24} /><span>选择一个任务查看详情</span></div> : <RuntimeDetail detail={detail} busy={busy} replay={replay} onAction={action} onReplay={replayJob} onForkCheckpoint={forkCheckpoint} onReconcileEffect={reconcileEffect} />}</section>
+      <section className="section admin-runtime-detail">{!detail ? <div className="admin-runtime-empty"><Workflow size={24} /><span>选择一个任务查看详情</span></div> : <RuntimeDetail detail={detail} busy={busy} replay={replay} onAction={action} onReplay={replayJob} onForkCheckpoint={forkCheckpoint} onReconcileEffect={reconcileEffect} onPatchGraph={patchGraph} onCreateFanout={createFanout} onJoinFanout={joinFanout} />}</section>
     </div>
   </div>;
 }
@@ -175,17 +205,21 @@ interface RuntimeDetailProps {
   onReplay: () => Promise<void>;
   onForkCheckpoint: (checkpointID: string) => Promise<void>;
   onReconcileEffect: (effect: RuntimeEffectView) => Promise<void>;
+  onPatchGraph?: (input: Record<string, unknown>) => Promise<void>;
+  onCreateFanout?: (input: Record<string, unknown>) => Promise<void>;
+  onJoinFanout?: (setID: string) => Promise<void>;
 }
 
-export function RuntimeDetail({ detail, busy, replay, initialTab = 'overview', onAction, onReplay, onForkCheckpoint, onReconcileEffect }: RuntimeDetailProps) {
+export function RuntimeDetail({ detail, busy, replay, initialTab = 'overview', onAction, onReplay, onForkCheckpoint, onReconcileEffect, onPatchGraph, onCreateFanout, onJoinFanout }: RuntimeDetailProps) {
   const { summary } = detail;
   const [tab, setTab] = useState<RuntimeTab>(initialTab);
   const can = (action: string) => summary.allowed_actions.includes(action);
-  const tabs: Array<[RuntimeTab, string, number?]> = [['overview', '任务概况'], ['steps', '处理步骤', detail.nodes.length], ['requests', '外部服务', detail.effects.length], ['gates', '客户确认', detail.gates.length], ['cost', '费用', summary.cost.effect_count], ['events', '操作记录', detail.events.length], ['technical', '详细信息']];
+  const tabs: Array<[RuntimeTab, string, number?]> = [['overview', '任务概况'], ['graph', '执行图', detail.plan.nodes.length], ['steps', '处理步骤', detail.nodes.length], ['requests', '外部服务', detail.effects.length], ['gates', '客户确认', detail.gates.length], ['cost', '费用', summary.cost.effect_count], ['events', '操作记录', detail.events.length], ['technical', '详细信息']];
   return <div className="admin-runtime-detail-inner"><header className="admin-runtime-detail-header"><div><span className="eyebrow">{summary.customer_name || summary.project_name}</span><h2>{summary.task_title || '未命名任务'}</h2><p>{summary.project_name || '未命名项目'}{summary.product_name ? ` · ${summary.product_name} v${summary.product_version}` : ''} · 更新于 {dateTime(summary.updated_at)}</p>{summary.source_job_run_id && <p className="admin-runtime-lineage"><GitFork size={13} />从安全检查点创建，源任务 {summary.source_job_run_id.slice(0, 8)}</p>}</div><div className="admin-runtime-detail-actions">{can('pause') && <button className="button button-secondary" disabled={Boolean(busy)} onClick={() => void onAction('pause')}><Pause size={14} />{busy === 'pause' ? '暂停中…' : '暂停后续处理'}</button>}{can('resume') && <button className="button button-primary" disabled={Boolean(busy)} onClick={() => void onAction('resume')}><Play size={14} />{busy === 'resume' ? '恢复处理' : '恢复处理'}</button>}{can('cancel') && <button className="button button-danger" disabled={Boolean(busy)} onClick={() => void onAction('cancel')}><Ban size={14} />{busy === 'cancel' ? '取消中…' : '取消未开始步骤'}</button>}{can('refresh') && <button className="icon-button" aria-label="刷新当前任务" title="刷新当前任务" disabled={Boolean(busy)} onClick={() => void onAction('refresh')}><RefreshCw size={15} /></button>}</div></header>
     {replay && <div className="admin-runtime-replay-result"><ScanSearch size={16} /><span>{replay.projection_rebuilt ? '任务状态已重新整理' : '任务状态未重新整理'}；完整性{replay.integrity_status === 'verified' ? '已验证' : '未验证'}，已核对 {replay.event_count} 条记录，外部服务调用 {replay.external_calls} 次，最新记录编号 {replay.last_sequence}。</span></div>}
     <nav className="admin-runtime-tabs" aria-label="任务详情分区">{tabs.map(([id, label, count]) => <button key={id} className={tab === id ? 'is-active' : ''} onClick={() => setTab(id)}>{label}{count !== undefined && <small>{count}</small>}</button>)}</nav>
     {tab === 'overview' && <RuntimeOverview detail={detail} busy={busy} onForkCheckpoint={onForkCheckpoint} />}
+    {tab === 'graph' && <RuntimeGraph detail={detail} busy={busy} onPatchGraph={onPatchGraph} onCreateFanout={onCreateFanout} onJoinFanout={onJoinFanout} />}
     {tab === 'steps' && <RuntimeSteps summary={summary} nodes={detail.nodes} />}
     {tab === 'requests' && <RuntimeEffects effects={detail.effects} busy={busy} onReconcileEffect={onReconcileEffect} />}
     {tab === 'gates' && <RuntimeGates gates={detail.gates} />}
@@ -199,6 +233,28 @@ function RuntimeOverview({ detail, busy, onForkCheckpoint }: { detail: RuntimeJo
   const { summary } = detail;
   const progress = summary.total_steps > 0 ? `${summary.completed_steps}/${summary.total_steps}` : '未登记';
   return <div className="admin-runtime-overview"><div className="admin-runtime-facts"><span><small>任务状态</small><strong className={`runtime-state ${stateClass(summary.state)}`}>{stateLabel[summary.state] || summary.state}</strong></span><span><small>当前步骤</small><strong>{summary.current_step_name || '尚未开始'}</strong></span><span><small>已完成步骤</small><strong>{progress} 步</strong></span><span><small>持续时间</small><strong>{durationSince(summary.status_since)}</strong></span></div><section className="admin-runtime-guidance"><div><span className="section-kicker">现在发生了什么</span><h3>{summary.blocking_reason || '任务状态已更新'}</h3><p>{summary.task_next_action || '任务详情会在这里汇总。'}</p></div><div className="admin-runtime-guidance-next"><span>建议下一步</span><strong>{summary.recommended_action || '继续观察任务'}</strong></div></section><section className="admin-runtime-business-meta"><div><span>客户</span><strong>{summary.customer_name || '未登记'}</strong></div><div><span>项目</span><strong>{summary.project_name || '未登记'}</strong></div><div><span>创作流程</span><strong>{summary.product_name ? `${summary.product_name} v${summary.product_version}` : '未登记'}</strong></div><div><span>任务编号</span><code>{summary.id}</code></div></section>{summary.checkpoint_count > 0 && <section className="admin-runtime-recovery"><header><div><span className="section-kicker">可以继续的地方</span><h3>已有可复用进度</h3></div><span>{summary.checkpoint_count} 个</span></header>{detail.checkpoints.map(item => <div className="admin-runtime-checkpoint" key={item.id}><CheckCircle2 size={15} /><div><strong>{item.node_key}</strong><small>{item.completed_nodes.length} 个步骤已完成{item.blocked_reason ? ` · ${item.blocked_reason}` : ''}</small></div><time>{dateTime(item.created_at)}</time>{item.allowed_actions.includes('fork') && <button className="button button-secondary" title="从这里继续，不影响原任务" disabled={Boolean(busy)} onClick={() => void onForkCheckpoint(item.id)}><GitFork size={14} />从这里继续</button>}</div>)}</section>}</div>;
+}
+
+function RuntimeGraph({ detail, busy, onPatchGraph, onCreateFanout, onJoinFanout }: { detail: RuntimeJobDetail; busy: string; onPatchGraph?: (input: Record<string, unknown>) => Promise<void>; onCreateFanout?: (input: Record<string, unknown>) => Promise<void>; onJoinFanout?: (setID: string) => Promise<void> }) {
+  const { plan, nodes, fanout_sets: fanoutSets, summary } = detail;
+  const [nodeKey, setNodeKey] = useState('');
+  const [nodeName, setNodeName] = useState('');
+  const [outputSchema, setOutputSchema] = useState('contentcloud.dynamic_output/1.0');
+  const [dependsOn, setDependsOn] = useState(plan.nodes[0]?.key || '');
+  const [reason, setReason] = useState('运营补充编排步骤');
+  const [mapNodeKey, setMapNodeKey] = useState(plan.nodes[0]?.key || '');
+  const [joinNodeKey, setJoinNodeKey] = useState(plan.nodes[plan.nodes.length - 1]?.key || '');
+  const [itemsText, setItemsText] = useState('item-1\nitem-2');
+  const canPatch = summary.allowed_actions.includes('graph_patch') && Boolean(onPatchGraph);
+  const canFanout = summary.allowed_actions.includes('fanout_create') && Boolean(onCreateFanout);
+  const selectNode = (labelOrValue: string, selectedValue?: string, setter?: (next: string) => void) => { const value = selectedValue ?? labelOrValue; const label = selectedValue === undefined ? (value === mapNodeKey ? '映射节点' : '汇聚节点') : labelOrValue; const update = setter || (value === mapNodeKey ? setMapNodeKey : setJoinNodeKey); return <select value={value} onChange={event => update(event.target.value)} aria-label={label}>{plan.nodes.map(node => <option key={node.key} value={node.key}>{node.name} · {node.key}</option>)}</select>; };
+  return <div className="admin-runtime-graph">
+    <section className="admin-runtime-subsection admin-runtime-graph-meta"><header><div><span className="section-kicker">Runtime 权威执行图</span><strong><Workflow size={14} />版本 {plan.graph_version}</strong></div><span>{plan.nodes.length}/{plan.limits.max_nodes || '—'} 个节点 · {plan.edges.length} 条依赖</span></header><p>这里只显示脱敏后的 DAG 投影。新增节点会生成不可变图版本；已有节点、边和历史输出不会被覆盖。</p>{plan.patch_reason && <small>最近变更：{plan.patch_reason}</small>}</section>
+    <section className="admin-runtime-subsection"><header><div><span className="section-kicker">节点与依赖</span><strong>执行图大纲</strong></div><span>{nodes.filter(node => node.state === 'succeeded').length}/{nodes.length} 已完成</span></header><div className="admin-runtime-graph-list">{plan.nodes.map(node => { const run = nodes.find(item => item.node_key === node.key); return <article key={node.key}><span className="admin-runtime-graph-node-icon">{node.kind.includes('fanout') ? <Split size={14} /> : node.kind.includes('join') ? <Merge size={14} /> : <Workflow size={14} />}</span><div><strong>{node.name}</strong><small>{node.key} · {node.kind} · 依赖 {node.depends_on.length ? node.depends_on.join('、') : '无'}</small></div><span className={`runtime-state ${stateTone(run?.state || 'pending')}`}>{nodeStateLabel[run?.state || 'pending'] || run?.state || '未创建'}</span></article>; })}</div></section>
+    {canPatch && nodes.some(node => node.state === 'pending') && <section className="admin-runtime-subsection"><header><div><span className="section-kicker">未开始步骤</span><strong><Ban size={14} />取消尚未领取的节点</strong></div><span>不会改写已完成结果</span></header><div className="admin-runtime-event-list">{nodes.filter(node => node.state === 'pending').map(node => <article key={node.id}><Ban size={14} /><div><strong>{node.name || node.node_key}</strong><small>{node.node_key} · 仍处于未开始状态</small></div><button className="icon-button" aria-label={`取消节点 ${node.name || node.node_key}`} title="只取消未开始节点" disabled={Boolean(busy)} onClick={() => { if (!window.confirm(`确认取消尚未领取的节点“${node.name || node.node_key}”？`)) return; void onPatchGraph?.({ expected_graph_version: plan.graph_version, idempotency_key: `graph-cancel:${plan.id}:${node.node_key}`, reason: '运营取消尚未领取的可选步骤', cancel_pending_node_keys: [node.node_key] }); }}><Ban size={14} /></button></article>)}</div></section>}
+    {fanoutSets.map(set => <section className="admin-runtime-subsection" key={set.id}><header><div><span className="section-kicker">Fanout / Join</span><strong><Split size={14} />冻结集合 {set.id.slice(0, 8)}</strong></div><span className={`runtime-state ${stateTone(set.status)}`}>{set.status} · {set.member_count} 项</span></header><div className="admin-runtime-fanout-meta"><span>映射 <code>{set.map_node_key}</code></span><span>汇聚 <code>{set.join_node_key}</code></span><span>策略 <strong>{set.join_policy.strategy}</strong></span><span>成员摘要 <code>{shortDigest(set.membership_digest)}</code></span></div><div className="admin-runtime-fanout-members">{set.members.map(member => <span key={member.id} className={`runtime-state ${stateTone(member.state)}`}>{member.item_key} · {member.state}</span>)}</div>{onJoinFanout && set.status !== 'succeeded' && set.status !== 'failed' && <div className="admin-runtime-technical-actions"><button className="button button-secondary" disabled={Boolean(busy)} onClick={() => void onJoinFanout(set.id)}><Merge size={14} />{busy === `fanout-join:${set.id}` ? '评估中…' : '重新评估 Join'}</button></div>}</section>)}
+    {(canPatch || canFanout) && <section className="admin-runtime-subsection admin-runtime-graph-forms"><header><div><span className="section-kicker">受控编排操作</span><strong><Plus size={14} />追加平台步骤</strong></div><span>需要版本 {plan.graph_version}</span></header>{canPatch && <form onSubmit={event => { event.preventDefault(); if (!nodeKey.trim() || !nodeName.trim()) return; void onPatchGraph?.({ expected_graph_version: plan.graph_version, idempotency_key: `graph-patch:${plan.id}:${nodeKey.trim()}`, reason, add_nodes: [{ key: nodeKey.trim(), kind: 'stage', name: nodeName.trim(), depends_on: dependsOn ? [dependsOn] : [], output_schema: outputSchema.trim(), retry_max_attempts: 1 }] }); }}><div className="admin-runtime-form-grid"><label>节点 Key<input value={nodeKey} onChange={event => setNodeKey(event.target.value)} placeholder="stage:extra" /></label><label>节点名称<input value={nodeName} onChange={event => setNodeName(event.target.value)} placeholder="补充处理" /></label><label>输出 Schema<input value={outputSchema} onChange={event => setOutputSchema(event.target.value)} /></label><label>依赖节点<select value={dependsOn} onChange={event => setDependsOn(event.target.value)}><option value="">无依赖</option>{plan.nodes.map(node => <option key={node.key} value={node.key}>{node.name}</option>)}</select></label><label className="admin-runtime-form-wide">变更原因<input value={reason} onChange={event => setReason(event.target.value)} /></label></div><button className="button button-primary" type="submit" disabled={Boolean(busy) || !nodeKey.trim() || !nodeName.trim()}><Plus size={14} />{busy === 'graph-patch' ? '提交中…' : '提交不可变图版本'}</button></form>}{canFanout && <form onSubmit={event => { event.preventDefault(); const items = itemsText.split(/\r?\n/).map(value => value.trim()).filter(Boolean).map(itemKey => ({ item_key: itemKey, item_digest: `sha256:${itemKey}` })); if (!items.length) return; void onCreateFanout?.({ map_node_key: mapNodeKey, join_node_key: joinNodeKey, generation: 1, idempotency_key: `fanout:${plan.id}:${items.map(item => item.item_key).join(',')}`, reason: '运营按冻结集合展开并行处理', join_policy: { strategy: 'best_effort', zero_member_policy: 'fail' }, node_template: { kind: 'fanout_item', name: '集合项目处理', output_schema: 'contentcloud.fanout_item/1.0', retry_max_attempts: 1 }, items }); }}><div className="admin-runtime-form-grid"><label>映射节点{selectNode(mapNodeKey)}</label><label>汇聚节点{selectNode(joinNodeKey)}</label><label className="admin-runtime-form-wide">成员 Key（每行一个）<textarea value={itemsText} onChange={event => setItemsText(event.target.value)} rows={3} /></label></div><button className="button button-secondary" type="submit" disabled={Boolean(busy) || !itemsText.trim()}><Split size={14} />{busy === 'fanout-create' ? '冻结中…' : '创建 FanoutSet'}</button></form>}</section>}
+  </div>;
 }
 
 function RuntimeSteps({ summary, nodes }: { summary: RuntimeJobSummary; nodes: RuntimeJobDetail['nodes'] }) { return <section className="admin-runtime-subsection"><header><div><span className="section-kicker">任务进展</span><strong>处理步骤</strong></div><span>{summary.completed_steps}/{summary.total_steps || nodes.length} 步已完成</span></header><div className="admin-runtime-node-table"><div className="admin-runtime-node-head"><span>步骤</span><span>状态</span><span>结果</span><span>更新时间</span></div>{nodes.length === 0 ? <div className="admin-runtime-empty compact">还没有开始处理步骤</div> : nodes.map(node => <div className="admin-runtime-node-row" key={node.id}><div><strong>{node.name || node.node_key}</strong><small>{node.customer_step_id || '平台步骤'}</small></div><span className={`runtime-state ${stateTone(node.state)}`}>{nodeStateLabel[node.state] || node.state}</span><span>{node.output_digest ? '已保存' : node.state === 'succeeded' || node.state === 'skipped' ? '已完成' : '还没有结果'}</span><time>{dateTime(node.updated_at)}</time></div>)}</div></section>; }

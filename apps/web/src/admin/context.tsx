@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 import { api, patch } from '../api';
-import type { AdminWorkOSView, ContentType, OperationsExecutorDirectory, OperationsSkillDirectory, PlatformOverview, PlatformTenant, Session, Tenant } from '../types';
+import type { AdminWorkOSView, ContentType, OperationsExecutorDirectory, OperationsSkillDirectory, PlatformOverview, PlatformTenant, Session, Tenant, WorkbenchRegistryView } from '../types';
 import { normalizeAdminWorkOSView, normalizeOperationsExecutorDirectory, normalizeOperationsSkillDirectory } from './operationsData';
 
 interface AdminContextValue {
   session:Session;
   data?:PlatformOverview;
   workOS?:AdminWorkOSView;
+  workbenchRegistry?:WorkbenchRegistryView;
   executorDirectory?:OperationsExecutorDirectory;
   skillDirectory?:OperationsSkillDirectory;
   executorDirectoryError:string;
@@ -30,10 +31,11 @@ async function loadOptional<T>(request:Promise<T>):Promise<OptionalLoad<T>> {
 }
 
 export async function loadAdminSnapshot(isPlatformAdmin:boolean) {
-  const [workOSResponse,executorResult,skillResult]=await Promise.all([
+  const [workOSResponse,executorResult,skillResult,workbenchResult]=await Promise.all([
     api<AdminWorkOSView>('/api/bff/admin/work-os'),
     loadOptional(api<OperationsExecutorDirectory>('/api/bff/operations/executors')),
-    isPlatformAdmin?loadOptional(api<OperationsSkillDirectory>('/api/bff/operations/skills')):Promise.resolve(undefined)
+    isPlatformAdmin?loadOptional(api<OperationsSkillDirectory>('/api/bff/operations/skills')):Promise.resolve(undefined),
+    isPlatformAdmin?loadOptional(api<WorkbenchRegistryView>('/api/bff/admin/workbenches')):Promise.resolve(undefined)
   ]);
   const workOS=normalizeAdminWorkOSView(workOSResponse);
   const executorDirectory=executorResult.ok
@@ -44,12 +46,13 @@ export async function loadAdminSnapshot(isPlatformAdmin:boolean) {
       ?normalizeOperationsSkillDirectory(skillResult.value)
       :{configured:false,skills:[],generated_at:workOS.generated_at}
     :undefined;
+  const workbenchRegistry=isPlatformAdmin&&workbenchResult?.ok?workbenchResult.value:undefined;
   const data:PlatformOverview={counts:{tenants:1,active_tenants:workOS.environments.filter(item=>item.status==='active').length,users:0,projects:0,online_devices:executorDirectory.executors.filter(item=>item.presence_status==='online').length,active_runs:workOS.usage.running_count},tenants:[],users:[],generated_at:executorDirectory.generated_at||workOS.generated_at};
   return {
     data,
     workOS,
     executorDirectory,
-    skillDirectory,
+    skillDirectory, workbenchRegistry,
     executorDirectoryError:executorResult.ok?'':executorResult.error,
     skillDirectoryError:skillResult&&!skillResult.ok?skillResult.error:''
   };
@@ -60,6 +63,7 @@ export function AdminProvider({session,children}:PropsWithChildren<{session:Sess
   const [workOS,setWorkOS]=useState<AdminWorkOSView>();
   const [executorDirectory,setExecutorDirectory]=useState<OperationsExecutorDirectory>();
   const [skillDirectory,setSkillDirectory]=useState<OperationsSkillDirectory>();
+  const [workbenchRegistry,setWorkbenchRegistry]=useState<WorkbenchRegistryView>();
   const [executorDirectoryError,setExecutorDirectoryError]=useState('');
   const [skillDirectoryError,setSkillDirectoryError]=useState('');
   const [loading,setLoading]=useState(true);
@@ -72,6 +76,7 @@ export function AdminProvider({session,children}:PropsWithChildren<{session:Sess
       setWorkOS(snapshot.workOS);
       setExecutorDirectory(snapshot.executorDirectory);
       setSkillDirectory(snapshot.skillDirectory);
+      setWorkbenchRegistry(snapshot.workbenchRegistry);
       setExecutorDirectoryError(snapshot.executorDirectoryError);
       setSkillDirectoryError(snapshot.skillDirectoryError);
       setData(snapshot.data)
@@ -90,7 +95,7 @@ export function AdminProvider({session,children}:PropsWithChildren<{session:Sess
     try{const tenant=await api<PlatformTenant>(`/api/v1/admin/tenants/${tenantID}/content-capabilities/${contentType}`,{method:'PUT',body:JSON.stringify({enabled})});await refresh(true);return tenant}
     catch(value){setError(value instanceof Error?value.message:'内容能力更新失败');throw value}
   },[refresh]);
-  const value=useMemo<AdminContextValue>(()=>({session,data,workOS,executorDirectory,skillDirectory,executorDirectoryError,skillDirectoryError,loading,refreshing,error,clearError:()=>setError(''),refresh,setTenantStatus,setTenantContentCapability}),[session,data,workOS,executorDirectory,skillDirectory,executorDirectoryError,skillDirectoryError,loading,refreshing,error,refresh,setTenantStatus,setTenantContentCapability]);
+  const value=useMemo<AdminContextValue>(()=>({session,data,workOS,workbenchRegistry,executorDirectory,skillDirectory,executorDirectoryError,skillDirectoryError,loading,refreshing,error,clearError:()=>setError(''),refresh,setTenantStatus,setTenantContentCapability}),[session,data,workOS,workbenchRegistry,executorDirectory,skillDirectory,executorDirectoryError,skillDirectoryError,loading,refreshing,error,refresh,setTenantStatus,setTenantContentCapability]);
   return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>;
 }
 

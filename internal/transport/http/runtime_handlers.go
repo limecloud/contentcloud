@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/limecloud/contentcloud/internal/application"
 	"github.com/limecloud/contentcloud/internal/platform/fault"
 
 	"github.com/go-chi/chi/v5"
@@ -26,6 +27,32 @@ func (s *Server) runtimeJob(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	value, err := s.service.Runtime.RuntimeJobDetail(r.Context(), actor, chi.URLParam(r, "jobID"))
 	s.dispatchResult(w, r, "runtime.job.show", value, err)
+}
+
+func (s *Server) runtimePatchGraph(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input application.RuntimeGraphPatchInput
+	if !s.decodeLimit(w, r, &input, 512<<10) {
+		return
+	}
+	value, err := s.service.Runtime.PatchRuntimeGraph(r.Context(), actor, chi.URLParam(r, "jobID"), input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "runtime.job.graph_patch", value, err)
+}
+
+func (s *Server) runtimeCreateFanoutSet(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input application.RuntimeFanoutSetInput
+	if !s.decodeLimit(w, r, &input, 512<<10) {
+		return
+	}
+	value, err := s.service.Runtime.CreateRuntimeFanoutSet(r.Context(), actor, chi.URLParam(r, "jobID"), input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "runtime.job.fanout_create", value, err)
+}
+
+func (s *Server) runtimeJoinFanoutSet(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.Runtime.JoinRuntimeFanoutSet(r.Context(), actor, chi.URLParam(r, "setID"), middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "runtime.fanout.join", value, err)
 }
 
 func (s *Server) runtimeJobNodes(w http.ResponseWriter, r *http.Request) {

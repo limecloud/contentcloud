@@ -1031,6 +1031,13 @@ type RuntimeOutboxStats struct {
 const (
 	RuntimeMaintenanceReaper   = "runtime_reaper"
 	RuntimeMaintenanceDelivery = "runtime_delivery"
+	RuntimeMaintenanceCleanup  = "runtime_cleanup"
+
+	RuntimeCleanupPending  = "pending"
+	RuntimeCleanupRetrying = "retrying"
+	RuntimeCleanupCleaned  = "cleaned"
+	RuntimeCleanupNotFound = "not_found"
+	RuntimeCleanupFailed   = "failed"
 )
 
 type RuntimeMaintenanceHeartbeat struct {
@@ -1049,7 +1056,7 @@ func (heartbeat RuntimeMaintenanceHeartbeat) Validate() error {
 	if heartbeat.TenantID == "" || heartbeat.WorkerID == "" || heartbeat.LastStartedAt.IsZero() || heartbeat.UpdatedAt.IsZero() {
 		return fault.Invalid("RUNTIME_MAINTENANCE_HEARTBEAT_INVALID", "Runtime 运维心跳缺少租户、工作器或时间")
 	}
-	if heartbeat.Kind != RuntimeMaintenanceReaper && heartbeat.Kind != RuntimeMaintenanceDelivery {
+	if heartbeat.Kind != RuntimeMaintenanceReaper && heartbeat.Kind != RuntimeMaintenanceDelivery && heartbeat.Kind != RuntimeMaintenanceCleanup {
 		return fault.Invalid("RUNTIME_MAINTENANCE_HEARTBEAT_INVALID", "Runtime 运维心跳类型无效")
 	}
 	if heartbeat.State != "running" && heartbeat.State != "succeeded" && heartbeat.State != "failed" {
@@ -1057,6 +1064,64 @@ func (heartbeat RuntimeMaintenanceHeartbeat) Validate() error {
 	}
 	if heartbeat.State == "succeeded" && heartbeat.LastSuccessAt == nil {
 		return fault.Invalid("RUNTIME_MAINTENANCE_HEARTBEAT_INVALID", "成功的 Runtime 运维心跳缺少完成时间")
+	}
+	return nil
+}
+
+// RuntimeCleanupDiagnostic is the durable operational fact for a speculative
+// Blob object whose business facts were not committed. It deliberately lives
+// in Runtime so another process can resume cleanup without an in-memory
+// registry or a video-specific queue.
+type RuntimeCleanupDiagnostic struct {
+	ID             string     `json:"id"`
+	TenantID       string     `json:"tenant_id"`
+	ProjectID      string     `json:"project_id"`
+	TaskID         string     `json:"task_id"`
+	RequestID      string     `json:"request_id"`
+	ManifestDigest string     `json:"manifest_digest"`
+	ObjectKey      string     `json:"object_key"`
+	CauseCode      string     `json:"cause_code"`
+	CauseSummary   string     `json:"cause_summary"`
+	CleanupError   string     `json:"cleanup_error,omitempty"`
+	Status         string     `json:"status"`
+	AttemptCount   int        `json:"attempt_count"`
+	NextRetryAt    *time.Time `json:"next_retry_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	Version        int        `json:"version"`
+}
+
+func (diagnostic RuntimeCleanupDiagnostic) Validate() error {
+	if strings.TrimSpace(diagnostic.ID) == "" || strings.TrimSpace(diagnostic.TenantID) == "" || strings.TrimSpace(diagnostic.ProjectID) == "" || strings.TrimSpace(diagnostic.TaskID) == "" || strings.TrimSpace(diagnostic.RequestID) == "" || !validSHA256Digest(diagnostic.ManifestDigest) || strings.TrimSpace(diagnostic.ObjectKey) == "" || strings.TrimSpace(diagnostic.CauseCode) == "" || strings.TrimSpace(diagnostic.CauseSummary) == "" || diagnostic.AttemptCount < 0 || diagnostic.Version < 1 || diagnostic.CreatedAt.IsZero() || diagnostic.UpdatedAt.IsZero() {
+		return fault.Invalid("RUNTIME_CLEANUP_DIAGNOSTIC_INVALID", "Blob 清理诊断缺少租户、对象、Manifest 摘要、原因或审计时间")
+	}
+	switch diagnostic.Status {
+	case RuntimeCleanupPending, RuntimeCleanupRetrying, RuntimeCleanupCleaned, RuntimeCleanupNotFound, RuntimeCleanupFailed:
+	default:
+		return fault.Invalid("RUNTIME_CLEANUP_DIAGNOSTIC_STATUS_INVALID", "Blob 清理诊断状态无效")
+	}
+	if diagnostic.Status == RuntimeCleanupCleaned || diagnostic.Status == RuntimeCleanupNotFound {
+		if diagnostic.NextRetryAt != nil {
+			return fault.Invalid("RUNTIME_CLEANUP_DIAGNOSTIC_TERMINAL_INVALID", "已完成的 Blob 清理诊断不能安排下一次重试")
+		}
+	}
+	return nil
+}
+
+// ValidateTransition enforces the cleanup state machine independently of a
+// persistence implementation. The expected version is checked by the store.
+func (diagnostic RuntimeCleanupDiagnostic) ValidateTransition(previous RuntimeCleanupDiagnostic) error {
+	if diagnostic.TenantID != previous.TenantID || diagnostic.ID != previous.ID || diagnostic.ProjectID != previous.ProjectID || diagnostic.TaskID != previous.TaskID || diagnostic.RequestID != previous.RequestID || diagnostic.ManifestDigest != previous.ManifestDigest || diagnostic.ObjectKey != previous.ObjectKey || diagnostic.CauseCode != previous.CauseCode || diagnostic.CauseSummary != previous.CauseSummary || !diagnostic.CreatedAt.Equal(previous.CreatedAt) {
+		return fault.Conflict("RUNTIME_CLEANUP_DIAGNOSTIC_IDENTITY_CONFLICT", "Blob 清理诊断的租户、身份或对象不能改变")
+	}
+	if diagnostic.Status == previous.Status {
+		return fault.Conflict("RUNTIME_CLEANUP_DIAGNOSTIC_TRANSITION_INVALID", "Blob 清理诊断必须推进到下一个状态")
+	}
+	valid := (previous.Status == RuntimeCleanupPending && diagnostic.Status == RuntimeCleanupRetrying) ||
+		(previous.Status == RuntimeCleanupRetrying && (diagnostic.Status == RuntimeCleanupCleaned || diagnostic.Status == RuntimeCleanupNotFound || diagnostic.Status == RuntimeCleanupFailed)) ||
+		(previous.Status == RuntimeCleanupFailed && diagnostic.Status == RuntimeCleanupRetrying)
+	if !valid {
+		return fault.Conflict("RUNTIME_CLEANUP_DIAGNOSTIC_TRANSITION_INVALID", fmt.Sprintf("Blob 清理诊断不能从 %s 转为 %s", previous.Status, diagnostic.Status))
 	}
 	return nil
 }

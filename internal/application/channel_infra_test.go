@@ -210,8 +210,41 @@ func TestRemoteChannelCallbackIsDeduplicatedAndOwnsPublishedTransition(t *testin
 	if err != nil || len(snapshots) == 0 {
 		t.Fatalf("fixture approved snapshot missing: %#v %v", snapshots, err)
 	}
-	performance, err := service.Delivery.ImportChannelPerformance(ctx, actor, first.Publication.ID, application.ImportChannelPerformanceInput{ApprovedSnapshotID: snapshots[0].ID, WindowHours: 24, Metrics: map[string]float64{"views": 1200, "clicks": 32}, IssueCategory: "creative"}, "channel-performance")
+	deliveryPackage, err := service.Review.DeliveryPackage(ctx, actor, first.Publication.DeliveryPackageID)
+	if err != nil || len(deliveryPackage.ApprovedSnapshotIDs) != 1 {
+		t.Fatalf("published delivery package snapshot lineage missing: %#v %v", deliveryPackage, err)
+	}
+	publishedSnapshotID := deliveryPackage.ApprovedSnapshotIDs[0]
+	if _, err := service.Delivery.ImportChannelPerformance(ctx, actor, first.Publication.ID, application.ImportChannelPerformanceInput{ApprovedSnapshotID: "snapshot-not-in-delivery", WindowHours: 24, Metrics: map[string]float64{"views": 1200}, IssueCategory: "creative"}, "channel-performance-mismatch"); err == nil {
+		t.Fatal("channel performance accepted a snapshot outside the published delivery package")
+	} else if value, ok := err.(*fault.Error); !ok || value.Code != "CHANNEL_PERFORMANCE_SNAPSHOT_MISMATCH" {
+		t.Fatalf("unexpected channel snapshot mismatch error: %v", err)
+	}
+	performance, err := service.Delivery.ImportChannelPerformance(ctx, actor, first.Publication.ID, application.ImportChannelPerformanceInput{WindowHours: 24, Metrics: map[string]float64{"views": 1200, "clicks": 32}, IssueCategory: "creative"}, "channel-performance")
 	if err != nil || len(performance.Observations) != 1 || performance.Observations[0].Platform != first.Publication.Channel || performance.Observations[0].AccountAlias != first.Publication.AccountRef {
-		t.Fatalf("published receipt did not import performance observation: %#v %v", performance, err)
+		t.Fatalf("published receipt did not import performance observation: %#v %#v", performance, err)
+	}
+	if performance.Observations[0].ApprovedSnapshotID != publishedSnapshotID {
+		t.Fatalf("channel performance did not inherit the published delivery snapshot: %#v", performance.Observations[0])
+	}
+	if _, err := service.Performance.CreateRatingDecision(ctx, actor, application.CreateRatingDecisionInput{
+		ProjectID: fixture.Project.ID, SubjectType: "approved_snapshot", SubjectID: publishedSnapshotID,
+		ObservationIDs: []string{performance.Observations[0].ID}, Rating: "seed_candidate",
+		Reason: "渠道回执与效果数据已核验", NextAction: "创建一个受控变体",
+	}, "channel-rating"); err != nil {
+		t.Fatal(err)
+	}
+	graph, err := service.Operations.ProjectLineage(ctx, actor, fixture.Project.ID, application.LineageQuery{FocusType: "approved_snapshot", FocusID: snapshots[0].ID, Direction: "downstream"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		"task_delivery:" + delivery.ID,
+		"channel_publication:" + first.Publication.ID,
+		"performance_observation:" + performance.Observations[0].ID,
+	} {
+		if !lineageHasNode(graph, key) {
+			t.Fatalf("channel performance lineage is missing %s: %#v", key, graph)
+		}
 	}
 }

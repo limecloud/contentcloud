@@ -1,0 +1,27 @@
+{
+  "$schema": "https://contentcloud.run/schemas/workbench-plugin/1.0.0/workbench-plugin.schema.json",
+  "id": "contentcloud-workbench-commerce",
+  "version": "1.0.0",
+  "name": "电商内容工作台",
+  "content_types": ["commerce", "ecommerce", "douyin_commerce", "product_content"],
+  "experience": {"template_id": "commerce_content"},
+  "ui": {
+    "renderer": "approved",
+    "layout": "product-variants",
+    "density": "dense",
+    "theme": "production-coral",
+    "navigation": [
+      {"id": "overview", "label": "商品首页", "icon": "shopping-bag"},
+      {"id": "tasks", "label": "商品任务", "icon": "list-checks"},
+      {"id": "catalog", "label": "商品资料", "icon": "tags"},
+      {"id": "deliveries", "label": "渠道交付", "icon": "package-check"}
+    ],
+    "stages": [
+      {"id": "product", "label": "商品信息", "outcome": "固定商品事实", "primary_action": "save_product"},
+      {"id": "offer", "label": "卖点策略", "outcome": "确认购买理由", "primary_action": "approve_offer"},
+      {"id": "variants", "label": "内容变体", "outcome": "生成渠道版本", "primary_action": "create_variants"},
+      {"id": "preview", "label": "渠道预览", "outcome": "通过渠道规格检查", "primary_action": "validate_channel"},
+      {"id": "delivery", "label": "交付", "outcome": "生成渠道交付包", "primary_action": "create_delivery"}
+    ]
+  }
+}

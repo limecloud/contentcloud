@@ -198,7 +198,11 @@ func (s *WorkService) resolveStageObject(ctx context.Context, task work.WorkTask
 		if err != nil {
 			return "", 0, "", err
 		}
-		if value.ProjectID != task.ProjectID || value.ContentItemID != task.ID {
+		belongs, belongsErr := s.deliveryPackageBelongsToTask(ctx, task, value)
+		if belongsErr != nil {
+			return "", 0, "", belongsErr
+		}
+		if value.ProjectID != task.ProjectID || !belongs {
 			return "", 0, "", fault.Policy("TASK_STAGE_OUTPUT_SCOPE_INVALID", "交付包不属于当前任务", "选择当前任务的交付包")
 		}
 		digest, err := deliveryPackageDigest(value)

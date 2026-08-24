@@ -106,6 +106,10 @@ type Repository interface {
 	RuntimeProjectionStats(context.Context, string) (RuntimeProjectionStats, error)
 	SaveRuntimeMaintenanceHeartbeat(context.Context, RuntimeMaintenanceHeartbeat) error
 	RuntimeMaintenanceHeartbeat(context.Context, string, string) (RuntimeMaintenanceHeartbeat, error)
+	CreateRuntimeCleanupDiagnostic(context.Context, RuntimeCleanupDiagnostic) error
+	UpdateRuntimeCleanupDiagnostic(context.Context, RuntimeCleanupDiagnostic, int) error
+	RuntimeCleanupDiagnostic(context.Context, string, string) (RuntimeCleanupDiagnostic, error)
+	RuntimeCleanupDiagnostics(context.Context, string, string, int) ([]RuntimeCleanupDiagnostic, error)
 	CreateRuntimeProjectionRebuild(context.Context, RuntimeProjectionRebuildRun) error
 	UpdateRuntimeProjectionRebuild(context.Context, RuntimeProjectionRebuildRun, int) error
 	RuntimeProjectionRebuilds(context.Context, string, string) ([]RuntimeProjectionRebuildRun, error)

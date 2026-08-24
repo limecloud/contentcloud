@@ -16,6 +16,8 @@ const (
 	builtinSOPShortVideo      = "short_video_production"
 	builtinSOPMarketingVideo  = "marketing_video_production"
 	builtinSOPArticle         = "article_collaboration"
+	builtinSOPCommerce        = "commerce_content"
+	builtinSOPSerializedNovel = "serialized_novel"
 	builtinSOPRetrospective   = "campaign_retrospective"
 	builtinSOPSourceRef       = "content-work-os/builtin-sops@1"
 )
@@ -26,6 +28,10 @@ func builtinSOPKeyForContentType(contentType string) string {
 		return builtinSOPMarketingVideo
 	case identitydomain.ContentTypeWeChatArticle:
 		return builtinSOPArticle
+	case identitydomain.ContentTypeCommerce:
+		return builtinSOPCommerce
+	case identitydomain.ContentTypeSerializedNovel:
+		return builtinSOPSerializedNovel
 	default:
 		return builtinSOPShortVideo
 	}
@@ -105,6 +111,42 @@ func builtinSOPTemplates() []builtinSOPTemplate {
 				{ID: "delivery", Name: "文章交付", Order: 50, OwnerRoles: []string{"editor", "project_manager"}, InputRefs: []string{"draft", "quality"}, OutputSchema: "contentcloud.delivery/1.0", ExecutionModes: []string{"local"}, Checks: []string{"content.schema"}, RetryMaxAttempts: 1},
 			},
 			Gates: []catalogdomain.GateDefinition{{ID: "quality_check", Name: "文章确定性检查", Mode: catalogdomain.GateModeRequiredCheck, Blocking: true, Checks: []string{"content.schema", "claim.references", "rights.references"}, OnReject: "changes_requested"}},
+		},
+		{
+			Key: builtinSOPCommerce, ID: "builtin-sop-commerce", Name: "电商内容生产",
+			Description:  "从商品事实、卖点策略和渠道内容变体，到规格预览与可追溯交付的电商内容流程。",
+			ContentTypes: []string{identitydomain.ContentTypeCommerce}, DefaultExecutionMode: "local", SourceRef: builtinSOPSourceRef,
+			Stages: []catalogdomain.StageDefinition{
+				{ID: "product", Name: "商品信息", Order: 10, OwnerRoles: []string{"project_manager", "strategist"}, OutputSchema: "contentcloud.commerce-product/1.0", ExecutionModes: []string{"local", "agent"}, Checks: []string{"product.facts"}, RetryMaxAttempts: 2},
+				{ID: "offer", Name: "卖点策略", Order: 20, OwnerRoles: []string{"strategist", "reviewer"}, InputRefs: []string{"product"}, OutputSchema: "contentcloud.commerce-offer/1.0", ExecutionModes: []string{"local", "agent"}, Checks: []string{"offer.valid"}, GateIDs: []string{"offer_review"}, RetryMaxAttempts: 2},
+				{ID: "variants", Name: "内容变体", Order: 30, OwnerRoles: []string{"editor"}, InputRefs: []string{"product", "offer"}, OutputSchema: "contentcloud.commerce-variants/1.0", ExecutionModes: []string{"local", "agent"}, Checks: []string{"content.schema"}, RetryMaxAttempts: 3},
+				{ID: "preview", Name: "渠道预览", Order: 40, OwnerRoles: []string{"editor", "reviewer"}, InputRefs: []string{"variants"}, OutputSchema: "contentcloud.channel-preview/1.0", ExecutionModes: []string{"local"}, Checks: []string{"channel.specification"}, GateIDs: []string{"publication_preview"}, RetryMaxAttempts: 2},
+				{ID: "delivery", Name: "渠道交付", Order: 50, OwnerRoles: []string{"project_manager", "editor"}, InputRefs: []string{"preview"}, OutputSchema: "contentcloud.delivery-package/1.0", ExecutionModes: []string{"local"}, Checks: []string{"delivery.integrity"}, RetryMaxAttempts: 1},
+			},
+			Gates: []catalogdomain.GateDefinition{
+				{ID: "offer_review", Name: "卖点策略审核", Mode: catalogdomain.GateModeInternalReview, Blocking: true, AssigneeRoles: []string{"reviewer", "project_manager"}, Checks: []string{"offer.valid"}, OnReject: "changes_requested"},
+				{ID: "publication_preview", Name: "渠道规格检查", Mode: catalogdomain.GateModeRequiredCheck, Blocking: true, Checks: []string{"channel.specification"}, OnReject: "changes_requested"},
+			},
+		},
+		{
+			Key: builtinSOPSerializedNovel, ID: "builtin-sop-serialized-novel", Name: "连载小说生产",
+			Description:  "从 Canon、卷章规划和章节候选，到连续性校验、编辑、平台打包与可追溯发布回执的长期生产流程。",
+			ContentTypes: []string{identitydomain.ContentTypeSerializedNovel}, DefaultExecutionMode: "local", SourceRef: builtinSOPSourceRef,
+			Stages: []catalogdomain.StageDefinition{
+				{ID: "canon", Name: "世界观、角色与时间线 Canon", Order: 10, OwnerRoles: []string{"strategist", "editor"}, OutputSchema: "contentcloud.novel-canon/1.0", ExecutionModes: []string{"local", "agent"}, Checks: []string{"canon.schema"}, RetryMaxAttempts: 2},
+				{ID: "outline", Name: "卷、幕与章节规划", Order: 20, OwnerRoles: []string{"strategist", "editor"}, InputRefs: []string{"canon"}, OutputSchema: "contentcloud.novel-outline/1.0", ExecutionModes: []string{"local", "agent"}, Checks: []string{"outline.canon_refs"}, RetryMaxAttempts: 3},
+				{ID: "chapter_draft", Name: "章节候选", Order: 30, OwnerRoles: []string{"editor"}, InputRefs: []string{"canon", "outline"}, OutputSchema: "contentcloud.novel-chapter/1.0", RequiredCapabilities: []string{"content.novel.chapter.compose"}, ExecutionModes: []string{"local", "agent"}, Checks: []string{"chapter.schema"}, RetryMaxAttempts: 3},
+				{ID: "continuity_lint", Name: "连续性与伏笔校验", Order: 40, OwnerRoles: []string{"editor", "reviewer"}, InputRefs: []string{"canon", "chapter_draft"}, OutputSchema: "contentcloud.continuity-report/1.0", ExecutionModes: []string{"local"}, Checks: []string{"canon.character_refs", "canon.timeline", "canon.open_threads"}, GateIDs: []string{"canon_consistency"}, RetryMaxAttempts: 1},
+				{ID: "edit", Name: "发展编辑、文风编辑与校对", Order: 50, OwnerRoles: []string{"editor", "reviewer"}, InputRefs: []string{"chapter_draft", "continuity_lint"}, OutputSchema: "contentcloud.novel-chapter/1.0", ExecutionModes: []string{"local", "agent"}, Checks: []string{"chapter.style", "chapter.compliance"}, GateIDs: []string{"editor_review", "rights_review"}, RetryMaxAttempts: 3},
+				{ID: "package", Name: "平台格式、封面与元数据打包", Order: 60, OwnerRoles: []string{"editor", "project_manager"}, InputRefs: []string{"edit"}, OutputSchema: "contentcloud.novel-release/1.0", ExecutionModes: []string{"local"}, Checks: []string{"delivery.integrity"}, RetryMaxAttempts: 1},
+				{ID: "publish", Name: "连载排期、发布与回执", Order: 70, OwnerRoles: []string{"project_manager", "editor"}, InputRefs: []string{"package"}, OutputSchema: "contentcloud.channel-publication/1.0", ExecutionModes: []string{"local"}, Checks: []string{"channel.preview"}, GateIDs: []string{"release_preview"}, RetryMaxAttempts: 1},
+			},
+			Gates: []catalogdomain.GateDefinition{
+				{ID: "canon_consistency", Name: "Canon 一致性检查", Mode: catalogdomain.GateModeRequiredCheck, Blocking: true, Checks: []string{"canon.character_refs", "canon.timeline", "canon.open_threads"}, OnReject: "changes_requested"},
+				{ID: "editor_review", Name: "章节编辑审核", Mode: catalogdomain.GateModeInternalReview, Blocking: true, AssigneeRoles: []string{"reviewer", "project_manager"}, Checks: []string{"chapter.style"}, OnReject: "changes_requested"},
+				{ID: "rights_review", Name: "内容与权利审核", Mode: catalogdomain.GateModeInternalReview, Blocking: true, AssigneeRoles: []string{"reviewer", "project_manager"}, Checks: []string{"chapter.compliance"}, OnReject: "changes_requested"},
+				{ID: "release_preview", Name: "发布预览确认", Mode: catalogdomain.GateModeClientDecision, Blocking: true, AssigneeRoles: []string{"client_approver", "tenant_admin"}, Checks: []string{"delivery.integrity", "channel.preview"}, OnReject: "changes_requested"},
+			},
 		},
 		{
 			Key: builtinSOPRetrospective, ID: "builtin-sop-retrospective", Name: "活动结果复盘",

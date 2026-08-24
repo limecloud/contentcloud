@@ -471,6 +471,17 @@ type ProviderBinding struct {
 	UpdatedAt          time.Time `json:"updated_at"`
 }
 
+// MediaProviderUsage is the budget and capacity view used by batch admission.
+// Actual cost is accumulated from provider billing observations; committed cost
+// also reserves estimates for jobs that have not reached a terminal state.
+type MediaProviderUsage struct {
+	ProviderID         string `json:"provider_id"`
+	ActualCostMinor    int64  `json:"actual_cost_minor"`
+	EstimatedCostMinor int64  `json:"estimated_cost_minor"`
+	CommittedCostMinor int64  `json:"committed_cost_minor"`
+	ActiveJobs         int    `json:"active_jobs"`
+}
+
 func (v ProviderBinding) Validate() error {
 	if v.TenantID == "" || v.ProviderID == "" || v.ProfileVersion == "" || v.EgressPolicy == "" || v.MonthlyBudgetMinor < 0 || v.MaxJobCostMinor < 0 || v.MaxConcurrency < 1 || v.MaxRetries < 0 {
 		return fault.Invalid("PROVIDER_BINDING_INVALID", "Provider Binding 缺少配置或预算边界无效")
@@ -492,7 +503,7 @@ func CanTransitionMediaJob(from, to string) bool {
 		MediaJobAwaitingCostApproval: {MediaJobQueued: true, MediaJobBudgetBlocked: true, MediaJobCancelled: true},
 		MediaJobBudgetBlocked:        {MediaJobAwaitingCostApproval: true, MediaJobQueued: true, MediaJobCancelled: true},
 		MediaJobQueued:               {MediaJobSubmitting: true, MediaJobCancelled: true},
-		MediaJobSubmitting:           {MediaJobSubmitted: true, MediaJobRetryWait: true, MediaJobRetryableFailed: true, MediaJobFailed: true, MediaJobCancelled: true},
+		MediaJobSubmitting:           {MediaJobSubmitted: true, MediaJobAwaitingExternal: true, MediaJobRetryWait: true, MediaJobRetryableFailed: true, MediaJobFailed: true, MediaJobCancelled: true},
 		MediaJobSubmitted:            {MediaJobGenerating: true, MediaJobDownloading: true, MediaJobAwaitingExternal: true, MediaJobRetryWait: true, MediaJobFailed: true, MediaJobCancelled: true},
 		MediaJobGenerating:           {MediaJobDownloading: true, MediaJobAwaitingExternal: true, MediaJobRetryWait: true, MediaJobOutputInvalid: true, MediaJobFailed: true, MediaJobCancelled: true},
 		MediaJobDownloading:          {MediaJobValidating: true, MediaJobRetryWait: true, MediaJobOutputInvalid: true, MediaJobFailed: true},

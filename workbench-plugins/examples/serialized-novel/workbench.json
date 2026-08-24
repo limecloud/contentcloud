@@ -1,0 +1,28 @@
+{
+  "$schema": "https://contentcloud.run/schemas/workbench-plugin/1.0.0/workbench-plugin.schema.json",
+  "id": "contentcloud-workbench-serialized-novel",
+  "version": "1.0.0",
+  "name": "连载小说工作台",
+  "content_types": ["serialized_novel"],
+  "experience": {"template_id": "serialized-novel"},
+  "ui": {
+    "renderer": "approved",
+    "layout": "novel-editor",
+    "density": "comfortable",
+    "theme": "review-rose",
+    "navigation": [
+      {"id": "overview", "label": "小说首页", "icon": "book-open"},
+      {"id": "tasks", "label": "章节任务", "icon": "list-checks"},
+      {"id": "library", "label": "Canon 与资料", "icon": "archive"},
+      {"id": "deliveries", "label": "章节交付", "icon": "file-check"}
+    ],
+    "stages": [
+      {"id": "canon", "label": "世界观 Canon", "outcome": "固定角色、规则与时间线", "primary_action": "save_brief"},
+      {"id": "outline", "label": "卷章规划", "outcome": "确定章节目标与引用", "primary_action": "save_draft"},
+      {"id": "chapter", "label": "章节候选", "outcome": "完成可审阅章节", "primary_action": "save_draft"},
+      {"id": "continuity", "label": "连续性校验", "outcome": "通过角色、时间线和伏笔检查", "primary_action": "validate_channel"},
+      {"id": "edit", "label": "编辑与确认", "outcome": "确认章节版本", "primary_action": "approve_chapter"},
+      {"id": "delivery", "label": "章节交付", "outcome": "生成可追溯章节交付包", "primary_action": "create_delivery"}
+    ]
+  }
+}

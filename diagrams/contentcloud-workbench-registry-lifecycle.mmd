@@ -1,0 +1,17 @@
+flowchart TD
+    Draft[草稿 draft<br/>只可预览和修改租户范围]
+    Published[已发布 published<br/>可被新任务选择]
+    Retired[正常退役 retired<br/>新任务不可选]
+    Revoked[安全撤销 revoked<br/>历史任务也拒绝渲染]
+    Pinned[已固定任务<br/>plugin id + version + digest]
+    Blocked[安全阻断<br/>等待平台运营处置]
+
+    Draft -->|发布门禁通过| Published
+    Published -->|正常退役| Retired
+    Retired -->|重新通过发布门禁| Published
+    Draft -->|发现安全问题并填写原因| Revoked
+    Published -->|发现安全问题并填写原因| Revoked
+    Retired -->|发现安全问题并填写原因| Revoked
+    Published -->|创建任务时固定版本| Pinned
+    Retired -->|已固定任务继续使用| Pinned
+    Revoked -->|不可恢复、不可改范围或原因| Blocked

@@ -1,12 +1,13 @@
-import { Activity, AlertTriangle, ArrowLeft, ArrowRight, Ban, CircleDashed, ClipboardCheck, Copy, FileCheck2, FolderKanban, GitBranch, KeyRound, PackageCheck, RefreshCw, ShieldCheck, Sparkles, Users, Wrench } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowLeft, ArrowRight, Ban, CircleDashed, ClipboardCheck, Copy, FileCheck2, FolderKanban, GitBranch, KeyRound, PackageCheck, Plus, RefreshCw, Save, Settings2, ShieldAlert, ShieldCheck, Sparkles, Users, Wrench } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { post } from '../../api';
-import { Button, Empty, Status } from '../../components/ui';
+import { patch, post } from '../../api';
+import { Button, Empty, Field, Modal, Status } from '../../components/ui';
 import { AdminEnvironmentPanel, AdminSOPPanel, CreateProductModal, createAdminProduct, emptyAdminProductDraft } from '../WorkOSConfigPanels';
 import { useAdmin } from '../context';
 import { adminCapabilityPath, adminCustomerPath, adminCustomersForProductPath, adminExecutorPath, adminPath, adminProductPath, adminProductVersionPath, adminReleaseResultPath, adminSkillPath } from '../routes';
 import { auditActionLabel, auditSubjectLabel } from '../../uiLabels';
+import type { WorkbenchPluginEntry, WorkbenchPluginManifest } from '../../types';
 
 const dateTime = (value:string) => new Intl.DateTimeFormat('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(value));
 
@@ -37,6 +38,81 @@ export function AdminOperationsOverview() {
       <section className="operations-section"><SectionTitle kicker="最近变更" title="最近发生了什么" action={<Link to={adminPath('audit')}>查看全部 <ArrowRight size={14}/></Link>}/><div className="operations-list">{audit.length===0?<Empty title="还没有变更记录" detail="发布、保存和任务操作会出现在这里。"/>:audit.map(item=><div className="operations-audit-row" key={item.id}><ShieldCheck size={15}/><span><strong>{auditActionLabel(item.action)}</strong><small>{auditSubjectLabel(item.subject_type)} · {item.subject_id.slice(0, 12)}</small></span><time>{dateTime(item.created_at)}</time></div>)}</div></section>
     </div>
   </div>;
+}
+
+export function AdminWorkbenchRegistryPage() {
+  const {session,workbenchRegistry,refresh}=useAdmin();
+  const [busy,setBusy]=useState('');
+  const [createOpen,setCreateOpen]=useState(false);
+  const [manageEntry,setManageEntry]=useState<WorkbenchPluginEntry>();
+  const [manageScope,setManageScope]=useState('');
+  const [revokeReason,setRevokeReason]=useState('');
+  const [manageNotice,setManageNotice]=useState('');
+  const [createNotice,setCreateNotice]=useState('');
+  const [pageNotice,setPageNotice]=useState('');
+  const [manifestJSON,setManifestJSON]=useState(defaultWorkbenchManifestJSON);
+  const [templateAliases,setTemplateAliases]=useState('');
+  const [tenantIDs,setTenantIDs]=useState('');
+  if(!session.is_platform_admin)return <OperationsEmpty title="业务工作台仅限平台管理员" detail="租户管理员可以配置创作流程和客户开通，平台工作台版本由平台运营统一发布。"/>;
+  if(!workbenchRegistry)return <OperationsEmpty title="工作台 Registry 暂不可用" detail="暂时无法读取业务工作台版本，请检查平台持久层和数据库迁移。"/>;
+  const update=async(entry:WorkbenchPluginEntry,target:string,scopeText:string,reason='')=>{
+    const key=`${entry.manifest.id}@${entry.manifest.version}`;
+    setBusy(key);setManageNotice('');setPageNotice('');
+    try{
+      const payload=buildWorkbenchStatePayload(entry,target,scopeText,reason);
+      await patch(`/api/bff/admin/workbenches/${encodeURIComponent(entry.manifest.id)}/versions/${encodeURIComponent(entry.manifest.version)}`,payload);
+      await refresh(true);setManageEntry(undefined);setRevokeReason('');
+    }catch(value){setManageNotice(value instanceof Error?value.message:'工作台版本状态更新失败')}
+    finally{setBusy('')}
+  };
+  const register=async()=>{
+    setBusy('create');setCreateNotice('');
+    try{
+      const manifest=JSON.parse(manifestJSON) as WorkbenchPluginManifest;
+      await post<WorkbenchPluginEntry>('/api/bff/admin/workbenches',{manifest,template_aliases:splitWorkbenchList(templateAliases),tenant_ids:splitWorkbenchList(tenantIDs)});
+      await refresh(true);
+      setCreateOpen(false);
+      setManifestJSON(defaultWorkbenchManifestJSON);setTemplateAliases('');setTenantIDs('');
+    }catch(value){setCreateNotice(value instanceof Error?value.message:'工作台 manifest 不是有效 JSON 或登记失败')}
+    finally{setBusy('')}
+  };
+  return <div className="operations-page"><PageIntro eyebrow="平台控制面 / 业务工作台" title="业务工作台" description="管理按业务定制的客户工作面。这里仅发布界面声明和租户范围，创作流程、门禁、运行时、产物和交付仍由平台底层统一执行。" action={<><Button onClick={()=>{setCreateNotice('');setCreateOpen(true)}}><Plus size={15}/>登记版本</Button><button className="icon-button operations-refresh" aria-label="刷新工作台版本" title="刷新工作台版本" onClick={()=>refresh(true)}><RefreshCw size={16}/></button></>}/><section className="operations-brief"><div className="operations-brief-lead"><span className="operations-live-dot"/><div><strong>平台 Registry 已连接</strong><span>共 {workbenchRegistry.entries.length} 个声明版本。发布后客户工作台会按租户范围读取固定版本。</span></div></div><div className="operations-brief-facts"><span><small>已发布</small><b>{workbenchRegistry.entries.filter(item=>item.status==='published').length}</b></span><span><small>草稿</small><b>{workbenchRegistry.entries.filter(item=>item.status==='draft').length}</b></span><span><small>已停用或撤销</small><b>{workbenchRegistry.entries.filter(item=>['retired','revoked'].includes(item.status)).length}</b></span></div></section>{pageNotice&&<div className="workos-notice is-error" role="alert">{pageNotice}</div>}<section className="operations-section"><SectionTitle kicker="声明版本" title="客户工作面的版本记录" action={<span className="operations-muted">清单由服务端持久化 Registry 下发</span>}/><div className="operations-table"><header><span>工作台</span><span>版本</span><span>状态</span><span>业务类型</span><span>租户范围</span><span>管理</span></header>{workbenchRegistry.entries.map(entry=>{const key=entry.manifest.id+'@'+entry.manifest.version;return <div className="operations-table-row" key={key}><span className="operations-primary-cell"><span className="operations-object-icon strategy"><Settings2 size={16}/></span><span><strong>{entry.manifest.name}</strong><small>{entry.manifest.id} · {entry.manifest.ui.layout} · {entry.manifest.ui.density} · {entry.manifest.ui.theme}</small></span></span><span>v{entry.manifest.version}</span><span><Status value={entry.status}/></span><span>{entry.manifest.content_types.join('、')}</span><span>{entry.tenant_ids.length?`${entry.tenant_ids.length} 个租户`:'全部租户'}</span><span className="workbench-registry-actions"><button className="text-action" onClick={()=>{setManageEntry(entry);setManageScope(entry.tenant_ids.join('\n'));setRevokeReason('');setManageNotice('')}}>{entry.status==='revoked'?'查看':'管理'}</button></span></div>})}</div></section>{createOpen&&<WorkbenchManifestModal manifestJSON={manifestJSON} setManifestJSON={setManifestJSON} templateAliases={templateAliases} setTemplateAliases={setTemplateAliases} tenantIDs={tenantIDs} setTenantIDs={setTenantIDs} busy={busy==='create'} notice={createNotice} onClose={()=>{setCreateOpen(false);setCreateNotice('')}} onCreate={register}/>} {manageEntry&&<WorkbenchStateModal entry={manageEntry} scope={manageScope} setScope={setManageScope} reason={revokeReason} setReason={setRevokeReason} busy={busy===`${manageEntry.manifest.id}@${manageEntry.manifest.version}`} notice={manageNotice} onClose={()=>setManageEntry(undefined)} onUpdate={(target,reason)=>void update(manageEntry,target,manageScope,reason)}/>}</div>;
+}
+
+const defaultWorkbenchManifestJSON=JSON.stringify({
+  $schema:'https://contentcloud.run/schemas/workbench-plugin/1.0.0/workbench-plugin.schema.json',
+  id:'custom-content-workbench',version:'1.0.0',name:'自定义内容工作台',content_types:['article'],
+  experience:{template_id:'article_content'},
+  ui:{renderer:'approved',layout:'article-editor',density:'comfortable',theme:'editorial-green',navigation:[
+    {id:'overview',label:'工作台首页',icon:'pen-line'},{id:'tasks',label:'任务',icon:'list-checks'},{id:'deliveries',label:'交付',icon:'file-check'}
+  ],stages:[
+    {id:'brief',label:'任务简报',outcome:'固定任务目标',primary_action:'save_brief'},
+    {id:'draft',label:'内容草稿',outcome:'完成内容草稿',primary_action:'save_draft'},
+    {id:'delivery',label:'交付',outcome:'生成可追溯交付包',primary_action:'create_delivery'}
+  ]}
+},null,2);
+
+export function splitWorkbenchList(value:string):string[]{return Array.from(new Set(value.split(/[\n,，]+/).map(item=>item.trim()).filter(Boolean)))}
+
+export function buildWorkbenchStatePayload(entry:WorkbenchPluginEntry,target:string,scopeText:string,reason=''):{status:string;tenant_ids:string[];reason?:string}{
+  const tenant_ids=splitWorkbenchList(scopeText);
+  if(entry.status==='revoked'&&target!=='revoked')throw new Error('已安全撤销的版本不能恢复或修改');
+  if(target==='draft')throw new Error('已发布或已停用的版本不能退回草稿');
+  if(target==='revoked'&&!reason.trim())throw new Error('永久安全撤销必须填写原因');
+  return {status:target,tenant_ids,...(reason.trim()?{reason:reason.trim()}:{})};
+}
+
+export function workbenchLifecycleLabel(status:string):string{
+  return status==='draft'?'发布':status==='published'?'正常退役':status==='retired'?'恢复发布':status==='revoked'?'已安全撤销':'查看';
+}
+
+export function WorkbenchStateModal({entry,scope,setScope,reason,setReason,busy,notice,onClose,onUpdate}:{entry:WorkbenchPluginEntry;scope:string;setScope:(value:string)=>void;reason:string;setReason:(value:string)=>void;busy:boolean;notice:string;onClose:()=>void;onUpdate:(target:string,reason?:string)=>void}){
+  const lifecycleTarget=entry.status==='draft'?'published':entry.status==='published'?'retired':entry.status==='retired'?'published':'';
+  return <Modal title={`${entry.manifest.name} · v${entry.manifest.version}`} onClose={onClose}><div className="admin-modal-form workbench-state-editor"><p className="operations-muted">这里仅修改客户工作面的租户范围和生命周期。流程、审批、Runtime、产物、交付与效果数据仍由平台底层事实源拥有。</p><Field label="租户范围" hint="每行一个租户 ID；留空表示平台默认范围。已安全撤销的版本不可修改。"><textarea rows={4} value={scope} onChange={event=>setScope(event.target.value)} disabled={entry.status==='revoked'||busy}/></Field>{entry.status==='revoked'?<div className="workbench-safety-note"><ShieldAlert size={16}/><span>此版本已永久安全撤销，不能恢复、发布或调整租户范围。原因：{entry.lifecycle_reason||'请查看平台变更记录'}。请登记新的不可变版本。</span></div>:<><div className="workbench-state-actions"><Button variant="secondary" onClick={()=>onUpdate(entry.status)} disabled={busy}><Save size={15}/>保存租户范围</Button>{lifecycleTarget&&<Button onClick={()=>onUpdate(lifecycleTarget)} disabled={busy}>{workbenchLifecycleLabel(entry.status)}</Button>}</div><div className="workbench-revoke-actions"><Field label="安全撤销原因" hint="仅在签名、来源或安全性失效时使用；撤销后不可恢复。"><input value={reason} onChange={event=>setReason(event.target.value)} disabled={busy} placeholder="例如：签名验证失败"/></Field><Button variant="danger" onClick={()=>onUpdate('revoked',reason)} disabled={busy||!reason.trim()}><ShieldAlert size={15}/>永久安全撤销</Button></div></>}{notice&&<div className="workos-notice is-error" role="alert">{notice}</div>}<footer className="modal-actions"><Button variant="secondary" onClick={onClose} disabled={busy}>关闭</Button></footer></div></Modal>;
+}
+
+function WorkbenchManifestModal({manifestJSON,setManifestJSON,templateAliases,setTemplateAliases,tenantIDs,setTenantIDs,busy,notice,onClose,onCreate}:{manifestJSON:string;setManifestJSON:(value:string)=>void;templateAliases:string;setTemplateAliases:(value:string)=>void;tenantIDs:string;setTenantIDs:(value:string)=>void;busy:boolean;notice:string;onClose:()=>void;onCreate:()=>Promise<void>}){
+  return <Modal title="登记业务工作台版本" onClose={onClose}><div className="admin-modal-form workbench-manifest-editor"><p className="operations-muted">只登记客户工作面的声明。底层流程、门禁、Runtime、产物和交付仍由平台模板统一承载。</p><Field label="workbench.json" hint="服务端会按 1.0.0 schema 校验 renderer、layout、阶段动作和版本号。"><textarea autoFocus rows={18} value={manifestJSON} onChange={event=>setManifestJSON(event.target.value)} spellCheck={false}/></Field><div className="form-grid"><Field label="模板别名" hint="多个值用逗号或换行分隔"><input value={templateAliases} onChange={event=>setTemplateAliases(event.target.value)} placeholder="例如：article_content"/></Field><Field label="租户范围" hint="留空表示平台默认；多个租户用逗号或换行分隔"><input value={tenantIDs} onChange={event=>setTenantIDs(event.target.value)} placeholder="例如：tenant-a, tenant-b"/></Field></div>{notice&&<div className="workos-notice is-error" role="alert">{notice}</div>}<footer className="modal-actions"><Button variant="secondary" onClick={onClose} disabled={busy}>取消</Button><Button onClick={onCreate} disabled={busy}>{busy?'登记中…':'登记草稿'}<Plus size={15}/></Button></footer></div></Modal>
 }
 
 export function AdminProductsPage() {

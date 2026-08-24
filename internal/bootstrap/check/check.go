@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	claudehost "github.com/limecloud/contentcloud/internal/integration/pluginhost/claude"
 	localworkspace "github.com/limecloud/contentcloud/internal/local/workspace"
 	workspacedomain "github.com/limecloud/contentcloud/internal/workspace"
 )
@@ -33,6 +34,7 @@ type Check struct {
 type Report struct {
 	SchemaVersion string  `json:"schema_version"`
 	OK            bool    `json:"ok"`
+	Host          string  `json:"host"`
 	Platform      string  `json:"platform"`
 	Arch          string  `json:"arch"`
 	Checks        []Check `json:"checks"`
@@ -46,6 +48,7 @@ type CommandRunner interface {
 type Options struct {
 	Directory  string
 	ServerURL  string
+	Host       string
 	Offline    bool
 	Platform   string
 	Arch       string
@@ -63,6 +66,7 @@ func (execRunner) Run(ctx context.Context, name string, args ...string) (string,
 func Run(ctx context.Context, options Options) Report {
 	platform := defaultValue(options.Platform, runtime.GOOS)
 	arch := defaultValue(options.Arch, runtime.GOARCH)
+	host := normalizeHost(options.Host)
 	runner := options.Runner
 	if runner == nil {
 		runner = execRunner{}
@@ -71,7 +75,7 @@ func Run(ctx context.Context, options Options) Report {
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
 	}
-	report := Report{SchemaVersion: workspacedomain.BootstrapSchemaVersion, OK: true, Platform: platform, Arch: arch, Checks: []Check{}}
+	report := Report{SchemaVersion: workspacedomain.BootstrapSchemaVersion, OK: true, Host: host, Platform: platform, Arch: arch, Checks: []Check{}}
 	add := func(check Check) {
 		if check.Facts == nil {
 			check.Facts = map[string]any{}
@@ -125,40 +129,65 @@ func Run(ctx context.Context, options Options) Report {
 		add(skipped("prerequisites", "runtime.credential_store.available", "guide.platform.requirements"))
 	}
 
-	codexOutput, codexErr := runVersion(ctx, runner, "codex", "--version")
-	if codexErr != nil {
-		add(failed("codex_ready", "codex.cli.available", "CODEX_CLI_NOT_FOUND", "guide.codex.cli_install", map[string]any{"available": false}))
-		add(skipped("codex_ready", "codex.cli.version", "guide.codex.cli_install"))
-	} else {
-		version := sanitizeVersion(codexOutput)
-		add(passed("codex_ready", "codex.cli.available", map[string]any{"available": true}))
-		if semverCompare(version, MinCodexVersion) < 0 {
-			add(failed("codex_ready", "codex.cli.version", "CODEX_VERSION_UNSUPPORTED", "guide.codex.upgrade", map[string]any{"codex_version": version, "supported": false}))
+	hostStage := host + "_ready"
+	switch host {
+	case "codex":
+		codexOutput, codexErr := runVersion(ctx, runner, "codex", "--version")
+		if codexErr != nil {
+			add(failed(hostStage, "codex.cli.available", "CODEX_CLI_NOT_FOUND", "guide.codex.cli_install", map[string]any{"available": false}))
+			add(skipped(hostStage, "codex.cli.version", "guide.codex.cli_install"))
 		} else {
-			add(passed("codex_ready", "codex.cli.version", map[string]any{"codex_version": version, "supported": true}))
+			version := sanitizeVersion(codexOutput)
+			add(passed(hostStage, "codex.cli.available", map[string]any{"available": true}))
+			if semverCompare(version, MinCodexVersion) < 0 {
+				add(failed(hostStage, "codex.cli.version", "CODEX_VERSION_UNSUPPORTED", "guide.codex.upgrade", map[string]any{"codex_version": version, "supported": false}))
+			} else {
+				add(passed(hostStage, "codex.cli.version", map[string]any{"codex_version": version, "supported": true}))
+			}
 		}
-	}
-
-	if platform == "darwin" {
-		if _, err := runner.Run(ctx, "open", "-Ra", "Codex"); err != nil {
-			add(failed("codex_ready", "codex.desktop.available", "CODEX_DESKTOP_NOT_FOUND", "guide.codex.desktop_install", map[string]any{"available": false}))
+		if platform == "darwin" {
+			if _, err := runner.Run(ctx, "open", "-Ra", "Codex"); err != nil {
+				add(failed(hostStage, "codex.desktop.available", "CODEX_DESKTOP_NOT_FOUND", "guide.codex.desktop_install", map[string]any{"available": false}))
+			} else {
+				add(passed(hostStage, "codex.desktop.available", map[string]any{"available": true}))
+			}
 		} else {
-			add(passed("codex_ready", "codex.desktop.available", map[string]any{"available": true}))
+			add(skipped(hostStage, "codex.desktop.available", "guide.codex.desktop_install"))
 		}
-	} else {
-		add(skipped("codex_ready", "codex.desktop.available", "guide.codex.desktop_install"))
+		if nodeErr == nil && codexErr == nil {
+			add(passed(hostStage, "runtime.path.consistent", map[string]any{"same_host": true}))
+		} else {
+			add(failed(hostStage, "runtime.path.consistent", "DESKTOP_PATH_INCOMPLETE", "guide.path.desktop", map[string]any{"same_host": true}))
+		}
+		add(passed(hostStage, "codex.home.consistent", map[string]any{"same_codex_home": true, "codex_home_kind": codexHomeKind()}))
+		add(skipped(hostStage, "codex.auth.ready", "open.codex.login"))
+		add(skipped(hostStage, "codex.workspace.policy", "contact_admin.codex_policy"))
+	case "claude":
+		claudeOutput, claudeErr := runVersion(ctx, runner, "claude", "--version")
+		if claudeErr != nil {
+			add(failed(hostStage, "claude.cli.available", "CLAUDE_CLI_NOT_FOUND", "guide.claude.cli_install", map[string]any{"available": false}))
+			add(skipped(hostStage, "claude.cli.version", "guide.claude.cli_install"))
+		} else {
+			version := sanitizeVersion(claudeOutput)
+			add(passed(hostStage, "claude.cli.available", map[string]any{"available": true}))
+			if semverCompare(version, claudehost.MinimumVersion) < 0 {
+				add(failed(hostStage, "claude.cli.version", "CLAUDE_VERSION_UNSUPPORTED", "guide.claude.upgrade", map[string]any{"claude_version": version, "supported": false, "minimum_version": claudehost.MinimumVersion}))
+			} else {
+				add(passed(hostStage, "claude.cli.version", map[string]any{"claude_version": version, "supported": true, "minimum_version": claudehost.MinimumVersion}))
+			}
+		}
+		if nodeErr == nil && claudeErr == nil {
+			add(passed(hostStage, "runtime.path.consistent", map[string]any{"same_host": true}))
+		} else {
+			add(failed(hostStage, "runtime.path.consistent", "DESKTOP_PATH_INCOMPLETE", "guide.path.desktop", map[string]any{"same_host": true}))
+		}
+		add(skipped(hostStage, "claude.auth.ready", "open.claude.login"))
+		add(skipped(hostStage, "claude.workspace.policy", "contact_admin.claude_policy"))
+	default:
+		add(failed("prerequisites", "runtime.host.supported", "BOOTSTRAP_HOST_UNSUPPORTED", "guide.host.supported", map[string]any{"host": host, "supported": false}))
 	}
 
-	if nodeErr == nil && codexErr == nil {
-		add(passed("codex_ready", "runtime.path.consistent", map[string]any{"same_host": true}))
-	} else {
-		add(failed("codex_ready", "runtime.path.consistent", "DESKTOP_PATH_INCOMPLETE", "guide.path.desktop", map[string]any{"same_host": true}))
-	}
-	add(passed("codex_ready", "codex.home.consistent", map[string]any{"same_codex_home": true, "codex_home_kind": codexHomeKind()}))
-	add(skipped("codex_ready", "codex.auth.ready", "open.codex.login"))
-	add(skipped("codex_ready", "codex.workspace.policy", "contact_admin.codex_policy"))
-
-	workspacePlan, err := localworkspace.Plan(options.Directory, "codex-plugin")
+	workspacePlan, err := localworkspace.Plan(options.Directory, host+"-plugin")
 	if err != nil {
 		add(failed("workspace_selected", "workspace.path.safe", "WORKSPACE_PATH_INVALID", "choose.workspace.directory", map[string]any{"workspace_kind": "invalid"}))
 	} else if workspacePlan.State == "non_empty" {
@@ -319,6 +348,17 @@ func defaultValue(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func normalizeHost(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "claude", "claude-code":
+		return "claude"
+	case "codex", "":
+		return "codex"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
 }
 
 func ValidateReport(report Report) error {

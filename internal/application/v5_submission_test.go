@@ -66,6 +66,32 @@ func TestServerRejectsLocalV5CandidatesAsFormalSubmissions(t *testing.T) {
 	if err := validateGovernedSubmissionObjects("storyboard", "project-1", []string{"content-snapshot"}, []reviewdomain.SubmissionObjectRef{object}, time.Now()); err != nil {
 		t.Fatalf("server rejected a review-ready storyboard with a valid locked digest: %v", err)
 	}
+
+	anchor := work.StoryboardAsset{ID: "anchor-1", Role: "identity_anchor", Path: "50-production/media/product.png", MediaType: "image/png", SHA256: strings.Repeat("f", 64), ByteSize: 10, RightsRefs: []string{"rights-1"}}
+	storyboard.Assets = append(storyboard.Assets, anchor)
+	storyboard.VisualBindings = []work.StoryboardVisualBinding{{ID: "visual:product-1", Kind: "product", SourceRef: "material:product-1", SourceDigest: "sha256:" + strings.Repeat("a", 64), AnchorAssetID: anchor.ID, RightsRefs: []string{"rights-1"}}}
+	storyboard.Shots[0].VisualBindingRefs = []string{"visual:product-1"}
+	storyboard.LockedDigest, err = storyboard.ComputedLockedDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, err = reviewdomain.NewSubmissionObjectRef(storyboard.ID, storyboard.Type, 1, "50-production/media/storyboards/storyboard-1/manifest.json", storyboard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateGovernedSubmissionObjects("storyboard", "project-1", []string{"content-snapshot"}, []reviewdomain.SubmissionObjectRef{object}, time.Now()); err != nil {
+		t.Fatalf("server rejected valid visual binding: %v", err)
+	}
+	storyboard.VisualBindings[0].AnchorAssetID = "missing-anchor"
+	storyboard.LockedDigest, err = storyboard.ComputedLockedDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, err = reviewdomain.NewSubmissionObjectRef(storyboard.ID, storyboard.Type, 1, "50-production/media/storyboards/storyboard-1/manifest.json", storyboard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAppV5Code(t, validateGovernedSubmissionObjects("storyboard", "project-1", []string{"content-snapshot"}, []reviewdomain.SubmissionObjectRef{object}, time.Now()), "STORYBOARD_VISUAL_BINDING_ANCHOR_INVALID")
 }
 
 func TestServerRequiresApprovedTaxonomyBaselineForAudienceStrategy(t *testing.T) {

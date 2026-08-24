@@ -11,6 +11,11 @@
 | 文档或目录 | 定位 | 状态 |
 | --- | --- | --- |
 | [00-product-narrative.md](./00-product-narrative.md) | 客户叙事图、平台架构图、工具示例和分层表达规范 | 目标产品叙事 |
+| [产品分层架构图](../../diagrams/contentcloud-product-layered-architecture.svg) | 四类可定制工作台与统一底层主链的分层结构 | 已绘制，当前架构 |
+| [视频工作台图谱](../../diagrams/contentcloud-video-workbench-flow.svg) | 首个业务工作台的流程、时序和状态 | 已绘制，目标架构 |
+| [小说工作台图谱](../../diagrams/contentcloud-novel-workbench-flow.svg) | Canon、章节、审核、交付和效果回流 | 已绘制，当前内部主链 |
+| [业务工作台层 UI 设计](./customer-creation-studio/07-business-workbench-ui-design.md) | 工作台选择器、阶段画布、组件和响应式规则 | 目标 UI 规范 |
+| [业务工作台 UI 原型](./customer-creation-studio/08-business-workbench-prototype.md) | 视频、文章、电商、连载小说工作台的差异化布局和可点击原型 | 可评审原型 |
 | [customer-creation-studio](./customer-creation-studio/README.md) | 简单客户创作台、运营流水线产品层和首个灵感采集纵向切片 | 客户首切片已实现，完整分层持续迁移 |
 | [creative-asset-library](./creative-asset-library/README.md) | 客户工作区资料、创作结果、复用引用与运营治理 | “我的资产”上传首切片与客户结果目录已实现，连接器导入和结果持久化 Projector 待完成 |
 | [content-work-os-desktop](./content-work-os-desktop/README.md) | 持续项目目录、同步、上传、审批、任务、通知与交付 | Preview 核心链路已实现；正式签名、安装升级和自动更新仍待发布门禁 |

@@ -19,7 +19,7 @@ export interface AgentHandoff {
   integration: { kind: string; id: string; version: string };
   requires_new_session: true;
   requires_workspace_selection: true;
-  launch: { mode: 'deep_link'; url: string };
+  launch: { mode: 'deep_link' | 'command'; url?: string; command?: string[] };
   prompt: string;
   steps: string[];
   fallback_url: string;
@@ -70,7 +70,7 @@ export function validateAgentHandoff(value: unknown, expectation: AgentHandoffEx
   const target = value.target;
   const integration = value.integration;
   const launch = value.launch;
-  if (!sameClient(client, expectation.client) || !isRecord(target) || !isSafeID(value.project_id) || !isSafeID(target.id) || !isRecord(integration) || !isRecord(launch)) {
+  if (!sameClient(client, expectation.client) || !isRecord(target) || !onlyKeys(target, ['kind', 'id', 'digest']) || !isSafeID(value.project_id) || !isSafeID(target.id) || !isRecord(integration) || !onlyKeys(integration, ['kind', 'id', 'version']) || !isRecord(launch) || !onlyKeys(launch, ['mode', 'url', 'command'])) {
     throw new Error('继续工作目标无效');
   }
   const expectedKind = expectation.targetKind === 'project' ? 'project' : 'review_feedback';
@@ -116,15 +116,29 @@ function validateAgentClient(value: unknown): AgentClient {
 }
 
 function validateClientHandoff(clientID: AgentClientID, integration: Record<string, unknown>, launch: Record<string, unknown>, prompt: string, fallbackURL: string, expectation: AgentHandoffExpectation): void {
+  if (integration.kind !== 'plugin' || integration.id !== 'contentcloud-video-production' || integration.version !== '0.27.0') {
+    throw new Error('继续工作插件信息无效');
+  }
+  const targetIsBound = promptBindsTarget(prompt, integration.id, expectation);
   switch (clientID) {
     case 'codex':
-      if (integration.kind !== 'plugin' || integration.id !== 'contentcloud-video-production' || integration.version !== '0.27.0' || launch.mode !== 'deep_link' || fallbackURL !== '/codex' || !parseCodexLaunchURL(launch.url, prompt) || !promptBindsTarget(prompt, integration.id, expectation)) {
+      if (launch.mode !== 'deep_link' || launch.command !== undefined || fallbackURL !== '/codex' || !parseCodexLaunchURL(launch.url, prompt) || !targetIsBound) {
         throw new Error('Codex 继续工作信息无效');
+      }
+      return;
+    case 'claude-code':
+      if (launch.mode !== 'command' || fallbackURL !== '/claude-code' || !parseClaudeCommand(launch, prompt) || !targetIsBound) {
+        throw new Error('Claude Code 继续工作信息无效');
       }
       return;
     default:
       throw new Error(`${clientID} 恢复适配器尚未实现`);
   }
+}
+
+function parseClaudeCommand(launch: Record<string, unknown>, prompt: string): boolean {
+  if (launch.url !== undefined || !Array.isArray(launch.command) || launch.command.length !== 2 || launch.command[0] !== 'claude' || launch.command[1] !== prompt) return false;
+  return launch.command.every(item => typeof item === 'string' && item.length > 0 && !item.includes('\u0000'));
 }
 
 function promptBindsTarget(prompt: string, integrationID: unknown, expectation: AgentHandoffExpectation): boolean {
@@ -154,6 +168,11 @@ function sameClient(left: AgentClient, right: AgentClient): boolean {
 
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function onlyKeys(value: Record<string, unknown>, allowed: string[]): boolean {
+  const keys = Object.keys(value);
+  return keys.every(key => allowed.includes(key));
 }
 
 function isSafeID(value: unknown): value is string {

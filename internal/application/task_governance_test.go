@@ -16,7 +16,8 @@ import (
 
 func TestTaskLifecycleRevisionAndDelivery(t *testing.T) {
 	ctx := t.Context()
-	service := application.New(application.DependenciesFrom(memory.New()), nil)
+	store := memory.New()
+	service := application.New(application.DependenciesFrom(store), nil)
 	session, err := service.Identity.Register(ctx, "task-owner@example.com", "long-enough-password", "任务负责人", "任务团队")
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +64,26 @@ func TestTaskLifecycleRevisionAndDelivery(t *testing.T) {
 	revision, err := service.Work.CreateTaskRevision(ctx, actor, view.Task.ID, application.CreateTaskRevisionInput{ContentType: identitydomain.ContentTypeVideoScript, Content: content}, "")
 	if err != nil || revision.Status != reviewdomain.TaskRevisionAccepted {
 		t.Fatalf("revision should be accepted after final stage: %#v err=%v", revision, err)
+	}
+	submissions, err := store.Submissions(ctx, actor.TenantID, project.ID)
+	if err != nil || len(submissions) != 1 || submissions[0].SubmissionType != "content_batch" {
+		t.Fatalf("video script compatibility entrypoint did not create a content submission: %#v err=%v", submissions, err)
+	}
+	snapshots, err := store.ApprovedSnapshots(ctx, actor.TenantID, project.ID, "content_batch")
+	if err != nil || len(snapshots) != 1 || snapshots[0].SubmissionRevisionID != revision.ID {
+		t.Fatalf("accepted task did not lock an ApprovedSnapshot: %#v err=%v", snapshots, err)
+	}
+	packageValue, err := service.Review.CreateDeliveryPackage(ctx, actor, snapshots[0].ID, "video-script:"+view.Task.ID, "video-script-delivery")
+	if err != nil || packageValue.Status != "ready" || len(packageValue.Manifest) != 3 {
+		t.Fatalf("video script ApprovedSnapshot did not produce a complete delivery package: %#v err=%v", packageValue, err)
+	}
+	performance, err := service.Performance.ImportPerformanceObservations(ctx, actor, application.ImportPerformanceInput{ProjectID: project.ID, SourceName: "video-script-results", SourceFormat: "json", Observations: []application.CreateObservationInput{{ApprovedSnapshotID: snapshots[0].ID, Platform: "douyin", AccountAlias: "main", PublishedAt: snapshots[0].CreatedAt, WindowHours: 24, SampleStatus: "seed_candidate", Metrics: map[string]float64{"impressions": 100}}}}, "video-script-performance")
+	if err != nil || len(performance.Observations) != 1 || performance.Observations[0].ApprovedSnapshotID != snapshots[0].ID {
+		t.Fatalf("video script delivery did not enter the performance fact chain: %#v err=%v", performance, err)
+	}
+	rating, err := service.Performance.CreateRatingDecision(ctx, actor, application.CreateRatingDecisionInput{ProjectID: project.ID, SubjectType: "approved_snapshot", SubjectID: snapshots[0].ID, ObservationIDs: []string{performance.Observations[0].ID}, Rating: "seed_candidate", Reason: "统一主链回归", NextAction: "生成一个受控变体"}, "video-script-rating")
+	if err != nil || rating.Decision.SubjectID != snapshots[0].ID {
+		t.Fatalf("video script performance did not produce a governed rating: %#v err=%v", rating, err)
 	}
 	delivery, err := service.Work.CreateTaskDelivery(ctx, actor, view.Task.ID, application.CreateTaskDeliveryInput{RevisionID: revision.ID, Destination: "workspace"}, "")
 	if err != nil || delivery.Status != deliverydomain.TaskDeliveryReady || delivery.IntegrityStatus != "script_only" {

@@ -8,6 +8,7 @@ import {
   copyFile,
 } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const metadataSchema = "contentcloud.desktop-update-metadata/1.0";
 const indexSchema = "contentcloud.desktop-update-index/1.0";
@@ -120,8 +121,8 @@ function validateReleaseIdentity({ version, channel, tag }) {
   if (!["stable", "beta"].includes(channel)) {
     throw new Error(`invalid release channel: ${channel}`);
   }
-  if (!tag || !tag.endsWith(version)) {
-    throw new Error(`release tag must end with version ${version}: ${tag}`);
+  if (tag !== `v${version}`) {
+    throw new Error(`release tag must be v${version}: ${tag}`);
   }
 }
 
@@ -134,11 +135,15 @@ async function stageTarget({
   tag,
   repository,
   signed,
+  preview,
 }) {
   const definition = targetDefinitions[target];
   if (!definition) throw new Error(`unsupported desktop target: ${target}`);
   validateReleaseIdentity({ version, channel, tag });
-  if (definition.signed && signed !== true) {
+  if (signed === true && preview === true) {
+    throw new Error("desktop target cannot be both signed and preview-only");
+  }
+  if (definition.signed && signed !== true && preview !== true) {
     throw new Error(
       `${target} requires verified signing before it can enter ${channel}`,
     );
@@ -195,7 +200,10 @@ async function stageTarget({
     arch: definition.arch,
     generated_at: new Date().toISOString(),
     signing: definition.signed
-      ? { required: true, status: "verified" }
+      ? {
+          required: true,
+          status: signed === true ? "verified" : "unverified-preview",
+        }
       : { required: false, status: "not-required-for-preview" },
     artifacts: stagedArtifacts.map((artifact) => ({
       ...artifact,
@@ -336,7 +344,7 @@ async function aggregateRelease({
   }
   checksumLines.push(`${await sha256(indexPath)}  ${basename(indexPath)}`);
   await writeFile(
-    join(outDir, "checksums.txt"),
+    join(outDir, "desktop-checksums.txt"),
     `${checksumLines.sort().join("\n")}\n`,
     "utf8",
   );
@@ -368,11 +376,13 @@ async function main() {
     tag: required(args, "tag"),
     repository: args.repository?.trim(),
     signed: args.signed === true,
+    preview: args.preview === true,
   });
   process.stdout.write(`${JSON.stringify(metadata, null, 2)}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const entrypoint = process.argv[1];
+if (entrypoint && import.meta.url === pathToFileURL(resolve(entrypoint)).href) {
   try {
     await main();
   } catch (error) {

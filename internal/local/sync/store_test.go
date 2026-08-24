@@ -2,6 +2,7 @@ package localsync
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +11,89 @@ import (
 
 	localworkspace "github.com/limecloud/contentcloud/internal/local/workspace"
 )
+
+func TestStoreUpgradesLegacySchemaBeforeObservingAndClaiming(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "desktop.sqlite3")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.Exec(`
+CREATE TABLE project_sync_state (
+  project_id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  local_revision INTEGER NOT NULL DEFAULT 0,
+  observed_digest TEXT NOT NULL DEFAULT '',
+  cloud_revision TEXT NOT NULL DEFAULT '0',
+  synced_digest TEXT NOT NULL DEFAULT '',
+  event_cursor INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE outbound_commands (
+  command_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  command_type TEXT NOT NULL,
+  subject_ref TEXT NOT NULL,
+  base_revision TEXT NOT NULL,
+  content_digest TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  state TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, idempotency_key),
+  FOREIGN KEY(project_id) REFERENCES project_sync_state(project_id)
+);
+CREATE TABLE project_events (
+  project_id TEXT NOT NULL,
+  cursor INTEGER NOT NULL,
+  event_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, cursor),
+  UNIQUE(event_id),
+  FOREIGN KEY(project_id) REFERENCES project_sync_state(project_id)
+);
+CREATE TABLE workspace_upload_transfers (
+  project_id TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  content_digest TEXT NOT NULL,
+  byte_size INTEGER NOT NULL,
+  session_id TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL,
+  confirmed_parts TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, ref, content_digest),
+  FOREIGN KEY(project_id) REFERENCES project_sync_state(project_id)
+);`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	digest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if _, err := store.ObserveProject(t.Context(), "project-legacy", "workspace-legacy", digest, time.Now()); err != nil {
+		t.Fatalf("legacy schema observation failed: %v", err)
+	}
+	if _, err := store.QueuePublish(t.Context(), PublishCommand{
+		RequestID: "request-legacy", WorkspaceID: "workspace-legacy", ProjectID: "project-legacy", SubjectRef: "workspace",
+		BaseRevision: "0", ObservedDigest: digest, IdempotencyKey: "publish-legacy", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("legacy schema publish queue failed: %v", err)
+	}
+	if _, claimed, err := store.ClaimPublish(t.Context(), "worker-legacy", "", []string{"project-legacy"}, time.Now(), time.Minute); err != nil || !claimed {
+		t.Fatalf("legacy schema publish claim failed: claimed=%v err=%v", claimed, err)
+	}
+}
 
 func TestStorePersistsObservationIdempotentPublishAndProjectEvents(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "desktop.sqlite3")

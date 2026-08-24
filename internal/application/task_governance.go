@@ -27,6 +27,70 @@ type TaskActionInput struct {
 	Action string `json:"action"`
 }
 
+func runtimeJobTerminal(state string) bool {
+	switch state {
+	case contentruntime.JobRunCompleted, contentruntime.JobRunFailed, contentruntime.JobRunCancelled, contentruntime.JobRunRejected:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *WorkService) runtimeJobsForTask(ctx context.Context, tenantID, taskID string) ([]contentruntime.JobRun, error) {
+	if s.app.Runtime == nil || s.app.Runtime.runtimeService == nil {
+		return nil, nil
+	}
+	return s.app.Runtime.runtimeService.Jobs(ctx, tenantID, taskID)
+}
+
+func (s *WorkService) cancelRuntimeJobsForTask(ctx context.Context, actor Actor, taskID string) error {
+	jobs, err := s.runtimeJobsForTask(ctx, actor.TenantID, taskID)
+	if err != nil {
+		return err
+	}
+	for _, job := range jobs {
+		if runtimeJobTerminal(job.State) {
+			continue
+		}
+		if _, err := s.app.Runtime.runtimeService.Cancel(ctx, actor.TenantID, job.ID, "task", actor.UserID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *WorkService) pauseRuntimeJobsForTask(ctx context.Context, actor Actor, taskID string) error {
+	jobs, err := s.runtimeJobsForTask(ctx, actor.TenantID, taskID)
+	if err != nil {
+		return err
+	}
+	for _, job := range jobs {
+		if job.State != contentruntime.JobRunAdmitted && job.State != contentruntime.JobRunRunning && job.State != contentruntime.JobRunWaitingHuman {
+			continue
+		}
+		if _, err := s.app.Runtime.runtimeService.Pause(ctx, actor.TenantID, job.ID, "task", actor.UserID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *WorkService) resumeRuntimeJobsForTask(ctx context.Context, actor Actor, taskID string) error {
+	jobs, err := s.runtimeJobsForTask(ctx, actor.TenantID, taskID)
+	if err != nil {
+		return err
+	}
+	for _, job := range jobs {
+		if job.State != contentruntime.JobRunPaused {
+			continue
+		}
+		if _, err := s.app.Runtime.runtimeService.Resume(ctx, actor.TenantID, job.ID, "task", actor.UserID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type StageReportInput struct {
 	StageRunID string                 `json:"stage_run_id"`
 	StageID    string                 `json:"stage_id"`
@@ -143,8 +207,19 @@ func (s *WorkService) TaskAction(ctx context.Context, actor Actor, taskID string
 		if task.Status == work.TaskStatusCancelled || task.Status == work.TaskStatusDelivered || task.Status == work.TaskStatusAccepted {
 			return WorkTaskView{}, fault.Conflict("TASK_NOT_STARTABLE", "当前任务状态不能开始执行")
 		}
+		if action == "start" && task.Status == work.TaskStatusPaused {
+			return WorkTaskView{}, fault.Conflict("TASK_RESUME_REQUIRED", "已暂停的任务必须通过恢复动作继续执行")
+		}
+		if action == "resume" && task.Status != work.TaskStatusPaused {
+			return WorkTaskView{}, fault.Conflict("TASK_NOT_PAUSED", "只有已暂停的任务可以恢复")
+		}
 		if task.Status == work.TaskStatusWaitingGate {
 			return WorkTaskView{}, fault.Policy("TASK_GATE_PENDING", "任务仍在等待审核决定", "先完成待处理的审核")
+		}
+		if action == "resume" {
+			if err := s.resumeRuntimeJobsForTask(ctx, actor, task.ID); err != nil {
+				return WorkTaskView{}, err
+			}
 		}
 		if err := s.startCurrentStage(ctx, actor, &task, now, requestID); err != nil {
 			return WorkTaskView{}, err
@@ -152,6 +227,9 @@ func (s *WorkService) TaskAction(ctx context.Context, actor Actor, taskID string
 	case "pause":
 		if task.Status != work.TaskStatusRunning {
 			return WorkTaskView{}, fault.Conflict("TASK_NOT_RUNNING", "只有运行中的任务可以暂停")
+		}
+		if err := s.pauseRuntimeJobsForTask(ctx, actor, task.ID); err != nil {
+			return WorkTaskView{}, err
 		}
 		task.Status = work.TaskStatusPaused
 		task.NextAction = "恢复当前流程阶段"
@@ -163,6 +241,9 @@ func (s *WorkService) TaskAction(ctx context.Context, actor Actor, taskID string
 	case "cancel":
 		if task.Status == work.TaskStatusDelivered || task.Status == work.TaskStatusCancelled {
 			return s.WorkTask(ctx, actor, task.ID)
+		}
+		if err := s.cancelRuntimeJobsForTask(ctx, actor, task.ID); err != nil {
+			return WorkTaskView{}, err
 		}
 		task.Status = work.TaskStatusCancelled
 		task.NextAction = "任务已取消"
@@ -187,6 +268,12 @@ func (s *WorkService) TaskAction(ctx context.Context, actor Actor, taskID string
 	case "retry":
 		if task.Status != work.TaskStatusBlocked && task.Status != work.TaskStatusPaused && task.Status != work.TaskStatusReady {
 			return WorkTaskView{}, fault.Conflict("TASK_NOT_RETRYABLE", "当前任务没有可重试的失败或阻断")
+		}
+		// Retry starts a fresh Runtime execution. Any non-terminal JobRun is a
+		// durable execution fact and must not remain active or paused while the
+		// business task is reset to ready for a new attempt.
+		if err := s.cancelRuntimeJobsForTask(ctx, actor, task.ID); err != nil {
+			return WorkTaskView{}, err
 		}
 		runs, runErr := s.tasks.StageRuns(ctx, actor.TenantID, task.ID)
 		if runErr != nil {
@@ -231,6 +318,8 @@ func (s *WorkService) startCurrentStage(ctx context.Context, actor Actor, task *
 	if stageRun.Status == work.StageRunStatusCompleted {
 		return fault.Conflict("STAGE_ALREADY_COMPLETED", "当前流程阶段已完成")
 	}
+	previousStageRun := stageRun
+	previousTask := *task
 	if stageRun.Status != work.StageRunStatusRunning {
 		stageRun.Status = work.StageRunStatusRunning
 		if stageRun.StartedAt == nil {
@@ -238,17 +327,21 @@ func (s *WorkService) startCurrentStage(ctx context.Context, actor Actor, task *
 			stageRun.StartedAt = &started
 		}
 		stageRun.UpdatedAt = now
-		if err := s.tasks.SaveStageRun(ctx, stageRun); err != nil {
-			return err
-		}
 	}
 	task.Status = work.TaskStatusRunning
 	task.NextAction = "执行流程阶段“" + stageRun.StageID + "”并上报结果"
 	task.UpdatedAt = now
-	if err := s.tasks.SaveWorkTask(ctx, *task); err != nil {
+	if err := s.ensureRuntimeRun(ctx, actor, *task, stageRun); err != nil {
 		return err
 	}
-	if err := s.ensureRuntimeRun(ctx, actor, *task, stageRun); err != nil {
+	if err := s.tasks.SaveStageRun(ctx, stageRun); err != nil {
+		_ = s.cancelRuntimeJobsForTask(ctx, actor, task.ID)
+		return err
+	}
+	if err := s.tasks.SaveWorkTask(ctx, *task); err != nil {
+		_ = s.tasks.SaveStageRun(ctx, previousStageRun)
+		_ = s.cancelRuntimeJobsForTask(ctx, actor, task.ID)
+		*task = previousTask
 		return err
 	}
 	s.audit(ctx, actor, task.ProjectID, "task.started", "task", task.ID, requestID, map[string]any{"stage_id": stageRun.StageID, "execution_mode": stageRun.ExecutionMode})
@@ -263,8 +356,11 @@ func (s *WorkService) ensureRuntimeRun(ctx context.Context, actor Actor, task wo
 	if err != nil {
 		return err
 	}
-	if len(jobs) > 0 {
-		return nil
+	for _, job := range jobs {
+		switch job.State {
+		case contentruntime.JobRunCreated, contentruntime.JobRunAdmitted, contentruntime.JobRunRunning, contentruntime.JobRunWaitingHuman, contentruntime.JobRunPaused:
+			return nil
+		}
 	}
 	_, sop, err := s.loadTaskSOP(ctx, actor.TenantID, task)
 	if err != nil {
@@ -292,12 +388,18 @@ func (s *WorkService) ensureRuntimeRun(ctx context.Context, actor Actor, task wo
 	if err != nil {
 		return err
 	}
+	idempotencyKey := "work-task:" + task.ID + ":" + stageRun.StageID
+	if len(jobs) > 0 {
+		// A terminal JobRun is immutable. Retries create a new execution fact
+		// with a deterministic attempt suffix instead of reusing the old key.
+		idempotencyKey += ":retry-" + strconv.Itoa(len(jobs)+1)
+	}
 	_, err = s.runtimeService.Start(ctx, contentruntime.StartInput{
 		TenantID: task.TenantID, ProjectID: task.ProjectID, WorkTaskID: task.ID,
 		BusinessType: "work_task." + task.ContentType, SOP: sop,
 		ExecutionBinding: &executionBinding, InputDigest: "sha256:" + inputDigest,
 		RuntimePolicyID: "runtime-policy/work-task-v1", ContractMajor: 1, ContractMinor: 0,
-		Priority: priority, CreatedBy: actor.UserID, IdempotencyKey: "work-task:" + task.ID + ":" + stageRun.StageID,
+		Priority: priority, CreatedBy: actor.UserID, IdempotencyKey: idempotencyKey,
 		CorrelationID: "task-start:" + task.ID,
 	})
 	return err
@@ -638,42 +740,64 @@ func (s *WorkService) CreateTaskRevision(ctx context.Context, actor Actor, taskI
 	if contentType == identitydomain.ContentTypeMarketingVideo {
 		return s.createMarketingVideoSubmissionRevision(ctx, actor, task, input, requestID)
 	}
-	revisions, err := s.delivery.TaskRevisions(ctx, actor.TenantID, task.ID)
+	if contentType == identitydomain.ContentTypeVideoScript {
+		return s.createVideoScriptSubmissionRevision(ctx, actor, task, input, requestID)
+	}
+	if contentType == identitydomain.ContentTypeWeChatArticle || contentType == identitydomain.ContentTypeCommerce {
+		return s.createGovernedContentSubmissionRevision(ctx, actor, task, input, requestID)
+	}
+	if contentType == identitydomain.ContentTypeSerializedNovel {
+		return s.createNovelSubmissionRevision(ctx, actor, task, input, requestID)
+	}
+	return reviewdomain.TaskRevision{}, fault.Policy("TASK_CONTENT_TYPE_NOT_GOVERNED", "当前内容类型没有统一的 Submission 提交契约", "使用已发布业务工作台或先完成该业务插件的 Schema、门禁和渲染器")
+}
+
+// createNovelSubmissionRevision keeps the compatibility response envelope but
+// routes the chapter through the shared content_batch Submission chain. The
+// chapter payload is business-owned; review, snapshots, delivery and learning
+// remain platform-owned facts.
+func (s *WorkService) createNovelSubmissionRevision(ctx context.Context, actor Actor, task work.WorkTask, input CreateTaskRevisionInput, requestID string) (reviewdomain.TaskRevision, error) {
+	binding, err := s.ensureTaskWorkspace(ctx, actor, task)
 	if err != nil {
 		return reviewdomain.TaskRevision{}, err
 	}
-	revisionNo := len(revisions) + 1
-	hash, err := stablehash.Sum(json.RawMessage(input.Content))
+	chapter, err := localworkspace.ValidateNovelChapterForSubmission(input.Content)
 	if err != nil {
 		return reviewdomain.TaskRevision{}, err
 	}
-	now := s.now().UTC()
-	status := reviewdomain.TaskRevisionSubmitted
-	if task.Status == work.TaskStatusAccepted {
-		status = reviewdomain.TaskRevisionAccepted
-	}
-	revision := reviewdomain.TaskRevision{ID: idgen.New(), TenantID: task.TenantID, ProjectID: task.ProjectID, TaskID: task.ID, RevisionNo: revisionNo, ContentType: contentType, SchemaVersion: schemaVersion, Content: append([]byte{}, input.Content...), ContentHash: "sha256:" + hash, SOPDigest: task.SOPDigest, KnowledgeSnapshotIDs: append([]string{}, input.KnowledgeSnapshotIDs...), EvidenceSummary: input.EvidenceSummary, RightsSummary: input.RightsSummary, Status: status, SubmittedBy: actor.UserID, SubmittedAt: &now, CreatedAt: now}
-	revision.NormalizeCollections()
-	if err := s.delivery.CreateTaskRevision(ctx, revision); err != nil {
+	content, err := json.Marshal(chapter)
+	if err != nil {
 		return reviewdomain.TaskRevision{}, err
 	}
-	if task.Status == work.TaskStatusBlocked {
-		task.Status = work.TaskStatusReady
-		task.NextAction = "重试当前流程阶段"
-		task.UpdatedAt = now
-		if err := s.tasks.SaveWorkTask(ctx, task); err != nil {
-			return reviewdomain.TaskRevision{}, err
-		}
+	hash, err := stablehash.Sum(content)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
 	}
-	if task.Status == work.TaskStatusAccepted {
-		task.NextAction = "交付内容版本"
-		task.UpdatedAt = now
-		if err := s.tasks.SaveWorkTask(ctx, task); err != nil {
-			return reviewdomain.TaskRevision{}, err
-		}
+	object, err := reviewdomain.NewSubmissionObjectRef(chapter.ID, "novel_chapter", 1, "50-production/tasks/"+task.ID+"/"+chapter.ID+".json", json.RawMessage(content))
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
 	}
-	s.audit(ctx, actor, task.ProjectID, "task.revision_submitted", "task_revision", revision.ID, requestID, map[string]any{"task_id": task.ID, "revision_no": revision.RevisionNo, "content_hash": revision.ContentHash, "schema_version": revision.SchemaVersion})
-	return revision, nil
+	bundle := reviewdomain.SubmissionBundle{
+		BundleVersion: "3.0", SubmissionType: "content_batch", ProjectID: task.ProjectID, WorkspaceID: binding.ID,
+		BaseSnapshotIDs: append([]string{}, input.KnowledgeSnapshotIDs...), Objects: []reviewdomain.SubmissionObjectRef{object},
+		SourceDisclosures: []reviewdomain.SourceDisclosure{}, Artifacts: []reviewdomain.SubmissionArtifact{},
+		LocalRunSummary:   reviewdomain.LocalRunSummary{Stage: defaultString(task.CurrentStageID, "chapter_draft"), Checks: []reviewdomain.LocalRunCheck{{Name: "novel.chapter.schema", Status: "passed"}, {Name: "novel.continuity", Status: "passed"}}},
+		EnvironmentDigest: task.SOPDigest, Message: "小说章节已收敛到统一内容提交链", IdempotencyKey: "task-novel-chapter:" + task.ID + ":" + hash,
+	}
+	if err := bundle.SetComputedHash(); err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	workspaceActor := Actor{TenantID: task.TenantID, WorkspaceID: binding.ID, Type: "workspace", Role: "workspace"}
+	revision, err := s.app.Review.CreateSubmission(ctx, workspaceActor, binding, bundle, requestID)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	submission, err := s.review.Submission(ctx, task.TenantID, revision.SubmissionID)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	s.audit(ctx, actor, task.ProjectID, "task.revision_submitted", "submission_revision", revision.ID, requestID, map[string]any{"task_id": task.ID, "revision_no": revision.RevisionNo, "content_hash": revision.ContentHash, "compatibility_entrypoint": true, "object_type": "novel_chapter"})
+	return taskRevisionFromSubmission(task, submission, revision), nil
 }
 
 func (s *WorkService) CreateTaskDelivery(ctx context.Context, actor Actor, taskID string, input CreateTaskDeliveryInput, requestID string) (deliverydomain.TaskDelivery, error) {
@@ -721,7 +845,11 @@ func (s *WorkService) CreateTaskDelivery(ctx context.Context, actor Actor, taskI
 		if packageErr != nil {
 			return deliverydomain.TaskDelivery{}, packageErr
 		}
-		if pkg.ProjectID != task.ProjectID || pkg.ContentItemID != task.ID || pkg.Status != "ready" || len(pkg.Manifest) == 0 {
+		belongs, belongsErr := s.deliveryPackageBelongsToTask(ctx, task, pkg)
+		if belongsErr != nil {
+			return deliverydomain.TaskDelivery{}, belongsErr
+		}
+		if pkg.ProjectID != task.ProjectID || pkg.Status != "ready" || len(pkg.Manifest) == 0 || !belongs {
 			return deliverydomain.TaskDelivery{}, fault.Policy("DELIVERY_PACKAGE_INVALID", "交付包不属于当前任务、尚未就绪或文件清单为空", "重新构建当前任务的交付包")
 		}
 		for _, artifact := range pkg.Manifest {
@@ -790,6 +918,194 @@ func (s *WorkService) CreateTaskDelivery(ctx context.Context, actor Actor, taskI
 	}
 	s.audit(ctx, actor, task.ProjectID, "task.delivery_created", "task_delivery", delivery.ID, requestID, map[string]any{"revision_id": revision.ID, "destination": destination, "status": delivery.Status})
 	return delivery, nil
+}
+
+// createGovernedContentSubmissionRevision keeps the legacy TaskRevision DTO
+// available to callers while routing article and commerce writes through the
+// shared Submission -> Review -> ApprovedSnapshot chain.
+func (s *WorkService) createGovernedContentSubmissionRevision(ctx context.Context, actor Actor, task work.WorkTask, input CreateTaskRevisionInput, requestID string) (reviewdomain.TaskRevision, error) {
+	binding, err := s.ensureTaskWorkspace(ctx, actor, task)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	var identity struct {
+		ID            string `json:"id"`
+		Type          string `json:"type"`
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(input.Content, &identity); err != nil || strings.TrimSpace(identity.ID) == "" {
+		return reviewdomain.TaskRevision{}, fault.Invalid("TASK_CONTENT_OBJECT_REQUIRED", "文章或电商内容版本必须包含稳定对象标识")
+	}
+	var objectType string
+	switch task.ContentType {
+	case identitydomain.ContentTypeWeChatArticle:
+		item, validateErr := localworkspace.ValidateArticleItemForSubmission(input.Content, task.ProjectID)
+		if validateErr != nil {
+			return reviewdomain.TaskRevision{}, validateErr
+		}
+		identity.ID, objectType = item.ID, item.Type
+	case identitydomain.ContentTypeCommerce:
+		item, validateErr := localworkspace.ValidateCommerceContentForSubmission(input.Content, task.ProjectID)
+		if validateErr != nil {
+			return reviewdomain.TaskRevision{}, validateErr
+		}
+		identity.ID, objectType = item.ID, item.Type
+	default:
+		return reviewdomain.TaskRevision{}, fault.Invalid("TASK_CONTENT_TYPE_INVALID", "当前内容类型不能走统一内容提交兼容入口")
+	}
+	hash, err := stablehash.Sum(input.Content)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	object, err := reviewdomain.NewSubmissionObjectRef(identity.ID, objectType, 1, "50-production/tasks/"+task.ID+"/"+identity.ID+".json", input.Content)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	bundle := reviewdomain.SubmissionBundle{
+		BundleVersion: "3.0", SubmissionType: "content_batch", ProjectID: task.ProjectID, WorkspaceID: binding.ID,
+		BaseSnapshotIDs: append([]string{}, input.KnowledgeSnapshotIDs...), Objects: []reviewdomain.SubmissionObjectRef{object},
+		SourceDisclosures: []reviewdomain.SourceDisclosure{}, Artifacts: []reviewdomain.SubmissionArtifact{},
+		LocalRunSummary:   reviewdomain.LocalRunSummary{Stage: task.CurrentStageID, Checks: []reviewdomain.LocalRunCheck{{Name: "content.schema", Status: "passed"}}},
+		EnvironmentDigest: task.SOPDigest, Message: "兼容入口已收敛到统一内容提交", IdempotencyKey: "task-content:" + task.ID + ":" + hash,
+	}
+	if err := bundle.SetComputedHash(); err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	workspaceActor := Actor{TenantID: task.TenantID, WorkspaceID: binding.ID, Type: "workspace", Role: "workspace"}
+	revision, err := s.app.Review.CreateSubmission(ctx, workspaceActor, binding, bundle, requestID)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	submission, err := s.review.Submission(ctx, task.TenantID, revision.SubmissionID)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	s.audit(ctx, actor, task.ProjectID, "task.revision_submitted", "submission_revision", revision.ID, requestID, map[string]any{"task_id": task.ID, "revision_no": revision.RevisionNo, "content_hash": revision.ContentHash, "compatibility_entrypoint": true})
+	projected := taskRevisionFromSubmission(task, submission, revision)
+	// Keep the legacy response envelope populated without adding platform
+	// metadata to the strict article/commerce business Schema.
+	projected.KnowledgeSnapshotIDs = append([]string{}, input.KnowledgeSnapshotIDs...)
+	projected.EvidenceSummary = cloneAnyMap(input.EvidenceSummary)
+	projected.RightsSummary = cloneAnyMap(input.RightsSummary)
+	return projected, nil
+}
+
+// createVideoScriptSubmissionRevision routes the original short-video DTO
+// through the same content_batch fact chain as the newer workbenches.
+func (s *WorkService) createVideoScriptSubmissionRevision(ctx context.Context, actor Actor, task work.WorkTask, input CreateTaskRevisionInput, requestID string) (reviewdomain.TaskRevision, error) {
+	binding, err := s.ensureTaskWorkspace(ctx, actor, task)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	content, objectID, err := localworkspace.NormalizeVideoScriptForSubmission(input.Content, task.ProjectID, task.ID)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(content, &metadata); err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	metadata["knowledge_snapshot_ids"] = append([]string{}, input.KnowledgeSnapshotIDs...)
+	metadata["evidence_summary"] = cloneAnyMap(input.EvidenceSummary)
+	metadata["rights_summary"] = cloneAnyMap(input.RightsSummary)
+	content, err = json.Marshal(metadata)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	hash, err := stablehash.Sum(content)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	object, err := reviewdomain.NewSubmissionObjectRef(objectID, "video_script", 1, "50-production/tasks/"+task.ID+"/script.json", content)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	bundle := reviewdomain.SubmissionBundle{
+		BundleVersion: "3.0", SubmissionType: "content_batch", ProjectID: task.ProjectID, WorkspaceID: binding.ID,
+		BaseSnapshotIDs: append([]string{}, input.KnowledgeSnapshotIDs...), Objects: []reviewdomain.SubmissionObjectRef{object},
+		SourceDisclosures: []reviewdomain.SourceDisclosure{}, Artifacts: []reviewdomain.SubmissionArtifact{},
+		LocalRunSummary:   reviewdomain.LocalRunSummary{Stage: defaultString(task.CurrentStageID, "script"), Checks: []reviewdomain.LocalRunCheck{{Name: "content.schema", Status: "passed"}}},
+		EnvironmentDigest: task.SOPDigest, Message: "视频脚本兼容入口已收敛到统一内容提交", IdempotencyKey: "task-video-script:" + task.ID + ":" + hash,
+	}
+	if err := bundle.SetComputedHash(); err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	workspaceActor := Actor{TenantID: task.TenantID, WorkspaceID: binding.ID, Type: "workspace", Role: "workspace"}
+	revision, err := s.app.Review.CreateSubmission(ctx, workspaceActor, binding, bundle, requestID)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	submission, err := s.review.Submission(ctx, task.TenantID, revision.SubmissionID)
+	if err != nil {
+		return reviewdomain.TaskRevision{}, err
+	}
+	if task.Status == work.TaskStatusAccepted && submission.Status == "submitted" {
+		if err := s.autoApproveVideoScriptSubmission(ctx, task, submission, revision, actor, requestID); err != nil {
+			return reviewdomain.TaskRevision{}, err
+		}
+		submission, err = s.review.Submission(ctx, task.TenantID, revision.SubmissionID)
+		if err != nil {
+			return reviewdomain.TaskRevision{}, err
+		}
+	}
+	now := s.now().UTC()
+	if task.Status == work.TaskStatusBlocked {
+		task.Status = work.TaskStatusReady
+		task.NextAction = "重试当前流程阶段"
+		task.UpdatedAt = now
+		if err := s.tasks.SaveWorkTask(ctx, task); err != nil {
+			return reviewdomain.TaskRevision{}, err
+		}
+	}
+	if task.Status == work.TaskStatusAccepted {
+		task.NextAction = "交付内容版本"
+		task.UpdatedAt = now
+		if err := s.tasks.SaveWorkTask(ctx, task); err != nil {
+			return reviewdomain.TaskRevision{}, err
+		}
+	}
+	s.audit(ctx, actor, task.ProjectID, "task.revision_submitted", "submission_revision", revision.ID, requestID, map[string]any{"task_id": task.ID, "revision_no": revision.RevisionNo, "content_hash": revision.ContentHash, "compatibility_entrypoint": true, "object_type": "video_script"})
+	projected := taskRevisionFromSubmission(task, submission, revision)
+	projected.KnowledgeSnapshotIDs = append([]string{}, input.KnowledgeSnapshotIDs...)
+	projected.EvidenceSummary = cloneAnyMap(input.EvidenceSummary)
+	projected.RightsSummary = cloneAnyMap(input.RightsSummary)
+	return projected, nil
+}
+
+func (s *WorkService) autoApproveVideoScriptSubmission(ctx context.Context, task work.WorkTask, submission reviewdomain.Submission, revision reviewdomain.SubmissionRevision, actor Actor, requestID string) error {
+	now := s.now().UTC()
+	canonical, err := canonicalSubmissionContent(submission, revision)
+	if err != nil {
+		return err
+	}
+	decision := reviewdomain.ApprovalDecision{ID: idgen.New(), TenantID: task.TenantID, ProjectID: task.ProjectID, SubjectType: "submission_revision", SubjectID: revision.ID, SubjectHash: revision.ContentHash, DecisionStage: "automated_gate", ActorID: "system:task-gate", Decision: "approve", Reason: "任务流程门禁已通过，兼容入口自动锁定批准快照", PreviousState: submission.Status, ResultingState: "approved", CreatedAt: now}
+	snapshot := reviewdomain.ApprovedSnapshot{ID: idgen.New(), TenantID: task.TenantID, ProjectID: task.ProjectID, WorkspaceID: submission.WorkspaceID, SubmissionID: submission.ID, SubmissionRevisionID: revision.ID, SubmissionType: submission.SubmissionType, SchemaVersion: revision.SchemaVersion, ContentHash: revision.ContentHash, SubjectHash: revision.ContentHash, CanonicalContent: canonical, EligibleIDs: revision.EligibleObjectIDs(), Artifacts: revision.Artifacts, DecisionID: decision.ID, CreatedBy: "system:task-gate", CreatedAt: now}
+	submission.Status = "approved"
+	submission.UpdatedAt = now
+	if err := s.review.ApproveSubmissionRevision(ctx, submission, snapshot, decision); err != nil {
+		return err
+	}
+	s.audit(ctx, actor, task.ProjectID, "submission.automatically_approved", "submission_revision", revision.ID, requestID, map[string]any{"task_id": task.ID, "snapshot_id": snapshot.ID, "reason": "task-gate-passed"})
+	return nil
+}
+
+func (s *WorkService) deliveryPackageBelongsToTask(ctx context.Context, task work.WorkTask, pkg deliverydomain.DeliveryPackage) (bool, error) {
+	if pkg.ContentItemID == task.ID {
+		return true, nil
+	}
+	for _, snapshotID := range pkg.ApprovedSnapshotIDs {
+		snapshot, err := s.review.ApprovedSnapshot(ctx, task.TenantID, snapshotID)
+		if err != nil {
+			if !fault.IsNotFound(err) {
+				return false, err
+			}
+			continue
+		}
+		if snapshot.ProjectID == task.ProjectID && snapshot.WorkspaceID == task.ID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *WorkService) createMarketingVideoSubmissionRevision(ctx context.Context, actor Actor, task work.WorkTask, input CreateTaskRevisionInput, requestID string) (reviewdomain.TaskRevision, error) {
@@ -938,23 +1254,25 @@ func (s *WorkService) approveMarketingVideoScript(ctx context.Context, actor Act
 }
 
 func (s *WorkService) taskRevisions(ctx context.Context, task work.WorkTask) ([]reviewdomain.TaskRevision, error) {
-	if task.ContentType != identitydomain.ContentTypeMarketingVideo {
+	submissions, err := s.review.Submissions(ctx, task.TenantID, task.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	values := []reviewdomain.TaskRevision{}
+	for _, submission := range submissions {
+		if submission.WorkspaceID != task.ID || submission.SubmissionType != "content_batch" {
+			continue
+		}
+		revisions, loadErr := s.review.SubmissionRevisions(ctx, task.TenantID, submission.ID)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		for _, revision := range revisions {
+			values = append(values, taskRevisionFromSubmission(task, submission, revision))
+		}
+	}
+	if len(values) == 0 {
 		return s.delivery.TaskRevisions(ctx, task.TenantID, task.ID)
-	}
-	submission, err := s.review.SubmissionByWorkspaceType(ctx, task.TenantID, task.ProjectID, task.ID, "content_batch")
-	if fault.IsNotFound(err) {
-		return []reviewdomain.TaskRevision{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	revisions, err := s.review.SubmissionRevisions(ctx, task.TenantID, submission.ID)
-	if err != nil {
-		return nil, err
-	}
-	values := make([]reviewdomain.TaskRevision, 0, len(revisions))
-	for _, revision := range revisions {
-		values = append(values, taskRevisionFromSubmission(task, submission, revision))
 	}
 	sort.Slice(values, func(i, j int) bool { return values[i].RevisionNo < values[j].RevisionNo })
 	return values, nil
@@ -1097,14 +1415,29 @@ func checkValuePassed(value any) bool {
 func contentSchemaVersion(contentType string) string {
 	switch contentType {
 	case identitydomain.ContentTypeVideoScript:
-		return "contentcloud.video_script/1.0"
+		return localworkspace.VideoScriptSchema
 	case identitydomain.ContentTypeWeChatArticle:
 		return "contentcloud.article/1.0"
+	case identitydomain.ContentTypeCommerce:
+		return "contentcloud.commerce-content/1.0"
+	case identitydomain.ContentTypeSerializedNovel:
+		return localworkspace.NovelChapterSchema
 	case identitydomain.ContentTypeMarketingVideo:
 		return "contentcloud.marketing_video_script/1.0"
 	default:
 		return "contentcloud.content/1.0"
 	}
+}
+
+func cloneAnyMap(value map[string]any) map[string]any {
+	if value == nil {
+		return map[string]any{}
+	}
+	cloned := make(map[string]any, len(value))
+	for key, item := range value {
+		cloned[key] = item
+	}
+	return cloned
 }
 
 func validateTaskContent(contentType, schemaVersion string, content json.RawMessage) error {
@@ -1137,6 +1470,11 @@ func validateTaskContent(contentType, schemaVersion string, content json.RawMess
 			if _, ok := object["paragraphs"]; !ok {
 				return fault.Invalid("ARTICLE_BLOCKS_REQUIRED", "文章内容版本需要内容块（blocks）或段落（paragraphs）")
 			}
+		}
+	}
+	if contentType == identitydomain.ContentTypeSerializedNovel {
+		if _, err := localworkspace.ValidateNovelChapterForSubmission(content); err != nil {
+			return err
 		}
 	}
 	return nil

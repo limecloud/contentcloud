@@ -9,6 +9,14 @@ import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
 
 const releaseSigningEnabled = process.env.CONTENTCLOUD_DESKTOP_SIGN === "1";
+const desktopProductName = "Content Work OS";
+const desktopExecutableName = "content-work-os";
+const desktopSquirrelName = "content_work_os";
+const linuxMakerOptions = {
+  name: desktopExecutableName,
+  productName: desktopProductName,
+  bin: desktopExecutableName,
+};
 
 function macSignOptions() {
   if (process.platform !== "darwin" || !releaseSigningEnabled) {
@@ -49,8 +57,9 @@ function macNotarizeOptions() {
 }
 
 function squirrelOptions() {
+  const identity = { name: desktopSquirrelName };
   if (process.platform !== "win32" || !releaseSigningEnabled) {
-    return {};
+    return identity;
   }
 
   const certificateFile =
@@ -63,21 +72,21 @@ function squirrelOptions() {
     );
   }
 
-  return { certificateFile, certificatePassword };
+  return { ...identity, certificateFile, certificatePassword };
 }
 
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
-    name: "Content Work OS",
-    executableName: "content-work-os",
+    name: desktopProductName,
+    executableName: desktopExecutableName,
     appBundleId: "run.zhongcao.contentcloud.desktop",
-    protocols: [{ name: "Content Work OS", schemes: ["contentcloud"] }],
+    protocols: [{ name: desktopProductName, schemes: ["contentcloud"] }],
     osxSign: macSignOptions(),
     osxNotarize: macNotarizeOptions(),
     win32metadata: {
       CompanyName: "ContentCloud",
-      ProductName: "Content Work OS",
+      ProductName: desktopProductName,
       FileDescription: "ContentCloud project workspace desktop",
     },
   },
@@ -86,8 +95,8 @@ const config: ForgeConfig = {
     new MakerSquirrel(squirrelOptions()),
     new MakerZIP({}, ["darwin"]),
     new MakerDMG({}),
-    new MakerDeb({}),
-    new MakerRpm({}),
+    new MakerDeb({ options: linuxMakerOptions }),
+    new MakerRpm({ options: linuxMakerOptions }),
   ],
   plugins: [
     new VitePlugin({

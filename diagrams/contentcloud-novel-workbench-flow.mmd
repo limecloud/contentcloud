@@ -1,0 +1,23 @@
+flowchart TB
+    subgraph Creation[业务工作台：创作准备]
+        direction LR
+        Brief[小说业务简报<br/>读者 · 平台 · 文风 · 关键词]
+        Canon[Canon<br/>世界规则 · 角色 · 时间线]
+        Outline[卷章规划<br/>章节目标 · 伏笔与引用]
+        Chapter[章节候选<br/>正文 · 角色 · 地点 · 时间线]
+        Lint[连续性校验<br/>review_ready 门禁]
+        Brief --> Canon --> Outline --> Chapter --> Lint
+    end
+
+    subgraph Platform[统一平台：治理、产物与效果]
+        direction LR
+        Submit[SubmissionRevision<br/>固定 Schema 与引用摘要]
+        Review[内部审核 + 客户 OTP<br/>批准或请求修改]
+        Snapshot[ApprovedSnapshot<br/>不可变批准章节]
+        Delivery[Artifact + DeliveryPackage<br/>JSON · Markdown · XLSX]
+        Results[PerformanceObservation<br/>RatingDecision]
+        Submit --> Review --> Snapshot --> Delivery --> Results
+    end
+
+    Creation -->|review_ready 章节提交| Platform
+    Platform -. 修改要求与下一章学习候选 .-> Creation

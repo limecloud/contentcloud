@@ -176,12 +176,75 @@ func TestStoryboardShotIDsCannotEscapeTheirPackage(t *testing.T) {
 		ShotID: "../../outside", StartMS: 0, EndMS: 1000, Role: "hook", ImagePromptZH: "首帧", PlanB: "实拍",
 		NegativeConstraints: []string{"无文字"}, AcceptanceCriteria: []string{"主体清晰"},
 	}
-	assertV5DomainCode(t, shot.Validate(nil, false), "STORYBOARD_SHOT_INVALID")
+	assertV5DomainCode(t, shot.Validate(nil, nil, false), "STORYBOARD_SHOT_INVALID")
 
 	colonName := storyboardShotDirectoryName("shot:01")
 	if strings.ContainsAny(colonName, `:/\\`) || colonName == storyboardShotDirectoryName("shot-01") {
 		t.Fatalf("storyboard shot directory names must be portable and collision-resistant: %q", colonName)
 	}
+}
+
+func TestLockedStoryboardRejectsVisualIdentityAnchorDrift(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspace")
+	now := time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
+	if _, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", WorkspaceID: "workspace-1", Target: "none", CLIVersion: "test", Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{
+		"50-production/media/storyboards/storyboard-visual/anchors/product.png",
+		"50-production/media/storyboards/storyboard-visual/shots/shot-1/first-frame.png",
+		"50-production/media/storyboards/storyboard-visual/review-sheet.png",
+	}
+	for _, relative := range paths {
+		absolute := filepath.Join(root, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(relative), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	anchor, err := storyboardAssetFromFile(root, paths[0], "identity_anchor", "", []string{"rights:product"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := storyboardAssetFromFile(root, paths[1], "first_frame", "shot-1", []string{"rights:product"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := storyboardAssetFromFile(root, paths[2], "review_sheet", "", []string{"rights:product"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storyboard := work.StoryboardPackage{
+		ID: "storyboard-visual", Type: "storyboard_package", SchemaVersion: work.StoryboardPackageSchema, ProjectID: "project-1", ApprovedSnapshotID: "content-snapshot", ContentItemID: "content-1",
+		GeneratorCapability: work.CapabilityRef{ID: "image.test", Version: "1.0.0", Digest: "sha256:" + strings.Repeat("a", 64)}, Status: "review_ready",
+		Assets:                []work.StoryboardAsset{anchor, first, review},
+		VisualBindings:        []work.StoryboardVisualBinding{{ID: "visual:product-1", Kind: "product", SourceRef: "material:product-1", SourceDigest: "sha256:" + strings.Repeat("b", 64), AnchorAssetID: anchor.ID, RightsRefs: []string{"rights:product"}}},
+		Shots:                 []work.StoryboardShot{{ShotID: "shot-1", StartMS: 0, EndMS: 1000, Role: "hook", FirstFrameArtifactID: first.ID, ImagePromptZH: "使用已锁定产品参考", PlanB: "使用实拍", NegativeConstraints: []string{"不得修改包装"}, AcceptanceCriteria: []string{"产品身份可识别"}, VisualBindingRefs: []string{"visual:product-1"}}},
+		ReviewSheetArtifactID: review.ID, RightsRefs: []string{"rights:product"}, SourceDigest: "sha256:" + strings.Repeat("c", 64),
+	}
+	for _, asset := range storyboard.Assets {
+		if err := asset.Validate(); err != nil {
+			t.Fatalf("visual binding fixture asset invalid: %#v: %v", asset, err)
+		}
+	}
+	storyboard.LockedDigest, err = storyboard.ComputedLockedDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storyboard.Validate(true); err != nil {
+		t.Fatal(err)
+	}
+	storeApprovedObject(t, root, "storyboard-visual-snapshot", "storyboard", storyboard.ID, storyboard, now)
+	if _, err := LoadLockedStoryboardSnapshot(root, "storyboard-visual-snapshot", storyboard.ID); err != nil {
+		t.Fatalf("locked visual storyboard should load before drift: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(paths[0])), []byte("replacement-product-image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = LoadLockedStoryboardSnapshot(root, "storyboard-visual-snapshot", storyboard.ID)
+	assertV5DomainCode(t, err, "STORYBOARD_LOCKED_MEDIA_DRIFT")
 }
 
 func assertV5DomainCode(t *testing.T, err error, code string) {

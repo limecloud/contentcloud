@@ -1,16 +1,18 @@
-export type AdminRoute = 'dashboard'|'products'|'releases'|'customers'|'capabilities'|'skills'|'executors'|'providers'|'jobs'|'alerts'|'tenants'|'audit'|'costs';
+export type AdminRoute = 'dashboard'|'products'|'releases'|'customers'|'workbenches'|'capabilities'|'skills'|'executors'|'providers'|'jobs'|'alerts'|'cleanup'|'tenants'|'audit'|'costs';
 
 const adminPaths: Record<AdminRoute,string> = {
   dashboard: '/admin/dashboard',
   products: '/admin/products',
   releases: '/admin/releases',
   customers: '/admin/customers',
+  workbenches: '/admin/workbenches',
   capabilities: '/admin/capabilities',
   skills: '/admin/skills',
   executors: '/admin/executors',
   providers: '/admin/providers',
   jobs: '/admin/jobs',
   alerts: '/admin/alerts',
+  cleanup: '/admin/cleanup',
   tenants: '/admin/tenants',
   audit: '/admin/audit',
   costs: '/admin/costs'

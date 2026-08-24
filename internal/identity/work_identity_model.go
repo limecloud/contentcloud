@@ -65,6 +65,7 @@ const (
 	ContentTypeVideoScript     = "video_script"
 	ContentTypeMarketingVideo  = "marketing_video"
 	ContentTypeWeChatArticle   = "wechat_article"
+	ContentTypeCommerce        = "commerce"
 	ContentTypeSerializedNovel = "serialized_novel"
 	DefaultProjectContentType  = ContentTypeMarketingVideo
 )
@@ -72,6 +73,7 @@ const (
 var optionalTenantContentTypes = map[string]struct{}{
 	ContentTypeMarketingVideo:  {},
 	ContentTypeWeChatArticle:   {},
+	ContentTypeCommerce:        {},
 	ContentTypeSerializedNovel: {},
 }
 

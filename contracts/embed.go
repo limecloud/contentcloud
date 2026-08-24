@@ -35,6 +35,12 @@ var ArticleBriefV1Schema []byte
 //go:embed article-1.0.schema.json
 var ArticleV1Schema []byte
 
+//go:embed commerce-content-1.0.schema.json
+var CommerceContentV1Schema []byte
+
+//go:embed video-script-1.0.schema.json
+var VideoScriptV1Schema []byte
+
 //go:embed wechat-delivery-1.0.schema.json
 var WeChatDeliveryV1Schema []byte
 

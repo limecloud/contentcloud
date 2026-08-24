@@ -1,0 +1,27 @@
+sequenceDiagram
+    actor User as 使用者
+    participant Workbench as 视频工作台
+    participant BFF as 客户体验 BFF
+    participant Domain as 内容与审核域
+    participant Runtime as 执行内核
+    participant Provider as 视频服务商
+
+    User->>Workbench: 选择视频工作台并创建项目
+    Workbench->>BFF: 提交项目、素材和创作目标
+    BFF->>Domain: 创建任务输入与版本引用
+    Domain-->>BFF: 返回客户步骤与下一动作
+    BFF-->>Workbench: 显示项目进度和待办
+
+    User->>Workbench: 确认剧本和分镜
+    Workbench->>BFF: 请求进入视频生成
+    BFF->>Domain: 固定批准版本与生成准入
+    Domain->>Runtime: 启动一次受治理执行
+    Runtime->>Provider: 提交视频生成请求
+    Provider-->>Runtime: 返回任务状态和结果
+    Runtime->>Domain: 写入候选 Artifact 与费用回执
+    Domain-->>Workbench: 显示候选视频和比较信息
+
+    User->>Workbench: 选择候选并确认成片
+    Workbench->>BFF: 请求生成交付包
+    BFF->>Domain: 创建最终审核和交付事实
+    Domain-->>Workbench: 返回剪映草稿、交付包和下一步

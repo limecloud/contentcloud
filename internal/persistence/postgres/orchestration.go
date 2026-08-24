@@ -353,7 +353,7 @@ func (s *Store) CreateWorkTask(ctx context.Context, value work.WorkTask) error {
 		return err
 	}
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO work_tasks(tenant_id,id,project_id,environment_id,sop_id,sop_version,sop_digest,title,intent,content_type,input_refs,requested_output,assignee_user_id,priority,due_at,risk_profile,idempotency_key,status,current_stage_id,next_action,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`, value.TenantID, value.ID, value.ProjectID, value.EnvironmentID, value.SOPID, value.SOPVersion, value.SOPDigest, value.Title, value.Intent, value.ContentType, jsonArrayValue(value.InputRefs), jsonValue(value.RequestedOutput), value.AssigneeUserID, value.Priority, value.DueAt, value.RiskProfile, value.IdempotencyKey, value.Status, value.CurrentStageID, value.NextAction, value.CreatedBy, value.CreatedAt, value.UpdatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO work_tasks(tenant_id,id,project_id,environment_id,sop_id,sop_version,sop_digest,title,intent,content_type,input_refs,requested_output,assignee_user_id,priority,due_at,risk_profile,idempotency_key,status,current_stage_id,next_action,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`, value.TenantID, value.ID, value.ProjectID, value.EnvironmentID, value.SOPID, value.SOPVersion, value.SOPDigest, value.Title, value.Intent, value.ContentType, jsonArrayValue(value.InputRefs), jsonObjectValue(value.RequestedOutput), value.AssigneeUserID, value.Priority, value.DueAt, value.RiskProfile, value.IdempotencyKey, value.Status, value.CurrentStageID, value.NextAction, value.CreatedBy, value.CreatedAt, value.UpdatedAt)
 		return dbError(err)
 	})
 }
@@ -512,7 +512,7 @@ func (s *Store) SaveWorkTask(ctx context.Context, value work.WorkTask) error {
 		return err
 	}
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
-		command, err := tx.Exec(ctx, `UPDATE work_tasks SET input_refs=$3,requested_output=$4,assignee_user_id=$5,priority=$6,due_at=$7,risk_profile=$8,status=$9,current_stage_id=$10,next_action=$11,updated_at=$12 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, jsonArrayValue(value.InputRefs), jsonValue(value.RequestedOutput), value.AssigneeUserID, value.Priority, value.DueAt, value.RiskProfile, value.Status, value.CurrentStageID, value.NextAction, value.UpdatedAt)
+		command, err := tx.Exec(ctx, `UPDATE work_tasks SET input_refs=$3,requested_output=$4,assignee_user_id=$5,priority=$6,due_at=$7,risk_profile=$8,status=$9,current_stage_id=$10,next_action=$11,updated_at=$12 WHERE tenant_id=$1 AND id=$2`, value.TenantID, value.ID, jsonArrayValue(value.InputRefs), jsonObjectValue(value.RequestedOutput), value.AssigneeUserID, value.Priority, value.DueAt, value.RiskProfile, value.Status, value.CurrentStageID, value.NextAction, value.UpdatedAt)
 		if err == nil && command.RowsAffected() == 0 {
 			return fault.NotFound("任务")
 		}

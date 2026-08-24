@@ -227,6 +227,62 @@ type RuntimeCheckpointView struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+type RuntimePlanNodeView struct {
+	Key              string   `json:"key"`
+	Kind             string   `json:"kind"`
+	StageID          string   `json:"stage_id,omitempty"`
+	GateID           string   `json:"gate_id,omitempty"`
+	Name             string   `json:"name"`
+	DependsOn        []string `json:"depends_on"`
+	InputRefs        []string `json:"input_refs"`
+	OutputSchema     string   `json:"output_schema"`
+	CustomerStepID   string   `json:"customer_step_id,omitempty"`
+	SideEffectClass  string   `json:"side_effect_class,omitempty"`
+	RetryMaxAttempts int      `json:"retry_max_attempts"`
+}
+
+type RuntimePlanLimitsView struct {
+	MaxNodes              int   `json:"max_nodes"`
+	MaxDepth              int   `json:"max_depth"`
+	MaxDynamicDescendants int   `json:"max_dynamic_descendants"`
+	MaxConcurrentNodes    int   `json:"max_concurrent_nodes"`
+	MaxAttemptsPerNode    int   `json:"max_attempts_per_node"`
+	MaxCostMinor          int64 `json:"max_cost_minor"`
+}
+
+type RuntimeFanoutMemberView struct {
+	ID           string    `json:"id"`
+	MemberKey    string    `json:"member_key"`
+	ItemKey      string    `json:"item_key"`
+	ItemDigest   string    `json:"item_digest"`
+	Generation   int       `json:"generation"`
+	NodeRunID    string    `json:"node_run_id"`
+	State        string    `json:"state"`
+	OutputRefs   []string  `json:"output_refs"`
+	OutputDigest string    `json:"output_digest,omitempty"`
+	ErrorCode    string    `json:"error_code,omitempty"`
+	Version      int       `json:"version"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type RuntimeFanoutSetView struct {
+	ID               string                    `json:"id"`
+	MapNodeKey       string                    `json:"map_node_key"`
+	JoinNodeKey      string                    `json:"join_node_key"`
+	SourceCollection string                    `json:"source_collection,omitempty"`
+	SourceRevision   int                       `json:"source_revision,omitempty"`
+	SourceWatermark  int64                     `json:"source_watermark,omitempty"`
+	Generation       int                       `json:"generation"`
+	MemberCount      int                       `json:"member_count"`
+	MembershipDigest string                    `json:"membership_digest"`
+	JoinPolicy       contentruntime.JoinPolicy `json:"join_policy"`
+	Status           string                    `json:"status"`
+	Version          int                       `json:"version"`
+	Members          []RuntimeFanoutMemberView `json:"members"`
+	CreatedAt        time.Time                 `json:"created_at"`
+	UpdatedAt        time.Time                 `json:"updated_at"`
+}
+
 type RuntimeContextView struct {
 	ID            string    `json:"id"`
 	NodeRunID     string    `json:"node_run_id"`
@@ -264,15 +320,21 @@ type RuntimeAgentView struct {
 }
 
 type RuntimePlanView struct {
-	ID            string                               `json:"id"`
-	SOPID         string                               `json:"sop_id"`
-	SOPVersion    int                                  `json:"sop_version"`
-	SOPDigest     string                               `json:"sop_digest"`
-	SchemaVersion string                               `json:"schema_version"`
-	Digest        string                               `json:"digest"`
-	Edges         []RuntimePlanEdgeView                `json:"edges"`
-	CustomerSteps []contentruntime.JobPlanCustomerStep `json:"customer_steps"`
-	CompiledAt    time.Time                            `json:"compiled_at"`
+	ID             string                               `json:"id"`
+	BaseRevisionID string                               `json:"base_revision_id,omitempty"`
+	GraphVersion   int                                  `json:"graph_version"`
+	PatchKey       string                               `json:"patch_key,omitempty"`
+	PatchReason    string                               `json:"patch_reason,omitempty"`
+	SOPID          string                               `json:"sop_id"`
+	SOPVersion     int                                  `json:"sop_version"`
+	SOPDigest      string                               `json:"sop_digest"`
+	SchemaVersion  string                               `json:"schema_version"`
+	Digest         string                               `json:"digest"`
+	Nodes          []RuntimePlanNodeView                `json:"nodes"`
+	Edges          []RuntimePlanEdgeView                `json:"edges"`
+	CustomerSteps  []contentruntime.JobPlanCustomerStep `json:"customer_steps"`
+	Limits         RuntimePlanLimitsView                `json:"limits"`
+	CompiledAt     time.Time                            `json:"compiled_at"`
 }
 
 type RuntimePlanEdgeView struct {
@@ -308,7 +370,34 @@ type RuntimeJobDetail struct {
 	Gates                   []RuntimeGateView                   `json:"gates"`
 	StateCollections        []RuntimeStateCollectionView        `json:"state_collections"`
 	StateRecords            []RuntimeStateRecordView            `json:"state_records"`
+	FanoutSets              []RuntimeFanoutSetView              `json:"fanout_sets"`
 	GeneratedAt             time.Time                           `json:"generated_at"`
+}
+
+// RuntimeGraphPatchInput is the application boundary for a monotonic graph
+// change. Existing nodes and edges are never editable; Runtime validates and
+// commits the immutable next revision atomically.
+type RuntimeGraphPatchInput struct {
+	ExpectedGraphVersion  int                          `json:"expected_graph_version"`
+	IdempotencyKey        string                       `json:"idempotency_key"`
+	Reason                string                       `json:"reason"`
+	AddNodes              []contentruntime.JobPlanNode `json:"add_nodes"`
+	AddEdges              []contentruntime.JobPlanEdge `json:"add_edges"`
+	CancelPendingNodeKeys []string                     `json:"cancel_pending_node_keys"`
+}
+
+type RuntimeFanoutSetInput struct {
+	MapNodeKey       string                           `json:"map_node_key"`
+	JoinNodeKey      string                           `json:"join_node_key"`
+	SourceCollection string                           `json:"source_collection"`
+	SourceRevision   int                              `json:"source_revision"`
+	SourceWatermark  int64                            `json:"source_watermark"`
+	Generation       int                              `json:"generation"`
+	IdempotencyKey   string                           `json:"idempotency_key"`
+	Reason           string                           `json:"reason"`
+	JoinPolicy       contentruntime.JoinPolicy        `json:"join_policy"`
+	NodeTemplate     contentruntime.JobPlanNode       `json:"node_template"`
+	Items            []contentruntime.FanoutItemInput `json:"items"`
 }
 
 // RuntimeReplayResult is a read-only execution audit result. Replay never
@@ -410,6 +499,10 @@ func (s *RuntimeService) RuntimeJobDetail(ctx context.Context, actor Actor, jobI
 	if err != nil {
 		return RuntimeJobDetail{}, err
 	}
+	fanoutSets, err := s.runtimeService.Repository().FanoutSets(ctx, actor.TenantID, job.ID)
+	if err != nil {
+		return RuntimeJobDetail{}, err
+	}
 	taskContext, err := s.runtimeTaskContext(ctx, actor, job)
 	if err != nil {
 		return RuntimeJobDetail{}, err
@@ -422,7 +515,7 @@ func (s *RuntimeService) RuntimeJobDetail(ctx context.Context, actor Actor, jobI
 	for _, edge := range plan.Edges {
 		planEdges = append(planEdges, RuntimePlanEdgeView{From: edge.From, To: edge.To})
 	}
-	result := RuntimeJobDetail{Summary: summary, Plan: RuntimePlanView{ID: plan.ID, SOPID: plan.SOPID, SOPVersion: plan.SOPVersion, SOPDigest: plan.SOPDigest, SchemaVersion: plan.SchemaVersion, Digest: plan.Digest, Edges: planEdges, CustomerSteps: plan.CustomerSteps, CompiledAt: plan.CompiledAt}, Nodes: []RuntimeNodeView{}, Attempts: []RuntimeAttemptView{}, Events: []RuntimeEventView{}, Effects: []RuntimeEffectView{}, ProviderAttempts: []RuntimeProviderAttemptView{}, ProviderBills: []RuntimeProviderBillView{}, ProviderReconciliations: []RuntimeProviderReconciliationView{}, Checkpoints: []RuntimeCheckpointView{}, Agents: []RuntimeAgentView{}, Gates: []RuntimeGateView{}, StateCollections: []RuntimeStateCollectionView{}, StateRecords: []RuntimeStateRecordView{}, GeneratedAt: s.now().UTC()}
+	result := RuntimeJobDetail{Summary: summary, Plan: runtimePlanView(plan, planEdges), Nodes: []RuntimeNodeView{}, Attempts: []RuntimeAttemptView{}, Events: []RuntimeEventView{}, Effects: []RuntimeEffectView{}, ProviderAttempts: []RuntimeProviderAttemptView{}, ProviderBills: []RuntimeProviderBillView{}, ProviderReconciliations: []RuntimeProviderReconciliationView{}, Checkpoints: []RuntimeCheckpointView{}, Agents: []RuntimeAgentView{}, Gates: []RuntimeGateView{}, StateCollections: []RuntimeStateCollectionView{}, StateRecords: []RuntimeStateRecordView{}, FanoutSets: []RuntimeFanoutSetView{}, GeneratedAt: s.now().UTC()}
 	result.Nodes = append(result.Nodes, runtimeNodeViews(plan, nodes)...)
 	for _, attempt := range attempts {
 		result.Attempts = append(result.Attempts, RuntimeAttemptView{
@@ -471,6 +564,17 @@ func (s *RuntimeService) RuntimeJobDetail(ctx context.Context, actor Actor, jobI
 			value, artifactRef := runtimeStateRecordValue(record)
 			result.StateRecords = append(result.StateRecords, RuntimeStateRecordView{ID: record.ID, CollectionID: record.CollectionID, Key: record.Key, Value: value, ArtifactRef: artifactRef, SchemaRevision: record.SchemaRevision, Version: record.Version, Digest: record.Digest, UpdatedBy: record.UpdatedBy, UpdatedAt: record.UpdatedAt})
 		}
+	}
+	for _, set := range fanoutSets {
+		members, memberErr := s.runtimeService.Repository().FanoutMembers(ctx, actor.TenantID, set.ID)
+		if memberErr != nil {
+			return RuntimeJobDetail{}, memberErr
+		}
+		view := RuntimeFanoutSetView{ID: set.ID, MapNodeKey: set.MapNodeKey, JoinNodeKey: set.JoinNodeKey, SourceCollection: set.SourceCollection, SourceRevision: set.SourceRevision, SourceWatermark: set.SourceWatermark, Generation: set.Generation, MemberCount: set.MemberCount, MembershipDigest: set.MembershipDigest, JoinPolicy: set.JoinPolicy, Status: set.Status, Version: set.Version, Members: []RuntimeFanoutMemberView{}, CreatedAt: set.CreatedAt, UpdatedAt: set.UpdatedAt}
+		for _, member := range members {
+			view.Members = append(view.Members, RuntimeFanoutMemberView{ID: member.ID, MemberKey: member.MemberKey, ItemKey: member.ItemKey, ItemDigest: member.ItemDigest, Generation: member.Generation, NodeRunID: member.NodeRunID, State: member.State, OutputRefs: append([]string{}, member.OutputRefs...), OutputDigest: member.OutputDigest, ErrorCode: member.ErrorCode, Version: member.Version, UpdatedAt: member.UpdatedAt})
+		}
+		result.FanoutSets = append(result.FanoutSets, view)
 	}
 	contextViewByID := make(map[string]contentruntime.ContextView, len(contextViews))
 	for _, view := range contextViews {
@@ -589,6 +693,24 @@ func normalizeRuntimePage(after, limit int) (int, int) {
 	return after, limit
 }
 
+func runtimePlanView(plan contentruntime.JobPlanRevision, edges []RuntimePlanEdgeView) RuntimePlanView {
+	view := RuntimePlanView{
+		ID: plan.ID, BaseRevisionID: plan.BaseRevisionID, GraphVersion: plan.GraphVersion,
+		PatchKey: plan.PatchKey, PatchReason: plan.PatchReason, SOPID: plan.SOPID,
+		SOPVersion: plan.SOPVersion, SOPDigest: plan.SOPDigest, SchemaVersion: plan.SchemaVersion,
+		Digest: plan.Digest, Edges: edges, CustomerSteps: plan.CustomerSteps,
+		Nodes: []RuntimePlanNodeView{}, Limits: RuntimePlanLimitsView{
+			MaxNodes: plan.Limits.MaxNodes, MaxDepth: plan.Limits.MaxDepth,
+			MaxDynamicDescendants: plan.Limits.MaxDynamicDescendants, MaxConcurrentNodes: plan.Limits.MaxConcurrentNodes,
+			MaxAttemptsPerNode: plan.Limits.MaxAttemptsPerNode, MaxCostMinor: plan.Limits.MaxCostMinor,
+		}, CompiledAt: plan.CompiledAt,
+	}
+	for _, node := range plan.Nodes {
+		view.Nodes = append(view.Nodes, RuntimePlanNodeView{Key: node.Key, Kind: node.Kind, StageID: node.StageID, GateID: node.GateID, Name: node.Name, DependsOn: append([]string{}, node.DependsOn...), InputRefs: append([]string{}, node.InputRefs...), OutputSchema: node.OutputSchema, CustomerStepID: node.CustomerStepID, SideEffectClass: node.SideEffectClass, RetryMaxAttempts: node.RetryMaxAttempts})
+	}
+	return view
+}
+
 func runtimeNodeViews(plan contentruntime.JobPlanRevision, nodes []contentruntime.NodeRun) []RuntimeNodeView {
 	nodeSpecs := make(map[string]contentruntime.JobPlanNode, len(plan.Nodes))
 	for _, node := range plan.Nodes {
@@ -646,6 +768,88 @@ func (s *RuntimeService) RuntimeJobEvents(ctx context.Context, actor Actor, jobI
 		result = append(result, RuntimeEventView{ID: event.ID, Sequence: event.Sequence, Type: event.Type, NodeKey: event.NodeKey, ActorType: event.ActorType, Payload: sanitizeRuntimeMap(event.Payload), OccurredAt: event.OccurredAt})
 	}
 	return result, nil
+}
+
+func (s *RuntimeService) PatchRuntimeGraph(ctx context.Context, actor Actor, jobID string, input RuntimeGraphPatchInput, requestID string) (RuntimeJobDetail, error) {
+	if err := requireRuntimeOperator(actor); err != nil {
+		return RuntimeJobDetail{}, err
+	}
+	if s.runtimeService == nil {
+		return RuntimeJobDetail{}, fault.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+	}
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		return RuntimeJobDetail{}, fault.Invalid("RUNTIME_GRAPH_PATCH_INPUT_INVALID", "执行图变更缺少执行实例")
+	}
+	job, err := s.runtimeService.Job(ctx, actor.TenantID, jobID)
+	if err != nil {
+		return RuntimeJobDetail{}, err
+	}
+	if !runtimeGraphMutationAllowed(job.State) {
+		return RuntimeJobDetail{}, fault.Conflict("RUNTIME_GRAPH_MUTATION_NOT_ALLOWED", "执行实例当前状态不允许修改动态图，请先恢复或创建新的执行分支")
+	}
+	_, err = s.runtimeService.PatchGraph(ctx, actor.TenantID, jobID, actor.UserID, contentruntime.GraphPatch{
+		ExpectedGraphVersion:  input.ExpectedGraphVersion,
+		IdempotencyKey:        input.IdempotencyKey,
+		Reason:                input.Reason,
+		AddNodes:              input.AddNodes,
+		AddEdges:              input.AddEdges,
+		CancelPendingNodeKeys: input.CancelPendingNodeKeys,
+	})
+	if err != nil {
+		return RuntimeJobDetail{}, err
+	}
+	s.audit(ctx, actor, "", "runtime.graph_patched", "job_run", jobID, requestID, map[string]any{"graph_version": input.ExpectedGraphVersion + 1, "added_nodes": len(input.AddNodes), "cancelled_nodes": len(input.CancelPendingNodeKeys)})
+	return s.RuntimeJobDetail(ctx, actor, jobID)
+}
+
+func (s *RuntimeService) CreateRuntimeFanoutSet(ctx context.Context, actor Actor, jobID string, input RuntimeFanoutSetInput, requestID string) (RuntimeJobDetail, error) {
+	if err := requireRuntimeOperator(actor); err != nil {
+		return RuntimeJobDetail{}, err
+	}
+	if s.runtimeService == nil {
+		return RuntimeJobDetail{}, fault.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+	}
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		return RuntimeJobDetail{}, fault.Invalid("RUNTIME_FANOUT_INPUT_INVALID", "Fanout 缺少执行实例")
+	}
+	job, err := s.runtimeService.Job(ctx, actor.TenantID, jobID)
+	if err != nil {
+		return RuntimeJobDetail{}, err
+	}
+	if !runtimeGraphMutationAllowed(job.State) {
+		return RuntimeJobDetail{}, fault.Conflict("RUNTIME_GRAPH_MUTATION_NOT_ALLOWED", "执行实例当前状态不允许创建 Fanout，请先恢复或创建新的执行分支")
+	}
+	_, err = s.runtimeService.CreateFanoutSet(ctx, contentruntime.CreateFanoutSetInput{
+		TenantID: actor.TenantID, JobRunID: jobID, MapNodeKey: input.MapNodeKey, JoinNodeKey: input.JoinNodeKey,
+		SourceCollection: input.SourceCollection, SourceRevision: input.SourceRevision, SourceWatermark: input.SourceWatermark,
+		Generation: input.Generation, IdempotencyKey: input.IdempotencyKey, Reason: input.Reason, JoinPolicy: input.JoinPolicy,
+		NodeTemplate: input.NodeTemplate, Items: input.Items,
+	})
+	if err != nil {
+		return RuntimeJobDetail{}, err
+	}
+	s.audit(ctx, actor, "", "runtime.fanout_created", "job_run", jobID, requestID, map[string]any{"map_node_key": input.MapNodeKey, "join_node_key": input.JoinNodeKey, "item_count": len(input.Items)})
+	return s.RuntimeJobDetail(ctx, actor, jobID)
+}
+
+func (s *RuntimeService) JoinRuntimeFanoutSet(ctx context.Context, actor Actor, setID, requestID string) (RuntimeJobDetail, error) {
+	if err := requireRuntimeOperator(actor); err != nil {
+		return RuntimeJobDetail{}, err
+	}
+	if s.runtimeService == nil {
+		return RuntimeJobDetail{}, fault.Policy("RUNTIME_UNAVAILABLE", "当前运行时尚未配置持久化存储", "联系平台运营人员启用 Runtime")
+	}
+	set, err := s.runtimeService.FanoutSet(ctx, actor.TenantID, strings.TrimSpace(setID))
+	if err != nil {
+		return RuntimeJobDetail{}, err
+	}
+	if _, err := s.runtimeService.JoinFanoutSet(ctx, actor.TenantID, set.ID, actor.UserID); err != nil {
+		return RuntimeJobDetail{}, err
+	}
+	s.audit(ctx, actor, "", "runtime.fanout_joined", "fanout_set", set.ID, requestID, map[string]any{"job_run_id": set.JobRunID})
+	return s.RuntimeJobDetail(ctx, actor, set.JobRunID)
 }
 
 func (s *RuntimeService) RefreshRuntimeJob(ctx context.Context, actor Actor, jobID string) (RuntimeJobDetail, error) {
@@ -916,7 +1120,7 @@ func (s *RuntimeService) runtimeJobSummaryForContext(_ context.Context, _ Actor,
 		BlockingReason: blockingReason, RecommendedAction: recommendedAction, Cost: cost,
 		PlanDigest: job.PlanDigest, BindingDigest: job.BindingDigest, InputDigest: job.InputDigest, RuntimePolicyID: job.RuntimePolicyID,
 		ContractMajor: job.ContractMajor, ContractMinor: job.ContractMinor, RootJobRunID: job.RootJobRunID, SourceJobRunID: job.SourceJobRunID,
-		CheckpointID: job.CheckpointID, Priority: job.Priority, ErrorCode: job.ErrorCode, AllowedActions: runtimeJobActions(job), NodeCount: len(nodes),
+		CheckpointID: job.CheckpointID, Priority: job.Priority, ErrorCode: job.ErrorCode, AllowedActions: runtimeJobActions(job, s.runtimeService.DynamicGraphEnabled(job.TenantID)), NodeCount: len(nodes),
 		NodeStates: states, EffectCount: len(effects), CheckpointCount: len(checkpoints), CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt,
 	}, nil
 }
@@ -1015,8 +1219,11 @@ func runtimeBusinessGuidance(job contentruntime.JobRun, taskContext runtimeTaskC
 	}
 }
 
-func runtimeJobActions(job contentruntime.JobRun) []string {
+func runtimeJobActions(job contentruntime.JobRun, dynamicGraphEnabled bool) []string {
 	actions := []string{"replay", "refresh"}
+	if dynamicGraphEnabled && runtimeGraphMutationAllowed(job.State) {
+		actions = append(actions, "graph_patch", "fanout_create")
+	}
 	if job.State == contentruntime.JobRunPaused {
 		actions = append(actions, "resume")
 	}
@@ -1029,6 +1236,15 @@ func runtimeJobActions(job contentruntime.JobRun) []string {
 		actions = append(actions, "cancel")
 	}
 	return actions
+}
+
+func runtimeGraphMutationAllowed(state string) bool {
+	switch state {
+	case contentruntime.JobRunCreated, contentruntime.JobRunAdmitted, contentruntime.JobRunRunning, contentruntime.JobRunWaitingHuman:
+		return true
+	default:
+		return false
+	}
 }
 
 func runtimeCheckpointActions(job contentruntime.JobRun, plan contentruntime.JobPlanRevision, checkpoint contentruntime.Checkpoint, nodes []contentruntime.NodeRun, effects []contentruntime.ExternalEffect) ([]string, string) {

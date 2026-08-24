@@ -1,8 +1,8 @@
 # ContentCloud 平台基线
 
-状态：`平台基线已建立；首批 Studio、资产与 Runtime 切片已落地，后续变更继续接受产品、运营、工程、安全与设计联合评审`。
+状态：`平台基线已建立；首批 Studio、资产、Runtime 与业务工作台插件契约已落地，后续变更继续接受产品、运营、工程、安全与设计联合评审`。
 
-更新时间：2026-08-08。
+更新时间：2026-08-23。
 
 ## 1. 文档定位
 
@@ -31,19 +31,27 @@ Worker、本地 Agent、服务商和人工完成各自适合的节点
 | 1 | [00-charter-and-principles.md](./00-charter-and-principles.md) | 为什么重构，哪些原则不可破坏 |
 | 2 | [01-product-planes.md](./01-product-planes.md) | 客户、运营、诊断和执行者分别看到什么 |
 | 3 | [运营后台方案](../product/operations-control-plane/README.md) | 运营后台的页面、发布、能力、运行诊断和创作结果治理怎么落地 |
+| 3a | [产品分层架构图](../../diagrams/contentcloud-product-layered-architecture.svg) | 可定制业务工作台如何进入统一编排、事实、治理、执行、产物和效果闭环 |
 | 4 | [Content Work OS Desktop](../product/content-work-os-desktop/README.md) | 持续本地项目、同步、上传、审批和 Codex 协作怎样工作 |
 | 5 | [02-business-domains.md](./02-business-domains.md) | 哪个业务域拥有哪类事实，核心对象如何关联 |
 | 6 | [03-system-and-runtime.md](./03-system-and-runtime.md) | 系统组件、Runtime、执行路径和状态怎样工作 |
 | 7 | [04-code-organization.md](./04-code-organization.md) | 目标代码目录、模块职责和依赖方向是什么 |
 | 8 | [05-contracts-and-extension.md](./05-contracts-and-extension.md) | 新流水线、Schema、API、事件和版本怎样扩展 |
-| 9 | [06-security-quality-operations.md](./06-security-quality-operations.md) | 安全、测试、可观测性和发布门禁是什么 |
-| 10 | [07-migration-and-delivery.md](./07-migration-and-delivery.md) | 如何一次性切换目录并持续交付客户价值 |
-| 11 | [08-developer-experience.md](./08-developer-experience.md) | 开发者如何新增、验证、调试、升级和发布流水线 |
-| 12 | [09-reference-patterns.md](./09-reference-patterns.md) | 外部系统怎样验证产品面、流水线、执行者和结果资产的分层 |
-| 13 | [内容创作 AI Infra](../infra/README.md) | 搜索、采集、编排、产物、发布和反馈的横向基础能力地图 |
-| 14 | [10-current-state-inventory.md](./10-current-state-inventory.md) | 目标架构对应的当前代码证据、门禁基线和精确退场条件 |
-| 15 | [decisions/README.md](./decisions/README.md) | 哪些重大决策必须记录为 ADR |
-| 16 | [PLAN.md](./PLAN.md) | 本轮文档重构的范围、问题和退出条件 |
+| 9 | [06-layered-platform-ownership.md](./06-layered-platform-ownership.md) | 业务工作台、平台编排、执行治理和产物闭环怎样分层 |
+| 10 | [06-security-quality-operations.md](./06-security-quality-operations.md) | 安全、测试、可观测性和发布门禁是什么 |
+| 11 | [07-migration-and-delivery.md](./07-migration-and-delivery.md) | 如何一次性切换目录并持续交付客户价值 |
+| 12 | [08-developer-experience.md](./08-developer-experience.md) | 开发者如何新增、验证、调试、升级和发布流水线 |
+| 13 | [09-reference-patterns.md](./09-reference-patterns.md) | 外部系统怎样验证产品面、流水线、执行者和结果资产的分层 |
+| 14 | [内容创作 AI Infra](../infra/README.md) | 搜索、采集、编排、产物、发布和反馈的横向基础能力地图 |
+| 15 | [10-current-state-inventory.md](./10-current-state-inventory.md) | 目标架构对应的当前代码证据、门禁基线和精确退场条件 |
+| 16 | [decisions/README.md](./decisions/README.md) | 哪些重大决策必须记录为 ADR |
+| 17 | [PLAN.md](./PLAN.md) | 本轮文档重构的范围、问题和退出条件 |
+
+工作台插件入口：
+
+- [Business Workbench Plugin 目录与发布边界](../../workbench-plugins/README.md)
+- [Business Workbench Plugin 1.0.0 Schema](../../contracts/workbench-plugins/1.0.0/workbench-plugin.schema.json)
+- [客户工作台 UI 原型说明](../product/customer-creation-studio/08-business-workbench-prototype.md)
 
 ## 4. 文档事实层级
 

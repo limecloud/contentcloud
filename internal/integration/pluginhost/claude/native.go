@@ -18,7 +18,9 @@ import (
 	"github.com/limecloud/contentcloud/internal/integration/pluginhost"
 )
 
-const minimumClaudeVersion = "2.1.220"
+// MinimumVersion is the lowest Claude Code version covered by the native
+// plugin projection and workspace bootstrap contract.
+const MinimumVersion = "2.1.220"
 
 type Config struct {
 	Binary          string
@@ -108,7 +110,7 @@ func (h *Host) Capabilities(ctx context.Context) (pluginhost.Capabilities, error
 	if err != nil {
 		return pluginhost.Capabilities{}, err
 	}
-	supported := pluginhost.CompareSemanticVersion(version, minimumClaudeVersion) >= 0
+	supported := pluginhost.CompareSemanticVersion(version, MinimumVersion) >= 0
 	return pluginhost.Capabilities{
 		PluginDirectoryInstall: false,
 		Skills:                 supported,
@@ -135,7 +137,7 @@ func (h *Host) Detect(ctx context.Context, target pluginhost.HostTarget) (plugin
 	}
 	if !capabilities.Skills {
 		state.Status = pluginhost.StatusUnsupportedHost
-		state.Reason = "Claude Code 版本低于已验证最低版本 " + minimumClaudeVersion
+		state.Reason = "Claude Code 版本低于已验证最低版本 " + MinimumVersion
 		return state, nil
 	}
 	current, err := h.readInventory(ctx, target)

@@ -376,13 +376,10 @@ func (s *ReviewService) ExportApprovedSnapshot(ctx context.Context, actor Actor,
 	now := s.now().UTC()
 	artifact := snapshotArtifact(snapshot, rendered, file, actor.UserID, now)
 	artifact.ObjectKey = fmt.Sprintf("tenants/%s/projects/%s/approved-snapshots/%s/exports/%s/%s", actor.TenantID, snapshot.ProjectID, snapshot.ID, artifact.ID, artifact.FileName)
-	if err := s.blobs.Put(ctx, artifact.ObjectKey, file.Body); err != nil {
+	if err := s.persistArtifactObject(ctx, artifact, file.Body); err != nil {
 		return artifact, err
 	}
-	if err := s.artifacts.CreateArtifact(ctx, artifact); err != nil {
-		return artifact, err
-	}
-	s.audit(ctx, actor, snapshot.ProjectID, "approved_snapshot.exported", "artifact", artifact.ID, requestID, map[string]any{"approved_snapshot_id": snapshot.ID, "content_item_id": rendered.Item.ID, "format": file.Format, "sha256": file.SHA256})
+	s.audit(ctx, actor, snapshot.ProjectID, "approved_snapshot.exported", "artifact", artifact.ID, requestID, map[string]any{"approved_snapshot_id": snapshot.ID, "content_item_id": rendered.ItemID, "format": file.Format, "sha256": file.SHA256})
 	return artifact, nil
 }
 
@@ -394,22 +391,34 @@ func (s *ReviewService) CreateDeliveryPackage(ctx context.Context, actor Actor, 
 	if err != nil {
 		return deliverydomain.DeliveryPackage{}, err
 	}
+	if existing, err := s.artifacts.DeliveryPackageBySnapshotAndContentItem(ctx, actor.TenantID, snapshot.ID, rendered.ItemID); err == nil {
+		return existing, nil
+	} else if !fault.IsNotFound(err) {
+		return deliverydomain.DeliveryPackage{}, err
+	}
 	now := s.now().UTC()
-	value := deliverydomain.DeliveryPackage{ID: idgen.New(), TenantID: actor.TenantID, ProjectID: snapshot.ProjectID, ApprovedSnapshotIDs: []string{snapshot.ID}, ContentItemID: rendered.Item.ID, Status: "ready", CreatedBy: actor.UserID, CreatedAt: now}
+	value := deliverydomain.DeliveryPackage{ID: idgen.Deterministic("delivery-package:v1:" + actor.TenantID + ":" + snapshot.ID + ":" + rendered.ItemID), TenantID: actor.TenantID, ProjectID: snapshot.ProjectID, ApprovedSnapshotIDs: []string{snapshot.ID}, ContentItemID: rendered.ItemID, Status: "ready", CreatedBy: actor.UserID, CreatedAt: now}
 	artifacts := make([]deliverydomain.Artifact, 0, len(rendered.Files))
+	objectKeys := make([]string, 0, len(rendered.Files))
 	for _, file := range rendered.Files {
 		artifact := snapshotArtifact(snapshot, rendered, file, actor.UserID, now)
 		artifact.ObjectKey = fmt.Sprintf("tenants/%s/projects/%s/delivery-packages/%s/%s", actor.TenantID, snapshot.ProjectID, value.ID, artifact.FileName)
+		objectKeys = append(objectKeys, artifact.ObjectKey)
 		if err := s.blobs.Put(ctx, artifact.ObjectKey, file.Body); err != nil {
-			return deliverydomain.DeliveryPackage{}, err
+			return deliverydomain.DeliveryPackage{}, cleanupSpeculativeObjects(ctx, s.blobs, objectKeys, err)
 		}
 		artifacts = append(artifacts, artifact)
 	}
 	if err := s.artifacts.CreateDeliveryPackage(ctx, value, artifacts); err != nil {
-		return deliverydomain.DeliveryPackage{}, err
+		if fault.IsConflict(err) {
+			if existing, lookupErr := s.artifacts.DeliveryPackageBySnapshotAndContentItem(ctx, actor.TenantID, snapshot.ID, rendered.ItemID); lookupErr == nil {
+				return existing, nil
+			}
+		}
+		return deliverydomain.DeliveryPackage{}, cleanupSpeculativeObjects(ctx, s.blobs, objectKeys, err)
 	}
 	value.Manifest = artifacts
-	s.audit(ctx, actor, snapshot.ProjectID, "delivery_package.created", "delivery_package", value.ID, requestID, map[string]any{"approved_snapshot_id": snapshot.ID, "content_item_id": rendered.Item.ID, "file_count": len(artifacts), "revision_hash": snapshot.ContentHash})
+	s.audit(ctx, actor, snapshot.ProjectID, "delivery_package.created", "delivery_package", value.ID, requestID, map[string]any{"approved_snapshot_id": snapshot.ID, "content_item_id": rendered.ItemID, "file_count": len(artifacts), "revision_hash": snapshot.ContentHash})
 	return value, nil
 }
 
@@ -494,11 +503,11 @@ func renderedContentFile(rendered localworkspace.RenderedContentDelivery, format
 func snapshotArtifact(snapshot reviewdomain.ApprovedSnapshot, rendered localworkspace.RenderedContentDelivery, file localworkspace.RenderedContentFile, createdBy string, now time.Time) deliverydomain.Artifact {
 	schemaID := sourcedomain.ArtifactExportSchemaMD
 	if file.Format == "json" {
-		schemaID = localworkspace.ContentItemSchema
+		schemaID = rendered.SchemaID
 	} else if file.Format == "xlsx" {
 		schemaID = sourcedomain.ArtifactExportSchemaXLSX
 	}
-	return deliverydomain.Artifact{ID: idgen.New(), TenantID: snapshot.TenantID, ProjectID: snapshot.ProjectID, ApprovedSnapshotID: snapshot.ID, Kind: "delivery", CapabilityID: sourcedomain.ArtifactExportCapability, CapabilityVersion: "3.0.0", CapabilityDigest: "contentcloud-content-delivery@3", SchemaID: schemaID, MediaType: file.MediaType, FileName: file.Name, SHA256: file.SHA256, ByteSize: int64(len(file.Body)), Visibility: "client", RetentionClass: "audit", Purpose: "delivery", Metadata: map[string]any{"format": file.Format, "content_item_id": rendered.Item.ID, "content_hash": rendered.ContentHash, "revision_hash": snapshot.ContentHash, "approved_snapshot_id": snapshot.ID, "created_by": createdBy}, CreatedAt: now}
+	return deliverydomain.Artifact{ID: idgen.New(), TenantID: snapshot.TenantID, ProjectID: snapshot.ProjectID, ApprovedSnapshotID: snapshot.ID, Kind: "delivery", CapabilityID: sourcedomain.ArtifactExportCapability, CapabilityVersion: "3.0.0", CapabilityDigest: "contentcloud-content-delivery@3", SchemaID: schemaID, MediaType: file.MediaType, FileName: file.Name, SHA256: file.SHA256, ByteSize: int64(len(file.Body)), Visibility: "client", RetentionClass: "audit", Purpose: "delivery", Metadata: map[string]any{"format": file.Format, "content_item_id": rendered.ItemID, "content_hash": rendered.ContentHash, "revision_hash": snapshot.ContentHash, "approved_snapshot_id": snapshot.ID, "created_by": createdBy}, CreatedAt: now}
 }
 
 func (s *ReviewService) ArtifactBytes(ctx context.Context, actor Actor, id string) (deliverydomain.Artifact, []byte, error) {

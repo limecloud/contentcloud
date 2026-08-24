@@ -8,8 +8,10 @@ describe('admin routes',()=>{
   it('maps every admin section to a stable deep link',()=>{
     expect(adminPath('dashboard')).toBe('/admin/dashboard');
     expect(adminPath('products')).toBe('/admin/products');
+    expect(adminPath('workbenches')).toBe('/admin/workbenches');
     expect(adminPath('capabilities')).toBe('/admin/capabilities');
     expect(adminPath('jobs')).toBe('/admin/jobs');
+    expect(adminPath('cleanup')).toBe('/admin/cleanup');
     expect(adminPath('providers')).toBe('/admin/providers');
     expect(adminPath('tenants')).toBe('/admin/tenants');
     expect(adminPath('audit')).toBe('/admin/audit');
@@ -33,7 +35,7 @@ describe('admin routes',()=>{
   });
 
   it('mounts the new operations workspaces as independent pages',()=>{
-    const paths=['products','releases','customers','capabilities','skills','executors','providers','jobs','alerts','tenants','audit','costs'];
+    const paths=['products','releases','customers','workbenches','capabilities','skills','executors','providers','jobs','alerts','cleanup','tenants','audit','costs'];
     for(const path of paths){
       const matches=matchRoutes(appRoutes,`/admin/${path}`);
       expect(matches?.map(item=>item.route.path)).toEqual(['/admin',undefined,path]);

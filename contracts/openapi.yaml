@@ -663,6 +663,34 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /bff/runtime/jobs/{job_id}/graph-patches:
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Runtime Admin]
+      operationId: patchRuntimeGraph
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeGraphPatchInput'}}}
+      responses:
+        '200': {description: New immutable graph revision, content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeJobDetailEnvelope'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/runtime/jobs/{job_id}/fanout-sets:
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Runtime Admin]
+      operationId: createRuntimeFanoutSet
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeFanoutSetInput'}}}
+      responses:
+        '200': {description: Frozen fanout membership and updated graph projection, content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeJobDetailEnvelope'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /bff/runtime/jobs/{job_id}/nodes:
     parameters:
       - {name: job_id, in: path, required: true, schema: {type: string, format: uuid}}
@@ -711,6 +739,17 @@ paths:
       - {name: after, in: query, required: false, schema: {type: integer, minimum: 0}}
       - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
     get: *adminJSONRead
+  /bff/runtime/fanout-sets/{set_id}/join:
+    parameters: [{name: set_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [Runtime Admin]
+      operationId: joinRuntimeFanoutSet
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {description: Re-evaluated fanout join projection, content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeJobDetailEnvelope'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
   /bff/runtime/jobs/{job_id}/refresh:
     parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
     post: *adminJSONWrite
@@ -1208,6 +1247,58 @@ paths:
     get: *jsonRead
   /bff/admin/work-os:
     get: *adminJSONRead
+  /bff/admin/workbenches:
+    get:
+      tags: [Admin]
+      operationId: listAdminWorkbenches
+      summary: List platform-approved customer workbench declarations
+      description: >-
+        Returns only customer-surface declarations and lifecycle assignment. It does not
+        expose or create a second task, review, Runtime, artifact, delivery, or performance model.
+      security: [{cookieAuth: []}]
+      responses:
+        '200': {$ref: '#/components/responses/WorkbenchRegistrySuccess'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Admin]
+      operationId: registerAdminWorkbench
+      summary: Register a draft customer workbench declaration
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/RegisterWorkbenchInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/WorkbenchEntrySuccess'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /bff/admin/workbenches/{workbench_id}/versions/{version}:
+    parameters:
+      - {name: workbench_id, in: path, required: true, schema: {type: string, minLength: 1}}
+      - {name: version, in: path, required: true, schema: {type: string, pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'}}
+    patch:
+      tags: [Admin]
+      operationId: updateAdminWorkbenchState
+      summary: Update workbench tenant scope or lifecycle state
+      description: >-
+        Drafts can be published, published versions can be normally retired, retired versions
+        can be restored, and any non-revoked version can be permanently revoked with a reason.
+        Revocation is irreversible and never rewrites the platform workflow or artifact facts.
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/UpdateWorkbenchStateInput'}}
+      responses:
+        '200': {$ref: '#/components/responses/WorkbenchEntrySuccess'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /bff/admin/environments/{id}:
     parameters: [{$ref: '#/components/parameters/ID'}]
     patch: *adminJSONWrite
@@ -1710,6 +1801,108 @@ components:
     ID: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
     ReviewToken: {name: token, in: path, required: true, schema: {type: string, pattern: '^crg_[A-Za-z0-9_-]+$'}}
   schemas:
+    WorkbenchPluginManifest:
+      type: object
+      additionalProperties: false
+      required: [$schema, id, version, name, content_types, experience, ui]
+      properties:
+        $schema: {const: https://contentcloud.run/schemas/workbench-plugin/1.0.0/workbench-plugin.schema.json}
+        id: {type: string, minLength: 1, maxLength: 64, pattern: '^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$'}
+        version: {type: string, pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'}
+        name: {type: string, minLength: 1}
+        content_types: {type: array, minItems: 1, maxItems: 8, uniqueItems: true, items: {type: string, minLength: 1}}
+        experience:
+          type: object
+          additionalProperties: false
+          required: [template_id]
+          properties: {template_id: {type: string, minLength: 1}}
+        ui:
+          type: object
+          additionalProperties: false
+          required: [renderer, layout, density, theme, navigation, stages]
+          properties:
+            renderer: {const: approved}
+            layout: {type: string, enum: [stage-canvas-context, article-editor, product-variants, novel-editor]}
+            density: {type: string, enum: [compact, comfortable, dense]}
+            theme: {type: string, enum: [signal-blue, editorial-green, production-coral, review-rose]}
+            navigation: {type: array, minItems: 1, maxItems: 8, items: {$ref: '#/components/schemas/WorkbenchNavigationItem'}}
+            stages: {type: array, minItems: 1, maxItems: 16, items: {$ref: '#/components/schemas/WorkbenchStage'}}
+            panels: {type: array, maxItems: 8, items: {$ref: '#/components/schemas/WorkbenchPanel'}}
+    WorkbenchNavigationItem:
+      type: object
+      additionalProperties: false
+      required: [id, label, icon]
+      properties:
+        id: {type: string, minLength: 1, maxLength: 64}
+        label: {type: string, minLength: 1}
+        icon: {type: string, enum: [archive, book-open, file-check, file-text, folder, image, lightbulb, list-checks, package-check, pen-line, scroll-text, shopping-bag, tags, video]}
+    WorkbenchStage:
+      type: object
+      additionalProperties: false
+      required: [id, label, outcome, primary_action]
+      properties:
+        id: {type: string, minLength: 1, maxLength: 64}
+        label: {type: string, minLength: 1}
+        outcome: {type: string, minLength: 1}
+        primary_action: {type: string, minLength: 1, maxLength: 64}
+    WorkbenchPanel:
+      type: object
+      additionalProperties: false
+      required: [id, title, detail, tone, icon, stage_ids, target, action_label]
+      properties:
+        id: {type: string, minLength: 1, maxLength: 64}
+        title: {type: string, minLength: 1}
+        detail: {type: string, minLength: 1}
+        tone: {type: string, enum: [source, knowledge, strategy, production, review]}
+        icon: {type: string, enum: [archive, book-open, file-check, file-text, folder, image, lightbulb, list-checks, package-check, pen-line, scroll-text, shopping-bag, tags, video]}
+        stage_ids: {type: array, maxItems: 8, items: {type: string, minLength: 1}}
+        target: {type: string, enum: [start, tasks, assets, deliveries]}
+        action_label: {type: string, minLength: 1}
+    WorkbenchPluginEntry:
+      type: object
+      additionalProperties: false
+      required: [manifest, digest, status, template_aliases, tenant_ids]
+      properties:
+        manifest: {$ref: '#/components/schemas/WorkbenchPluginManifest'}
+        digest: {$ref: '#/components/schemas/SHA256Digest'}
+        status: {type: string, enum: [draft, published, retired, revoked]}
+        lifecycle_reason: {type: string, minLength: 1}
+        template_aliases: {type: array, items: {type: string}}
+        tenant_ids: {type: array, items: {type: string}}
+    WorkbenchRegistryView:
+      type: object
+      additionalProperties: false
+      required: [entries, generated_at]
+      properties:
+        entries: {type: array, items: {$ref: '#/components/schemas/WorkbenchPluginEntry'}}
+        generated_at: {type: string, format: date-time}
+    RegisterWorkbenchInput:
+      type: object
+      additionalProperties: false
+      required: [manifest]
+      properties:
+        manifest: {$ref: '#/components/schemas/WorkbenchPluginManifest'}
+        status: {const: draft}
+        template_aliases: {type: array, uniqueItems: true, items: {type: string}}
+        tenant_ids: {type: array, uniqueItems: true, items: {type: string}}
+    UpdateWorkbenchStateInput:
+      type: object
+      additionalProperties: false
+      required: [status, tenant_ids]
+      properties:
+        status: {type: string, enum: [draft, published, retired, revoked]}
+        tenant_ids: {type: array, uniqueItems: true, items: {type: string}}
+        reason: {type: string, minLength: 1}
+    WorkbenchRegistryEnvelope:
+      allOf:
+        - {$ref: '#/components/schemas/SuccessEnvelope'}
+        - type: object
+          properties: {data: {$ref: '#/components/schemas/WorkbenchRegistryView'}}
+    WorkbenchEntryEnvelope:
+      allOf:
+        - {$ref: '#/components/schemas/SuccessEnvelope'}
+        - type: object
+          properties: {data: {$ref: '#/components/schemas/WorkbenchPluginEntry'}}
     RuntimeJobSummary:
       type: object
       additionalProperties: false
@@ -1842,17 +2035,114 @@ components:
     RuntimePlanView:
       type: object
       additionalProperties: false
-      required: [id, sop_id, sop_version, sop_digest, schema_version, digest, edges, customer_steps, compiled_at]
+      required: [id, graph_version, sop_id, sop_version, sop_digest, schema_version, digest, nodes, edges, customer_steps, limits, compiled_at]
       properties:
         id: {type: string, format: uuid}
+        base_revision_id: {type: string, format: uuid}
+        graph_version: {type: integer, minimum: 1}
+        patch_key: {type: string}
+        patch_reason: {type: string}
         sop_id: {type: string}
         sop_version: {type: integer, minimum: 1}
         sop_digest: {type: string}
         schema_version: {type: string}
         digest: {type: string}
+        nodes: {type: array, items: {$ref: '#/components/schemas/RuntimePlanNodeView'}}
         edges: {type: array, items: {type: object, additionalProperties: false, required: [from, to], properties: {from: {type: string}, to: {type: string}}}}
         customer_steps: {type: array, items: {type: object}}
+        limits: {$ref: '#/components/schemas/RuntimePlanLimitsView'}
         compiled_at: {type: string, format: date-time}
+    RuntimePlanNodeView:
+      type: object
+      additionalProperties: false
+      required: [key, kind, name, depends_on, input_refs, output_schema, retry_max_attempts]
+      properties:
+        key: {type: string}
+        kind: {type: string}
+        stage_id: {type: string}
+        gate_id: {type: string}
+        name: {type: string}
+        depends_on: {type: array, items: {type: string}}
+        input_refs: {type: array, items: {type: string}}
+        output_schema: {type: string}
+        customer_step_id: {type: string}
+        side_effect_class: {type: string}
+        retry_max_attempts: {type: integer, minimum: 1}
+    RuntimePlanLimitsView:
+      type: object
+      additionalProperties: false
+      required: [max_nodes, max_depth, max_dynamic_descendants, max_concurrent_nodes, max_attempts_per_node, max_cost_minor]
+      properties:
+        max_nodes: {type: integer, minimum: 1}
+        max_depth: {type: integer, minimum: 1}
+        max_dynamic_descendants: {type: integer, minimum: 0}
+        max_concurrent_nodes: {type: integer, minimum: 1}
+        max_attempts_per_node: {type: integer, minimum: 1}
+        max_cost_minor: {type: integer, minimum: 0}
+    RuntimeFanoutMemberView:
+      type: object
+      additionalProperties: false
+      required: [id, member_key, item_key, item_digest, generation, node_run_id, state, output_refs, version, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        member_key: {type: string}
+        item_key: {type: string}
+        item_digest: {type: string}
+        generation: {type: integer, minimum: 1}
+        node_run_id: {type: string, format: uuid}
+        state: {type: string}
+        output_refs: {type: array, items: {type: string}}
+        output_digest: {type: string}
+        error_code: {type: string}
+        version: {type: integer, minimum: 1}
+        updated_at: {type: string, format: date-time}
+    RuntimeFanoutSetView:
+      type: object
+      additionalProperties: false
+      required: [id, map_node_key, join_node_key, generation, member_count, membership_digest, join_policy, status, version, members, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        map_node_key: {type: string}
+        join_node_key: {type: string}
+        source_collection: {type: string}
+        source_revision: {type: integer, minimum: 0}
+        source_watermark: {type: integer, minimum: 0}
+        generation: {type: integer, minimum: 1}
+        member_count: {type: integer, minimum: 0}
+        membership_digest: {type: string}
+        join_policy: {type: object, additionalProperties: true}
+        status: {type: string}
+        version: {type: integer, minimum: 1}
+        members: {type: array, items: {$ref: '#/components/schemas/RuntimeFanoutMemberView'}}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    RuntimeGraphPatchInput:
+      type: object
+      additionalProperties: false
+      required: [expected_graph_version, idempotency_key, reason]
+      properties:
+        expected_graph_version: {type: integer, minimum: 1}
+        idempotency_key: {type: string, minLength: 1, maxLength: 200}
+        reason: {type: string, minLength: 1, maxLength: 500}
+        add_nodes: {type: array, items: {type: object}}
+        add_edges: {type: array, items: {type: object}}
+        cancel_pending_node_keys: {type: array, items: {type: string}}
+    RuntimeFanoutSetInput:
+      type: object
+      additionalProperties: false
+      required: [map_node_key, join_node_key, idempotency_key, reason, join_policy, node_template, items]
+      properties:
+        map_node_key: {type: string}
+        join_node_key: {type: string}
+        source_collection: {type: string}
+        source_revision: {type: integer, minimum: 0}
+        source_watermark: {type: integer, minimum: 0}
+        generation: {type: integer, minimum: 1}
+        idempotency_key: {type: string, minLength: 1, maxLength: 200}
+        reason: {type: string, minLength: 1, maxLength: 500}
+        join_policy: {type: object, additionalProperties: true}
+        node_template: {type: object}
+        items: {type: array, items: {type: object}}
     RuntimeStateRecordView:
       type: object
       additionalProperties: false
@@ -1871,7 +2161,7 @@ components:
     RuntimeJobDetail:
       type: object
       additionalProperties: false
-      required: [summary, plan, nodes, events, effects, checkpoints, agents, state_records, generated_at]
+      required: [summary, plan, nodes, events, effects, checkpoints, agents, state_records, fanout_sets, generated_at]
       properties:
         summary: {$ref: '#/components/schemas/RuntimeJobSummary'}
         plan: {$ref: '#/components/schemas/RuntimePlanView'}
@@ -1881,6 +2171,7 @@ components:
         checkpoints: {type: array, items: {$ref: '#/components/schemas/RuntimeCheckpointView'}}
         agents: {type: array, items: {$ref: '#/components/schemas/RuntimeAgentView'}}
         state_records: {type: array, items: {$ref: '#/components/schemas/RuntimeStateRecordView'}}
+        fanout_sets: {type: array, items: {$ref: '#/components/schemas/RuntimeFanoutSetView'}}
         generated_at: {type: string, format: date-time}
     RuntimeJobListEnvelope:
       type: object
@@ -3610,6 +3901,14 @@ components:
             hint: {type: string}
             details: {}
   responses:
+    WorkbenchRegistrySuccess:
+      description: Platform workbench registry projection
+      content:
+        application/json: {schema: {$ref: '#/components/schemas/WorkbenchRegistryEnvelope'}}
+    WorkbenchEntrySuccess:
+      description: Registered or updated workbench declaration
+      content:
+        application/json: {schema: {$ref: '#/components/schemas/WorkbenchEntryEnvelope'}}
     Success:
       description: Stable success envelope
       content:

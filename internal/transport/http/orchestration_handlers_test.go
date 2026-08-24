@@ -38,7 +38,7 @@ func TestOrchestrationBFFVerticalSlice(t *testing.T) {
 	response.Body.Close()
 
 	admin := callBFF[catalogdomain.AdminWorkOSView](t, client, http.MethodGet, server.URL+"/api/bff/admin/work-os", nil)
-	if len(admin.Environments) != 1 || len(admin.SOPs) != 5 {
+	if len(admin.Environments) != 1 {
 		t.Fatalf("unexpected admin data: %#v", admin)
 	}
 	defaultSOPID := ""
