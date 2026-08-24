@@ -18,8 +18,8 @@ type Entry struct {
 	Digest          string   `json:"digest"`
 	Status          string   `json:"status"`
 	LifecycleReason string   `json:"lifecycle_reason,omitempty"`
-	TemplateAliases []string `json:"template_aliases,omitempty"`
-	TenantIDs       []string `json:"tenant_ids,omitempty"`
+	TemplateAliases []string `json:"template_aliases"`
+	TenantIDs       []string `json:"tenant_ids"`
 }
 
 // Registry is an in-memory value object at the domain boundary. The
@@ -329,8 +329,8 @@ func cloneEntry(entry Entry) Entry {
 	for index := range entry.Manifest.UI.Panels {
 		entry.Manifest.UI.Panels[index].StageIDs = append([]string(nil), entry.Manifest.UI.Panels[index].StageIDs...)
 	}
-	entry.TemplateAliases = append([]string(nil), entry.TemplateAliases...)
-	entry.TenantIDs = append([]string(nil), entry.TenantIDs...)
+	entry.TemplateAliases = append([]string{}, entry.TemplateAliases...)
+	entry.TenantIDs = append([]string{}, entry.TenantIDs...)
 	return entry
 }
 

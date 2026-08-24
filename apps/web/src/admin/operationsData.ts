@@ -1,4 +1,4 @@
-import type { AdminWorkOSView, Environment, OperationsExecutorDirectory, OperationsSkillDirectory, ProjectSOPView, SOPDefinition, SOPSummary, SOPVersion, SOPVersionPreview, StageDefinition, GateDefinition, WorkTask, WorkTaskView } from '../types';
+import type { AdminWorkOSView, Environment, OperationsExecutorDirectory, OperationsSkillDirectory, ProjectSOPView, SOPDefinition, SOPSummary, SOPVersion, SOPVersionPreview, StageDefinition, GateDefinition, WorkTask, WorkTaskView, WorkbenchPluginEntry, WorkbenchRegistryView } from '../types';
 
 function list<T>(value: T[] | null | undefined): T[] {
   return Array.isArray(value) ? value : [];
@@ -82,6 +82,35 @@ export function normalizeOperationsSkillDirectory(value: OperationsSkillDirector
       evaluation: {...skill.evaluation, evidence: list(skill.evaluation?.evidence)}
     }))
   };
+}
+
+function normalizeWorkbenchEntry(value: WorkbenchPluginEntry): WorkbenchPluginEntry {
+  const manifest = value?.manifest || ({} as WorkbenchPluginEntry['manifest']);
+  const ui = manifest.ui || ({} as WorkbenchPluginEntry['manifest']['ui']);
+  return {
+    ...value,
+    template_aliases: list(value?.template_aliases),
+    tenant_ids: list(value?.tenant_ids),
+    manifest: {
+      ...manifest,
+      content_types: list(manifest.content_types),
+      experience: {...(manifest.experience || {})},
+      ui: {
+        ...ui,
+        navigation: list(ui.navigation),
+        stages: list(ui.stages),
+        panels: list(ui.panels).map(panel => ({...panel, stage_ids: list(panel.stage_ids)}))
+      }
+    }
+  };
+}
+
+export function normalizeWorkbenchRegistry(value?: Partial<WorkbenchRegistryView> | null): WorkbenchRegistryView {
+  return {
+    ...(value || {}),
+    entries: list(value?.entries).map(normalizeWorkbenchEntry),
+    generated_at: value?.generated_at || ''
+  } as WorkbenchRegistryView;
 }
 
 export function normalizeProjectSOPView(value: ProjectSOPView): ProjectSOPView {

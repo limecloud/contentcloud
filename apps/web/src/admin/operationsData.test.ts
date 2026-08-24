@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ProjectSOPView } from '../types';
-import { normalizeAdminWorkOSView, normalizeOperationsExecutorDirectory, normalizeOperationsSkillDirectory, normalizeProjectSOPView } from './operationsData';
+import { normalizeAdminWorkOSView, normalizeOperationsExecutorDirectory, normalizeOperationsSkillDirectory, normalizeProjectSOPView, normalizeWorkbenchRegistry } from './operationsData';
 
 describe('work OS API collection normalization', () => {
   it('turns nullable SOP collections into iterable arrays', () => {
@@ -63,5 +63,21 @@ describe('work OS API collection normalization', () => {
     expect(normalized.skills[0].data_flow.cloud_actions).toEqual([]);
     expect(normalized.skills[0].output_schemas).toEqual([]);
     expect(normalized.skills[0].evaluation.evidence).toEqual([]);
+  });
+
+  it('normalizes missing workbench registry collections from older BFF responses', () => {
+    const normalized = normalizeWorkbenchRegistry({generated_at: '2026-08-08T02:30:00Z'} as any);
+
+    expect(normalized.entries).toEqual([]);
+  });
+
+  it('normalizes empty workbench entry scopes before the admin page renders', () => {
+    const normalized = normalizeWorkbenchRegistry({entries: [{manifest: {content_types: ['article'], ui: {navigation: [], stages: []}}}]} as any);
+
+    expect(normalized.entries[0].tenant_ids).toEqual([]);
+    expect(normalized.entries[0].template_aliases).toEqual([]);
+    expect(normalized.entries[0].manifest.content_types).toEqual(['article']);
+    expect(normalized.entries[0].manifest.ui.navigation).toEqual([]);
+    expect(normalized.entries[0].manifest.ui.stages).toEqual([]);
   });
 });

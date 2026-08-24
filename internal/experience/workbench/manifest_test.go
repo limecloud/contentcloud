@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -228,6 +229,31 @@ func TestRegistryRejectsProvidedDigestDrift(t *testing.T) {
 	}
 	if _, err := NewRegistry([]Entry{{Manifest: manifest, Status: "draft", Digest: "sha256:" + strings.Repeat("f", 64)}}); err == nil {
 		t.Fatal("NewRegistry() accepted a valid-looking digest for different manifest content")
+	}
+}
+
+func TestRegistryEntryJSONKeepsOptionalCollectionsAsArrays(t *testing.T) {
+	entry := DefaultRegistry().Entries()[0]
+	body, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	for _, field := range []string{"template_aliases", "tenant_ids"} {
+		value, ok := payload[field]
+		if !ok {
+			t.Fatalf("%s is missing from the registry entry JSON", field)
+		}
+		var items []string
+		if err := json.Unmarshal(value, &items); err != nil {
+			t.Fatalf("%s is not an array: %v", field, err)
+		}
+		if items == nil {
+			t.Fatalf("%s is null, want an empty array", field)
+		}
 	}
 }
 

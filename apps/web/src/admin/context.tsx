@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 import { api, patch } from '../api';
 import type { AdminWorkOSView, ContentType, OperationsExecutorDirectory, OperationsSkillDirectory, PlatformOverview, PlatformTenant, Session, Tenant, WorkbenchRegistryView } from '../types';
-import { normalizeAdminWorkOSView, normalizeOperationsExecutorDirectory, normalizeOperationsSkillDirectory } from './operationsData';
+import { normalizeAdminWorkOSView, normalizeOperationsExecutorDirectory, normalizeOperationsSkillDirectory, normalizeWorkbenchRegistry } from './operationsData';
 
 interface AdminContextValue {
   session:Session;
@@ -46,7 +46,7 @@ export async function loadAdminSnapshot(isPlatformAdmin:boolean) {
       ?normalizeOperationsSkillDirectory(skillResult.value)
       :{configured:false,skills:[],generated_at:workOS.generated_at}
     :undefined;
-  const workbenchRegistry=isPlatformAdmin&&workbenchResult?.ok?workbenchResult.value:undefined;
+  const workbenchRegistry=isPlatformAdmin&&workbenchResult?.ok?normalizeWorkbenchRegistry(workbenchResult.value):undefined;
   const data:PlatformOverview={counts:{tenants:1,active_tenants:workOS.environments.filter(item=>item.status==='active').length,users:0,projects:0,online_devices:executorDirectory.executors.filter(item=>item.presence_status==='online').length,active_runs:workOS.usage.running_count},tenants:[],users:[],generated_at:executorDirectory.generated_at||workOS.generated_at};
   return {
     data,
