@@ -56,7 +56,7 @@ func TestLimitedBufferTruncatesWithoutFailingChildProcessWrite(t *testing.T) {
 	}
 }
 
-func TestClientRegistryResolvesAliasesAndCapabilityBoundaries(t *testing.T) {
+func TestClientRegistryResolvesAliasesAndPlannedCapabilities(t *testing.T) {
 	claude, ok := Lookup(" Claude ")
 	if !ok || claude.ID != ClientClaudeCode || claude.CapabilityStatus(CapabilityLocalAutomation) != SupportAvailable || claude.CapabilityStatus(CapabilityWorkspaceBootstrap) != SupportAvailable {
 		t.Fatalf("unexpected Claude registry entry: %#v", claude)
