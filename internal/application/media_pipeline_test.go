@@ -156,10 +156,11 @@ func TestMarketingVideoGoldenJourney(t *testing.T) {
 	if err != nil || promptArtifact.Kind != "prompt_package" || promptArtifact.MediaType != "application/json" {
 		t.Fatalf("prompt package Artifact was not registered: %#v err=%v", promptArtifact, err)
 	}
-	job, err := service.Delivery.CreateMediaGenerationJob(ctx, actor, task.Task.ID, application.CreateMediaGenerationJobInput{StageRunID: currentRun(t, task).ID, StoryboardSnapshotID: storyboardSnapshot.ID, PromptPackageArtifactID: promptArtifact.ID, ProviderID: "fake", ProfileVersion: "1.0.0", Mode: "image_to_video", AspectRatio: "9:16", DurationSeconds: 15, IdempotencyKey: "golden-media-job"}, "")
-	if err != nil {
-		t.Fatal(err)
+	batch, err := service.Delivery.CreateMediaGenerationBatch(ctx, actor, task.Task.ID, application.CreateMediaGenerationBatchInput{Jobs: []application.CreateMediaGenerationJobInput{{StageRunID: currentRun(t, task).ID, StoryboardSnapshotID: storyboardSnapshot.ID, PromptPackageArtifactID: promptArtifact.ID, ProviderID: "fake", ProfileVersion: "1.0.0", Mode: "image_to_video", AspectRatio: "9:16", DurationSeconds: 15, IdempotencyKey: "golden-media-job"}}, ConfirmCost: true}, "")
+	if err != nil || batch.Decision != "admitted" || len(batch.Jobs) != 1 || batch.Jobs[0].State != deliverydomain.MediaJobQueued {
+		t.Fatalf("media batch was not admitted into queued state: %#v err=%v", batch, err)
 	}
+	job := batch.Jobs[0]
 	if err := service.Delivery.ProcessMediaGenerationJob(ctx, actor.TenantID, job.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -182,9 +183,30 @@ func TestMarketingVideoGoldenJourney(t *testing.T) {
 	task = approveCurrentGate(t, service, actor, task)
 
 	task = startTaskStage(t, service, actor, task)
-	finalRender, err := service.Delivery.CreateFinalRender(ctx, actor, task.Task.ID, application.CreateFinalRenderInput{StageRunID: currentRun(t, task).ID, SelectedReviewID: contentReview.ID}, "")
+	manifest := deterministicCompositionManifest(t, storyboardSnapshot, contentReview, artifact)
+	if _, err := service.Delivery.CreateFinalRender(ctx, actor, task.Task.ID, application.CreateFinalRenderInput{StageRunID: currentRun(t, task).ID, SelectedReviewID: contentReview.ID}, ""); err == nil {
+		t.Fatal("final render without a composition manifest should be rejected")
+	}
+	drifted := manifest
+	drifted.ApprovedSnapshot.Digest = "sha256:" + strings.Repeat("f", 64)
+	if _, err := service.Delivery.CreateFinalRender(ctx, actor, task.Task.ID, application.CreateFinalRenderInput{StageRunID: currentRun(t, task).ID, SelectedReviewID: contentReview.ID, Manifest: &drifted}, ""); err == nil {
+		t.Fatal("final render with a drifted snapshot digest should be rejected")
+	}
+	inlineSubtitles := manifest
+	inlineSubtitles.Subtitles = deliverydomain.CompositionSubtitles{Status: "enabled", SourceKind: "inline", ContentDigest: "sha256:" + strings.Repeat("3", 64), Language: "zh-CN", StyleVersion: "studio/1"}
+	if _, err := service.Delivery.CreateFinalRender(ctx, actor, task.Task.ID, application.CreateFinalRenderInput{StageRunID: currentRun(t, task).ID, SelectedReviewID: contentReview.ID, Manifest: &inlineSubtitles}, ""); err == nil {
+		t.Fatal("inline subtitles without a controlled content Artifact must be rejected")
+	}
+	finalRender, err := service.Delivery.CreateFinalRender(ctx, actor, task.Task.ID, application.CreateFinalRenderInput{StageRunID: currentRun(t, task).ID, SelectedReviewID: contentReview.ID, Manifest: &manifest}, "")
 	if err != nil || finalRender.Artifact.Kind != "final_render" || finalRender.Artifact.ID == artifact.ID {
 		t.Fatalf("final render did not create an independent artifact: %#v err=%v", finalRender, err)
+	}
+	if _, err := service.Delivery.BuildTaskDeliveryPackage(ctx, actor, task.Task.ID, application.BuildTaskDeliveryPackageInput{FinalReviewID: finalRender.Review.ID}, ""); err == nil {
+		t.Fatal("pending final review must not create a delivery package")
+	}
+	repeated, err := service.Delivery.CreateFinalRender(ctx, actor, task.Task.ID, application.CreateFinalRenderInput{StageRunID: currentRun(t, task).ID, SelectedReviewID: contentReview.ID, Manifest: &manifest}, "")
+	if err != nil || repeated.Artifact.ID != finalRender.Artifact.ID || repeated.Review.ID != finalRender.Review.ID {
+		t.Fatalf("same composition manifest was not idempotent: first=%#v repeated=%#v err=%v", finalRender, repeated, err)
 	}
 	finalReview := finalRender.Review
 	task, err = service.Delivery.DecideMediaReview(ctx, actor, finalReview.ID, application.MediaReviewDecisionInput{ExpectedVersion: finalReview.RowVersion, Decision: "approved", Reason: "最终成片批准", Selected: true, Checks: map[string]any{"media.final": true, "offer.valid": true, "rights.references": true}}, "")
@@ -199,6 +221,13 @@ func TestMarketingVideoGoldenJourney(t *testing.T) {
 	deliveryPackage, err := service.Delivery.BuildTaskDeliveryPackage(ctx, actor, task.Task.ID, application.BuildTaskDeliveryPackageInput{FinalReviewID: finalReview.ID}, "")
 	if err != nil {
 		t.Fatal(err)
+	}
+	replayedDeliveryPackage, err := service.Delivery.BuildTaskDeliveryPackage(ctx, actor, task.Task.ID, application.BuildTaskDeliveryPackageInput{FinalReviewID: finalReview.ID}, "retry-delivery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayedDeliveryPackage.ID != deliveryPackage.ID {
+		t.Fatalf("video delivery package retry was not idempotent: first=%#v replay=%#v", deliveryPackage, replayedDeliveryPackage)
 	}
 	task = reportTaskStage(t, service, actor, task, []work.TaskStageOutput{{OutputType: catalogdomain.StageOutputDeliveryPackage, ObjectID: deliveryPackage.ID, Role: catalogdomain.StageOutputRoleFinal}}, map[string]any{"delivery.integrity": true})
 	if task.Task.Status != work.TaskStatusAccepted {
@@ -342,4 +371,36 @@ func findArtifact(t *testing.T, artifacts []deliverydomain.Artifact, kind string
 	}
 	t.Fatalf("artifact %s not found", kind)
 	return deliverydomain.Artifact{}
+}
+
+func deterministicCompositionManifest(t *testing.T, snapshot reviewdomain.ApprovedSnapshot, selected deliverydomain.MediaReview, source deliverydomain.Artifact) deliverydomain.CompositionManifest {
+	t.Helper()
+	reviewHash, err := stablehash.Sum(struct {
+		ID            string         `json:"id"`
+		SubjectDigest string         `json:"subject_digest"`
+		ReviewKind    string         `json:"review_kind"`
+		Status        string         `json:"status"`
+		Checks        map[string]any `json:"checks"`
+		Selected      bool           `json:"selected"`
+		RowVersion    int            `json:"row_version"`
+	}{selected.ID, selected.SubjectDigest, selected.ReviewKind, selected.Status, selected.Checks, selected.Selected, selected.RowVersion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotDigest := snapshot.SubjectHash
+	if snapshotDigest == "" {
+		snapshotDigest = snapshot.ContentHash
+	}
+	artifactDigest := "sha256:" + strings.TrimPrefix(strings.ToLower(source.SHA256), "sha256:")
+	return deliverydomain.CompositionManifest{
+		Schema:           deliverydomain.CompositionSchemaRef{Name: deliverydomain.CompositionManifestSchema, Version: "1.0"},
+		ApprovedSnapshot: deliverydomain.CompositionSnapshotRef{ID: snapshot.ID, Digest: snapshotDigest},
+		SelectedVideo:    deliverydomain.CompositionVideoRef{ArtifactID: source.ID, Digest: artifactDigest, MediaReviewID: selected.ID, ReviewDigest: "sha256:" + reviewHash},
+		Narration:        deliverydomain.CompositionNarration{Status: "disabled"},
+		Subtitles:        deliverydomain.CompositionSubtitles{Status: "disabled", SourceKind: "none"},
+		BrandCTA:         deliverydomain.CompositionBrandCTA{BrandConfigDigest: "sha256:" + strings.Repeat("0", 64), CTADigest: "sha256:" + strings.Repeat("1", 64)},
+		Timeline:         deliverydomain.CompositionTimeline{CanvasWidth: 1080, CanvasHeight: 1920, FrameRateNumerator: 30, FrameRateDenominator: 1, DurationMS: 1000, TransitionVersion: "deterministic/1", Segments: []deliverydomain.CompositionSegment{{ID: "selected-video", StartMS: 0, EndMS: 1000, ArtifactID: source.ID, ArtifactDigest: artifactDigest}}},
+		Renderer:         deliverydomain.CompositionRenderer{Name: "contentcloud.deterministic-compositor", Version: "1.0.0", CapabilityDigest: "sha256:" + strings.Repeat("2", 64)},
+		Output:           deliverydomain.CompositionOutput{Kind: "final_render", MediaType: "video/mp4", Container: "mp4", VideoCodec: "h264", AudioCodec: "aac"},
+	}
 }

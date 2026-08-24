@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/limecloud/contentcloud/internal/platform/fault"
@@ -11,6 +12,14 @@ import (
 	deliverydomain "github.com/limecloud/contentcloud/internal/delivery"
 	reviewdomain "github.com/limecloud/contentcloud/internal/review"
 )
+
+func normalizeSHA256(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if !strings.HasPrefix(value, "sha256:") {
+		value = "sha256:" + value
+	}
+	return value
+}
 
 func (s *Store) CreateReviewCycle(ctx context.Context, cycle reviewdomain.ReviewCycle) (reviewdomain.ReviewCycle, error) {
 	err := s.withTenant(ctx, cycle.TenantID, func(tx pgx.Tx) error {
@@ -230,6 +239,25 @@ func (s *Store) RevokeReviewGrant(ctx context.Context, tenantID, id string, revo
 func (s *Store) CreateArtifact(ctx context.Context, v deliverydomain.Artifact) error {
 	return s.withTenant(ctx, v.TenantID, func(tx pgx.Tx) error {
 		return insertArtifact(ctx, tx, v)
+	})
+}
+
+// CreateFinalRender keeps the rendered Artifact and its pending final review
+// in the same tenant-scoped transaction so a partial render cannot become a
+// durable, review-less delivery candidate.
+func (s *Store) CreateFinalRender(ctx context.Context, artifact deliverydomain.Artifact, review deliverydomain.MediaReview) error {
+	if err := review.Validate(); err != nil {
+		return err
+	}
+	if artifact.TenantID != review.TenantID || artifact.ProjectID != review.ProjectID || artifact.ID != review.SubjectArtifactID || normalizeSHA256(artifact.SHA256) != normalizeSHA256(review.SubjectDigest) {
+		return fault.Conflict("FINAL_RENDER_FACT_SCOPE_INVALID", "最终成片 Artifact 与最终审核的作用域或摘要不一致")
+	}
+	return s.withTenant(ctx, artifact.TenantID, func(tx pgx.Tx) error {
+		if err := insertArtifact(ctx, tx, artifact); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO media_reviews(tenant_id,id,project_id,task_id,generation_job_id,subject_artifact_id,subject_digest,review_kind,status,checks,selected,decision_reason,decided_by,decided_at,row_version,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, review.TenantID, review.ID, review.ProjectID, review.TaskID, review.GenerationJobID, review.SubjectArtifactID, review.SubjectDigest, review.ReviewKind, review.Status, jsonValue(review.Checks), review.Selected, review.DecisionReason, review.DecidedBy, review.DecidedAt, review.RowVersion, review.CreatedBy, review.CreatedAt, review.UpdatedAt)
+		return dbError(err)
 	})
 }
 

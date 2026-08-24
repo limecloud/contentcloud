@@ -52,7 +52,7 @@ func main() {
 	}
 	service := application.NewWithBlob(dependencies, logger, blobs, serviceOptions...)
 	runtimeWorkerID := worker.RuntimeEventWorkerID()
-	capabilities := []string{"runtime_event_delivery", "business_result_materialization", "runtime_projection", "source_ingestion", "policy_validation", "context_compile", "export"}
+	capabilities := []string{"runtime_event_delivery", "business_result_materialization", "runtime_projection", "runtime_cleanup_reconciliation", "source_ingestion", "policy_validation", "context_compile", "export"}
 	if seedance25Provider != nil {
 		capabilities = append(capabilities, "seedance25_media")
 	}
@@ -68,8 +68,8 @@ func main() {
 			runtimeEvents, runtimeErr := worker.ProcessRuntimeEvents(ctx, dependencies.Identity, dependencies.Runtime, service, runtimeWorkerID, 50)
 			if runtimeErr != nil {
 				logger.Error("process runtime events", "error", runtimeErr)
-			} else if runtimeEvents.BusinessClaimed > 0 || runtimeEvents.ProjectionClaims > 0 {
-				logger.Info("processed runtime events", "business_claimed", runtimeEvents.BusinessClaimed, "business_applied", runtimeEvents.BusinessApplied, "business_retried", runtimeEvents.BusinessRetried, "projection_claimed", runtimeEvents.ProjectionClaims, "projected", runtimeEvents.Projected)
+			} else if runtimeEvents.BusinessClaimed > 0 || runtimeEvents.ProjectionClaims > 0 || runtimeEvents.CleanupClaimed > 0 || runtimeEvents.CleanupReclaimed > 0 {
+				logger.Info("processed runtime events", "business_claimed", runtimeEvents.BusinessClaimed, "business_applied", runtimeEvents.BusinessApplied, "business_retried", runtimeEvents.BusinessRetried, "projection_claimed", runtimeEvents.ProjectionClaims, "projected", runtimeEvents.Projected, "cleanup_claimed", runtimeEvents.CleanupClaimed, "cleanup_reclaimed", runtimeEvents.CleanupReclaimed, "cleanup_cleaned", runtimeEvents.CleanupCleaned, "cleanup_not_found", runtimeEvents.CleanupNotFound, "cleanup_failed", runtimeEvents.CleanupFailed)
 			}
 			processed, err := worker.ProcessPendingSources(ctx, service, 10)
 			if err != nil {

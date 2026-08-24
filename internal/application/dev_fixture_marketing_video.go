@@ -246,7 +246,15 @@ func (s *OperationsService) EnsureMarketingVideoDemoFixture(ctx context.Context,
 	if err != nil {
 		return MarketingVideoDemoFixtureResult{}, err
 	}
-	finalRender, err := s.app.Delivery.CreateFinalRender(ctx, actor, task.Task.ID, CreateFinalRenderInput{StageRunID: demoCurrentRun(task).ID, SelectedReviewID: contentReview.ID}, fixtureRequestID(requestID, "final-render"))
+	snapshot, err := s.app.Review.ApprovedSnapshot(ctx, actor, generatedArtifact.ApprovedSnapshotID)
+	if err != nil {
+		return MarketingVideoDemoFixtureResult{}, err
+	}
+	manifest, err := newDeterministicCompositionManifest(snapshot, contentReview, generatedArtifact)
+	if err != nil {
+		return MarketingVideoDemoFixtureResult{}, err
+	}
+	finalRender, err := s.app.Delivery.CreateFinalRender(ctx, actor, task.Task.ID, CreateFinalRenderInput{StageRunID: demoCurrentRun(task).ID, SelectedReviewID: contentReview.ID, Manifest: &manifest}, fixtureRequestID(requestID, "final-render"))
 	if err != nil {
 		return MarketingVideoDemoFixtureResult{}, err
 	}

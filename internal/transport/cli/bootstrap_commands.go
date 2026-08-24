@@ -58,16 +58,17 @@ func (r *Root) bootstrapCommand() *cobra.Command {
 
 func (r *Root) bootstrapPreflightCommand() *cobra.Command {
 	var offline bool
+	var host string
 	command := &cobra.Command{
 		Use:   "preflight [directory]",
 		Args:  cobra.MaximumNArgs(1),
-		Short: "检查 Node、Codex、网络和工作区前置条件",
+		Short: "检查 Agent 宿主、Node、网络和工作区前置条件",
 		RunE: func(command *cobra.Command, args []string) error {
 			cfg, err := localconfig.Load()
 			if err != nil {
 				return err
 			}
-			report := bootstrapcheck.Run(command.Context(), bootstrapcheck.Options{Directory: optionalDirectory(args), ServerURL: r.resolveServer(cfg), Offline: offline})
+			report := bootstrapcheck.Run(command.Context(), bootstrapcheck.Options{Directory: optionalDirectory(args), ServerURL: r.resolveServer(cfg), Host: host, Offline: offline})
 			if err := bootstrapcheck.ValidateReport(report); err != nil {
 				return fault.E("internal", "bootstrap_preflight", "BOOTSTRAP_PREFLIGHT_INVALID", err.Error(), 1)
 			}
@@ -75,6 +76,7 @@ func (r *Root) bootstrapPreflightCommand() *cobra.Command {
 		},
 	}
 	command.Flags().BoolVar(&offline, "offline", false, "跳过网络连接检查")
+	command.Flags().StringVar(&host, "host", "codex", "插件宿主：codex 或 claude")
 	return command
 }
 

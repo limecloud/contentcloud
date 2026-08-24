@@ -2,6 +2,25 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.29.0] - 2026-08-24
+
+### Added
+
+- 增加按业务定制的视频、文章、电商和连载小说工作台，并通过 Workbench Registry 管理版本、摘要、模板绑定和租户启用。
+- 打通工作台 Action Contract 到 WorkTask、SOP、Gate、Runtime、Review、ApprovedSnapshot、Artifact、Delivery 和 Performance 的统一平台主链。
+- 增加 Claude Code 宿主 bootstrap、preflight、plan、apply、resume 与 Web 连接宿主选择能力。
+- 增加 Runtime 清理诊断、媒体合成、剪映导出和多业务完整链路验证能力。
+
+### Changed
+
+- 更新分层平台架构、代码组织、插件边界、业务工作台 UI 原型、时序图和流程图文档。
+- 管理后台增加工作台、Runtime 恢复、清理和运营诊断视图；客户任务展示统一的流程、产物和效果摘要。
+- Server、Worker、Web、Desktop、CLI 和 npm 启动包统一升级到 `0.29.0`；视频生产场景插件继续固定在已验证的 `0.27.0`。
+
+### Fixed
+
+- 修复客户连接客户端目录在开放 Claude Code 后仍只允许 Codex 的 HTTP 测试断言。
+
 ## [0.28.0] - 2026-08-17
 
 ### Added

@@ -38,7 +38,7 @@ import (
 	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
-const Version = "0.28.0"
+const Version = "0.29.0"
 
 type Root struct {
 	json                   bool
@@ -608,7 +608,7 @@ func commandSchemas() map[string]any {
 		"runtime.worker.mcp":          write("device", []string{"attempt-id", "fence-token", "tool-name", "request-id", "arguments"}, "经过 Attempt fence 和 ContextView 授权的 Runtime MCP 工具结果"),
 		"runtime.worker.event":        write("device", []string{"attempt-id", "fence-token", "event"}, "已通过 Attempt fence 固定的脱敏 Harness 事件"),
 		"runtime.worker.finalize":     write("device", []string{"attempt-id", "fence-token", "--state", "--output-ref", "--business-payload", "--result-digest"}, "已校验业务结果并收敛 RuntimeAttempt 终态"),
-		"artifact.export":             write("user", []string{"approved-snapshot-id", "--content-item", "--format"}, "由快照派生的成果文件"), "delivery.create": write("user", []string{"approved-snapshot-id", "--content-item"}, "包含三种格式的交付包"), "delivery.list": userRead([]string{"--project"}, "交付包列表"), "delivery.show": userRead([]string{"delivery-package-id"}, "交付包"), "artifact.download": userRead([]string{"artifact-id", "--out"}, "托管成果文件路径"),
+		"artifact.export":             write("user", []string{"approved-snapshot-id", "--content-item", "--format"}, "由快照派生的成果文件"), "delivery.create": write("user", []string{"approved-snapshot-id", "--content-item"}, "包含三种格式的交付包"), "delivery.list": userRead([]string{"--project"}, "交付包列表"), "delivery.show": userRead([]string{"delivery-package-id"}, "交付包"), "jianying.export": write("user", []string{"project", "approved-snapshot-id", "final-review-id", "delivery-package-id", "manifest"}, "导出已批准成片的确定性剪映归档"), "artifact.download": userRead([]string{"artifact-id", "--out"}, "托管成果文件路径"),
 		"review.create": write("user", []string{"submission-revision-id", "--email", "--dry-run"}, "一次性客户审核链接"), "review.list": userRead([]string{"submission-revision-id"}, "客户审核授权列表"), "review.revoke": high([]string{"grant-id", "--dry-run"}, "已撤销的客户审核授权"), "review.status": userRead([]string{"submission-revision-id"}, "客户审核状态"),
 		"result.list": userRead([]string{"--project"}, "观察数据列表"), "result.import": write("user", []string{"json-or-csv-or-xlsx-file", "--project", "--dry-run"}, "原子化效果数据导入批次"), "result.batches": userRead([]string{"--project"}, "不可变的导入批次列表"), "result.batch-show": userRead([]string{"batch-id"}, "导入批次及其观察数据"), "result.rate": write("user", []string{"subject-type", "subject-id", "--project", "--observation", "--rating", "--reason", "--next-action", "--dry-run"}, "人工评分决定"), "result.ratings": userRead([]string{"--project"}, "人工评分决定列表"),
 		"lineage.show": userRead([]string{"--project", "--type", "--id", "--direction"}, "双向项目血缘图"), "lineage.impact": userRead([]string{"--project", "--type", "--id"}, "包含原因和动作的受影响对象"), "audit.list": userRead([]string{"--project", "--limit"}, "不可变的审计事件列表"),

@@ -116,6 +116,16 @@ func TestInitializeCodexPluginUsesPluginDeliveryWithoutProjectDuplicates(t *test
 	}
 }
 
+func TestPlanClaudePluginUsesClaudeHostTarget(t *testing.T) {
+	plan, err := Plan(filepath.Join(t.TempDir(), "claude-workspace"), "claude-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Targets) != 1 || plan.Targets[0] != "claude-plugin" {
+		t.Fatalf("Claude workspace target = %#v", plan.Targets)
+	}
+}
+
 func TestInitializeCodexMCPUsesPinnedNPXLauncher(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	if _, err := Initialize(InitOptions{Root: root, ProjectID: "project-1", CLIVersion: "0.25.0", Target: "codex"}); err != nil {

@@ -18,8 +18,10 @@ import (
 	catalogdomain "github.com/limecloud/contentcloud/internal/catalog"
 	"github.com/limecloud/contentcloud/internal/catalog/environment"
 	deliverydomain "github.com/limecloud/contentcloud/internal/delivery"
+	workbenchdomain "github.com/limecloud/contentcloud/internal/experience/workbench"
 	identitydomain "github.com/limecloud/contentcloud/internal/identity"
 	agentadapter "github.com/limecloud/contentcloud/internal/integration/agent"
+	composition "github.com/limecloud/contentcloud/internal/integration/composition"
 	"github.com/limecloud/contentcloud/internal/integration/connector"
 	channeladapter "github.com/limecloud/contentcloud/internal/integration/provider/channel"
 	mediapipeline "github.com/limecloud/contentcloud/internal/integration/provider/media"
@@ -34,39 +36,44 @@ import (
 )
 
 type serviceCore struct {
-	identity            persistence.IdentityRepository
-	workspace           persistence.WorkspaceRepository
-	source              persistence.SourceRepository
-	knowledge           persistence.KnowledgeRepository
-	catalog             persistence.CatalogRepository
-	tasks               persistence.WorkRepository
-	delivery            persistence.DeliveryRepository
-	contexts            persistence.ContextRepository
-	review              persistence.ReviewRepository
-	artifacts           persistence.ArtifactRepository
-	performance         persistence.PerformanceRepository
-	auditRepo           persistence.AuditRepository
-	deviceControl       deviceControlRepository
-	runtimeWake         runtimeWakeBroker
-	runtimeCommands     contentruntime.RuntimeCommandStore
-	providerAdmin       providerProfileAdminStore
-	now                 func() time.Time
-	log                 *slog.Logger
-	blobs               blob.Store
-	platformAdminEmails map[string]struct{}
-	environmentControl  *environment.ControlPlane
-	automationPolicy    map[string]environment.CapabilityRequirement
-	automationPackIDs   map[string][]string
-	mediaAdapters       map[string]mediapipeline.Adapter
-	sourceSearch        sourceinfra.SearchProvider
-	sourceFetcher       *sourceinfra.Fetcher
-	runtimeService      *contentruntime.Service
-	runtimeHarnesses    *agentadapter.HarnessRegistry
-	runtimeRollout      contentruntime.RolloutPolicy
-	channelAdapters     *channeladapter.Registry
-	modelProviders      *modelprovider.Registry
-	connectorAdapters   *connector.Registry
-	connectorRepository connector.Repository
+	identity                   persistence.IdentityRepository
+	workspace                  persistence.WorkspaceRepository
+	source                     persistence.SourceRepository
+	knowledge                  persistence.KnowledgeRepository
+	catalog                    persistence.CatalogRepository
+	tasks                      persistence.WorkRepository
+	delivery                   persistence.DeliveryRepository
+	contexts                   persistence.ContextRepository
+	review                     persistence.ReviewRepository
+	artifacts                  persistence.ArtifactRepository
+	performance                persistence.PerformanceRepository
+	auditRepo                  persistence.AuditRepository
+	deviceControl              deviceControlRepository
+	runtimeWake                runtimeWakeBroker
+	runtimeCommands            contentruntime.RuntimeCommandStore
+	providerAdmin              providerProfileAdminStore
+	now                        func() time.Time
+	log                        *slog.Logger
+	blobs                      blob.Store
+	platformAdminEmails        map[string]struct{}
+	environmentControl         *environment.ControlPlane
+	automationPolicy           map[string]environment.CapabilityRequirement
+	automationPackIDs          map[string][]string
+	mediaAdapters              map[string]mediapipeline.Adapter
+	compositionWorker          composition.Worker
+	sourceSearch               sourceinfra.SearchProvider
+	sourceFetcher              *sourceinfra.Fetcher
+	runtimeService             *contentruntime.Service
+	runtimeRepo                contentruntime.Repository
+	runtimeHarnesses           *agentadapter.HarnessRegistry
+	runtimeRollout             contentruntime.RolloutPolicy
+	channelAdapters            *channeladapter.Registry
+	modelProviders             *modelprovider.Registry
+	connectorAdapters          *connector.Registry
+	connectorRepository        connector.Repository
+	workbenchRepository        persistence.WorkbenchRepository
+	workbenchRegistry          *workbenchdomain.Registry
+	approvedWorkbenchTemplates map[string]struct{}
 }
 
 // Dependencies is the application composition boundary. Each domain service
@@ -91,6 +98,7 @@ type Dependencies struct {
 	RuntimeCommands     contentruntime.RuntimeCommandStore
 	ProviderAdmin       providerProfileAdminStore
 	ConnectorRepository connector.Repository
+	WorkbenchRepository persistence.WorkbenchRepository
 }
 
 // DependenciesFrom adapts a concrete persistence implementation at the
@@ -116,6 +124,7 @@ func DependenciesFrom(value any) Dependencies {
 		RuntimeCommands:     optionalDependency[contentruntime.RuntimeCommandStore](value),
 		ProviderAdmin:       optionalDependency[providerProfileAdminStore](value),
 		ConnectorRepository: optionalDependency[connector.Repository](value),
+		WorkbenchRepository: optionalDependency[persistence.WorkbenchRepository](value),
 	}
 }
 
@@ -252,6 +261,17 @@ func WithMediaProviderAdapter(providerID string, adapter mediapipeline.Adapter) 
 	}
 }
 
+// WithCompositionWorker injects the platform's media composition executor.
+// The worker receives only validated Manifest inputs and returns bytes; task,
+// review, Artifact and Delivery facts remain owned by their repositories.
+func WithCompositionWorker(worker composition.Worker) Option {
+	return func(service *serviceCore) {
+		if worker != nil {
+			service.compositionWorker = worker
+		}
+	}
+}
+
 // WithSourceSearchProvider and WithSourceFetcher are dependency seams for
 // provider-neutral search/fetch. Production uses the configured defaults;
 // tests and self-hosted deployments can provide a controlled implementation.
@@ -303,6 +323,31 @@ func WithConnectorRepository(repository connector.Repository) Option {
 	}
 }
 
+// WithWorkbenchRegistry replaces the first-party workbench registry at the
+// composition boundary. External packages must be validated before they are
+// passed here; the customer surface never loads arbitrary browser code.
+func WithWorkbenchRegistry(registry *workbenchdomain.Registry) Option {
+	return func(service *serviceCore) {
+		if registry != nil {
+			service.workbenchRegistry = registry
+		}
+	}
+}
+
+// WithApprovedWorkbenchTemplates extends the platform's approved experience
+// template catalog. Draft manifests may reference any value, but publication
+// requires the template to be explicitly approved at the composition boundary.
+func WithApprovedWorkbenchTemplates(templateIDs ...string) Option {
+	return func(service *serviceCore) {
+		for _, templateID := range templateIDs {
+			templateID = strings.TrimSpace(templateID)
+			if templateID != "" {
+				service.approvedWorkbenchTemplates[templateID] = struct{}{}
+			}
+		}
+	}
+}
+
 func New(dependencies Dependencies, logger *slog.Logger, options ...Option) *Application {
 	return NewWithBlob(dependencies, logger, blob.NewMemory(), options...)
 }
@@ -319,13 +364,22 @@ func NewWithBlob(dependencies Dependencies, logger *slog.Logger, blobs blob.Stor
 		delivery: dependencies.Delivery, contexts: dependencies.Contexts, review: dependencies.Review, artifacts: dependencies.Artifacts, performance: dependencies.Performance, auditRepo: dependencies.Audit,
 		now: time.Now, log: logger, blobs: blobs, platformAdminEmails: map[string]struct{}{},
 		automationPolicy: map[string]environment.CapabilityRequirement{}, automationPackIDs: map[string][]string{},
-		mediaAdapters: map[string]mediapipeline.Adapter{}, sourceSearch: sourceinfra.NewDefaultSearchProvider(),
+		mediaAdapters: map[string]mediapipeline.Adapter{}, compositionWorker: composition.NewDeterministicWorker(), sourceSearch: sourceinfra.NewDefaultSearchProvider(),
 		sourceFetcher: sourceinfra.NewDefaultFetcher(), runtimeHarnesses: agentadapter.NewDefaultHarnessRegistry(),
 		runtimeRollout: contentruntime.DefaultRolloutPolicy(), channelAdapters: channeladapter.NewDefaultRegistry(),
 		modelProviders: modelprovider.NewDefaultRegistry(), connectorAdapters: connector.NewDefaultRegistry(),
 		deviceControl: dependencies.DeviceControl, runtimeWake: dependencies.RuntimeWake,
 		runtimeCommands: dependencies.RuntimeCommands, providerAdmin: dependencies.ProviderAdmin,
 		connectorRepository: dependencies.ConnectorRepository,
+		workbenchRepository: dependencies.WorkbenchRepository,
+		workbenchRegistry:   workbenchdomain.DefaultRegistry(),
+		approvedWorkbenchTemplates: map[string]struct{}{
+			"ip_persona_marketing_video": {},
+			"article_content":            {},
+			"commerce_content":           {},
+			"serialized-novel":           {},
+		},
+		runtimeRepo: dependencies.Runtime,
 	}
 	for _, option := range options {
 		option(core)

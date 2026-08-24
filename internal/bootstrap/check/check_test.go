@@ -75,6 +75,33 @@ func TestPreflightReportsCodexCLIAndDesktopFailures(t *testing.T) {
 	}
 }
 
+func TestPreflightUsesSelectedClaudeHost(t *testing.T) {
+	runner := healthyRunner()
+	delete(runner, "codex")
+	delete(runner, "open")
+	runner["claude"] = runnerResponse{output: "claude 2.1.220"}
+	report := runOfflineHost(t, runner, "claude-code")
+	if !report.OK || report.Host != "claude" || report.FirstFailure != nil {
+		t.Fatalf("healthy Claude preflight failed: %#v", report.FirstFailure)
+	}
+	for _, check := range report.Checks {
+		if check.CheckID == "codex.cli.available" || check.CheckID == "codex.desktop.available" {
+			t.Fatalf("Claude preflight ran a Codex check: %#v", check)
+		}
+	}
+}
+
+func TestPreflightReportsClaudeVersionFailures(t *testing.T) {
+	runner := healthyRunner()
+	delete(runner, "codex")
+	delete(runner, "open")
+	runner["claude"] = runnerResponse{output: "claude 2.1.100"}
+	report := runOfflineHost(t, runner, "claude")
+	if report.OK || report.FirstFailure == nil || report.FirstFailure.CheckID != "claude.cli.version" || report.FirstFailure.ErrorCode != "CLAUDE_VERSION_UNSUPPORTED" {
+		t.Fatalf("unexpected Claude version failure: %#v", report.FirstFailure)
+	}
+}
+
 func TestPreflightRejectsUnavailableMacOSKeychain(t *testing.T) {
 	runner := healthyRunner()
 	runner["security"] = runnerResponse{err: errors.New("default keychain unavailable")}
@@ -154,4 +181,9 @@ func healthyRunner() fakeRunner {
 func runOffline(t *testing.T, runner fakeRunner) bootstrapcheck.Report {
 	t.Helper()
 	return bootstrapcheck.Run(t.Context(), bootstrapcheck.Options{Directory: t.TempDir(), ServerURL: "https://content.example.com", Offline: true, Platform: "darwin", Arch: "arm64", Runner: runner})
+}
+
+func runOfflineHost(t *testing.T, runner fakeRunner, host string) bootstrapcheck.Report {
+	t.Helper()
+	return bootstrapcheck.Run(t.Context(), bootstrapcheck.Options{Directory: t.TempDir(), ServerURL: "https://content.example.com", Host: host, Offline: true, Platform: "darwin", Arch: "arm64", Runner: runner})
 }

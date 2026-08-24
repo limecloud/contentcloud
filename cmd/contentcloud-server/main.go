@@ -70,6 +70,7 @@ func main() {
 		logger.Error("configure Runtime rollout", "error", err)
 		os.Exit(1)
 	}
+	rolloutPolicy = applyDevelopmentRuntimeDefaults(rolloutPolicy, devMode)
 	serviceOptions = append(serviceOptions, application.WithRuntimeRolloutPolicy(rolloutPolicy))
 	if environmentRuntime.Enabled {
 		serviceOptions = append(serviceOptions, application.WithEnvironmentControlPlane(environmentRuntime.ControlPlane))
@@ -206,4 +207,20 @@ func runtimeRolloutFromEnv() (contentruntime.RolloutPolicy, error) {
 		AdmissionEnabled: admissionEnabled, DynamicGraphEnabled: dynamicGraphEnabled,
 		TenantIDs: splitValues(os.Getenv("CONTENTCLOUD_RUNTIME_CANARY_TENANT_IDS")),
 	}, nil
+}
+
+// Development mode creates a complete local fixture, so its default Runtime
+// policy must allow that fixture to run. Production remains fail-closed, and
+// any explicitly supplied Runtime setting still wins over this convenience.
+func applyDevelopmentRuntimeDefaults(policy contentruntime.RolloutPolicy, devMode bool) contentruntime.RolloutPolicy {
+	if !devMode {
+		return policy
+	}
+	if strings.TrimSpace(os.Getenv("CONTENTCLOUD_RUNTIME_ADMISSION_ENABLED")) == "" {
+		policy.AdmissionEnabled = true
+	}
+	if strings.TrimSpace(os.Getenv("CONTENTCLOUD_RUNTIME_DYNAMIC_GRAPH_ENABLED")) == "" {
+		policy.DynamicGraphEnabled = true
+	}
+	return policy
 }

@@ -22,6 +22,8 @@ func TestEmbeddedSchemasAreValidJSON(t *testing.T) {
 		"content-item-3.0":                  ContentItemV3Schema,
 		"article-brief-1.0":                 ArticleBriefV1Schema,
 		"article-1.0":                       ArticleV1Schema,
+		"commerce-content-1.0":              CommerceContentV1Schema,
+		"video-script-1.0":                  VideoScriptV1Schema,
 		"wechat-delivery-1.0":               WeChatDeliveryV1Schema,
 		"brief-3.0":                         BriefV3Schema,
 		"creative-directions-3.0":           CreativeDirectionsV3Schema,

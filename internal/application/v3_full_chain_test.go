@@ -6,6 +6,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -80,6 +81,34 @@ func TestV3ContentApprovalDeliveryAndLearningChain(t *testing.T) {
 	delivery, err := service.Review.CreateDeliveryPackage(ctx, actor, snapshot.ID, "content-item-v1", "delivery")
 	if err != nil {
 		t.Fatal(err)
+	}
+	replayedDelivery, err := service.Review.CreateDeliveryPackage(ctx, actor, snapshot.ID, "content-item-v1", "delivery-retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayedDelivery.ID != delivery.ID || len(replayedDelivery.Manifest) != len(delivery.Manifest) {
+		t.Fatalf("delivery package retry was not idempotent: first=%#v replay=%#v", delivery, replayedDelivery)
+	}
+	var concurrent sync.WaitGroup
+	results := make(chan string, 2)
+	for i := 0; i < 2; i++ {
+		concurrent.Add(1)
+		go func() {
+			defer concurrent.Done()
+			value, callErr := service.Review.CreateDeliveryPackage(ctx, actor, snapshot.ID, "content-item-v1", "delivery-concurrent")
+			if callErr != nil {
+				t.Errorf("concurrent delivery retry failed: %v", callErr)
+				return
+			}
+			results <- value.ID
+		}()
+	}
+	concurrent.Wait()
+	close(results)
+	for id := range results {
+		if id != delivery.ID {
+			t.Fatalf("concurrent delivery retry returned a different package: %s != %s", id, delivery.ID)
+		}
 	}
 	if delivery.Status != "ready" || delivery.ContentItemID != "content-item-v1" || len(delivery.Manifest) != 3 || len(delivery.ApprovedSnapshotIDs) != 1 || delivery.ApprovedSnapshotIDs[0] != snapshot.ID {
 		t.Fatalf("delivery package is incomplete: %#v", delivery)

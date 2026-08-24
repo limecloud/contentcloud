@@ -485,6 +485,17 @@ func (s *Server) handleUserDispatch(w http.ResponseWriter, r *http.Request, req 
 		}
 		v, err := s.service.Review.DeliveryPackage(r.Context(), actor, in.ID)
 		s.dispatchResult(w, r, req.Command, v, err)
+	case "jianying.export":
+		var in application.JianyingExportInput
+		if !decodeParams(w, r, s, req, &in) {
+			return true
+		}
+		v, err := s.service.Delivery.ExportJianying(r.Context(), actor, in)
+		if err != nil {
+			s.dispatchResult(w, r, req.Command, nil, err)
+			return true
+		}
+		s.dispatchResult(w, r, req.Command, map[string]any{"file_name": "contentcloud-jianying-" + in.ProjectID + ".zip", "content_base64": base64.StdEncoding.EncodeToString(v.Body), "manifest_digest": v.ManifestDigest, "archive_digest": v.ArchiveDigest, "byte_size": len(v.Body)}, nil)
 	case "channel.adapter.list":
 		s.ok(w, r, req.Command, s.service.Delivery.ChannelAdapterIDs())
 	case "channel.binding.create":

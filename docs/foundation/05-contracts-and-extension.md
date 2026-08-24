@@ -1,8 +1,8 @@
 # 契约、版本与创作流水线扩展规范
 
-状态：`目标规范`。
+状态：`目标规范；Registry 持久化、发布和租户范围控制已实现首切片`。
 
-更新时间：2026-08-17。
+更新时间：2026-08-23。
 
 ## 1. 目的
 
@@ -89,6 +89,78 @@ ExperienceTemplateVersion
 体验模板只定义客户步骤映射，不保存执行状态。客户步骤可聚合多个 NodeRun，其状态由投影确定性计算。
 
 体验原语首阶段限制为：表单输入、资料选择、候选列表、版本比较、人工确认、媒体预览和交付下载。超出原语的复杂体验通过版本化业务 feature 实现，不扩展成任意页面配置语言。
+
+### 4.1 Business Workbench Plugin 1.0.0
+
+业务工作台插件是客户产品面的声明式扩展。它描述某个业务如何组织客户导航、阶段、画布和主要动作，但不拥有业务事实，也不成为新的执行入口。插件必须绑定一个已经发布并通过运营门禁的 `ExperienceTemplate`，不能绕过模板直接把页面暴露给租户。
+
+插件包的最小结构如下：
+
+```text
+workbench-plugins/<id>/
+├── workbench.json       版本化 manifest，唯一入口
+├── previews/            可选静态预览资源
+└── fixtures/            manifest 与渲染契约测试输入
+```
+
+`workbench.json` 由 [`workbench-plugin.schema.json`](../../contracts/workbench-plugins/1.0.0/workbench-plugin.schema.json) 约束，服务端解析器位于 `internal/experience/workbench`。1.0.0 只允许以下声明：
+
+```text
+id / version / name / content_types
+experience.template_id
+ui.renderer = approved
+ui.layout / ui.density / ui.theme
+ui.navigation[] / ui.stages[] / primary_action
+```
+
+以下内容明确不属于业务工作台插件：
+
+- Go 服务端代码、数据库迁移、任意 API URL 或自定义状态写路径。
+- Provider 凭据、模型配置、预算策略、Runtime 状态机和执行租约。
+- 任意浏览器脚本、远程 iframe、上传的前端 bundle 或可执行文件。
+- Agent Plugin 的安装、Skill/MCP 发现和宿主权限。Agent Plugin 仍由 `plugins/` 与宿主安装边界管理，不能用业务工作台 manifest 替代。
+
+#### Registry 生命周期
+
+```text
+提交插件包
+  -> manifest/schema 校验
+  -> ExperienceTemplate、action、content_type 和主题白名单校验
+  -> 运营预览（不影响租户）
+  -> 发布不可变版本与 digest
+  -> published（新任务可选）
+  -> retired（正常退役，可恢复；历史任务继续使用）
+  -> revoked（安全撤销，不可恢复；历史任务也阻断）
+  -> Customer BFF 按租户返回可用工作台
+  -> 新任务固定 plugin + template 版本，后续不随 latest 漂移
+```
+
+Registry 必须保存 `plugin_id`、版本、manifest、摘要、状态、模板别名、租户启用范围和生命周期原因；发布者、请求号和状态变化记录进入平台审计。启用前要检查模板仍为 `published`，所有 `primary_action` 都存在于服务端 action contract，且同一租户作用域内每个 `content_type` 只有一个默认工作台。未知 major 版本拒绝加载；minor 版本只有在解析器声明支持时才可进入预览或租户启用。
+
+当前实现证据：`internal/experience/workbench` 已完成 manifest 白名单、批准 `primary_action` 闭合校验和首方 Registry；`migrations/00054_workbench_registry.sql` 建立平台范围的 `workbench_plugin_versions`；`internal/persistence/memory` 与 `internal/persistence/postgres` 实现 `WorkbenchRepository`，并有 `workbench_integration_test.go` 作为真实 PostgreSQL 入口；`/api/bff/admin/workbenches` 提供平台管理员清单、登记草稿和状态更新；后台“业务工作台”页面显示版本、摘要、业务类型、租户范围和生命周期原因。空表时使用首方声明作为安全回退；持久化版本必须使用新的 `plugin_id@version`，不能覆盖首方同名版本，租户定制的已发布版本优先于平台默认版本。
+
+`retired` 只影响新任务和工作台选择器，不改变已经固定版本的进行中任务；恢复时必须重新通过发布门禁。`revoked` 用于签名、来源或安全契约失效，对新旧任务都失败关闭；进入该状态后只能用相同租户范围和相同原因进行幂等重试，不能恢复或改写原因。完整状态图见[业务工作台 Registry 生命周期](../../diagrams/contentcloud-workbench-registry-lifecycle.svg)。如果模板、action 或主题资源校验失败，宿主必须显示明确的不可用状态，并回退到平台安全错误页，不能静默套用另一个业务工作台。
+
+#### 前端装配边界
+
+```text
+apps/web/src/platform       会话、租户、权限、错误和无业务 UI 原语
+apps/web/src/workbench      宿主、manifest 类型、registry 查询和 action contract
+apps/web/src/workbenches    视频、文章、电商、连载小说等业务 feature
+apps/web/src/studio         迁移期旧客户路由，不再新增业务专属组件
+```
+
+`workbench/` 只提供宿主能力，不能把所有业务压成同一个导航或画布。`workbenches/<business>/` 可以拥有自己的信息架构、对象语言、阶段表达、密度和主题 token，但只能通过平台契约访问会话、项目、资产、审核、版本和交付。`shared/` 只放没有业务所有权的 UI 原语，不能成为新的 `common-business` 汇聚点。
+
+业务工作台插件与 Agent Plugin 的关系是引用关系，不是继承关系：ExperienceTemplate/Capability Binding 可以指定某个受批准的 Agent Plugin 或执行者能力，客户插件本身不能安装、调用或替换 Agent。
+
+## 4.2 跨业务内容的事实收敛
+
+业务 Schema 只定义工作台对象和渲染字段，不定义第二套流程。文章使用 `contentcloud.article/1.0`，电商使用 `contentcloud.commerce-content/1.0`，普通视频脚本使用兼容契约 `contentcloud.video_script/1.0`，小说章节使用 `contentcloud.novel-chapter/1.0`；正式提交都进入 `content_batch -> SubmissionRevision`，批准后统一生成 `ApprovedSnapshot`、三格式 `Artifact` 和幂等 `DeliveryPackage`。旧任务版本 API 的兼容响应由 Submission 投影生成，禁止新写入绕过 Review 或直接生成交付文件。普通视频脚本仅在历史流程已通过全部 Gate 的 accepted 任务上记录 `automated_gate` 批准，保留既有语义但仍使用平台审批事实。未来业务插件必须沿用该契约组合，并为自己的对象定义稳定 ID、版本、摘要、阻断项和缺失输入集合。
+
+`serialized_novel` 已形成首个完整插件纵向切片：首方 Registry 发布 `novel-editor`，业务 feature 位于 `apps/web/src/workbenches/serialized-novel`，章节校验位于 `internal/local/workspace/novel.go`，正式提交、批准、交付和效果分别复用 Submission、Review、ApprovedSnapshot、Artifact、Delivery 和 Performance。章节只有 `review_ready` 可提交，`approved_snapshot_id` 只能出现在批准后的服务器投影中，工作台不能自行写入。该完成状态只代表平台内部事实链，不代表真实内容商店或连载渠道已经接通。
+
+模型 Provider 生成的候选是执行层的 `draft` 临时事实：`ModelGenerationReceipt` 固定 Provider、请求摘要、响应摘要和用量，候选本身不具备审批、交付或效果归因资格。只有业务工作台或兼容提交入口重新校验并创建 `SubmissionRevision` 后，内容才进入正式事实链。
 
 ## 5. 客户资产入口契约
 
@@ -356,8 +428,9 @@ NodeResult
 7. 用 Fixture 完成契约和故障测试
 8. 定义哪些生成结果进入统一资产目录，以及确认门禁和复用状态如何推导
 9. 建立 ExperienceTemplate 客户投影
-10. 运营预览 -> Canary -> 租户启用
-11. 观测客户价值、资产复用、成本和故障后扩大范围
+10. 编写并校验 Business Workbench Plugin manifest，绑定已发布 ExperienceTemplate
+11. 运营预览 -> Canary -> 租户启用
+12. 观测客户价值、资产复用、成本和故障后扩大范围
 ```
 
 进入生产前必须用第二条结构不同的流程验证：新增内容类型不需要修改 Runtime 状态机、调度表或客户 Shell 基础设施。
@@ -369,3 +442,4 @@ NodeResult
 - 新任务不得绑定已停用版本。
 - 兼容读写期间记录调用量和租户覆盖率。
 - 移除前必须证明零活跃绑定、历史可读、回退可行和迁移测试通过。
+业务工作台 manifest 的 `ui.panels` 是受限的声明式扩展：它表达业务面板标题、对象语言、阶段映射和入口目标，仍由宿主批准 renderer 负责布局；它不能携带任意 React bundle、远程 iframe、Provider 配置或第二套任务/审批/产物状态。

@@ -2,7 +2,7 @@
 
 状态：`当前实现对账 + 外部接通边界`。
 
-更新时间：2026-08-17。
+更新时间：2026-08-23。
 
 ## 0. 首个用户前的 Clean-room 规则
 
@@ -19,6 +19,8 @@
 业务修订、ApprovedSnapshot、Artifact、Delivery 和外部 Receipt 是产品血缘，不能因为“清理历史”删除；技术 Schema、Adapter、Fallback 和重复入口不是产品血缘，优先重写或删除。
 
 ## 1. 结论
+
+产品入口先看[产品分层架构图](../../diagrams/contentcloud-product-layered-architecture.svg)、[视频工作台主流程](../../diagrams/contentcloud-video-workbench-flow.svg)和[小说工作台主流程](../../diagrams/contentcloud-novel-workbench-flow.svg)。分层图说明四类可定制工作台如何进入统一编排、事实、治理、执行、产物和效果闭环；本目录其余图表是搜索、采集、Runtime、渠道和故障恢复的工程视图，不应把工程节点直接当作客户页面导航。
 
 ContentCloud 不应成为另一个 vLLM 或 SGLang。它们解决模型推理的吞吐、延迟、显存、并行和服务兼容问题；ContentCloud 解决的是一项内容工作如何被发现、固定、生产、审核、交付、复用和复盘。
 
@@ -162,18 +164,19 @@ Infra 文档使用两个维度标记能力：
 
 历史入口和重复契约不属于产品状态。首个用户前直接删除无消费者的平行实现，不建立兼容分支。
 
-截至 2026-08-11 的真实基线：
+截至 2026-08-23 的真实基线：
 
 | 能力 | 当前状态 | 事实入口 |
 | --- | --- | --- |
 | LocalRun、Claim、Handoff、跨对话恢复 | `current-local` | `internal/local/workspace`、Workspace Skill |
 | 本地来源登记、摘要校验、解析、EvidenceBundle | `current-local` | `internal/local/workspace/source.go` |
 | Web 搜索、平台趋势、受控网页采集 | `current-server` / `external-dependency` | `source.search/fetch` Provider、Fetcher、白名单、SSRF/大小限制与 Evidence 物化已实现；搜索源和平台账号仍是外部依赖 |
-| Knowledge、Brief、视频脚本、公众号文章 | `current-local` | V3 本地 Schema、Skills 和 CLI |
+| Knowledge、Brief、视频脚本、公众号文章、连载小说 | `current-local` | V3 本地 Schema、Skills 和 CLI |
 | Submission、内部/客户审核、ApprovedSnapshot | `current-server` | `internal/review`、`internal/application` 命名审核服务、`internal/transport/http`、Submission contracts |
 | 资产资料与创作结果投影 | `current-server` / `partial` | WorkspaceMaterialProjection、CreativeResultAssetProjection |
 | Storyboard、媒体登记、Seedance 导出 | `current-local` / `current-server` | `storyboard-package`、`seedance-prompt-package` |
 | 微信交付包和人工操作说明 | `current-local` | `wechat-delivery` contract 和 Skill |
+| 小说章节提交、审批、三格式交付和效果回流 | `current-server` | NovelChapter 1.0 -> SubmissionRevision -> ApprovedSnapshot -> Artifact/Delivery -> Performance/Rating；真实内容商店仍为外部依赖 |
 | Agent Plugin 签名、Registry、宿主安装 | `current` / `partial` | `internal/catalog/environment`、`internal/integration/plugin*`，宿主通过 Adapter 选择，不绑定品牌 |
 | 开放 Agent Harness 与 SaaS 执行适配 | `current-server` | Pi、remote-http、agent-saas Harness、durable callback ingress、事件/结果幂等已实现 |
 | V8 Durable Runtime | `current` | `internal/runtime`、`internal/persistence/postgres`，租约、Attempt、SessionRef、Outbox/回放已覆盖 |
@@ -189,7 +192,7 @@ Infra 文档使用两个维度标记能力：
   -> V3 Brief / ContentBatch
   -> Agent/Skill/Worker 协作
   -> 服务端审核与 ApprovedSnapshot
-  -> Storyboard / 文章交付包
+  -> Storyboard / 文章交付包 / 小说章节交付包
   -> 人工发布或未来渠道 Adapter
   -> 结果资产与人工复盘
 ```
@@ -225,6 +228,23 @@ Camunda 可借鉴设计、连接、人工任务、运营和优化的产品分层
 | [03-delivery-roadmap.md](./03-delivery-roadmap.md) | 基于当前 V3/Plugin/Runtime 基线，下一步先补哪些缺口 |
 | [04-architecture-and-flow-diagrams.md](./04-architecture-and-flow-diagrams.md) | 当前架构、搜索/Agent/渠道时序、场景血缘和故障恢复图 |
 | [05-content-production-scenario-matrix.md](./05-content-production-scenario-matrix.md) | 抖音电商、公众号、小说等内容类型的专有工序、执行者组合和交付矩阵 |
+| [视频生产迁移计划](../roadmap/v8/12-video-production-migration.md) | 已获许可的视频生产业务能力如何按 ContentCloud 主链迁移、当前进度与阶段验收证据 |
+| [视频生产迁移执行跟踪](../roadmap/v8/13-video-production-execution.md) | 视频生产迁移逐项实施状态、阶段 C/D 待办、证据和文档同步规则 |
+| [视频生产本轮执行计划](../roadmap/v8/14-video-production-iteration.md) | 阶段 D 终态费用回写与取消对账一致性的短周期任务和完成门槛 |
+| [阶段 E 确定性合成计划](../roadmap/v8/17-stage-e-composition-plan.md) | 阶段 E 的合成输入审计、Artifact 血缘、测试和真实 Worker 验收门槛 |
+| [阶段 E1 Composition Manifest 计划](../roadmap/v8/18-stage-e1-composition-manifest-plan.md) | 阶段 E1 的 manifest 字段、稳定摘要、幂等规则和实现跟踪 |
+| [阶段 E1d 失败恢复计划](../roadmap/v8/19-stage-e1d-failure-recovery-plan.md) | 阶段 E1d 的失败、恢复、重复执行和摘要漂移验证 |
+| [视频生产迁移完成计划](../roadmap/v8/20-video-production-completion-plan.md) | 视频生产迁移完成门槛、执行队列和外部验收依赖 |
+| [E1d-b Blob 清理计划](../roadmap/v8/21-e1d-b-blob-cleanup-plan.md) | 最终成片临时 Blob 清理、失败诊断和恢复门槛 |
+| [阶段 F 剪映导出计划](../roadmap/v8/22-stage-f-jianying-export-plan.md) | 确定性剪映草稿导出、输入血缘、lint 和真实导入验收 |
+| [文档同步计划](../roadmap/v8/23-documentation-sync-plan.md) | 视频生产迁移文档状态同步和证据更新协议 |
+| [视频生产迁移工作台账](../roadmap/v8/24-video-production-worklog.md) | 短周期工作项、文档同步和下一项证据跟踪 |
+| [阶段 D2 PostgreSQL 对照计划](../roadmap/v8/25-stage-d2-postgres-parity-plan.md) | Memory/PostgreSQL 字段、事务、RLS 和恢复语义对照范围与执行门槛 |
+| [E1d-b PostgreSQL Final Render 计划](../roadmap/v8/26-e1d-b-postgres-final-render-plan.md) | 最终成片原子事务、回滚、租户隔离和真实 PostgreSQL 执行门槛 |
+| [E1d-b Blob 故障注入计划](../roadmap/v8/27-e1d-b-blob-fault-injection-plan.md) | Blob 读写故障、事实原子性和跨进程恢复证据 |
+| [E1d-b 恢复执行计划](../roadmap/v8/28-e1d-b-recovery-execution-plan.md) | 持久化清理诊断、后台重试、跨进程恢复和验收进度 |
+| [E1d-b R2 清理重试计划](../roadmap/v8/29-e1d-b-r2-cleanup-retry-plan.md) | R2 状态 CAS、清理失败自动登记、权限保护的查询/重试入口和恢复测试 |
+| [E1d-b 恢复验收计划](../roadmap/v8/30-e1d-b-recovery-acceptance-plan.md) | R2-6/R3-R5 独立进程、PostgreSQL/Blob 和同 digest 幂等恢复验收 |
 | [Content Work OS Desktop](../product/content-work-os-desktop/README.md) | 持续项目工作面、Electron 技术栈、同步、上传、审批和分发门禁 |
 
 相关事实文档：
@@ -272,7 +292,7 @@ Camunda 可借鉴设计、连接、人工任务、运营和优化的产品分层
 | Agent SaaS durable callback | `internal/transport/http/agent_ingress.go`、`runtime_provider_inbox` | `agent-execution-1.0` | `POST /api/v1/agent-harnesses/{kind}/tenants/{tenant}/callbacks` | `agent_ingress_test.go`、`agent_callback_test.go` | `current-server` | SaaS Webhook、签名 Secret |
 | vLLM/SGLang | `internal/integration/provider/model` OpenAI-compatible Provider | `model-generation-1.0` | `model.generate` | `model_infra_test.go` | `current-server` / `external-dependency` | 推理端点、模型、GPU 配额 |
 | 微信排版 | `internal/local/workspace/article.go` | `wechat-delivery-1.0` | `local.wechat.package.*` | article/layout tests | `current-local` | 公众号后台账号；人工发布 |
-| 小说 Canon/连续性 | `internal/local/workspace/novel.go` | `novel-*-1.0` | `local.novel.*` | `novel_test.go` | `current-local` | 发布平台账号 |
+| 小说 Canon/连续性/章节治理 | `internal/local/workspace/novel.go`、`internal/application` Submission/Review/Delivery | `novel-*-1.0`、NovelChapter 1.0 | `local.novel.*`、统一提交/审核/交付入口 | `novel_test.go`、`novel_full_chain_test.go` | `current-local` / `current-server` | 真实内容商店发布账号与回执 |
 | 渠道发布/回执/指标 | `internal/delivery`、`internal/integration/provider/channel`、`internal/application` 命名交付服务 | `channel-publication-1.0`、`channel-callback-1.0` | `channel.publication.*`、HTTP callbacks | `channel_infra_test.go` | `current-server` | 真实渠道 Adapter/账号 |
 | 抖音电商事实校验 | `internal/local/workspace/douyin_commerce.go`、`internal/application` 命名工作服务 | `douyin-commerce-validation-1.0` | `local.douyin-commerce.validate/lint`、typed prepare input | `douyin_commerce_test.go`、publication lineage test | `current-local` / `current-server` | 商品锚点、账号、平台发布 |
 

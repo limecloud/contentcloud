@@ -42,6 +42,7 @@ type RuntimeTenantHealth struct {
 	Status           string                                      `json:"status"`
 	Reaper           *contentruntime.RuntimeMaintenanceHeartbeat `json:"reaper,omitempty"`
 	Delivery         *contentruntime.RuntimeMaintenanceHeartbeat `json:"delivery,omitempty"`
+	Cleanup          *contentruntime.RuntimeMaintenanceHeartbeat `json:"cleanup,omitempty"`
 	ProjectionOutbox contentruntime.RuntimeOutboxStats           `json:"projection_outbox"`
 	BusinessOutbox   contentruntime.RuntimeOutboxStats           `json:"business_outbox"`
 	Alerts           []RuntimeHealthAlert                        `json:"alerts"`
@@ -96,6 +97,10 @@ func (s *RuntimeService) PlatformRuntimeHealth(ctx context.Context, actor Actor)
 		if err != nil {
 			return RuntimeHealthReport{}, err
 		}
+		health.Cleanup, err = s.runtimeHealthHeartbeat(ctx, tenant.ID, contentruntime.RuntimeMaintenanceCleanup, now, &health.Alerts)
+		if err != nil {
+			return RuntimeHealthReport{}, err
+		}
 		appendRuntimeBacklogAlert(&health.Alerts, now, health.ProjectionOutbox, "RUNTIME_PROJECTION_LAG", "Runtime 投影积压超过健康门槛")
 		appendRuntimeBacklogAlert(&health.Alerts, now, health.BusinessOutbox, "RUNTIME_BUSINESS_RESULT_BACKLOG", "Runtime 业务结果交接积压超过健康门槛")
 		health.Status = runtimeAlertsStatus(health.Alerts)
@@ -133,6 +138,8 @@ func (s *RuntimeService) runtimeHealthHeartbeat(ctx context.Context, tenantID, k
 	code := "RUNTIME_REAPER_STALLED"
 	if kind == contentruntime.RuntimeMaintenanceDelivery {
 		label, code = "Runtime delivery worker", "RUNTIME_DELIVERY_STALLED"
+	} else if kind == contentruntime.RuntimeMaintenanceCleanup {
+		label, code = "Runtime cleanup worker", "RUNTIME_CLEANUP_STALLED"
 	}
 	if fault.IsNotFound(err) {
 		*alerts = append(*alerts, RuntimeHealthAlert{Code: code, Severity: "critical", Message: label + " 尚无成功心跳"})

@@ -32,6 +32,14 @@ var performanceIssueCategories = map[string]bool{
 	"landing":  true,
 }
 
+// Performance belongs to the approved version that produced a delivered
+// result. Content batches are the article/content path; storyboard snapshots
+// are the video path whose final Artifact is delivered through the same package.
+var performanceEligibleSnapshotTypes = map[string]bool{
+	"content_batch": true,
+	"storyboard":    true,
+}
+
 var performanceMetrics = map[string]bool{
 	"impressions":                 true,
 	"views":                       true,
@@ -152,8 +160,8 @@ func (s *PerformanceService) ImportPerformanceObservations(ctx context.Context, 
 				}
 			}
 			snapshot = cachedSnapshot
-			if loadErr != nil || snapshot.ProjectID != in.ProjectID || snapshot.SubmissionType != "content_batch" {
-				rowErrors = append(rowErrors, importRowError(rowNumber, "approved_snapshot_id", "RESULT_SNAPSHOT_NOT_FOUND", "批准快照不存在、不属于当前项目或不是 content_batch 快照"))
+			if loadErr != nil || snapshot.ProjectID != in.ProjectID || !performanceEligibleSnapshotTypes[snapshot.SubmissionType] {
+				rowErrors = append(rowErrors, importRowError(rowNumber, "approved_snapshot_id", "RESULT_SNAPSHOT_NOT_FOUND", "批准快照不存在、不属于当前项目或不是可归因的交付版本"))
 			}
 		}
 
@@ -447,7 +455,7 @@ func (s *PerformanceService) validateRatingSubject(ctx context.Context, actor Ac
 		return fault.Invalid("RATING_SUBJECT_TYPE_INVALID", "评级对象类型必须是已批准快照（approved_snapshot）")
 	}
 	value, err := s.review.ApprovedSnapshot(ctx, actor.TenantID, subjectID)
-	if err != nil || value.ProjectID != projectID || value.SubmissionType != "content_batch" {
+	if err != nil || value.ProjectID != projectID || !performanceEligibleSnapshotTypes[value.SubmissionType] {
 		return fault.NotFound("评级对象")
 	}
 	return nil

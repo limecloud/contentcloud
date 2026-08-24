@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	exportfmt "github.com/limecloud/contentcloud/internal/local/export"
 	"github.com/limecloud/contentcloud/internal/platform/fault"
 	"github.com/limecloud/contentcloud/internal/platform/stablehash"
 )
@@ -66,6 +67,103 @@ type NovelChapter struct {
 	TimelineOrder      int           `json:"timeline_order"`
 	Status             string        `json:"status,omitempty"`
 	ApprovedSnapshotID string        `json:"approved_snapshot_id,omitempty"`
+}
+
+// ValidateNovelChapterForSubmission validates the business payload before it
+// enters the shared Submission chain. A chapter is review-ready here; the
+// immutable ApprovedSnapshot is the only place where approval is recorded.
+func ValidateNovelChapterForSubmission(raw json.RawMessage) (NovelChapter, error) {
+	var chapter NovelChapter
+	if err := strictUnmarshal(raw, &chapter); err != nil {
+		return chapter, fault.Invalid("NOVEL_CHAPTER_JSON_INVALID", err.Error())
+	}
+	if chapter.SchemaVersion != NovelChapterSchema || strings.TrimSpace(chapter.ID) == "" || strings.TrimSpace(chapter.SeriesID) == "" {
+		return chapter, fault.Invalid("NOVEL_CHAPTER_IDENTITY_INVALID", "小说章节需要有效的 schema、章节标识和系列标识")
+	}
+	if chapter.ChapterNo < 1 || strings.TrimSpace(chapter.Title) == "" || strings.TrimSpace(chapter.Summary) == "" || strings.TrimSpace(chapter.Body) == "" || strings.TrimSpace(chapter.OutlineRef) == "" || chapter.TimelineOrder < 1 {
+		return chapter, fault.Invalid("NOVEL_CHAPTER_FIELDS_REQUIRED", "小说章节需要编号、标题、摘要、正文、大纲引用和时间线顺序")
+	}
+	if chapter.Status != "review_ready" || strings.TrimSpace(chapter.ApprovedSnapshotID) != "" {
+		return chapter, fault.Policy("NOVEL_CHAPTER_NOT_REVIEW_READY", "只有 review_ready 且未携带批准快照的章节才能提交", "将章节修订为 review_ready 后重新提交")
+	}
+	if err := validateNovelChapterCollections(chapter); err != nil {
+		return chapter, err
+	}
+	return chapter, nil
+}
+
+func validateNovelChapterCollections(chapter NovelChapter) error {
+	if !uniqueStringsAreValid(chapter.CharacterRefs) || !uniqueStringsAreValid(chapter.LocationRefs) || !uniqueStringsAreValid(chapter.ResolvedThreads) {
+		return fault.Invalid("NOVEL_CHAPTER_REFERENCES_INVALID", "小说章节引用集合必须是非空且唯一的字符串")
+	}
+	seen := map[string]bool{}
+	for _, thread := range chapter.OpenedThreads {
+		if strings.TrimSpace(thread.ID) == "" || strings.TrimSpace(thread.Description) == "" || thread.OpenedIn != chapter.ChapterNo || seen[thread.ID] {
+			return fault.Invalid("NOVEL_CHAPTER_THREAD_INVALID", "小说章节新增伏笔必须有唯一标识、描述并绑定当前章节")
+		}
+		seen[thread.ID] = true
+	}
+	return nil
+}
+
+func uniqueStringsAreValid(values []string) bool {
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			return false
+		}
+		seen[value] = true
+	}
+	return true
+}
+
+// RenderNovelChapterDelivery turns an approved snapshot object into stable
+// files. The snapshot, not the chapter status field, is the approval boundary.
+func RenderNovelChapterDelivery(raw json.RawMessage) (RenderedContentDelivery, error) {
+	var chapter NovelChapter
+	if err := strictUnmarshal(raw, &chapter); err != nil {
+		return RenderedContentDelivery{}, fault.Invalid("NOVEL_CHAPTER_JSON_INVALID", err.Error())
+	}
+	if chapter.SchemaVersion != NovelChapterSchema || strings.TrimSpace(chapter.ID) == "" || strings.TrimSpace(chapter.Body) == "" || (chapter.Status != "review_ready" && chapter.Status != "approved") {
+		return RenderedContentDelivery{}, fault.Policy("NOVEL_CHAPTER_DELIVERY_BLOCKED", "只有已通过审批流程的小说章节才能生成交付文件", "完成章节内审和客户审批后重试")
+	}
+	jsonBody, err := json.MarshalIndent(chapter, "", "  ")
+	if err != nil {
+		return RenderedContentDelivery{}, err
+	}
+	jsonBody = append(jsonBody, '\n')
+	markdown := []byte(renderNovelChapterMarkdown(chapter))
+	rows := [][]string{{"字段", "值"}, {"系列", chapter.SeriesID}, {"章节", fmt.Sprintf("第 %d 章", chapter.ChapterNo)}, {"标题", chapter.Title}, {"摘要", chapter.Summary}, {"时间线顺序", fmt.Sprint(chapter.TimelineOrder)}, {"大纲引用", chapter.OutlineRef}, {"角色引用", strings.Join(chapter.CharacterRefs, ", ")}, {"地点引用", strings.Join(chapter.LocationRefs, ", ")}, {"正文", chapter.Body}}
+	xlsx, err := exportfmt.XLSX("小说章节", rows)
+	if err != nil {
+		return RenderedContentDelivery{}, err
+	}
+	hash, err := stablehash.Sum(chapter)
+	if err != nil {
+		return RenderedContentDelivery{}, err
+	}
+	files := []RenderedContentFile{
+		{Format: "json", Name: "novel-chapter.json", MediaType: "application/json", Body: jsonBody, SHA256: digest(jsonBody)},
+		{Format: "markdown", Name: "novel-chapter.md", MediaType: "text/markdown", Body: markdown, SHA256: digest(markdown)},
+		{Format: "xlsx", Name: "novel-chapter.xlsx", MediaType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Body: xlsx, SHA256: digest(xlsx)},
+	}
+	return RenderedContentDelivery{ItemID: chapter.ID, SchemaID: NovelChapterSchema, ContentHash: "sha256:" + hash, Files: files}, nil
+}
+
+func renderNovelChapterMarkdown(chapter NovelChapter) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "# 第 %d 章：%s\n\n", chapter.ChapterNo, chapter.Title)
+	fmt.Fprintf(&out, "系列：%s\n\n摘要：%s\n\n", chapter.SeriesID, chapter.Summary)
+	if len(chapter.CharacterRefs) > 0 {
+		fmt.Fprintf(&out, "角色：%s\n\n", strings.Join(chapter.CharacterRefs, "、"))
+	}
+	if len(chapter.LocationRefs) > 0 {
+		fmt.Fprintf(&out, "地点：%s\n\n", strings.Join(chapter.LocationRefs, "、"))
+	}
+	out.WriteString(chapter.Body)
+	out.WriteString("\n")
+	return out.String()
 }
 
 type NovelOutlineChapter struct {

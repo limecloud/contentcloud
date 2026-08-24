@@ -213,6 +213,11 @@ func (s *OperationsService) buildProjectLineage(ctx context.Context, tenantID, p
 	for _, snapshot := range approvedSnapshots {
 		b.node("approved_snapshot", snapshot.ID, fmt.Sprintf("%s · 已批准快照", snapshot.SubmissionType), "approved", "approval", snapshot.CreatedAt, map[string]any{"content_hash": snapshot.ContentHash})
 		b.edge("submission_revision", snapshot.SubmissionRevisionID, "approved_snapshot", snapshot.ID, "approved_as", "客户批准后，将不可变内容版本固化为快照")
+		if revision, revisionErr := s.review.SubmissionRevision(ctx, tenantID, snapshot.SubmissionRevisionID); revisionErr == nil {
+			for _, baseSnapshotID := range revision.BaseSnapshotIDs {
+				b.edge("approved_snapshot", baseSnapshotID, "approved_snapshot", snapshot.ID, "derived_from", "当前批准快照显式继承上游批准快照")
+			}
+		}
 	}
 
 	for _, snapshot := range approvedSnapshots {
@@ -238,6 +243,49 @@ func (s *OperationsService) buildProjectLineage(ctx context.Context, tenantID, p
 			b.edge("delivery_package", delivery.ID, "artifact", artifact.ID, "contains", "交付包包含确定性格式文件")
 		}
 	}
+	bindings, err := s.delivery.ChannelBindings(ctx, tenantID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	for _, binding := range bindings {
+		b.node("channel_binding", binding.ID, binding.Channel+" · "+binding.AccountRef, binding.Status, "delivery", binding.CreatedAt, map[string]any{"channel": binding.Channel, "adapter_id": binding.AdapterID, "account_ref": binding.AccountRef})
+	}
+	// Publication queries are task-scoped in the repository contract. Walk the
+	// project tasks so the projection stays complete without adding an
+	// unbounded cross-tenant query to a lower-level store.
+	tasks, err := s.tasks.WorkTasks(ctx, tenantID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	for _, task := range tasks {
+		deliveries, deliveryErr := s.delivery.TaskDeliveries(ctx, tenantID, task.ID)
+		if deliveryErr != nil {
+			return nil, deliveryErr
+		}
+		for _, delivery := range deliveries {
+			b.node("task_delivery", delivery.ID, "任务交付 · "+delivery.Destination, delivery.Status, "delivery", delivery.CreatedAt, map[string]any{"delivery_package_id": delivery.DeliveryPackageID, "integrity_status": delivery.IntegrityStatus})
+			b.edge("delivery_package", delivery.DeliveryPackageID, "task_delivery", delivery.ID, "delivered_to", "交付包通过任务交付进入受控目的地")
+			for _, manifestRef := range delivery.Manifest {
+				artifactID := strings.TrimSpace(strings.SplitN(manifestRef, "@", 2)[0])
+				if artifactID == "" {
+					continue
+				}
+				artifact, artifactErr := s.artifacts.Artifact(ctx, tenantID, artifactID)
+				if artifactErr == nil {
+					b.edge("approved_snapshot", artifact.ApprovedSnapshotID, "task_delivery", delivery.ID, "delivered_as", "交付清单中的成果文件回溯到批准快照")
+				}
+			}
+			publications, publicationErr := s.delivery.ChannelPublications(ctx, tenantID, task.ID)
+			if publicationErr != nil {
+				return nil, publicationErr
+			}
+			for _, publication := range publications {
+				b.node("channel_publication", publication.ID, publication.Channel+" · "+publication.AccountRef, publication.State, "delivery", publication.CreatedAt, map[string]any{"channel": publication.Channel, "account_ref": publication.AccountRef, "external_id": publication.ExternalID, "response_digest": publication.ResponseDigest})
+				b.edge("channel_binding", publication.ChannelBindingID, "channel_publication", publication.ID, "published_through", "渠道发布使用项目内的受控渠道绑定")
+				b.edge("task_delivery", publication.TaskDeliveryID, "channel_publication", publication.ID, "published_as", "完整任务交付形成渠道发布意图")
+			}
+		}
+	}
 
 	batches, err := s.performance.PerformanceImportBatches(ctx, tenantID, projectID)
 	if err != nil {
@@ -254,6 +302,11 @@ func (s *OperationsService) buildProjectLineage(ctx context.Context, tenantID, p
 		b.node("performance_observation", observation.ID, observationLabel(observation), observation.SampleStatus, "results", observation.CreatedAt, map[string]any{"platform": observation.Platform, "window_hours": observation.WindowHours, "roi": observation.ROI})
 		b.edge("performance_import_batch", observation.ImportBatchID, "performance_observation", observation.ID, "imports", "导入批次包含效果观察")
 		b.edge("approved_snapshot", observation.ApprovedSnapshotID, "performance_observation", observation.ID, "measured_by", "效果数据度量已批准快照")
+		for _, batch := range batches {
+			if batch.ID == observation.ImportBatchID && strings.HasPrefix(batch.SourceName, "channel-publication:") {
+				b.edge("channel_publication", strings.TrimPrefix(batch.SourceName, "channel-publication:"), "performance_observation", observation.ID, "reported_for", "渠道发布回执后的效果数据回流")
+			}
+		}
 	}
 	ratings, err := s.performance.RatingDecisions(ctx, tenantID, projectID)
 	if err != nil {

@@ -2,7 +2,7 @@
 
 状态：`现有实现收口 + 外部接通路线`。
 
-更新时间：2026-08-17。
+更新时间：2026-08-23。
 
 ## 1. 路线图口径
 
@@ -31,7 +31,7 @@
 | 模型 Provider | vLLM、SGLang OpenAI-compatible Adapter | ModelGenerationReceipt | provider/app tests | `current-server` |
 | 内容 Profile | `internal/catalog/profile` 编译现有 SOP | douyin/wechat/novel profiles | profile tests | `current-server` |
 | 微信文章与排版 | `internal/local/workspace/article.go` | Article/WeChatDelivery | layout/DOM/mobile/package tests | `current-local` |
-| 小说生产 | `internal/local/workspace/novel.go` | Canon/Outline/Chapter/Release | continuity/release tests | `current-local` |
+| 小说生产与治理 | `internal/local/workspace/novel.go` + 统一 Submission/Review/Delivery | Canon/Outline/Chapter/Release、NovelChapter 1.0、ApprovedSnapshot | continuity/release/full-chain tests | `current-local` / `current-server` |
 | 渠道发布 | ChannelBinding、ChannelPublication、CallbackReceipt | prepare/submit/inspect/withdraw/callback/reconcile/performance | channel tests | `current-server` |
 | 抖音电商发布校验 | ApprovedSnapshot + Artifact + DeliveryPackage + ChannelPublication | DouyinCommerceValidationReceipt、typed prepare refs | local/server lineage tests | `current-local` / `current-server` |
 
@@ -165,15 +165,17 @@ AudienceStrategy ApprovedSnapshot
 
 ### 5.3 小说/内容商店
 
-当前本地链：Canon -> Outline -> Chapter -> continuity lint -> Release。下一步将 NovelRelease 投影到现有 DeliveryPackage，再通过 Channel Adapter 记录排期、章节 ID、审核状态和回执。
+当前内部链：Canon -> Outline -> Chapter -> continuity lint -> `SubmissionRevision` -> internal/client review -> `ApprovedSnapshot` -> JSON/Markdown/XLSX `Artifact` -> `DeliveryPackage` -> `PerformanceObservation` -> `RatingDecision`。本地 NovelRelease 仍作为工作区交付包，服务端章节交付直接引用批准快照；两者不能绕过统一审批事实。下一步只需通过 Channel Adapter 记录真实排期、章节 ID、审核状态和外部回执，不再新造小说交付模型。
 
 验收：Agent 会话记忆不能作为连续性证据；每章必须引用固定 Canon/Outline 版本。
 
-状态：生产 `current-local`，渠道发布为 `partial` / `external-dependency`。
+状态：本地生产 `current-local`，服务端提交/审批/交付/效果链 `current-server`，真实渠道发布为 `partial` / `external-dependency`。
 
 ## 6. 第三阶段：运营与规模验证
 
 只有真实外部运行产生数据后再推进：
+
+内部交付事实已补充稳定业务键幂等：内容批次和视频最终成片的重复交付请求都会回到同一 DeliveryPackage；该能力属于当前服务端底座，不能被某个业务工作台或渠道适配器单独重写。真实 PostgreSQL 并发、Provider、渠道和效果回执仍需外部验收。
 
 | 能力 | 输入证据 | 验收 |
 | --- | --- | --- |
@@ -182,6 +184,36 @@ AudienceStrategy ApprovedSnapshot
 | 质量评测 | Content/Artifact/Receipt/Performance 血缘 | 不用发布后指标反向篡改批准内容 |
 | Connector 运维 | lease、cursor、tombstone、lag、失败回执 | 可重放、不重复、不跳过删除 |
 | Agent 运维 | Attempt、SessionRef、usage、callback inbox | 可取消、可恢复、可归因成本 |
+
+## 6.1 视频生产能力迁移
+
+视频生产业务已获得迁移许可。迁移范围是该业务的视频生产领域能力和验收行为，实施时必须以 ContentCloud 现有事实模型为中心重新接入，不复制第二套项目、任务、审核、发布或资产写模型。详细阶段、完成状态和验收证据见 [视频生产迁移计划](../roadmap/v8/12-video-production-migration.md)。
+
+目标链路：
+
+```text
+Source / Script / Product Material
+  -> Evidence / Knowledge / Brief / ContentBatch
+  -> StoryboardPackage + locked visual references
+  -> ApprovedSnapshot
+  -> batch admission -> MediaGenerationJob / ProviderAttempt / Effect
+  -> Artifact -> review -> final render
+  -> DeliveryPackage -> Jianying draft exporter -> ChannelPublication / Performance
+```
+
+迁移约束：
+
+- 视频批量任务仍由 `WorkTask`、`StageRun`、`MediaGenerationJob`、`RuntimeAttempt` 和 `Effect` 表达，不能引入平行 Task 队列。
+- 角色、场景、道具、商品和参考图只作为受版本控制的输入/产物投影；不得用一个泛化 Asset 覆盖 SourceRevision、WorkspaceMaterial、Artifact 或 DeliveryPackage。
+- 外部 Provider 的远端任务 ID、轮询、取消结果、费用和下载校验必须写入既有 ProviderAttempt、Receipt、Artifact 和审计链。
+- 剪映草稿是 DeliveryPackage 的确定性派生；导出成功不代表渠道已发布。
+- 每个阶段只有同时具备契约、租户/权限/摘要语义、正常与失败测试、恢复测试和文档证据，才能从 `target` 升级。
+
+当前进度：阶段 A（边界对账）、阶段 B（视觉资产一致性与镜头绑定）和阶段 C（批量视频准入）已完成，阶段 D（Provider 异步恢复与费用对账）仍在进行。阶段 C 已具备批量 DTO、整批阻断、费用确认后统一入队、幂等原子写入、月度预算与并发门禁和 HTTP 入口，并通过空批次、费用确认、整批阻断、币种不一致、预算、并发和幂等冲突测试。阶段 D 的 D1 模拟状态恢复矩阵、D2-1 存储接口/测试盘点和 D2-2 PostgreSQL 集成测试实现已完成，真实 PostgreSQL、真实账单回执和真实 Provider 闭环仍待完成。阶段 E 已进入 `in_progress`：E0/E1a 文档契约、E1b Go 值对象、E1c Manifest 驱动 `CreateFinalRender`、E1d-a 矩阵基线、E1d-c 最终审核交付硬门禁、E1d-b Memory 原子写入测试、PostgreSQL 原子事务测试入口、Blob `Get`/`Put` 失败无事实测试、数据库失败后的临时 Blob 清理、迁移 `00053` 的 Runtime 诊断持久化、R2 状态 CAS、清理失败自动登记、租户范围查询/详情/CAS 重试 BFF、Runtime worker 自动清理恢复和 `runtime_cleanup` 健康心跳已完成。跨进程恢复目前已有 Memory/跨 Application 实例证据，真实 PostgreSQL/Blob 故障执行、同 digest 组合幂等、真实合成 Worker 和旁白/字幕处理待补；入口会重新校验快照、审核、Artifact、时间轴和输出契约，并按 digest 幂等，pending 最终审核不能创建交付包。总进度见 [视频生产迁移推进计划](../roadmap/v8/16-video-production-progress-plan.md)，逐项状态见 [视频生产迁移执行跟踪](../roadmap/v8/13-video-production-execution.md)、[本轮执行计划](../roadmap/v8/14-video-production-iteration.md)、[状态查询恢复矩阵计划](../roadmap/v8/15-provider-state-matrix.md)、[阶段 E 确定性合成计划](../roadmap/v8/17-stage-e-composition-plan.md)、[E1 Composition Manifest 计划](../roadmap/v8/18-stage-e1-composition-manifest-plan.md)、[E1d 验证计划](../roadmap/v8/19-stage-e1d-failure-recovery-plan.md)、[E1d-b Blob 清理计划](../roadmap/v8/21-e1d-b-blob-cleanup-plan.md)、[E1d-b Blob 故障注入计划](../roadmap/v8/27-e1d-b-blob-fault-injection-plan.md)、[E1d-b 恢复执行计划](../roadmap/v8/28-e1d-b-recovery-execution-plan.md)、[E1d-b PostgreSQL Final Render 计划](../roadmap/v8/26-e1d-b-postgres-final-render-plan.md) 和 [阶段 D2 PostgreSQL 对照计划](../roadmap/v8/25-stage-d2-postgres-parity-plan.md)。
+
+R2-2 文档同步（2026-08-23）：已完成 Runtime 清理诊断状态 CAS；R2-3 自动登记和 R2-4/R2-5 查询、详情、CAS 重试入口已实现，独立进程恢复和真实 PostgreSQL 故障恢复仍待验收，详见 [R2 清理重试计划](../roadmap/v8/29-e1d-b-r2-cleanup-retry-plan.md)。
+
+阶段 F 本轮完成 F0 文档基线及 F1-F4b exporter 切片：已实现只读的确定性 Jianying ZIP 导出、应用/HTTP/CLI 交付编排入口、固定 manifest/素材安全路径、完整输入血缘校验、失败矩阵、契约测试和独立导出 lint；入口复用 ApprovedSnapshot、MediaReview、Artifact、DeliveryPackage 和 Blob 事实，不创建平行业务模型；F5 真实人工导入验收仍待补，具体队列见[阶段 F 剪映导出计划](../roadmap/v8/22-stage-f-jianying-export-plan.md)。本轮同时补齐非最终 Artifact/DeliveryPackage 的 Blob 补偿清理和渠道效果血缘投影；Memory/模拟渠道证据已通过，真实 PostgreSQL/Blob、Provider、渠道和效果指标仍保持未完成。
 
 ## 7. 配置与部署验收
 

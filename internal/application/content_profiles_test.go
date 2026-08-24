@@ -75,6 +75,15 @@ func TestSerializedNovelContentTypeIsSupported(t *testing.T) {
 	}
 }
 
+func TestCommerceContentTypeIsSupported(t *testing.T) {
+	if !identitydomain.ValidTenantContentType(identitydomain.ContentTypeCommerce) {
+		t.Fatal("commerce content type must be available to projects")
+	}
+	if !identitydomain.ValidOptionalTenantContentType(identitydomain.ContentTypeCommerce) {
+		t.Fatal("commerce content type must be available to tenant capabilities")
+	}
+}
+
 func containsExecutorKind(version catalogdomain.SOPVersion, expected string) bool {
 	for _, stage := range version.Stages {
 		if strings.Contains("|"+strings.Join(stage.AllowedExecutorKinds, "|")+"|", "|"+expected+"|") {

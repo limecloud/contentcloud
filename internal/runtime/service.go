@@ -40,6 +40,12 @@ func NewWithHarnessRegistry(repo Repository, now func() time.Time, harnesses *ag
 
 func (s *Service) Repository() Repository { return s.repo }
 
+// DynamicGraphEnabled reports the effective tenant rollout without exposing
+// the rollout policy itself to application or transport layers.
+func (s *Service) DynamicGraphEnabled(tenantID string) bool {
+	return s != nil && s.rollout.DynamicGraphEnabled && s.rolloutTenantAllowed(tenantID)
+}
+
 type RolloutPolicy struct {
 	AdmissionEnabled    bool
 	DynamicGraphEnabled bool

@@ -56,9 +56,9 @@ func TestLimitedBufferTruncatesWithoutFailingChildProcessWrite(t *testing.T) {
 	}
 }
 
-func TestClientRegistryResolvesAliasesAndPlannedCapabilities(t *testing.T) {
+func TestClientRegistryResolvesAliasesAndCapabilityBoundaries(t *testing.T) {
 	claude, ok := Lookup(" Claude ")
-	if !ok || claude.ID != ClientClaudeCode || claude.CapabilityStatus(CapabilityLocalAutomation) != SupportAvailable {
+	if !ok || claude.ID != ClientClaudeCode || claude.CapabilityStatus(CapabilityLocalAutomation) != SupportAvailable || claude.CapabilityStatus(CapabilityWorkspaceBootstrap) != SupportAvailable {
 		t.Fatalf("unexpected Claude registry entry: %#v", claude)
 	}
 	openClaw, ok := Lookup("open-claw")
@@ -96,6 +96,14 @@ func TestHandoffStrategiesMatchAvailableRegistryCapabilities(t *testing.T) {
 	handoff, err := adapter.Build(HandoffRequest{Kind: "project", ProjectID: "project-1", Target: HandoffTarget{Kind: "project", ID: "project-1"}})
 	if err != nil || handoff.Client.ID != ClientCodex || handoff.Launch.Mode != "deep_link" || !strings.HasPrefix(handoff.Launch.URL, "codex://new?") {
 		t.Fatalf("unexpected Codex handoff: %#v err=%v", handoff, err)
+	}
+	claudeAdapter, err := SelectHandoff("claude", "0.8.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claudeHandoff, err := claudeAdapter.Build(HandoffRequest{Kind: "project", ProjectID: "project-1", Target: HandoffTarget{Kind: "project", ID: "project-1"}})
+	if err != nil || claudeHandoff.Client.ID != ClientClaudeCode || claudeHandoff.Launch.Mode != "command" || len(claudeHandoff.Launch.Command) != 2 || claudeHandoff.Launch.Command[0] != "claude" || claudeHandoff.Launch.Command[1] != claudeHandoff.Prompt || claudeHandoff.Launch.URL != "" {
+		t.Fatalf("unexpected Claude Code handoff: %#v err=%v", claudeHandoff, err)
 	}
 }
 

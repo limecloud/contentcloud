@@ -1127,6 +1127,11 @@ func (s *WorkService) ProjectSOP(ctx context.Context, actor Actor, projectID str
 		return catalogdomain.ProjectSOPBinding{}, catalogdomain.SOPVersion{}, err
 	}
 	desiredSOP, found := latestPublishedBuiltinSOP(sops, builtinSOPKeyForContentType(projectContentType))
+	if projectContentType == identitydomain.ContentTypeSerializedNovel {
+		if profileSOP, profileFound := latestPublishedContentProfileSOP(sops, projectContentType); profileFound {
+			desiredSOP, found = profileSOP, true
+		}
+	}
 	if !found {
 		desiredSOP = defaultSOP
 	}
@@ -1166,6 +1171,21 @@ func (s *WorkService) ProjectSOP(ctx context.Context, actor Actor, projectID str
 		return binding, catalogdomain.SOPVersion{}, err
 	}
 	return binding, desiredSOP, nil
+}
+
+func latestPublishedContentProfileSOP(sops []catalogdomain.SOPSummary, contentType string) (catalogdomain.SOPVersion, bool) {
+	var result catalogdomain.SOPVersion
+	for _, summary := range sops {
+		if !containsString(summary.Definition.ContentTypes, contentType) || !strings.HasPrefix(summary.Definition.SourceRef, "content-profile:") {
+			continue
+		}
+		for _, version := range summary.Versions {
+			if version.Status == "published" && (result.ID == "" || version.Version > result.Version) {
+				result = version
+			}
+		}
+	}
+	return result, result.ID != ""
 }
 
 func latestPublishedBuiltinSOP(sops []catalogdomain.SOPSummary, templateKey string) (catalogdomain.SOPVersion, bool) {
@@ -1533,6 +1553,7 @@ func (s *WorkService) WorkTask(ctx context.Context, actor Actor, id string) (Wor
 	sourceSeen := map[string]bool{}
 	knowledgeSeen := map[string]bool{}
 	snapshotSeen := map[string]bool{}
+	submissionSeen := map[string]bool{}
 	for _, output := range stageOutputs {
 		switch output.OutputType {
 		case catalogdomain.StageOutputSourceRevision:
@@ -1564,8 +1585,40 @@ func (s *WorkService) WorkTask(ctx context.Context, actor Actor, id string) (Wor
 				return WorkTaskView{}, loadErr
 			}
 			snapshotSeen[value.ID] = true
+			submissionSeen[value.SubmissionID] = true
 			approvedSnapshots = append(approvedSnapshots, value)
+		case catalogdomain.StageOutputSubmissionRevision:
+			value, loadErr := s.review.SubmissionRevision(ctx, actor.TenantID, output.ObjectID)
+			if loadErr == nil {
+				submissionSeen[value.SubmissionID] = true
+			} else if !fault.IsNotFound(loadErr) {
+				return WorkTaskView{}, loadErr
+			}
 		}
+	}
+	// A task may publish governed content through its bound workspace before a
+	// later stage reports the ApprovedSnapshot as an explicit output. Rebuild
+	// the customer projection from Submission ownership so the workbench never
+	// needs a second approval or delivery state.
+	projectSubmissions, err := s.review.Submissions(ctx, actor.TenantID, task.ProjectID)
+	if err != nil {
+		return WorkTaskView{}, err
+	}
+	for _, submission := range projectSubmissions {
+		if submission.WorkspaceID == task.ID {
+			submissionSeen[submission.ID] = true
+		}
+	}
+	projectSnapshots, err := s.review.ApprovedSnapshots(ctx, actor.TenantID, task.ProjectID, "")
+	if err != nil {
+		return WorkTaskView{}, err
+	}
+	for _, snapshot := range projectSnapshots {
+		if !submissionSeen[snapshot.SubmissionID] || snapshotSeen[snapshot.ID] {
+			continue
+		}
+		snapshotSeen[snapshot.ID] = true
+		approvedSnapshots = append(approvedSnapshots, snapshot)
 	}
 	taskPackages := []deliverydomain.DeliveryPackage{}
 	artifacts := []deliverydomain.Artifact{}
@@ -1584,7 +1637,14 @@ func (s *WorkService) WorkTask(ctx context.Context, actor Actor, id string) (Wor
 		}
 	}
 	for _, value := range packages {
-		if value.ContentItemID != task.ID {
+		linked := value.ContentItemID == task.ID
+		for _, snapshotID := range value.ApprovedSnapshotIDs {
+			if snapshotSeen[snapshotID] {
+				linked = true
+				break
+			}
+		}
+		if !linked {
 			continue
 		}
 		taskPackages = append(taskPackages, value)

@@ -1,8 +1,8 @@
 # ContentCloud V8：让复杂内容任务可以持续推进
 
-状态：V8 目标方案；Runtime Infra V2 I1～I5 的核心切片、第二业务流容量边界测试、运营 Explorer 首版，以及终态业务结果的持久化消费链已进入代码，尚未达到生产上线条件。2026-08-09 起按 [Runtime Infra V2 升级说明](./09-runtime-infra-v2.md) 收敛底层实现顺序。
+状态：V8 目标方案；Runtime Infra V2 I1～I5 的核心切片、营销活动十路并行标杆、文章复盘第二业务流、运营 Explorer 首版，以及终态业务结果的持久化消费链已进入代码，尚未达到生产上线条件。2026-08-09 起按 [Runtime Infra V2 升级说明](./09-runtime-infra-v2.md) 收敛底层实现顺序。
 
-更新时间：2026-08-17
+更新时间：2026-08-23
 
 > 这份 README 先用一项实际任务说明 V8。只想了解产品方向，读到“为什么叫 Agentic Job Runtime”即可；工程设计和官方证据放在后续文档中。
 
@@ -184,6 +184,26 @@ Codex / Claude Code：完成适合由智能体处理的具体步骤
 | [09-runtime-infra-v2.md](./09-runtime-infra-v2.md) | 把 V8 收敛为 PostgreSQL-first 的可恢复执行内核：事务命令、事件/outbox、fencing、资源账本、Effect 对账与恢复 |
 | [10-runtime-operations-runbook.md](./10-runtime-operations-runbook.md) | Runtime 健康检查、Canary 准入、排空、故障处置和前向回退 |
 | [11-seedance25-provider-integration.md](./11-seedance25-provider-integration.md) | Seedance 2.5 单镜头 Provider、输入解析、费用、取消和插件边界 |
+| [12-video-production-migration.md](./12-video-production-migration.md) | 视频生产能力迁移范围、领域映射和阶段验收门槛 |
+| [13-video-production-execution.md](./13-video-production-execution.md) | 视频生产迁移逐项执行跟踪、当前证据和下一步 |
+| [14-video-production-iteration.md](./14-video-production-iteration.md) | 阶段 D 本轮终态费用与取消对账一致性的执行计划和完成证据 |
+| [15-provider-state-matrix.md](./15-provider-state-matrix.md) | 阶段 D Provider 状态查询异常、恢复和终态矩阵的执行计划 |
+| [16-video-production-progress-plan.md](./16-video-production-progress-plan.md) | 视频生产迁移当前总进度、执行队列和更新协议 |
+| [17-stage-e-composition-plan.md](./17-stage-e-composition-plan.md) | 阶段 E 确定性合成输入、产物血缘和实施队列 |
+| [18-stage-e1-composition-manifest-plan.md](./18-stage-e1-composition-manifest-plan.md) | 阶段 E1 Composition Manifest 的字段、摘要、幂等和实现跟踪 |
+| [19-stage-e1d-failure-recovery-plan.md](./19-stage-e1d-failure-recovery-plan.md) | 阶段 E1d 失败、恢复、重复执行和摘要漂移验证计划 |
+| [20-video-production-completion-plan.md](./20-video-production-completion-plan.md) | 视频生产迁移完成计划、当前基线、执行队列和阶段门槛 |
+| [21-e1d-b-blob-cleanup-plan.md](./21-e1d-b-blob-cleanup-plan.md) | E1d-b 最终成片临时 Blob 清理、失败诊断和剩余存储恢复门槛 |
+| [22-stage-f-jianying-export-plan.md](./22-stage-f-jianying-export-plan.md) | 阶段 F 剪映草稿确定性导出、输入校验、lint 和验收门槛 |
+| [23-documentation-sync-plan.md](./23-documentation-sync-plan.md) | 视频生产迁移文档状态同步、证据更新和收口跟踪 |
+| [24-video-production-worklog.md](./24-video-production-worklog.md) | 视频生产迁移短周期工作项、文档同步和下一项证据跟踪 |
+| [25-stage-d2-postgres-parity-plan.md](./25-stage-d2-postgres-parity-plan.md) | 阶段 D2 Memory/PostgreSQL 字段、事务、RLS 和恢复语义对照计划 |
+| [26-e1d-b-postgres-final-render-plan.md](./26-e1d-b-postgres-final-render-plan.md) | E1d-b PostgreSQL Final Render 原子事务、回滚和租户隔离对照计划 |
+| [27-e1d-b-blob-fault-injection-plan.md](./27-e1d-b-blob-fault-injection-plan.md) | E1d-b Blob 读写故障注入、事实原子性和恢复证据 |
+| [28-e1d-b-recovery-execution-plan.md](./28-e1d-b-recovery-execution-plan.md) | E1d-b 持久化清理诊断、后台重试、跨进程恢复和验收进度 |
+| [29-e1d-b-r2-cleanup-retry-plan.md](./29-e1d-b-r2-cleanup-retry-plan.md) | R2 状态 CAS、清理失败自动登记、权限保护的查询/重试入口和恢复测试 |
+| [30-e1d-b-recovery-acceptance-plan.md](./30-e1d-b-recovery-acceptance-plan.md) | E1d-b R2-6/R3-R5 独立进程、PostgreSQL/Blob 和同 digest 幂等恢复验收 |
+| [31-runtime-business-benchmark-acceptance.md](./31-runtime-business-benchmark-acceptance.md) | W8-13 营销活动与 W8-14 文章复盘的分层业务标杆、统一事实链证据和生产剩余门槛 |
 | [PLAN.md](./PLAN.md) | 实施顺序、依赖、阶段门槛和主要风险 |
 | [外部参考架构与 ContentCloud 边界](../../foundation/09-reference-patterns.md) | Camunda、Dify、Temporal、Adobe、Runway 和 Frame.io 对产品分层、可恢复执行和结果资产的启发 |
 

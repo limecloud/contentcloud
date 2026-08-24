@@ -25,6 +25,12 @@ type RuntimeEventRun struct {
 	Projected               int        `json:"projected"`
 	ProjectionPending       int        `json:"projection_pending"`
 	OldestProjectionPending *time.Time `json:"oldest_projection_pending,omitempty"`
+	CleanupScanned          int        `json:"cleanup_scanned"`
+	CleanupReclaimed        int        `json:"cleanup_reclaimed"`
+	CleanupClaimed          int        `json:"cleanup_claimed"`
+	CleanupCleaned          int        `json:"cleanup_cleaned"`
+	CleanupNotFound         int        `json:"cleanup_not_found"`
+	CleanupFailed           int        `json:"cleanup_failed"`
 }
 
 func RuntimeEventWorkerID() string {
@@ -105,6 +111,29 @@ func ProcessRuntimeEvents(ctx context.Context, identity persistence.IdentityRepo
 		deliveryCompletedAt := time.Now().UTC()
 		deliveryHeartbeat.State, deliveryHeartbeat.LastSuccessAt, deliveryHeartbeat.LastErrorCode, deliveryHeartbeat.UpdatedAt = "succeeded", &deliveryCompletedAt, "", deliveryCompletedAt
 		if err := repo.SaveRuntimeMaintenanceHeartbeat(ctx, deliveryHeartbeat); err != nil {
+			return result, err
+		}
+
+		cleanupStartedAt := time.Now().UTC()
+		cleanupHeartbeat := contentruntime.RuntimeMaintenanceHeartbeat{TenantID: tenant.ID, Kind: contentruntime.RuntimeMaintenanceCleanup, WorkerID: workerID, State: "running", LastStartedAt: cleanupStartedAt, UpdatedAt: cleanupStartedAt}
+		if err := repo.SaveRuntimeMaintenanceHeartbeat(ctx, cleanupHeartbeat); err != nil {
+			return result, err
+		}
+		cleanup, err := service.Operations.ReconcileRuntimeCleanupDiagnostics(ctx, tenant.ID, workerID, limit)
+		if err != nil {
+			cleanupHeartbeat.State, cleanupHeartbeat.LastErrorCode, cleanupHeartbeat.UpdatedAt = "failed", "RUNTIME_CLEANUP_RECONCILIATION_FAILED", time.Now().UTC()
+			_ = repo.SaveRuntimeMaintenanceHeartbeat(ctx, cleanupHeartbeat)
+			return result, err
+		}
+		result.CleanupScanned += cleanup.Scanned
+		result.CleanupReclaimed += cleanup.Reclaimed
+		result.CleanupClaimed += cleanup.Claimed
+		result.CleanupCleaned += cleanup.Cleaned
+		result.CleanupNotFound += cleanup.NotFound
+		result.CleanupFailed += cleanup.Failed
+		cleanupCompletedAt := time.Now().UTC()
+		cleanupHeartbeat.State, cleanupHeartbeat.LastSuccessAt, cleanupHeartbeat.LastErrorCode, cleanupHeartbeat.UpdatedAt = "succeeded", &cleanupCompletedAt, "", cleanupCompletedAt
+		if err := repo.SaveRuntimeMaintenanceHeartbeat(ctx, cleanupHeartbeat); err != nil {
 			return result, err
 		}
 	}

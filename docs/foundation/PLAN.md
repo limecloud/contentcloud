@@ -1,8 +1,8 @@
 # ContentCloud 平台基线重构总计划
 
-状态：`平台基线已建立；Studio、知识库、资产首切片与 Runtime current 主链已落地，生产验证和运营配置持续推进`。
+状态：`平台基线已建立；业务工作台、编排主链、统一事实、治理执行和产物效果闭环已落地，真实外部验收与正式分发持续推进`。
 
-更新时间：2026-08-09。
+更新时间：2026-08-23。
 
 ## 1. 目标
 
@@ -223,4 +223,50 @@ V8 继续负责 Agentic Job Runtime 的专项路线图和技术证据。本基�
 5. 旧客户 Web 路由已退场；后续只需监控 CLI/Agent BFF 的真实调用，不再新增 `/workspace/*` 或 `/projects/*` 页面兼容。
 6. 按已接受的 ADR-0011/0013 冻结结果资产目录契约，并为旧“品牌资料”和输入型目录数据确定兼容读取、项目参考迁移与退场指标。
 
-在上述 ADR 和 FND-01 纵向切片完成前，可以实施不会锁死方向的事实梳理、契约测试、窄接口和客户 BFF 适配；不得开始不可逆数据库重命名、全量目录搬迁或旧路径删除。
+## 13. 分层平台实现台账（2026-08-23）
+
+本台账用来防止“实现了一个工作台页面”被误报成“平台全链路完成”。每项都必须落到现有事实所有者，禁止新增第二套任务、审批、Artifact、Delivery 或效果模型。
+
+| 层 | 当前实现证据 | 状态 | 未完成外部门槛 |
+| --- | --- | --- | --- |
+| 业务工作台层 | 四类首方 feature、`internal/experience/workbench`、Workbench Plugin Registry、`draft/published/retired/revoked` 生命周期、任务级 id/version/digest 固定和安全回退 | `current` | 更多业务模板的真实客户验收 |
+| 应用编排层 | `internal/application/orchestration.go`、WorkTask/Stage/ActionContract、Customer BFF | `current` | 复杂跨业务流程的容量和运营演练 |
+| 统一业务事实层 | Source、Work、SubmissionRevision、Review、ApprovedSnapshot、Artifact、Delivery、Performance、Rating | `current` | 专用 PostgreSQL/RLS 全量执行记录 |
+| 治理与执行层 | Runtime Job/Node/Attempt/Effect、Capability/Plugin Registry、Provider/Worker、清理诊断和 CAS | `current` / `partial` | 真实 Provider、Blob/PostgreSQL 故障、长期进程恢复 |
+| 产物/交付/效果闭环层 | DeliveryPackage 幂等、ChannelPublication/Receipt、PerformanceObservation、ProjectLineage、RatingDecision | `current` / `partial` | 真实渠道回执、外部指标和人工导入验收 |
+| Agent 交接层 | `contentcloud.agent-handoff/1.0`；Codex deep link、Claude Code command Adapter | `current-server` | Pi、远程 Agent、其他宿主 Adapter |
+| Desktop 分发层 | Forge package、release policy、安全 E2E | `current` / `partial` | 正式签名、更新、卸载和跨平台恢复 |
+| 连载小说纵向切片 | `novel-editor`、NovelChapter 1.0、Submission/Review/ApprovedSnapshot、三格式交付、Performance/Rating 全链测试 | `current-local` / `current-server` | 真实内容商店发布回执和生产数据验收 |
+| 四类工作台 HTTP 主链 | 视频、文章、电商、连载小说使用不同布局和业务简报，但统一创建 WorkTask、编译 SOP、启动 Runtime，并固定工作台版本与输入摘要 | `current-server` | 真实客户多租户 UAT 与长期任务恢复 |
+
+主链不因任何单个外部依赖缺失而复制业务事实：
+
+```text
+Workbench -> Orchestration -> Business Facts -> Governance/Runtime
+         -> ApprovedSnapshot -> Artifact -> DeliveryPackage -> Publication/Receipt
+         -> PerformanceObservation -> RatingDecision -> next-work projection
+```
+
+本轮新增的 Claude Code 交接只扩展 Adapter 和契约验证，不改变上述主链，也不把 Claude 会话当作业务事实源。
+
+连载小说工作台只增加业务 UI、Schema 校验和渲染规则；它不增加小说专用任务表、审批表、交付表或效果表。章节从 `review_ready` 提交到 `SubmissionRevision`，经内部/客户审核形成 `ApprovedSnapshot`，再进入 `Artifact`、`DeliveryPackage`、`PerformanceObservation` 和 `RatingDecision`，作为第二条结构差异明显的业务流验证分层平台。
+
+## 14. 统一业务主链收口（2026-08-23）
+
+文章与电商工作台的业务写入已经进一步收敛：旧 `CreateTaskRevision` HTTP/CLI 入口对这两种内容类型只保留兼容 DTO，内部写入统一创建 `SubmissionRevision`，后续仍由 `Review`、`ApprovedSnapshot`、`Artifact`、`DeliveryPackage`、`PerformanceObservation` 和 `RatingDecision` 接续。旧 `TaskRevision` 表仅在没有统一提交事实时作为历史读取回退，不再作为新文章或电商事实源。
+
+交付兼容入口也不再要求 `DeliveryPackage.ContentItemID` 必须等于任务 ID；服务端会通过交付包引用的 ApprovedSnapshot 校验项目与任务工作区归属。这保证业务对象 ID 可以按文章、电商或未来插件定义，同时不复制底层任务、审批和交付模型。Memory 端到端证据已覆盖文章/电商批准、三格式产物、交付和效果学习投影；真实 PostgreSQL、Blob、Provider、外部渠道和指标回流仍必须按 V8 门槛单独验收。
+
+后续扩业务工作台时，仍不得开始无对账门槛的数据库重命名、全量目录搬迁或旧路径删除。新增工作台只能扩声明式客户体验、业务 Schema、SOP 和批准渲染器；任务、审批、产物、交付和效果事实继续复用现有平台主链。
+
+## 15. 分层验收记录（2026-08-23）
+
+本轮用隔离的本地开发服务做了 HTTP 级验收，确认工作台不是静态页面：
+
+- `POST /api/v1/dev/bootstrap` 在开发模式完成了确定性视频演示任务，任务状态为 `delivered`，并生成 Runtime、批准快照、Artifact、DeliveryPackage 和交付记录。
+- `GET /api/studio/bootstrap` 返回客户安全的工作台声明；工作台只包含业务布局、阶段、导航和版本摘要，不暴露 Runtime、Provider 或数据库对象。
+- `GET /api/bff/admin/workbenches` 返回四个服务端 Registry 版本：视频、文章、电商、连载小说；状态均为 `published`，每个版本都有不可变 digest。
+- 开发模式默认启用 Runtime admission/dynamic graph 仅用于本地演示；生产模式和显式 `CONTENTCLOUD_RUNTIME_*` 配置仍保持原有 fail-closed 语义。回归覆盖位于 `cmd/contentcloud-server/main_test.go`。
+- Web 隔离开发端口返回 `Content Work OS` 页面，`/healthz` 返回 `status=ok` 且 `zero_exec=true`。
+
+浏览器截图验收暂未完成：当前 Browser service 不可用，不能把静态构建或 HTTP 验收冒充 `1440x1000`、`390x844` 和 `320x844` 的真实视觉通过。真实 PostgreSQL/RLS、外部 Provider、Blob 故障、渠道回执和多租户长期恢复也仍按上表的外部门槛执行。

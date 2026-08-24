@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/limecloud/contentcloud/internal/platform/fault"
 
@@ -180,6 +181,22 @@ func (s *Store) ProviderBinding(ctx context.Context, tenantID, providerID string
 	return result, err
 }
 
+func (s *Store) MediaProviderUsage(ctx context.Context, tenantID, providerID string, monthStart, monthEnd time.Time) (deliverydomain.MediaProviderUsage, error) {
+	var result deliverydomain.MediaProviderUsage
+	result.ProviderID = providerID
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		return dbError(tx.QueryRow(ctx, `
+			SELECT
+				COALESCE(SUM(actual_cost_minor) FILTER (WHERE created_at >= $3 AND created_at < $4), 0),
+				COALESCE(SUM(estimated_cost_minor) FILTER (WHERE created_at >= $3 AND created_at < $4 AND state NOT IN ('succeeded','failed','cancelled','output_invalid','retryable_failed')), 0),
+				COUNT(*) FILTER (WHERE state NOT IN ('succeeded','failed','cancelled','output_invalid','retryable_failed'))
+			FROM media_generation_jobs
+			WHERE tenant_id=$1 AND provider_id=$2`, tenantID, providerID, monthStart, monthEnd).Scan(&result.ActualCostMinor, &result.EstimatedCostMinor, &result.ActiveJobs))
+	})
+	result.CommittedCostMinor = result.ActualCostMinor + result.EstimatedCostMinor
+	return result, err
+}
+
 const mediaGenerationJobSelect = `SELECT tenant_id,id,project_id,task_id,stage_run_id,storyboard_snapshot_id,prompt_package_artifact_id,provider_id,profile_version,profile_digest,model,mode,aspect_ratio,duration_seconds,input_artifact_refs,runtime_job_run_id,runtime_node_run_id,runtime_attempt_id,runtime_effect_id,state,idempotency_key,estimated_cost_minor,actual_cost_minor,currency,attempt_count,max_attempts,lease_owner,lease_expires_at,cancel_requested_at,error_code,error_detail_safe,row_version,created_by,created_at,updated_at FROM media_generation_jobs`
 
 func scanMediaGenerationJob(row pgx.Row) (deliverydomain.MediaGenerationJob, error) {
@@ -201,6 +218,41 @@ func (s *Store) CreateMediaGenerationJob(ctx context.Context, value deliverydoma
 	return s.withTenant(ctx, value.TenantID, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO media_generation_jobs(tenant_id,id,project_id,task_id,stage_run_id,storyboard_snapshot_id,prompt_package_artifact_id,provider_id,profile_version,profile_digest,model,mode,aspect_ratio,duration_seconds,input_artifact_refs,runtime_job_run_id,runtime_node_run_id,runtime_attempt_id,runtime_effect_id,state,idempotency_key,estimated_cost_minor,actual_cost_minor,currency,attempt_count,max_attempts,lease_owner,lease_expires_at,cancel_requested_at,error_code,error_detail_safe,row_version,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)`, value.TenantID, value.ID, value.ProjectID, value.TaskID, value.StageRunID, value.StoryboardSnapshotID, value.PromptPackageArtifactID, value.ProviderID, value.ProfileVersion, value.ProfileDigest, value.Model, value.Mode, value.AspectRatio, value.DurationSeconds, jsonArrayValue(value.InputArtifactRefs), nullableString(value.RuntimeJobRunID), nullableString(value.RuntimeNodeRunID), nullableString(value.RuntimeAttemptID), nullableString(value.RuntimeEffectID), value.State, value.IdempotencyKey, value.EstimatedCostMinor, value.ActualCostMinor, value.Currency, value.AttemptCount, value.MaxAttempts, value.LeaseOwner, value.LeaseExpiresAt, value.CancelRequestedAt, value.ErrorCode, value.ErrorDetailSafe, value.RowVersion, value.CreatedBy, value.CreatedAt, value.UpdatedAt)
 		return dbError(err)
+	})
+}
+
+func (s *Store) CreateMediaGenerationJobs(ctx context.Context, values []deliverydomain.MediaGenerationJob) error {
+	if len(values) == 0 {
+		return fault.Invalid("MEDIA_BATCH_EMPTY", "媒体生成批次不能为空")
+	}
+	for index := range values {
+		values[index].NormalizeCollections()
+		if err := values[index].Validate(); err != nil {
+			return err
+		}
+	}
+	return s.withTenant(ctx, values[0].TenantID, func(tx pgx.Tx) error {
+		seen := map[string]bool{}
+		for _, value := range values {
+			if value.TenantID != values[0].TenantID || seen[value.IdempotencyKey] {
+				return fault.Conflict("MEDIA_BATCH_IDEMPOTENCY_CONFLICT", "批量媒体任务的租户或幂等键不一致")
+			}
+			seen[value.IdempotencyKey] = true
+			var exists bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM media_generation_jobs WHERE tenant_id=$1 AND (id=$2 OR idempotency_key=$3))`, value.TenantID, value.ID, value.IdempotencyKey).Scan(&exists); err != nil {
+				return dbError(err)
+			}
+			if exists {
+				return fault.Conflict("MEDIA_JOB_IDEMPOTENCY_CONFLICT", "相同媒体任务或幂等键已存在")
+			}
+		}
+		for _, value := range values {
+			_, err := tx.Exec(ctx, `INSERT INTO media_generation_jobs(tenant_id,id,project_id,task_id,stage_run_id,storyboard_snapshot_id,prompt_package_artifact_id,provider_id,profile_version,profile_digest,model,mode,aspect_ratio,duration_seconds,input_artifact_refs,runtime_job_run_id,runtime_node_run_id,runtime_attempt_id,runtime_effect_id,state,idempotency_key,estimated_cost_minor,actual_cost_minor,currency,attempt_count,max_attempts,lease_owner,lease_expires_at,cancel_requested_at,error_code,error_detail_safe,row_version,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)`, value.TenantID, value.ID, value.ProjectID, value.TaskID, value.StageRunID, value.StoryboardSnapshotID, value.PromptPackageArtifactID, value.ProviderID, value.ProfileVersion, value.ProfileDigest, value.Model, value.Mode, value.AspectRatio, value.DurationSeconds, jsonArrayValue(value.InputArtifactRefs), nullableString(value.RuntimeJobRunID), nullableString(value.RuntimeNodeRunID), nullableString(value.RuntimeAttemptID), nullableString(value.RuntimeEffectID), value.State, value.IdempotencyKey, value.EstimatedCostMinor, value.ActualCostMinor, value.Currency, value.AttemptCount, value.MaxAttempts, value.LeaseOwner, value.LeaseExpiresAt, value.CancelRequestedAt, value.ErrorCode, value.ErrorDetailSafe, value.RowVersion, value.CreatedBy, value.CreatedAt, value.UpdatedAt)
+			if err != nil {
+				return dbError(err)
+			}
+		}
+		return nil
 	})
 }
 

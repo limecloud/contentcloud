@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
+)
 
 func TestRuntimeRolloutDefaultsClosedAndRequiresExplicitEnablement(t *testing.T) {
 	t.Setenv("CONTENTCLOUD_RUNTIME_ADMISSION_ENABLED", "")
@@ -31,5 +35,28 @@ func TestRuntimeRolloutRejectsInvalidBoolean(t *testing.T) {
 	t.Setenv("CONTENTCLOUD_RUNTIME_DYNAMIC_GRAPH_ENABLED", "0")
 	if _, err := runtimeRolloutFromEnv(); err == nil {
 		t.Fatal("invalid Runtime rollout boolean was accepted")
+	}
+}
+
+func TestDevelopmentRuntimeDefaultsEnableLocalFixtureOnlyWhenUnset(t *testing.T) {
+	t.Setenv("CONTENTCLOUD_RUNTIME_ADMISSION_ENABLED", "")
+	t.Setenv("CONTENTCLOUD_RUNTIME_DYNAMIC_GRAPH_ENABLED", "")
+	policy := applyDevelopmentRuntimeDefaults(contentruntime.RolloutPolicy{}, true)
+	if !policy.AdmissionEnabled || !policy.DynamicGraphEnabled {
+		t.Fatalf("development defaults should enable the local fixture: %#v", policy)
+	}
+
+	t.Setenv("CONTENTCLOUD_RUNTIME_ADMISSION_ENABLED", "false")
+	t.Setenv("CONTENTCLOUD_RUNTIME_DYNAMIC_GRAPH_ENABLED", "0")
+	policy = applyDevelopmentRuntimeDefaults(contentruntime.RolloutPolicy{}, true)
+	if policy.AdmissionEnabled || policy.DynamicGraphEnabled {
+		t.Fatalf("explicit development disablement must win: %#v", policy)
+	}
+
+	t.Setenv("CONTENTCLOUD_RUNTIME_ADMISSION_ENABLED", "")
+	t.Setenv("CONTENTCLOUD_RUNTIME_DYNAMIC_GRAPH_ENABLED", "")
+	policy = applyDevelopmentRuntimeDefaults(contentruntime.RolloutPolicy{}, false)
+	if policy.AdmissionEnabled || policy.DynamicGraphEnabled {
+		t.Fatalf("production defaults must remain fail-closed: %#v", policy)
 	}
 }

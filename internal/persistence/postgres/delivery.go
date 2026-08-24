@@ -40,6 +40,21 @@ func (s *Store) CreateDeliveryPackage(ctx context.Context, value deliverydomain.
 	})
 }
 
+func (s *Store) DeliveryPackageBySnapshotAndContentItem(ctx context.Context, tenantID, snapshotID, contentItemID string) (deliverydomain.DeliveryPackage, error) {
+	var value deliverydomain.DeliveryPackage
+	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx, `SELECT dp.id,dp.tenant_id,dp.project_id,dp.content_item_id,dp.status,dp.created_by,dp.created_at FROM delivery_packages dp WHERE dp.tenant_id=$1 AND dp.content_item_id=$3 AND EXISTS (SELECT 1 FROM delivery_package_snapshots dps WHERE dps.tenant_id=$1 AND dps.delivery_package_id=dp.id AND dps.approved_snapshot_id=$2) ORDER BY dp.created_at DESC LIMIT 1`, tenantID, snapshotID, contentItemID).Scan(&value.ID, &value.TenantID, &value.ProjectID, &value.ContentItemID, &value.Status, &value.CreatedBy, &value.CreatedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fault.NotFound("交付包")
+		}
+		if err != nil {
+			return err
+		}
+		return loadDeliveryPackageRelations(ctx, tx, &value)
+	})
+	return value, err
+}
+
 func (s *Store) DeliveryPackages(ctx context.Context, tenantID, projectID string) ([]deliverydomain.DeliveryPackage, error) {
 	values := []deliverydomain.DeliveryPackage{}
 	err := s.withTenant(ctx, tenantID, func(tx pgx.Tx) error {

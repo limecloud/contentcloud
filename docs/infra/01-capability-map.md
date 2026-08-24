@@ -2,7 +2,7 @@
 
 状态：`当前实现对账 + 首个用户前的收口能力地图`。
 
-更新时间：2026-08-17。
+更新时间：2026-08-23。
 
 ## 1. 状态口径
 
@@ -75,7 +75,7 @@ Desktop 当前为 `target`，不能写成已经发布。其完成门槛以 [Desk
 | 客户任务入口 | ExperienceTemplate、WorkTask、Studio BFF | `current-server` | 客户围绕内容任务工作，不直接编辑 Runtime 图 |
 | SOP 与 Gate | SOPVersion、StageDefinition、GateDefinition | `current-server` | 任务准入固定版本和摘要 |
 | 结构化 Brief | `contentcloud.brief/3.0`、`article-brief/1.0` | `current-local` | 先在工作区生成并 lint，再提交审核 |
-| 内容批次 | `contentcloud.content-batch/3.0` | `current-local` | 支持 video_script 和 wechat_article |
+| 内容批次 | `contentcloud.content-batch/3.0` | `current-local` / `current-server` | 视频脚本、文章、电商和连载小说均以业务 Schema 校验后进入统一 SubmissionRevision；不混装内容类型 |
 | 受众策略 | `audience-strategy/1.0`、Yuntu taxonomy snapshot | `current-local` / `current-server` | 受众策略是内容前置事实，不应被泛化 Brief 替代 |
 | 批量矩阵与变体 | ContentBatch fanout、controlled variables | `current-local` | 有批次与单项 lint；实验分析仍有限 |
 | 线上实验与自动优化 | PerformanceObservation、RatingDecision、Learning Candidate | `partial` | 导入和人工复盘已有，自动反馈策略仍需真实效果数据 |
@@ -141,7 +141,7 @@ query/candidate -> SourceRevision -> EvidenceBundle
 | `SourceRevision` / `EvidenceRef` | 固定来源和可定位证据 | `current` |
 | `contentcloud.local-run/3.0` | 本地运行、检查、输入和输出引用 | `current-local` |
 | `contentcloud.handoff/1.0` | 跨对话交接、Claim、输入摘要和恢复 | `current-local` |
-| `contentcloud.agent-handoff/1.0` | Studio/API 向已发布 Agent 客户端生成有目标约束的启动交接 | `current-server`；当前 Codex Adapter 已验证，其他宿主通过同一 Adapter 接入 |
+| `contentcloud.agent-handoff/1.0` | Studio/API 向已发布 Agent 客户端生成有目标约束的启动交接 | `current-server`；Codex deep link 与 Claude Code command Adapter 已验证，Pi、远程 Agent 和其他宿主保持 planned |
 | `contentcloud.knowledge-pack/3.0` | 本地知识包 | `current-local` |
 | `contentcloud.content-batch/3.0` | 内容矩阵、状态、交付 profile 和 blocked reasons | `current-local` |
 | `contentcloud.submission-bundle/3.0` | 本地向服务端提交的不可变包 | `current` |
@@ -153,7 +153,7 @@ query/candidate -> SourceRevision -> EvidenceBundle
 当前存在两个职责不同、都不是 Codex 专属的 Handoff：
 
 1. `contentcloud.handoff/1.0` 是 LocalRun 内的持久恢复事实，负责 Claim 释放、输入输出摘要、下一动作和跨对话接续。
-2. `contentcloud.agent-handoff/1.0` 是 Studio/API 到 Agent 宿主的启动交接，负责客户端能力、目标项目/修订、Plugin 身份、启动方式和安全提示。API 与 DTO 是通用的，当前只有 Codex Adapter 已达到 `available`；Claude Code、Pi Agent 或 SaaS 接入应增加 Adapter，而不是复制路由和业务 SOP。
+2. `contentcloud.agent-handoff/1.0` 是 Studio/API 到 Agent 宿主的启动交接，负责客户端能力、目标项目/修订、Plugin 身份、启动方式和安全提示。API 与 DTO 是通用的，Codex deep link 与 Claude Code command Adapter 已达到 `available`；Pi Agent 或 SaaS 接入应增加 Adapter，而不是复制路由和业务 SOP。
 
 两者之间通过 `project_id`、目标引用、digest 和首次 `workspace_context` 校验衔接，但不共享生命周期，也不应被合并成第三个泛化 Envelope。远程 Agent/SaaS 的异步运行状态继续由 Runtime Attempt/Effect/Receipt 持有。
 
@@ -185,11 +185,13 @@ query/candidate -> SourceRevision -> EvidenceBundle
 | 垂直创作 SaaS Adapter | `partial` / `external-dependency` | 当前部分由人工外部工具和媒体 Provider 完成；真实服务仍需输入映射、产物摘要、费用和回执 |
 | 文本/脚本/文章生成 | `current-local` | Provider-neutral 内容 Schema，候选由 Skill 写入批次 |
 | Storyboard 图像候选 | `current-local` | Capability digest、首尾帧、Review Sheet、locked_digest |
-| 异步媒体 Provider | `partial` | MediaGenerationJob、Effect、Provider inbox 和账单模型已有，真实 Provider 闭环有限 |
-| `media.video.generate` | `partial` / `external-dependency` | Built-in SOP、媒体任务和 Artifact 已有，实际生成和回执依赖 Provider/Worker |
+| 异步媒体 Provider | `partial` | MediaGenerationJob、Effect、Provider inbox、取消/对账状态和账单模型已有；视频批量准入 DTO、整批原子写入、确认后统一入队、月度预算与并发门禁和 HTTP 入口已完成；未知提交具备轮询调度、外部 ID 补录和无重复提交恢复；状态查询未知可恢复到 `running`、`failed` 或已请求取消的 `cancelled`，且不重复提交或创建 Attempt；终态实际费用统一回写任务与调用尝试，取消 unknown 后可收敛 Runtime Effect；D1 模拟恢复矩阵、D2-1 存储接口/测试盘点和 D2-2 PostgreSQL 集成测试实现已完成，D2 对照范围见[阶段 D2 PostgreSQL 对照计划](../roadmap/v8/25-stage-d2-postgres-parity-plan.md)，真实 PostgreSQL、Provider 和完整账单回执仍待完成 |
+| `media.video.generate` | `partial` / `external-dependency` | Built-in SOP、媒体任务、批量准入、月度预算与并发门禁和 Artifact 已有；视频生产迁移以受治理的资产锁定、批量准入、Provider 回执与交付包为唯一主链，批量准入已完成，Provider 未知提交恢复已启动，实际生成回执及后续交付仍依赖阶段 D-G |
 | Model Gateway | `partial` | vLLM/SGLang OpenAI-compatible Provider 已接入，不创建额外 Gateway 事实层 |
 | vLLM/SGLang Adapter | `current-server` / `external-dependency` | Provider registry、请求/响应摘要和 receipt 已有；端点、模型和 GPU 是外部依赖 |
-| 转码、渲染、打包 | `current` / `partial` | 确定性 Worker、Artifact、DeliveryPackage 已有；平台专属派生仍按 Adapter 接入 |
+| 转码、渲染、打包 | `current` / `partial` | 确定性 Worker、Artifact、DeliveryPackage 已有；视频生产迁移 阶段 E 已完成合成输入与血缘审计、E1a 文档契约、E1b Go Manifest 值对象、E1c Manifest 驱动入口、E1d-a 矩阵基线、E1d-c 最终审核交付硬门禁、E1d-b Memory 原子写入测试、PostgreSQL 原子事务测试入口和 Blob `Get`/`Put` 失败无事实测试；`CreateFinalRender` 重新校验快照、审核、Artifact、时间轴和输出契约，并按 digest 幂等；清理失败已自动登记脱敏 Runtime 诊断，Operations/BFF 已提供租户范围查询、详情和 CAS 重试；跨进程恢复、PostgreSQL 真实故障注入、真实合成和剪映草稿能力仍待补齐，具体恢复队列见 [E1d-b 恢复执行计划](../roadmap/v8/28-e1d-b-recovery-execution-plan.md)；能力将实现为受版本控制的渲染/导出 Adapter，不创建平行交付模型 |
+
+R2-2 文档同步（2026-08-23）：已完成 Runtime 清理诊断状态 CAS；Memory/PostgreSQL 均拒绝旧版本、非法状态转移、终态重试和身份篡改。R2-3 自动登记、R2-4/R2-5 查询与 CAS 重试入口已完成；独立进程恢复和真实 PostgreSQL 执行仍待验收，详见 [R2 清理重试计划](../roadmap/v8/29-e1d-b-r2-cleanup-retry-plan.md)。
 
 ## 10. 产物、资产与反馈
 
@@ -200,8 +202,10 @@ query/candidate -> SourceRevision -> EvidenceBundle
 | ApprovedSnapshot | `current-server` | 唯一的服务端批准事实，不能在本地伪造 |
 | Artifact | `current-server` / `partial` | blob digest、媒体规格、Provider/能力和用途 |
 | DeliveryPackage | `current-server` / `partial` | 交付视图和派生文件，不成为新的资产写模型 |
+| 视频生产资产一致性 | `partial` | `StoryboardVisualBinding` 已固定角色/场景/道具/商品来源引用、摘要、身份锚点和权利引用，并纳入 `locked_digest`；真实 WorkspaceMaterial/Artifact 跨版本失效传播仍待阶段 G 验收 |
+| 剪映草稿交付 | `partial` / `target` | F0 文档基线与 F1-F4b 只读 exporter、应用/HTTP/CLI 交付编排入口、确定性 ZIP、完整输入/血缘校验、失败矩阵、契约测试和导出 lint 已完成；当前输出固定 ZIP、manifest 和安全命名素材，F5 真实导入验收尚未完成，且导出不表示已发布；该能力不创建平行任务、审批、Artifact 或 DeliveryPackage 模型 |
 | WeChatDeliveryPackage | `current-local` | 已批准文章到可手工上传包的确定性投影 |
-| 血缘 | `partial` | ApprovedSnapshot -> Artifact -> Delivery -> Performance 已有切片 |
+| 血缘 | `partial` | ApprovedSnapshot -> Artifact -> Delivery -> TaskDelivery -> ChannelPublication -> PerformanceObservation -> RatingDecision 已有 Memory/模拟渠道切片；真实渠道和外部指标证据仍待补齐 |
 | 效果观察和学习候选 | `partial` | 可导入 PerformanceObservation、RatingDecision，不能自动改写事实 |
 | 自动渠道指标回流 | `partial` / `external-dependency` | PerformanceObservation、Channel callback/reconcile 已有；真实渠道指标 API 仍是外部依赖 |
 

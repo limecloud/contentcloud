@@ -68,6 +68,64 @@ function checkWebBoundary(owner,forbidden){
 
 checkWebBoundary('studio','admin');
 checkWebBoundary('admin','studio');
+checkWebBoundary('workbench','studio');
+checkWebBoundary('workbenches','studio');
+checkWebBoundary('platform','studio');
+
+// Business workbenches may compose only the stable workbench contract and
+// third-party UI libraries. They never import platform projections, legacy V3
+// views, admin surfaces, or the raw API client that owns execution writes.
+for(const path of filesUnder('apps/web/src/workbenches',new Set(['.ts','.tsx']))){
+  const imports=[...source(path).matchAll(/(?:from\s*|import\s*\()\s*['"]([^'"]+)['"]/g)].map(match=>match[1]);
+  for(const specifier of imports){
+    if(specifier.startsWith('../../')&&!specifier.startsWith('../../workbench/')){
+      fail(path,`business workbench must depend through the workbench contract (${specifier})`);
+    }
+  }
+}
+for(const path of filesUnder('apps/web/src/workbench',new Set(['.ts','.tsx']))){
+  const imports=[...source(path).matchAll(/(?:from\s*|import\s*\()\s*['"]([^'"]+)['"]/g)].map(match=>match[1]);
+  for(const specifier of imports){
+    if(['../../api','../../types','../api','../types'].includes(specifier)){
+      fail(path,`workbench host must consume its narrow contract instead of raw transport or aggregate types (${specifier})`);
+    }
+    for(const forbidden of ['admin','platform','studio','v3']){
+      if(specifier.includes(`/${forbidden}/`)||specifier.endsWith(`/${forbidden}`))fail(path,`workbench host must not import ${forbidden} implementation (${specifier})`);
+    }
+  }
+}
+for(const path of filesUnder('workbench-plugins',new Set(['.go','.js','.mjs','.cjs','.ts','.tsx','.jsx','.sql','.wasm']))){
+  fail(path,'business workbench plugin packages are declarative and must not ship executable code or database migrations');
+}
+
+// Studio orchestrates the platform surface; business-specific form labels and
+// field names belong to apps/web/src/workbenches/<business>.
+const studioPagesPath=join(root,'apps/web/src/studio/StudioPages.tsx');
+for(const forbidden of ['视频业务简报','文章业务简报','商品业务简报','product_facts','selling_points','targetAudience','productFacts','sellingPoints']){
+  if(source(studioPagesPath).includes(forbidden))fail(studioPagesPath,`Studio must not own business-specific brief field ${forbidden}`);
+}
+
+// Workbench plugins are customer-surface declarations. They may depend on
+// stable platform primitives, but never on workflow execution or business
+// fact owners. Existing tasks must render from their pinned plugin reference,
+// not whatever version happens to be current in the bootstrap selector.
+for(const path of filesUnder('internal/experience/workbench',new Set(['.go']))){
+  if(projectPath(path).endsWith('_test.go'))continue;
+  const value=source(path);
+  for(const forbidden of ['/internal/application','/internal/runtime','/internal/review','/internal/delivery','/internal/persistence','/internal/integration','/internal/transport','/internal/work']){
+    if(value.includes(forbidden))fail(path,`workbench declarations must not depend on platform fact or execution owner ${forbidden}`);
+  }
+}
+const customerStudioPath=join(root,'internal/application/customer_studio.go');
+const customerStudioSource=source(customerStudioPath);
+for(const required of ['studioWorkbenchRefValue(experience.Workbench)','registry.ResolveVersion(ref.PluginID, ref.Version, ref.Digest)']){
+  if(!customerStudioSource.includes(required))fail(customerStudioPath,`Customer Studio must pin and resolve immutable workbench versions through ${required}`);
+}
+if(!source(studioPagesPath).includes('workbench={view.workbench}'))fail(studioPagesPath,'historical tasks must render their pinned workbench projection, not the current experience selector');
+const workbenchRegistryPath=join(root,'internal/application/workbench_registry.go');
+if(!source(workbenchRegistryPath).includes('if status != "draft"'))fail(workbenchRegistryPath,'workbench registration must not bypass the separate publication gate');
+const workbenchMigrationPath=join(root,'migrations/00054_workbench_registry.sql');
+if(source(workbenchMigrationPath).includes('SELECT,INSERT,UPDATE ON workbench_plugin_versions'))fail(workbenchMigrationPath,'runtime role must not receive unrestricted UPDATE on immutable workbench manifests');
 
 const developmentBootstrapPath=join(root,'apps/web/src/devBootstrap.ts');
 if(!source(developmentBootstrapPath).includes('import.meta.env.DEV'))fail(developmentBootstrapPath,'development bootstrap must be removed from production builds');

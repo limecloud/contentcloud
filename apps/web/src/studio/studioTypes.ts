@@ -64,6 +64,43 @@ export interface StudioExperience {
   step_titles:string[];
   available_collection_methods:string[];
   unavailable_collection_methods:string[];
+  workbench:StudioWorkbench;
+}
+
+export interface StudioWorkbench {
+  plugin_id:string;
+  version:string;
+  digest:string;
+  layout:'stage-canvas-context'|'article-editor'|'product-variants'|'novel-editor'|string;
+  density:'compact'|'comfortable'|'dense'|string;
+  theme:string;
+  navigation:StudioWorkbenchNavigation[];
+  stages:StudioWorkbenchStage[];
+  panels?:StudioWorkbenchPanel[];
+}
+
+export interface StudioWorkbenchNavigation {
+  id:string;
+  label:string;
+  icon:string;
+}
+
+export interface StudioWorkbenchStage {
+  id:string;
+  label:string;
+  outcome:string;
+  primary_action:string;
+}
+
+export interface StudioWorkbenchPanel {
+  id:string;
+  title:string;
+  detail:string;
+  tone:'source'|'knowledge'|'strategy'|'production'|'review'|string;
+  icon:string;
+  stage_ids:string[];
+  target:'start'|'tasks'|'assets'|'deliveries'|string;
+  action_label:string;
 }
 
 export interface StudioBootstrap {
@@ -226,13 +263,27 @@ export interface StudioAssetSurface {
 
 export interface StudioTaskView {
   task:StudioTaskSummary;
+  workbench:StudioWorkbench;
   steps:StudioCustomerStep[];
   inspirations:StudioInspiration[];
   pending_decisions:StudioDecision[];
   results:StudioResult[];
   attached_assets:StudioAssetItem[];
+  pipeline:StudioPipelineSummary;
   allowed_actions:string[];
   generated_at:string;
+}
+
+export interface StudioPipelineSummary {
+  stage_count:number;
+  completed_stage_count:number;
+  execution_count:number;
+  pending_decision_count:number;
+  approved_version_count:number;
+  artifact_count:number;
+  delivery_package_count:number;
+  performance_observation_count:number;
+  learning_decision_count:number;
 }
 
 export interface StudioDeliveryPackage {
@@ -268,5 +319,7 @@ export interface StudioCreateTaskInput {
   inspiration:string;
   asset_refs:string[];
   material_refs:string[];
+  business_brief?:BusinessBriefContract;
   idempotency_key?:string;
 }
+import type { BusinessBriefContract } from '../workbench/contract/businessBrief';

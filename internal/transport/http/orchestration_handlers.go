@@ -21,6 +21,32 @@ func (s *Server) adminWorkOS(w http.ResponseWriter, r *http.Request) {
 	s.dispatchResult(w, r, "admin.work_os.show", value, err)
 }
 
+func (s *Server) adminWorkbenchRegistry(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	value, err := s.service.Operations.WorkbenchRegistry(r.Context(), actor)
+	s.dispatchResult(w, r, "admin.workbench_registry.list", value, err)
+}
+
+func (s *Server) createAdminWorkbench(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input application.RegisterWorkbenchInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.Operations.RegisterWorkbench(r.Context(), actor, input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "admin.workbench.register", value, err)
+}
+
+func (s *Server) updateAdminWorkbenchState(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input application.UpdateWorkbenchStateInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.Operations.UpdateWorkbenchState(r.Context(), actor, chi.URLParam(r, "workbenchID"), chi.URLParam(r, "version"), input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "admin.workbench.state.update", value, err)
+}
+
 func (s *Server) operationsExecutors(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth(r)
 	value, err := s.service.Operations.OperationsExecutors(r.Context(), actor)
@@ -260,6 +286,16 @@ func (s *Server) createMediaGenerationJob(w http.ResponseWriter, r *http.Request
 	}
 	value, err := s.service.Delivery.CreateMediaGenerationJob(r.Context(), actor, chi.URLParam(r, "taskID"), input, middleware.GetReqID(r.Context()))
 	s.dispatchResult(w, r, "media.job.create", value, err)
+}
+
+func (s *Server) createMediaGenerationBatch(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth(r)
+	var input application.CreateMediaGenerationBatchInput
+	if !s.decode(w, r, &input) {
+		return
+	}
+	value, err := s.service.Delivery.CreateMediaGenerationBatch(r.Context(), actor, chi.URLParam(r, "taskID"), input, middleware.GetReqID(r.Context()))
+	s.dispatchResult(w, r, "media.job.batch_create", value, err)
 }
 
 func (s *Server) uploadStoryboardArtifact(w http.ResponseWriter, r *http.Request) {

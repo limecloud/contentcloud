@@ -63,6 +63,7 @@ var clientDefinitions = []ClientDefinition{
 	}),
 	clientDefinition(ClientClaudeCode, "Claude Code", []string{"claude"}, map[Capability]SupportStatus{
 		CapabilityLocalAutomation: SupportAvailable, CapabilityWorkspaceRegister: SupportAvailable,
+		CapabilityWorkspaceBootstrap: SupportAvailable, CapabilityInteractiveHandoff: SupportAvailable,
 	}),
 	clientDefinition(ClientWorkBuddy, "WorkBuddy", nil, nil),
 	clientDefinition(ClientCursor, "Cursor", nil, nil),

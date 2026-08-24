@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
 
 	deliverydomain "github.com/limecloud/contentcloud/internal/delivery"
@@ -11,6 +12,14 @@ import (
 	reviewdomain "github.com/limecloud/contentcloud/internal/review"
 	sourcedomain "github.com/limecloud/contentcloud/internal/source"
 )
+
+func normalizeSHA256(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if !strings.HasPrefix(value, "sha256:") {
+		value = "sha256:" + value
+	}
+	return value
+}
 
 func (s *Store) CreateSource(_ context.Context, source sourcedomain.Source, revision sourcedomain.SourceRevision) error {
 	s.mu.Lock()
@@ -353,6 +362,40 @@ func (s *Store) CreateArtifact(_ context.Context, v deliverydomain.Artifact) err
 	return nil
 }
 
+// CreateFinalRender commits the output Artifact and its pending final review
+// as one in-memory fact transition, matching the PostgreSQL transaction port.
+func (s *Store) CreateFinalRender(_ context.Context, artifact deliverydomain.Artifact, review deliverydomain.MediaReview) error {
+	if artifact.ApprovedSnapshotID == "" {
+		return fault.Invalid("ARTIFACT_SNAPSHOT_REQUIRED", "成果文件必须绑定批准快照")
+	}
+	if err := review.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snapshot, exists := s.approvedSnapshots[artifact.ApprovedSnapshotID]
+	if !exists || snapshot.TenantID != artifact.TenantID || snapshot.ProjectID != artifact.ProjectID {
+		return fault.NotFound("批准快照")
+	}
+	if artifact.TenantID != review.TenantID || artifact.ProjectID != review.ProjectID || artifact.ID != review.SubjectArtifactID || normalizeSHA256(artifact.SHA256) != normalizeSHA256(review.SubjectDigest) {
+		return fault.Conflict("FINAL_RENDER_FACT_SCOPE_INVALID", "最终成片 Artifact 与最终审核的作用域或摘要不一致")
+	}
+	if _, exists := s.artifacts[artifact.ID]; exists {
+		return fault.Conflict("ARTIFACT_EXISTS", "成果文件已存在")
+	}
+	if _, exists := s.mediaReviews[review.ID]; exists {
+		return fault.Conflict("MEDIA_REVIEW_EXISTS", "媒体审核已存在")
+	}
+	for _, existing := range s.mediaReviews {
+		if existing.TenantID == review.TenantID && existing.TaskID == review.TaskID && existing.ReviewKind == review.ReviewKind && existing.SubjectArtifactID == review.SubjectArtifactID {
+			return fault.Conflict("MEDIA_REVIEW_EXISTS", "该最终成片已有审核")
+		}
+	}
+	s.artifacts[artifact.ID] = artifact
+	s.mediaReviews[review.ID] = cloneMediaReview(review)
+	return nil
+}
+
 func (s *Store) ArtifactsByApprovedSnapshot(_ context.Context, tenantID, snapshotID string) ([]deliverydomain.Artifact, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -408,6 +451,26 @@ func (s *Store) CreateDeliveryPackage(_ context.Context, value deliverydomain.De
 	value.Manifest = append([]deliverydomain.Artifact(nil), artifacts...)
 	s.deliveryPackages[value.ID] = value
 	return nil
+}
+
+func (s *Store) DeliveryPackageBySnapshotAndContentItem(_ context.Context, tenantID, snapshotID, contentItemID string) (deliverydomain.DeliveryPackage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var found deliverydomain.DeliveryPackage
+	var foundAt time.Time
+	for _, value := range s.deliveryPackages {
+		if value.TenantID != tenantID || value.ContentItemID != contentItemID || !containsString(value.ApprovedSnapshotIDs, snapshotID) {
+			continue
+		}
+		if found.ID == "" || value.CreatedAt.After(foundAt) {
+			found = value
+			foundAt = value.CreatedAt
+		}
+	}
+	if found.ID == "" {
+		return found, fault.NotFound("交付包")
+	}
+	return found, nil
 }
 
 func (s *Store) DeliveryPackages(_ context.Context, tenantID, projectID string) ([]deliverydomain.DeliveryPackage, error) {

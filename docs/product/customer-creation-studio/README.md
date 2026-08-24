@@ -52,6 +52,13 @@ Codex、Claude Code 等智能体客户端只是 Runtime 可以选择的执行者
 | --- | --- |
 | [../00-product-narrative.md](../00-product-narrative.md) | 客户十秒叙事、平台架构、工具示例和文案规则 |
 | [01-product-planes-and-architecture.md](./01-product-planes-and-architecture.md) | 产品平面、系统边界、核心契约、执行路由和版本关系 |
+| [07-business-workbench-ui-design.md](./07-business-workbench-ui-design.md) | 业务工作台公共契约边界、各业务独立画布、组件、状态和响应式 UI 规范 |
+| [08-business-workbench-prototype.md](./08-business-workbench-prototype.md) | 视频、文章、电商、连载小说四个可定制工作台的可点击 UI 原型与评审规则 |
+| [业务工作台可点击原型](./prototypes/business-workbench-prototype.html) | 不连接 API 的交互式原型：切换工作台、阶段和主画布 |
+| [Business Workbench Plugin 目录](../../../workbench-plugins/README.md) | 业务工作台插件包结构和 Agent Plugin 边界 |
+| [产品分层架构图](../../../diagrams/contentcloud-product-layered-architecture.svg) | 可定制业务工作台与统一编排、事实、治理、执行、产物和效果闭环的关系 |
+| [视频工作台图谱](../../../diagrams/contentcloud-video-workbench-flow.svg) | 首个视频业务工作台的主流程、时序和客户状态图 |
+| [小说工作台图谱](../../../diagrams/contentcloud-novel-workbench-flow.svg) | Canon、卷章、章节、审核、批准快照、交付和效果回流的统一主流程 |
 | [02-customer-studio-requirements.md](./02-customer-studio-requirements.md) | 客户创作台的信息架构、交互状态、角色权限、首个场景和验收标准 |
 | [03-inspiration-collection-stage.md](./03-inspiration-collection-stage.md) | “灵感采集”阶段的客户体验、连接器抽象、统一输出、安全门禁和失败恢复 |
 | [04-execution-client-connection.md](./04-execution-client-connection.md) | 项目级执行客户端连接、当前 Codex 协议和多客户端发布门槛 |

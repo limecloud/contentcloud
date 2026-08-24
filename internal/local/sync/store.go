@@ -214,8 +214,50 @@ CREATE TABLE IF NOT EXISTS workspace_upload_transfers (
   PRIMARY KEY(project_id,ref,content_digest),
   FOREIGN KEY(project_id) REFERENCES project_sync_state(project_id)
 );`
-	_, err := s.db.ExecContext(ctx, schema)
-	return err
+	if _, err := s.db.ExecContext(ctx, schema); err != nil {
+		return err
+	}
+	for _, column := range localSyncSchemaColumns {
+		if err := s.addColumnIfMissing(ctx, column); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type syncSchemaColumn struct {
+	table      string
+	name       string
+	definition string
+}
+
+// Keep upgrades additive so a Desktop database created by an older CLI remains usable.
+var localSyncSchemaColumns = []syncSchemaColumn{
+	{table: "project_sync_state", name: "cloud_cursor", definition: "INTEGER NOT NULL DEFAULT 0"},
+	{table: "project_sync_state", name: "synced_at", definition: "TEXT"},
+	{table: "project_sync_state", name: "conflict_code", definition: "TEXT NOT NULL DEFAULT ''"},
+	{table: "outbound_commands", name: "device_id", definition: "TEXT NOT NULL DEFAULT ''"},
+	{table: "outbound_commands", name: "file_manifest", definition: "TEXT NOT NULL DEFAULT '[]'"},
+	{table: "outbound_commands", name: "attempts", definition: "INTEGER NOT NULL DEFAULT 0"},
+	{table: "outbound_commands", name: "next_attempt_at", definition: "TEXT NOT NULL DEFAULT ''"},
+	{table: "outbound_commands", name: "lease_owner", definition: "TEXT NOT NULL DEFAULT ''"},
+	{table: "outbound_commands", name: "lease_until", definition: "TEXT"},
+	{table: "outbound_commands", name: "last_error_code", definition: "TEXT NOT NULL DEFAULT ''"},
+}
+
+func (s *Store) addColumnIfMissing(ctx context.Context, column syncSchemaColumn) error {
+	var present int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info(?) WHERE name=?`, column.table, column.name).Scan(&present); err != nil {
+		return fmt.Errorf("inspect local sync column %s.%s: %w", column.table, column.name, err)
+	}
+	if present > 0 {
+		return nil
+	}
+	query := fmt.Sprintf(`ALTER TABLE "%s" ADD COLUMN "%s" %s`, column.table, column.name, column.definition)
+	if _, err := s.db.ExecContext(ctx, query); err != nil {
+		return fmt.Errorf("add local sync column %s.%s: %w", column.table, column.name, err)
+	}
+	return nil
 }
 
 func (s *Store) ObserveProject(ctx context.Context, projectID, workspaceID, digest string, now time.Time) (ProjectState, error) {

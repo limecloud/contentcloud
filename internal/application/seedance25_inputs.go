@@ -243,9 +243,6 @@ func (s *DeliveryService) UploadSeedancePromptPackage(ctx context.Context, actor
 	now := s.now().UTC()
 	artifactID := idgen.New()
 	objectKey := fmt.Sprintf("seedance/%s/%s/prompt-packages/%s/%s", task.TenantID, snapshot.ID, artifactID, fileName)
-	if err := s.blobs.Put(ctx, objectKey, input.Body); err != nil {
-		return deliverydomain.Artifact{}, err
-	}
 	artifact := deliverydomain.Artifact{
 		ID: artifactID, TenantID: task.TenantID, ProjectID: task.ProjectID, ApprovedSnapshotID: snapshot.ID,
 		Kind: "prompt_package", CapabilityID: promptPackage.AdapterCapability.ID, CapabilityVersion: promptPackage.AdapterCapability.Version,
@@ -253,10 +250,7 @@ func (s *DeliveryService) UploadSeedancePromptPackage(ctx context.Context, actor
 		FileName: fileName, SHA256: sha, ByteSize: int64(len(input.Body)), ObjectKey: objectKey, Visibility: "client", RetentionClass: "audit", Purpose: "seedance_prompt_package",
 		Metadata: map[string]any{"task_id": task.ID, "provider_profile_version": promptPackage.ProviderProfileVersion, "prompt_package_id": promptPackage.ID, "storyboard_locked_digest": promptPackage.StoryboardLockedDigest}, CreatedAt: now,
 	}
-	if err := s.artifacts.CreateArtifact(ctx, artifact); err != nil {
-		if deleter, ok := s.blobs.(blob.DeleteStore); ok {
-			_ = deleter.Delete(ctx, objectKey)
-		}
+	if err := s.persistArtifactObject(ctx, artifact, input.Body); err != nil {
 		return deliverydomain.Artifact{}, err
 	}
 	s.audit(ctx, actor, task.ProjectID, "seedance.prompt_package_uploaded", "artifact", artifact.ID, requestID, map[string]any{"snapshot_id": snapshot.ID, "sha256": normalizedSHA256(sha), "provider_profile_version": promptPackage.ProviderProfileVersion})

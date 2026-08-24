@@ -925,6 +925,11 @@ func resolveWorkspaceFile(root, value string) (string, error) {
 }
 
 func relativeWorkspacePath(root, path string) string {
+	resolvedRoot, rootErr := filepath.EvalSymlinks(root)
+	resolvedPath, pathErr := filepath.EvalSymlinks(path)
+	if rootErr == nil && pathErr == nil {
+		root, path = resolvedRoot, resolvedPath
+	}
 	relative, err := filepath.Rel(root, path)
 	if err != nil {
 		return filepath.ToSlash(path)

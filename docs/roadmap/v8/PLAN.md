@@ -25,7 +25,7 @@ V8 对客户工作区资料、任务输入、项目参考、生成结果和交�
 | ID | 工作包 | 主要产物 | 依赖 | 状态 |
 | --- | --- | --- | --- | --- |
 | W8-00 | 基线与契约冻结 | V7 对账、术语、状态机、Schema、错误码、功能开关 | - | 方案草案完成 |
-| W8-01 | 智能体执行适配层原型 | Codex/Claude/Fake 能力探测、MCP、恢复/分支/事件兼容性验证 | W8-00 | Fake、Codex CLI JSONL/thread resume、Claude stream-json/session resume 和 Attempt-scoped MCP Gateway 已实现，worker capability snapshot/fenced event 已接通，独立 CLI MCP stdio -> HTTP Gateway 本地传输 smoke 已通过；客户工作区 bootstrap 当前只发布 Codex，在线 Codex/Claude 宿主注入与模型调用待补 |
+| W8-01 | 智能体执行适配层原型 | Codex/Claude/Fake 能力探测、MCP、恢复/分支/事件兼容性验证 | W8-00 | Fake、Codex CLI JSONL/thread resume、Claude stream-json/session resume 和 Attempt-scoped MCP Gateway 已实现，worker capability snapshot/fenced event 已接通，独立 CLI MCP stdio -> HTTP Gateway 本地传输 smoke 已通过；Codex 与 Claude CLI 工作区 bootstrap 已按各自宿主准入，在线 Codex/Claude 宿主注入、网页宿主选择与模型调用待补 |
 | W8-02 | JobRun 与 JobEvent | 领域模型、迁移、存储、服务、RLS、API | W8-00 | 第一版已实现 |
 | W8-03 | SOP 执行图编译器 | JobPlanRevision、节点/边、静态校验、旁路差异报告 | W8-02 | 第一版已实现 |
 | W8-04 | 线性执行图调度器 | 就绪判断、独立 RuntimeAttempt、租约、公平调度 | W8-03 | Prepare/Activate/Heartbeat/Finalize、fence、过期回收、资源预留/释放、aging 排序和 FairnessReport 已实现；V7 执行表与领取链已删除；PostgreSQL 100 节点/20 worker 唯一领取已通过，生产公平容量压测待补 |
@@ -35,10 +35,10 @@ V8 对客户工作区资料、任务输入、项目参考、生成结果和交�
 | W8-08 | 服务商生产闭环 | 真实适配器、异步轮询/回调、租约回收、流式下载、渲染 | W8-07 | provider-neutral HTTP 适配器、签名/超时/SSRF 防护、异步 submit/status/cancel、Runtime Effect 关联、HMAC callback/bill ingress、到期轮询恢复和有上限流式下载已实现；真实服务商凭据、账单补偿和确定性后处理演练待验收 |
 | W8-09 | 检查点、重放与执行分支 | 节点边界清单、读模型重放、新 JobRun 分支 | W8-05、W8-06、W8-07 | Checkpoint 事件/状态水位、父检查点、Fork、零外部调用 Replay、Projection rebuild/dry-run 运行事实已实现；完整关系化分支图和 PostgreSQL 重建负向验收待补 |
 | W8-10 | 受限动态执行图 | GraphPatch、FanoutSet、确定性子节点、汇聚策略 | W8-06、W8-09 | GraphPatch 关系化持久化、FanoutSet/Member、固定 Join 策略、Memory/PostgreSQL 原子命令已实现；PostgreSQL 100 节点/20 worker 领取已通过，生产演练待验收 |
-| W8-11 | 基础运行诊断 BFF | 执行实例/步骤/智能体/状态/事件/操作/费用读模型、SSE 游标 | W8-02、W8-05、W8-06、W8-07 | 首版 REST、Job 和 nodes/effects/checkpoints 分页、事件单次上限、Runtime SSE 游标、脱敏 Agent/ContextView/StateRecord/Provider Attempt/账单/对账诊断、计划边和持久化 Runtime Explorer/投影指标已实现；完整动态图操作和生产告警待补 |
-| W8-12 | 完整运行诊断 Web | URL 子路由、执行图/大纲、检查点、分支、详情面板和允许的操作 | W8-09、W8-10、W8-11 | 首版列表/详情已实现；动态图与恢复操作待补 |
-| W8-13 | 营销活动标杆任务 | 营销内容包、10 个以上并行步骤、审批、媒体与批量交付 | W8-08、W8-10、W8-12 | 待实施 |
-| W8-14 | 第二种任务流程验证 | 文章复盘的并行分析与汇聚，证明运行时没有业务硬编码 | W8-10、W8-12 | 50 节点并行分析、第二批超出计划节点上限并返回 `JOB_PLAN_NODE_LIMIT` 的边界测试和 PostgreSQL 100 节点/20 worker 领取已实现；完整业务包和运营演练待补 |
+| W8-11 | 基础运行诊断 BFF | 执行实例/步骤/智能体/状态/事件/操作/费用读模型、SSE 游标 | W8-02、W8-05、W8-06、W8-07 | REST、分页、SSE 游标、脱敏诊断、计划边、Fanout/Join 投影、GraphPatch/Fanout/Join 受控写操作和持久化 Runtime Explorer/投影指标已实现；生产告警和真实基础设施演练待补 |
+| W8-12 | 完整运行诊断 Web | URL 子路由、执行图/大纲、检查点、分支、详情面板和允许的操作 | W8-09、W8-10、W8-11 | 列表/详情、执行图大纲、图版本与依赖投影、Fanout 成员、GraphPatch/Fanout/Join 操作、检查点分支、外部副作用对账和脱敏技术详情已实现；生产 Canary 与大规模交互验收待补 |
+| W8-13 | 营销活动标杆任务 | 营销内容包、10 个以上并行步骤、审批、媒体与批量交付 | W8-08、W8-10、W8-12 | Memory 端已完成 10 路 Runtime Fanout/Join 和十个版本的 Submission -> ApprovedSnapshot -> Artifact -> Delivery -> Performance/Rating 闭环；真实 Provider/媒体 Worker、批量 Runtime 运营演练和生产容量仍待验收 |
+| W8-14 | 第二种任务流程验证 | 文章复盘的并行分析与汇聚，证明运行时没有业务硬编码 | W8-10、W8-12 | 已完成 4 渠道复盘 Fanout/Join、观察结果汇聚和 snapshot 级学习决定；50 节点容量边界、PostgreSQL 100 节点/20 worker 领取已实现，真实 PostgreSQL/运营演练仍待补 |
 | W8-15 | 故障、安全与容量 | 故障矩阵、RLS、注入测试、100 节点/20 并发稳定性测试 | W8-13、W8-14 | 核心 RLS、提交后故障钩子、FairnessReport 和 PostgreSQL 100 节点/20 worker 领取已验证；真实数据库故障环境、生产公平性压测和稳定性待实施 |
 | W8-16 | 试点与发布准备 | 指标、告警、运维手册、Canary、回退演练、联合签字 | W8-15 | Runtime 健康报告和运维手册已落地；生产 Canary、故障/回退演练与联合签字待实施 |
 

@@ -420,11 +420,28 @@ func (s *DeliveryService) ImportChannelPerformance(ctx context.Context, actor Ac
 	if value.State != deliverydomain.ChannelPublicationPublished || value.PublishedAt == nil || value.ExternalID == "" {
 		return ImportPerformanceResult{}, fault.Policy("CHANNEL_PERFORMANCE_NOT_PUBLISHED", "只有已取得 published 回执的渠道内容可以导入指标", "先完成渠道发布回执")
 	}
+	delivery, err := s.artifacts.DeliveryPackage(ctx, actor.TenantID, value.DeliveryPackageID)
+	if err != nil {
+		return ImportPerformanceResult{}, err
+	}
+	if delivery.ProjectID != value.ProjectID || delivery.ID != value.DeliveryPackageID || len(delivery.ApprovedSnapshotIDs) == 0 {
+		return ImportPerformanceResult{}, fault.Conflict("CHANNEL_PERFORMANCE_DELIVERY_LINEAGE_INVALID", "渠道发布的交付包缺少有效批准快照血缘")
+	}
+	snapshotID := strings.TrimSpace(input.ApprovedSnapshotID)
+	if snapshotID == "" {
+		if len(delivery.ApprovedSnapshotIDs) != 1 {
+			return ImportPerformanceResult{}, fault.Invalid("CHANNEL_PERFORMANCE_SNAPSHOT_REQUIRED", "交付包包含多个批准快照，导入指标时必须明确版本")
+		}
+		snapshotID = delivery.ApprovedSnapshotIDs[0]
+	}
+	if !containsString(delivery.ApprovedSnapshotIDs, snapshotID) {
+		return ImportPerformanceResult{}, fault.Conflict("CHANNEL_PERFORMANCE_SNAPSHOT_MISMATCH", "效果指标只能归因到该渠道发布所引用的批准快照")
+	}
 	sampleStatus := strings.TrimSpace(input.SampleStatus)
 	if sampleStatus == "" {
 		sampleStatus = "insufficient_sample"
 	}
-	return s.app.Performance.ImportPerformanceObservations(ctx, actor, ImportPerformanceInput{ProjectID: value.ProjectID, SourceName: "channel-publication:" + value.ID, SourceFormat: "json", Observations: []CreateObservationInput{{ApprovedSnapshotID: strings.TrimSpace(input.ApprovedSnapshotID), Platform: value.Channel, AccountAlias: value.AccountRef, PublishedAt: value.PublishedAt.UTC(), WindowHours: input.WindowHours, SampleStatus: sampleStatus, Metrics: input.Metrics, Currency: input.Currency, Spend: input.Spend, GMV: input.GMV, IssueCategory: input.IssueCategory, Notes: input.Notes}}}, requestID)
+	return s.app.Performance.ImportPerformanceObservations(ctx, actor, ImportPerformanceInput{ProjectID: value.ProjectID, SourceName: "channel-publication:" + value.ID, SourceFormat: "json", Observations: []CreateObservationInput{{ApprovedSnapshotID: snapshotID, Platform: value.Channel, AccountAlias: value.AccountRef, PublishedAt: value.PublishedAt.UTC(), WindowHours: input.WindowHours, SampleStatus: sampleStatus, Metrics: input.Metrics, Currency: input.Currency, Spend: input.Spend, GMV: input.GMV, IssueCategory: input.IssueCategory, Notes: input.Notes}}}, requestID)
 }
 
 func (s *DeliveryService) channelPublicationContext(ctx context.Context, actor Actor, id string) (deliverydomain.ChannelPublication, deliverydomain.ChannelBinding, channeladapter.Adapter, channeladapter.Prepared, error) {

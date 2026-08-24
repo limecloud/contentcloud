@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,7 +16,9 @@ import (
 	catalogdomain "github.com/limecloud/contentcloud/internal/catalog"
 	deliverydomain "github.com/limecloud/contentcloud/internal/delivery"
 	experiencestudio "github.com/limecloud/contentcloud/internal/experience/studio"
+	workbenchdomain "github.com/limecloud/contentcloud/internal/experience/workbench"
 	identitydomain "github.com/limecloud/contentcloud/internal/identity"
+	performancedomain "github.com/limecloud/contentcloud/internal/performance"
 	reviewdomain "github.com/limecloud/contentcloud/internal/review"
 	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
 	"github.com/limecloud/contentcloud/internal/work"
@@ -71,19 +74,56 @@ type StudioConnectSession struct {
 }
 
 type StudioExperience struct {
-	ID                 string   `json:"id"`
-	Version            string   `json:"version"`
-	SOPID              string   `json:"-"`
-	SOPVersion         int      `json:"-"`
-	TemplateKey        string   `json:"-"`
-	Name               string   `json:"name"`
-	Description        string   `json:"description"`
-	ContentType        string   `json:"content_type"`
-	Status             string   `json:"status"`
-	ProjectIDs         []string `json:"project_ids"`
-	StepTitles         []string `json:"step_titles"`
-	AvailableMethods   []string `json:"available_collection_methods"`
-	UnavailableMethods []string `json:"unavailable_collection_methods"`
+	ID                 string          `json:"id"`
+	Version            string          `json:"version"`
+	SOPID              string          `json:"-"`
+	SOPVersion         int             `json:"-"`
+	TemplateKey        string          `json:"-"`
+	Name               string          `json:"name"`
+	Description        string          `json:"description"`
+	ContentType        string          `json:"content_type"`
+	Status             string          `json:"status"`
+	ProjectIDs         []string        `json:"project_ids"`
+	StepTitles         []string        `json:"step_titles"`
+	AvailableMethods   []string        `json:"available_collection_methods"`
+	UnavailableMethods []string        `json:"unavailable_collection_methods"`
+	Workbench          StudioWorkbench `json:"workbench"`
+}
+
+type StudioWorkbench struct {
+	PluginID   string                      `json:"plugin_id"`
+	Version    string                      `json:"version"`
+	Digest     string                      `json:"digest"`
+	Layout     string                      `json:"layout"`
+	Density    string                      `json:"density"`
+	Theme      string                      `json:"theme"`
+	Navigation []StudioWorkbenchNavigation `json:"navigation"`
+	Stages     []StudioWorkbenchStage      `json:"stages"`
+	Panels     []StudioWorkbenchPanel      `json:"panels,omitempty"`
+}
+
+type StudioWorkbenchNavigation struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Icon  string `json:"icon"`
+}
+
+type StudioWorkbenchStage struct {
+	ID            string `json:"id"`
+	Label         string `json:"label"`
+	Outcome       string `json:"outcome"`
+	PrimaryAction string `json:"primary_action"`
+}
+
+type StudioWorkbenchPanel struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Detail      string   `json:"detail"`
+	Tone        string   `json:"tone"`
+	Icon        string   `json:"icon"`
+	StageIDs    []string `json:"stage_ids"`
+	Target      string   `json:"target"`
+	ActionLabel string   `json:"action_label"`
 }
 
 type StudioBootstrap struct {
@@ -149,25 +189,139 @@ type StudioResult struct {
 }
 
 type StudioTaskView struct {
-	Task           StudioTaskSummary    `json:"task"`
-	Steps          []StudioCustomerStep `json:"steps"`
-	Inspirations   []StudioInspiration  `json:"inspirations"`
-	Decisions      []StudioDecision     `json:"pending_decisions"`
-	Results        []StudioResult       `json:"results"`
-	AttachedAssets []StudioAssetItem    `json:"attached_assets"`
-	AllowedActions []string             `json:"allowed_actions"`
-	GeneratedAt    time.Time            `json:"generated_at"`
+	Task           StudioTaskSummary     `json:"task"`
+	Workbench      StudioWorkbench       `json:"workbench"`
+	Steps          []StudioCustomerStep  `json:"steps"`
+	Inspirations   []StudioInspiration   `json:"inspirations"`
+	Decisions      []StudioDecision      `json:"pending_decisions"`
+	Results        []StudioResult        `json:"results"`
+	AttachedAssets []StudioAssetItem     `json:"attached_assets"`
+	Pipeline       StudioPipelineSummary `json:"pipeline"`
+	AllowedActions []string              `json:"allowed_actions"`
+	GeneratedAt    time.Time             `json:"generated_at"`
+}
+
+// StudioPipelineSummary is a customer-safe projection of the shared platform
+// facts. It deliberately exposes counts rather than Runtime, Provider or
+// persistence records; every business workbench can show the same closure
+// without owning a second task, review, artifact, delivery or learning state.
+type StudioPipelineSummary struct {
+	StageCount                  int `json:"stage_count"`
+	CompletedStageCount         int `json:"completed_stage_count"`
+	ExecutionCount              int `json:"execution_count"`
+	PendingDecisionCount        int `json:"pending_decision_count"`
+	ApprovedVersionCount        int `json:"approved_version_count"`
+	ArtifactCount               int `json:"artifact_count"`
+	DeliveryPackageCount        int `json:"delivery_package_count"`
+	PerformanceObservationCount int `json:"performance_observation_count"`
+	LearningDecisionCount       int `json:"learning_decision_count"`
 }
 
 type StudioCreateTaskInput struct {
-	ExperienceID   string   `json:"experience_id"`
-	ProjectID      string   `json:"project_id"`
-	Title          string   `json:"title"`
-	Goal           string   `json:"goal"`
-	Inspiration    string   `json:"inspiration"`
-	AssetRefs      []string `json:"asset_refs"`
-	MaterialRefs   []string `json:"material_refs"`
-	IdempotencyKey string   `json:"idempotency_key,omitempty"`
+	ExperienceID   string              `json:"experience_id"`
+	ProjectID      string              `json:"project_id"`
+	Title          string              `json:"title"`
+	Goal           string              `json:"goal"`
+	Inspiration    string              `json:"inspiration"`
+	AssetRefs      []string            `json:"asset_refs"`
+	MaterialRefs   []string            `json:"material_refs"`
+	BusinessBrief  StudioBusinessBrief `json:"business_brief,omitempty"`
+	IdempotencyKey string              `json:"idempotency_key,omitempty"`
+}
+
+// StudioBusinessBrief is the versioned business contract shared by custom
+// workbenches. It is stored inside WorkTask.RequestedOutput so Runtime gets a
+// frozen input digest without creating a second task or business-fact model.
+type StudioBusinessBrief struct {
+	SchemaVersion  string            `json:"schema_version,omitempty"`
+	Audience       string            `json:"audience,omitempty"`
+	Channel        string            `json:"channel,omitempty"`
+	Tone           string            `json:"tone,omitempty"`
+	Keywords       []string          `json:"keywords,omitempty"`
+	ProductFacts   map[string]string `json:"product_facts,omitempty"`
+	OfferPoints    []string          `json:"offer_points,omitempty"`
+	TargetAudience string            `json:"target_audience,omitempty"`
+}
+
+// StudioWorkbenchRef freezes the customer surface selected when a WorkTask is
+// created. It is a version reference, not a second workflow definition: SOP,
+// Runtime, review, artifact and delivery semantics remain in their owning
+// modules.
+type StudioWorkbenchRef struct {
+	PluginID string `json:"plugin_id"`
+	Version  string `json:"version"`
+	Digest   string `json:"digest"`
+}
+
+func normalizeStudioBusinessBrief(value StudioBusinessBrief, contentType string) (StudioBusinessBrief, error) {
+	value.SchemaVersion = strings.TrimSpace(value.SchemaVersion)
+	value.Audience = strings.TrimSpace(value.Audience)
+	value.Channel = strings.TrimSpace(value.Channel)
+	value.Tone = strings.TrimSpace(value.Tone)
+	value.TargetAudience = strings.TrimSpace(value.TargetAudience)
+	value.Keywords = normalizeBriefList(value.Keywords)
+	value.OfferPoints = normalizeBriefList(value.OfferPoints)
+	if value.ProductFacts != nil {
+		facts := make(map[string]string, len(value.ProductFacts))
+		for key, fact := range value.ProductFacts {
+			key, fact = strings.TrimSpace(key), strings.TrimSpace(fact)
+			if key != "" && fact != "" {
+				facts[key] = fact
+			}
+		}
+		value.ProductFacts = facts
+	}
+	if studioBusinessBriefEmpty(value) {
+		return StudioBusinessBrief{}, nil
+	}
+	if value.SchemaVersion == "" {
+		value.SchemaVersion = "contentcloud.business-brief/1.0"
+	}
+	if value.SchemaVersion != "contentcloud.business-brief/1.0" {
+		return StudioBusinessBrief{}, fault.Invalid("STUDIO_BUSINESS_BRIEF_VERSION_INVALID", "业务简报版本不受支持")
+	}
+	switch contentType {
+	case identitydomain.ContentTypeMarketingVideo, identitydomain.ContentTypeVideoScript, "marketing-video":
+		if value.Audience == "" || value.Channel == "" || value.Tone == "" || len(value.Keywords) == 0 {
+			return StudioBusinessBrief{}, fault.Invalid("STUDIO_VIDEO_BRIEF_INCOMPLETE", "视频工作台需要受众、渠道、表达语气和关键词")
+		}
+	case identitydomain.ContentTypeWeChatArticle, "article", "article_content":
+		if value.Audience == "" || value.Channel == "" || value.Tone == "" || len(value.Keywords) == 0 {
+			return StudioBusinessBrief{}, fault.Invalid("STUDIO_ARTICLE_BRIEF_INCOMPLETE", "文章工作台需要受众、渠道、语气和关键词")
+		}
+	case identitydomain.ContentTypeSerializedNovel:
+		if value.Audience == "" || value.Channel == "" || value.Tone == "" || len(value.Keywords) == 0 {
+			return StudioBusinessBrief{}, fault.Invalid("STUDIO_NOVEL_BRIEF_INCOMPLETE", "小说工作台需要读者人群、连载平台、文风和世界观关键词")
+		}
+	case "commerce", "ecommerce", "douyin_commerce", "product_content":
+		if value.Channel == "" || value.TargetAudience == "" || len(value.ProductFacts) == 0 || len(value.OfferPoints) == 0 {
+			return StudioBusinessBrief{}, fault.Invalid("STUDIO_COMMERCE_BRIEF_INCOMPLETE", "电商工作台需要商品事实、卖点、渠道和目标人群")
+		}
+	default:
+		return StudioBusinessBrief{}, fault.Invalid("STUDIO_BUSINESS_BRIEF_CONTENT_TYPE_INVALID", "当前业务类型不支持该业务简报")
+	}
+	return value, nil
+}
+
+func normalizeBriefList(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func studioBusinessBriefEmpty(value StudioBusinessBrief) bool {
+	return value.SchemaVersion == "" && value.Audience == "" && value.Channel == "" && value.Tone == "" && value.TargetAudience == "" && len(value.Keywords) == 0 && len(value.ProductFacts) == 0 && len(value.OfferPoints) == 0
 }
 
 type StudioAddInspirationInput struct {
@@ -274,6 +428,10 @@ func (s *WorkService) customerStudioExperiences(ctx context.Context, actor Actor
 		}
 	}
 	experiences := map[string]StudioExperience{}
+	registry, registryErr := s.effectiveWorkbenchRegistry(ctx)
+	if registryErr != nil {
+		return nil, registryErr
+	}
 	for _, project := range projects {
 		if project.Status == "archived" || !enabledContentTypes[project.ContentType] {
 			continue
@@ -289,6 +447,12 @@ func (s *WorkService) customerStudioExperiences(ctx context.Context, actor Actor
 		if len(sop.ContentTypes) > 0 && !containsString(sop.ContentTypes, project.ContentType) {
 			continue
 		}
+		plugin, pluginErr := registry.Resolve(project.ContentType, summary.Definition.TemplateKey, actor.TenantID)
+		if pluginErr != nil {
+			// A published SOP without an approved customer workbench is still a
+			// valid platform fact, but it must not leak into the customer surface.
+			continue
+		}
 		id, version := customerStudioExperienceIdentity(summary.Definition, sop)
 		experience := experiences[id]
 		if experience.ID == "" {
@@ -299,6 +463,7 @@ func (s *WorkService) customerStudioExperiences(ctx context.Context, actor Actor
 				Status: "published", ProjectIDs: []string{}, StepTitles: customerStudioExperienceStepTitles(sop),
 				AvailableMethods:   []string{"manual"},
 				UnavailableMethods: []string{"platform_search", "controlled_fetch", "local_agent"},
+				Workbench:          studioWorkbench(plugin),
 			}
 			if summary.Definition.TemplateKey == builtinSOPMarketingVideo || summary.Definition.ID == "builtin-sop-marketing-video" {
 				experience.Name = "IP 人设营销视频"
@@ -346,6 +511,27 @@ func customerStudioExperienceIdentity(definition catalogdomain.SOPDefinition, so
 	return "sop:" + sop.SOPID + ":v" + strconv.Itoa(sop.Version), strconv.Itoa(sop.Version) + ".0.0"
 }
 
+func studioWorkbench(entry workbenchdomain.Entry) StudioWorkbench {
+	manifest := entry.Manifest
+	workbench := StudioWorkbench{
+		PluginID: manifest.ID, Version: manifest.Version, Digest: entry.Digest,
+		Layout: manifest.UI.Layout, Density: manifest.UI.Density, Theme: manifest.UI.Theme,
+		Navigation: make([]StudioWorkbenchNavigation, 0, len(manifest.UI.Navigation)),
+		Stages:     make([]StudioWorkbenchStage, 0, len(manifest.UI.Stages)),
+		Panels:     make([]StudioWorkbenchPanel, 0, len(manifest.UI.Panels)),
+	}
+	for _, item := range manifest.UI.Navigation {
+		workbench.Navigation = append(workbench.Navigation, StudioWorkbenchNavigation{ID: item.ID, Label: item.Label, Icon: item.Icon})
+	}
+	for _, stage := range manifest.UI.Stages {
+		workbench.Stages = append(workbench.Stages, StudioWorkbenchStage{ID: stage.ID, Label: stage.Label, Outcome: stage.Outcome, PrimaryAction: stage.PrimaryAction})
+	}
+	for _, panel := range manifest.UI.Panels {
+		workbench.Panels = append(workbench.Panels, StudioWorkbenchPanel{ID: panel.ID, Title: panel.Title, Detail: panel.Detail, Tone: panel.Tone, Icon: panel.Icon, StageIDs: append([]string(nil), panel.StageIDs...), Target: panel.Target, ActionLabel: panel.ActionLabel})
+	}
+	return workbench
+}
+
 func (s *WorkService) customerStudioExperienceSOP(ctx context.Context, actor Actor, project workspacedomain.Project, experienceID string) (StudioExperience, catalogdomain.SOPDefinition, catalogdomain.SOPVersion, error) {
 	experiences, err := s.customerStudioExperiences(ctx, actor, []workspacedomain.Project{project})
 	if err != nil {
@@ -390,6 +576,10 @@ func (s *WorkService) CustomerStudioTask(ctx context.Context, actor Actor, taskI
 	if err != nil {
 		return StudioTaskView{}, err
 	}
+	workbench, err := s.customerStudioTaskWorkbench(ctx, actor, view)
+	if err != nil {
+		return StudioTaskView{}, err
+	}
 	items, err := s.InputItems(ctx, actor, InputItemQuery{ProjectID: view.Task.ProjectID})
 	if err != nil {
 		return StudioTaskView{}, err
@@ -398,7 +588,78 @@ func (s *WorkService) CustomerStudioTask(ctx context.Context, actor Actor, taskI
 	if err != nil {
 		return StudioTaskView{}, err
 	}
-	return s.customerStudioTaskView(actor, view, items, assets), nil
+	observations, err := s.performance.PerformanceObservations(ctx, actor.TenantID, view.Task.ProjectID)
+	if err != nil {
+		return StudioTaskView{}, err
+	}
+	ratings, err := s.performance.RatingDecisions(ctx, actor.TenantID, view.Task.ProjectID)
+	if err != nil {
+		return StudioTaskView{}, err
+	}
+	return s.customerStudioTaskView(actor, view, workbench, items, assets, observations, ratings), nil
+}
+
+func (s *WorkService) customerStudioTaskWorkbench(ctx context.Context, actor Actor, view WorkTaskView) (StudioWorkbench, error) {
+	registry, err := s.effectiveWorkbenchRegistry(ctx)
+	if err != nil {
+		return StudioWorkbench{}, err
+	}
+	ref, pinned, err := studioWorkbenchRef(view.Task.RequestedOutput)
+	if err != nil {
+		return StudioWorkbench{}, err
+	}
+	if pinned {
+		entry, resolveErr := registry.ResolveVersion(ref.PluginID, ref.Version, ref.Digest)
+		if resolveErr != nil {
+			return StudioWorkbench{}, resolveErr
+		}
+		return studioWorkbench(entry), nil
+	}
+
+	// Tasks created before workbench pinning keep the former best-effort
+	// behavior. New tasks always take the exact-version branch above.
+	summary, err := s.catalog.SOP(ctx, actor.TenantID, view.Task.SOPID)
+	if err != nil {
+		return StudioWorkbench{}, err
+	}
+	entry, err := registry.Resolve(view.Task.ContentType, summary.Definition.TemplateKey, actor.TenantID)
+	if fault.IsNotFound(err) {
+		return StudioWorkbench{}, nil
+	}
+	if err != nil {
+		return StudioWorkbench{}, err
+	}
+	return studioWorkbench(entry), nil
+}
+
+func studioWorkbenchRef(requestedOutput map[string]any) (StudioWorkbenchRef, bool, error) {
+	if requestedOutput == nil {
+		return StudioWorkbenchRef{}, false, nil
+	}
+	raw, exists := requestedOutput["workbench"]
+	if !exists || raw == nil {
+		return StudioWorkbenchRef{}, false, nil
+	}
+	body, err := json.Marshal(raw)
+	if err != nil {
+		return StudioWorkbenchRef{}, false, fault.Invalid("WORKBENCH_PLUGIN_REF_INVALID", "任务固定的业务工作台引用无效")
+	}
+	var ref StudioWorkbenchRef
+	if err := json.Unmarshal(body, &ref); err != nil || strings.TrimSpace(ref.PluginID) == "" || strings.TrimSpace(ref.Version) == "" || !stablehash.Matches(ref.Digest) {
+		return StudioWorkbenchRef{}, false, fault.Invalid("WORKBENCH_PLUGIN_REF_INVALID", "任务固定的业务工作台引用无效")
+	}
+	return ref, true, nil
+}
+
+func studioWorkbenchRefValue(workbench StudioWorkbench) map[string]any {
+	return map[string]any{"plugin_id": workbench.PluginID, "version": workbench.Version, "digest": workbench.Digest}
+}
+
+func studioBusinessBriefValue(brief StudioBusinessBrief) map[string]any {
+	body, _ := json.Marshal(brief)
+	result := map[string]any{}
+	_ = json.Unmarshal(body, &result)
+	return result
 }
 
 func (s *WorkService) CreateCustomerStudioTask(ctx context.Context, actor Actor, input StudioCreateTaskInput, requestID string) (StudioTaskView, error) {
@@ -428,10 +689,24 @@ func (s *WorkService) CreateCustomerStudioTask(ctx context.Context, actor Actor,
 		return StudioTaskView{}, err
 	}
 	contentType := defaultString(project.ContentType, identitydomain.DefaultProjectContentType)
+	businessBrief, err := normalizeStudioBusinessBrief(input.BusinessBrief, contentType)
+	if err != nil {
+		return StudioTaskView{}, err
+	}
+	requestedOutput := map[string]any{
+		"content_count":      1,
+		"format":             contentFormat(contentType),
+		"experience_id":      experience.ID,
+		"experience_version": experience.Version,
+		"workbench":          studioWorkbenchRefValue(experience.Workbench),
+	}
+	if !studioBusinessBriefEmpty(businessBrief) {
+		requestedOutput["business_brief"] = studioBusinessBriefValue(businessBrief)
+	}
 	key := strings.TrimSpace(input.IdempotencyKey)
 	if key != "" {
 		if existing, lookupErr := s.tasks.WorkTaskByIdempotencyKey(ctx, actor.TenantID, key); lookupErr == nil {
-			if existing.ProjectID != project.ID || existing.Title != strings.TrimSpace(input.Title) || existing.Intent != strings.TrimSpace(input.Goal) || existing.ContentType != contentType || existing.SOPID != sop.SOPID || existing.SOPVersion != sop.Version {
+			if existing.ProjectID != project.ID || existing.Title != strings.TrimSpace(input.Title) || existing.Intent != strings.TrimSpace(input.Goal) || existing.ContentType != contentType || existing.SOPID != sop.SOPID || existing.SOPVersion != sop.Version || !reflect.DeepEqual(existing.RequestedOutput, requestedOutput) {
 				return StudioTaskView{}, fault.Conflict("IDEMPOTENCY_KEY_REUSE", "相同的幂等键已用于不同创作任务，请为新任务生成新的幂等键")
 			}
 			if err := s.ensureCustomerStudioRuntime(ctx, actor, existing, sop, key, requestID); err != nil {
@@ -450,6 +725,10 @@ func (s *WorkService) CreateCustomerStudioTask(ctx context.Context, actor Actor,
 	if inspiration := strings.TrimSpace(input.Inspiration); inspiration != "" {
 		body += "\n\n参考灵感：\n" + inspiration
 	}
+	if !studioBusinessBriefEmpty(businessBrief) {
+		briefBody, _ := json.Marshal(businessBrief)
+		body += "\n\n业务简报：\n" + string(briefBody)
+	}
 	brief, err := s.CreateInputItem(ctx, actor, CreateInputItemInput{
 		ProjectID: project.ID, SourceType: "brief", Title: strings.TrimSpace(input.Title) + " · 创作简报",
 		Summary: strings.TrimSpace(input.Goal), Body: body, Disclosure: "project", IdempotencyKey: briefKey,
@@ -463,7 +742,7 @@ func (s *WorkService) CreateCustomerStudioTask(ctx context.Context, actor Actor,
 	created, err := s.CreateWorkTask(ctx, actor, CreateWorkTaskInput{
 		ProjectID: project.ID, Title: strings.TrimSpace(input.Title), Intent: strings.TrimSpace(input.Goal),
 		SOPID: sop.SOPID, SOPVersion: sop.Version, ContentType: contentType, InputRefs: refs,
-		RequestedOutput: map[string]any{"content_count": 1, "format": contentFormat(contentType), "experience_id": experience.ID, "experience_version": experience.Version},
+		RequestedOutput: requestedOutput,
 		Priority:        "normal", RiskProfile: "low", IdempotencyKey: key,
 	}, requestID)
 	if err != nil {
@@ -532,12 +811,51 @@ func customerStudioRuntimeInputDigest(task work.WorkTask) (string, error) {
 	return "sha256:" + inputDigest, nil
 }
 
+// prepareCustomerStudioInputChange keeps WorkTask.InputRefs and the Runtime
+// admission digest on the same version. A task may update its inputs while
+// its first JobRun is still in the admission queue; once execution has
+// started, changing inputs would make the business task and Runtime facts
+// disagree, so the operation fails closed.
+func (s *WorkService) prepareCustomerStudioInputChange(ctx context.Context, actor Actor, task work.WorkTask) error {
+	if task.Status != work.TaskStatusNeedsInput && task.Status != work.TaskStatusReady {
+		return fault.Policy("STUDIO_TASK_INPUT_FROZEN", "当前任务已经进入流程执行，输入版本已冻结", "为新的资料创建新的创作任务或修订版本")
+	}
+	if s.app.Runtime == nil || s.app.Runtime.runtimeService == nil {
+		return nil
+	}
+	jops, err := s.app.Runtime.runtimeService.Jobs(ctx, actor.TenantID, task.ID)
+	if err != nil {
+		return err
+	}
+	for _, job := range jops {
+		switch job.State {
+		case contentruntime.JobRunCreated, contentruntime.JobRunAdmitted:
+			if _, cancelErr := s.app.Runtime.runtimeService.Cancel(ctx, actor.TenantID, job.ID, "customer", actor.UserID); cancelErr != nil {
+				return fault.Policy("STUDIO_TASK_INPUT_CHANGE_BLOCKED", "旧的运行时任务无法安全取消，输入暂时不能修改", "在 Runtime 运行页处理该任务后重试")
+			}
+		default:
+			return fault.Policy("STUDIO_TASK_INPUT_FROZEN", "当前任务已经进入流程执行，输入版本已冻结", "为新的资料创建新的创作任务或修订版本")
+		}
+	}
+	return nil
+}
+
+func customerStudioInputRuntimeKey(task work.WorkTask) (string, error) {
+	digest, err := customerStudioRuntimeInputDigest(task)
+	if err != nil {
+		return "", err
+	}
+	return "studio-input:" + task.ID + ":" + strings.TrimPrefix(digest, "sha256:"), nil
+}
+
 func contentFormat(contentType string) string {
 	switch contentType {
 	case identitydomain.ContentTypeMarketingVideo:
 		return "vertical_video"
 	case identitydomain.ContentTypeVideoScript:
 		return "video_script"
+	case identitydomain.ContentTypeSerializedNovel:
+		return "novel_chapter"
 	default:
 		return "content"
 	}
@@ -575,6 +893,12 @@ func (s *WorkService) AddCustomerStudioInspiration(ctx context.Context, actor Ac
 	if task.Status == work.TaskStatusDelivered || task.Status == work.TaskStatusCancelled {
 		return StudioTaskView{}, fault.Conflict("STUDIO_TASK_INPUT_CLOSED", "已完成或已取消的任务不能继续添加灵感")
 	}
+	if strings.TrimSpace(input.Title) == "" || strings.TrimSpace(input.Body) == "" {
+		return StudioTaskView{}, fault.Invalid("STUDIO_INSPIRATION_FIELDS_REQUIRED", "灵感标题和内容不能为空")
+	}
+	if err := s.prepareCustomerStudioInputChange(ctx, actor, task); err != nil {
+		return StudioTaskView{}, err
+	}
 	item, err := s.CreateInputItem(ctx, actor, CreateInputItemInput{
 		ProjectID: task.ProjectID, SourceType: "manual_inspiration", Title: strings.TrimSpace(input.Title),
 		Summary: strings.TrimSpace(input.Body), Body: strings.TrimSpace(input.Body), Disclosure: "project", IdempotencyKey: strings.TrimSpace(input.IdempotencyKey),
@@ -584,9 +908,26 @@ func (s *WorkService) AddCustomerStudioInspiration(ctx context.Context, actor Ac
 		return StudioTaskView{}, err
 	}
 	if item.TargetTaskID != task.ID || item.Status != work.InputItemTaskMerged {
-		if _, err := s.TriageInputItem(ctx, actor, item.ID, TriageInputItemInput{Action: "merge_task", ExpectedVersion: item.RowVersion, TaskID: task.ID}, requestID); err != nil {
+		item, err = s.TriageInputItem(ctx, actor, item.ID, TriageInputItemInput{Action: "merge_task", ExpectedVersion: item.RowVersion, TaskID: task.ID}, requestID)
+		if err != nil {
 			return StudioTaskView{}, err
 		}
+	}
+	task.InputRefs = appendUnique(task.InputRefs, "input:"+item.ID+"@v"+fmt.Sprint(item.RowVersion))
+	task.UpdatedAt = s.now().UTC()
+	if err := s.tasks.SaveWorkTask(ctx, task); err != nil {
+		return StudioTaskView{}, err
+	}
+	_, sop, err := s.loadTaskSOP(ctx, actor.TenantID, task)
+	if err != nil {
+		return StudioTaskView{}, err
+	}
+	runtimeKey, err := customerStudioInputRuntimeKey(task)
+	if err != nil {
+		return StudioTaskView{}, err
+	}
+	if err := s.ensureCustomerStudioRuntime(ctx, actor, task, sop, runtimeKey, requestID); err != nil {
+		return StudioTaskView{}, err
 	}
 	return s.CustomerStudioTask(ctx, actor, task.ID)
 }
@@ -616,6 +957,12 @@ func (s *WorkService) AttachCustomerStudioAssets(ctx context.Context, actor Acto
 	if err != nil {
 		return StudioTaskView{}, err
 	}
+	if len(refs) == 0 {
+		return StudioTaskView{}, fault.Invalid("STUDIO_ASSET_REFS_REQUIRED", "至少选择一个可复用的创作结果")
+	}
+	if err := s.prepareCustomerStudioInputChange(ctx, actor, task); err != nil {
+		return StudioTaskView{}, err
+	}
 	for _, ref := range refs {
 		task.InputRefs = appendUnique(task.InputRefs, ref)
 	}
@@ -625,6 +972,17 @@ func (s *WorkService) AttachCustomerStudioAssets(ctx context.Context, actor Acto
 	}
 	task.UpdatedAt = s.now().UTC()
 	if err := s.tasks.SaveWorkTask(ctx, task); err != nil {
+		return StudioTaskView{}, err
+	}
+	_, sop, err := s.loadTaskSOP(ctx, actor.TenantID, task)
+	if err != nil {
+		return StudioTaskView{}, err
+	}
+	runtimeKey, err := customerStudioInputRuntimeKey(task)
+	if err != nil {
+		return StudioTaskView{}, err
+	}
+	if err := s.ensureCustomerStudioRuntime(ctx, actor, task, sop, runtimeKey, requestID); err != nil {
 		return StudioTaskView{}, err
 	}
 	s.audit(ctx, actor, task.ProjectID, "studio.task_assets_attached", "task", task.ID, requestID, map[string]any{"asset_count": len(refs)})
@@ -1051,10 +1409,12 @@ func (s *WorkService) CustomerStudioDeliveries(ctx context.Context, actor Actor)
 	return result, nil
 }
 
-func (s *WorkService) customerStudioTaskView(actor Actor, view WorkTaskView, items []work.InputItem, catalog CreativeResultAssetProjection) StudioTaskView {
+func (s *WorkService) customerStudioTaskView(actor Actor, view WorkTaskView, workbench StudioWorkbench, items []work.InputItem, catalog CreativeResultAssetProjection, observations []performancedomain.PerformanceObservation, ratings []performancedomain.RatingDecision) StudioTaskView {
+	steps := studioCustomerSteps(view.Task, view.SOP)
 	result := StudioTaskView{
-		Task: studioTaskSummary(view.Task, view.Project, view.SOP), Steps: studioCustomerSteps(view.Task, view.SOP),
+		Task: studioTaskSummary(view.Task, view.Project, view.SOP), Workbench: workbench, Steps: steps,
 		Inspirations: []StudioInspiration{}, Decisions: []StudioDecision{}, Results: []StudioResult{}, AttachedAssets: []StudioAssetItem{},
+		Pipeline:       customerStudioPipelineSummary(view, steps, observations, ratings),
 		AllowedActions: customerStudioAllowedActions(actor, view), GeneratedAt: s.now().UTC(),
 	}
 	for _, item := range items {
@@ -1106,6 +1466,58 @@ func (s *WorkService) customerStudioTaskView(actor Actor, view WorkTaskView, ite
 		}
 	}
 	return result
+}
+
+func customerStudioPipelineSummary(view WorkTaskView, steps []StudioCustomerStep, observations []performancedomain.PerformanceObservation, ratings []performancedomain.RatingDecision) StudioPipelineSummary {
+	approvedIDs := make(map[string]struct{}, len(view.ApprovedSnapshots))
+	for _, snapshot := range view.ApprovedSnapshots {
+		approvedIDs[snapshot.ID] = struct{}{}
+	}
+	linkedObservationIDs := make(map[string]struct{})
+	performanceCount := 0
+	for _, observation := range observations {
+		if _, linked := approvedIDs[observation.ApprovedSnapshotID]; !linked {
+			continue
+		}
+		performanceCount++
+		linkedObservationIDs[observation.ID] = struct{}{}
+	}
+	learningCount := 0
+	for _, rating := range ratings {
+		if _, linked := approvedIDs[rating.SubjectID]; linked {
+			learningCount++
+			continue
+		}
+		for _, observationID := range rating.ObservationIDs {
+			if _, linked := linkedObservationIDs[observationID]; linked {
+				learningCount++
+				break
+			}
+		}
+	}
+	completedStages := 0
+	for _, step := range steps {
+		if step.Status == "completed" {
+			completedStages++
+		}
+	}
+	pendingDecisions := 0
+	for _, gate := range view.Gates {
+		if gate.Status == reviewdomain.GateEvaluationPending {
+			pendingDecisions++
+		}
+	}
+	return StudioPipelineSummary{
+		StageCount:                  len(steps),
+		CompletedStageCount:         completedStages,
+		ExecutionCount:              len(view.Runs),
+		PendingDecisionCount:        pendingDecisions,
+		ApprovedVersionCount:        len(view.ApprovedSnapshots),
+		ArtifactCount:               len(view.Artifacts),
+		DeliveryPackageCount:        len(view.DeliveryPackages),
+		PerformanceObservationCount: performanceCount,
+		LearningDecisionCount:       learningCount,
+	}
 }
 
 func metadataBool(metadata map[string]any, key string) bool {

@@ -14,6 +14,7 @@ import (
 	auditdomain "github.com/limecloud/contentcloud/internal/audit"
 	catalogdomain "github.com/limecloud/contentcloud/internal/catalog"
 	deliverydomain "github.com/limecloud/contentcloud/internal/delivery"
+	workbenchdomain "github.com/limecloud/contentcloud/internal/experience/workbench"
 	identitydomain "github.com/limecloud/contentcloud/internal/identity"
 	"github.com/limecloud/contentcloud/internal/integration/connector"
 	performancedomain "github.com/limecloud/contentcloud/internal/performance"
@@ -110,6 +111,7 @@ type Store struct {
 	runtimeProjections        map[string]contentruntime.RuntimeExplorerView
 	runtimeProjectionRebuilds map[string]contentruntime.RuntimeProjectionRebuildRun
 	runtimeMaintenance        map[string]contentruntime.RuntimeMaintenanceHeartbeat
+	runtimeCleanupDiagnostics map[string]contentruntime.RuntimeCleanupDiagnostic
 	runtimeResourceQuotas     map[string]contentruntime.ResourceQuota
 	runtimeReservations       map[string]contentruntime.ResourceReservation
 	runtimeSchemas            map[string]contentruntime.RuntimeSchema
@@ -125,6 +127,7 @@ type Store struct {
 	performanceBatches        map[string]performancedomain.PerformanceImportBatch
 	observations              map[string]performancedomain.PerformanceObservation
 	ratingDecisions           map[string]performancedomain.RatingDecision
+	workbenchEntries          map[string]workbenchdomain.Entry
 	audits                    []auditdomain.AuditEvent
 }
 
@@ -135,8 +138,8 @@ func New() *Store {
 		connects: map[string]workspacedomain.ConnectSession{}, bootstrapAttempts: map[string]workspacedomain.BootstrapAttempt{}, bootstrapEvents: map[string]map[int64]workspacedomain.BootstrapProgressEvent{}, bootstrapDiagnostics: map[string]workspacedomain.BootstrapDiagnostic{}, devices: map[string]workspacedomain.Device{}, daemonInstances: map[string]workspacedomain.DaemonInstance{}, workspaceBindings: map[string]workspacedomain.WorkspaceBinding{}, workspaceRevisions: map[string]workspacedomain.WorkspaceRevision{}, workspaceUploadSessions: map[string]workspacedomain.WorkspaceUploadSession{}, workspaceUploadParts: map[string]workspacedomain.WorkspaceUploadPart{}, workspaceObjects: map[string]workspacedomain.WorkspaceObject{}, userDeviceFlows: map[string]workspacedomain.UserDeviceFlow{}, cliTokens: map[string]workspacedomain.CLIToken{},
 		sources: map[string]sourcedomain.Source{}, revisions: map[string]sourcedomain.SourceRevision{}, evidence: map[string]sourcedomain.EvidenceSpan{}, assets: map[string]sourcedomain.Asset{}, workspaceFolders: map[string]workspacedomain.WorkspaceFolder{}, workspaceMaterials: map[string]workspacedomain.WorkspaceMaterial{}, rightsRecords: map[string]sourcedomain.RightsRecord{}, knowledgeObjects: map[string]sourcedomain.KnowledgeObject{}, knowledgeDecisions: map[string]sourcedomain.KnowledgeDecision{}, knowledgePacks: map[string]sourcedomain.KnowledgePack{}, knowledgeSnapshots: map[string]sourcedomain.KnowledgeSnapshot{}, environments: map[string]catalogdomain.Environment{}, sopDefinitions: map[string]catalogdomain.SOPDefinition{}, sopVersions: map[string]catalogdomain.SOPVersion{}, projectSOPBindings: map[string]catalogdomain.ProjectSOPBinding{}, workTasks: map[string]work.WorkTask{}, inputItems: map[string]work.InputItem{}, conversationImports: map[string]work.ConversationImport{}, stageRuns: map[string]work.StageRun{}, stageOutputs: map[string]work.TaskStageOutput{}, providerProfiles: map[string]deliverydomain.ProviderProfile{}, providerBindings: map[string]deliverydomain.ProviderBinding{}, mediaJobs: map[string]deliverydomain.MediaGenerationJob{}, providerAttempts: map[string]deliverydomain.ProviderAttempt{}, mediaReviews: map[string]deliverydomain.MediaReview{}, gateEvaluations: map[string]reviewdomain.GateEvaluation{}, taskRevisions: map[string]reviewdomain.TaskRevision{}, taskDeliveries: map[string]deliverydomain.TaskDelivery{}, channelBindings: map[string]deliverydomain.ChannelBinding{}, channelPublications: map[string]deliverydomain.ChannelPublication{}, channelCallbackReceipts: map[string]deliverydomain.ChannelCallbackReceipt{}, modelGenerationReceipts: map[string]deliverydomain.ModelGenerationReceipt{}, connectorBindings: map[string]connector.Binding{}, connectorSyncLeases: map[string]connector.SyncLease{}, connectorRecords: map[string]connector.RecordMapping{}, connectorReceipts: map[string]connector.SyncReceipt{},
 		snapshots:    map[string]sourcedomain.ContextSnapshot{},
-		runtimePlans: map[string]contentruntime.JobPlanRevision{}, runtimeExecutionBindings: map[string]contentruntime.ExecutionBindingSnapshot{}, runtimeJobs: map[string]contentruntime.JobRun{}, runtimeNodes: map[string]contentruntime.NodeRun{}, runtimeFanoutSets: map[string]contentruntime.FanoutSet{}, runtimeFanoutMembers: map[string]contentruntime.FanoutMember{}, runtimeEvents: map[string][]contentruntime.JobEvent{}, runtimeOutbox: map[string]contentruntime.RuntimeOutboxMessage{}, runtimeOutboxReceipts: map[string]runtimeOutboxReceipt{}, runtimeContextViews: map[string]contentruntime.ContextView{}, runtimeAgents: map[string]contentruntime.AgentInstance{}, runtimeAttempts: map[string]contentruntime.RuntimeAttempt{}, runtimeStates: map[string]contentruntime.RuntimeState{}, runtimeStateMutations: map[string]string{}, runtimeCheckpoints: map[string]contentruntime.Checkpoint{}, runtimeEffects: map[string]contentruntime.ExternalEffect{}, runtimeProviderInbox: map[string]contentruntime.ProviderInboxMessage{}, runtimeProviderRecons: map[string]contentruntime.ProviderReconciliation{}, runtimeProviderBills: map[string]contentruntime.ProviderBillRecord{}, runtimeYields: map[string]contentruntime.RuntimeYield{}, runtimeResourceQuotas: map[string]contentruntime.ResourceQuota{}, runtimeReservations: map[string]contentruntime.ResourceReservation{}, runtimeSchemas: map[string]contentruntime.RuntimeSchema{}, runtimeStateCollections: map[string]contentruntime.StateCollection{}, runtimeStateRecords: map[string]contentruntime.StateRecord{}, runtimeToolCalls: map[string]contentruntime.ToolCall{}, runtimeProjections: map[string]contentruntime.RuntimeExplorerView{}, runtimeProjectionRebuilds: map[string]contentruntime.RuntimeProjectionRebuildRun{}, runtimeMaintenance: map[string]contentruntime.RuntimeMaintenanceHeartbeat{},
-		approvals: map[string]reviewdomain.ApprovalDecision{}, reviewCycles: map[string]reviewdomain.ReviewCycle{}, reviewComments: map[string]reviewdomain.ReviewComment{}, reviewGrants: map[string]reviewdomain.ReviewGrant{}, submissions: map[string]reviewdomain.Submission{}, submissionRevisions: map[string]reviewdomain.SubmissionRevision{}, approvedSnapshots: map[string]reviewdomain.ApprovedSnapshot{}, artifacts: map[string]deliverydomain.Artifact{}, deliveryPackages: map[string]deliverydomain.DeliveryPackage{}, performanceBatches: map[string]performancedomain.PerformanceImportBatch{}, observations: map[string]performancedomain.PerformanceObservation{}, ratingDecisions: map[string]performancedomain.RatingDecision{}, audits: []auditdomain.AuditEvent{},
+		runtimePlans: map[string]contentruntime.JobPlanRevision{}, runtimeExecutionBindings: map[string]contentruntime.ExecutionBindingSnapshot{}, runtimeJobs: map[string]contentruntime.JobRun{}, runtimeNodes: map[string]contentruntime.NodeRun{}, runtimeFanoutSets: map[string]contentruntime.FanoutSet{}, runtimeFanoutMembers: map[string]contentruntime.FanoutMember{}, runtimeEvents: map[string][]contentruntime.JobEvent{}, runtimeOutbox: map[string]contentruntime.RuntimeOutboxMessage{}, runtimeOutboxReceipts: map[string]runtimeOutboxReceipt{}, runtimeContextViews: map[string]contentruntime.ContextView{}, runtimeAgents: map[string]contentruntime.AgentInstance{}, runtimeAttempts: map[string]contentruntime.RuntimeAttempt{}, runtimeStates: map[string]contentruntime.RuntimeState{}, runtimeStateMutations: map[string]string{}, runtimeCheckpoints: map[string]contentruntime.Checkpoint{}, runtimeEffects: map[string]contentruntime.ExternalEffect{}, runtimeProviderInbox: map[string]contentruntime.ProviderInboxMessage{}, runtimeProviderRecons: map[string]contentruntime.ProviderReconciliation{}, runtimeProviderBills: map[string]contentruntime.ProviderBillRecord{}, runtimeYields: map[string]contentruntime.RuntimeYield{}, runtimeResourceQuotas: map[string]contentruntime.ResourceQuota{}, runtimeReservations: map[string]contentruntime.ResourceReservation{}, runtimeSchemas: map[string]contentruntime.RuntimeSchema{}, runtimeStateCollections: map[string]contentruntime.StateCollection{}, runtimeStateRecords: map[string]contentruntime.StateRecord{}, runtimeToolCalls: map[string]contentruntime.ToolCall{}, runtimeProjections: map[string]contentruntime.RuntimeExplorerView{}, runtimeProjectionRebuilds: map[string]contentruntime.RuntimeProjectionRebuildRun{}, runtimeMaintenance: map[string]contentruntime.RuntimeMaintenanceHeartbeat{}, runtimeCleanupDiagnostics: map[string]contentruntime.RuntimeCleanupDiagnostic{},
+		approvals: map[string]reviewdomain.ApprovalDecision{}, reviewCycles: map[string]reviewdomain.ReviewCycle{}, reviewComments: map[string]reviewdomain.ReviewComment{}, reviewGrants: map[string]reviewdomain.ReviewGrant{}, submissions: map[string]reviewdomain.Submission{}, submissionRevisions: map[string]reviewdomain.SubmissionRevision{}, approvedSnapshots: map[string]reviewdomain.ApprovedSnapshot{}, artifacts: map[string]deliverydomain.Artifact{}, deliveryPackages: map[string]deliverydomain.DeliveryPackage{}, performanceBatches: map[string]performancedomain.PerformanceImportBatch{}, observations: map[string]performancedomain.PerformanceObservation{}, ratingDecisions: map[string]performancedomain.RatingDecision{}, workbenchEntries: map[string]workbenchdomain.Entry{}, audits: []auditdomain.AuditEvent{},
 	}
 }
 
@@ -537,6 +540,7 @@ func (s *Store) Project(_ context.Context, tenantID, id string) (workspacedomain
 }
 
 func (s *Store) projectWithKnowledgeMetricsLocked(project workspacedomain.Project) workspacedomain.Project {
+	project.ConnectedDevices = s.connectedDeviceCountLocked(project.TenantID, project.ID)
 	project.KnowledgeReady = 0
 	project.OpenBlockers = 0
 	for _, object := range s.knowledgeObjects {
@@ -551,6 +555,16 @@ func (s *Store) projectWithKnowledgeMetricsLocked(project workspacedomain.Projec
 		}
 	}
 	return project
+}
+
+func (s *Store) connectedDeviceCountLocked(tenantID, projectID string) int {
+	count := 0
+	for _, device := range s.devices {
+		if device.TenantID == tenantID && device.RevokedAt == nil && contains(device.ProjectIDs, projectID) {
+			count++
+		}
+	}
+	return count
 }
 func (s *Store) SaveProject(_ context.Context, v workspacedomain.Project) error {
 	s.mu.Lock()
@@ -650,7 +664,7 @@ func (s *Store) SaveDevice(_ context.Context, v workspacedomain.Device) error {
 		session.State = "connected"
 		s.connects[id] = session
 		project := s.projects[session.ProjectID]
-		project.ConnectedDevices++
+		project.ConnectedDevices = s.connectedDeviceCountLocked(project.TenantID, project.ID)
 		project.Status = "active"
 		project.UpdatedAt = v.LastSeenAt
 		project.RowVersion++
@@ -789,7 +803,7 @@ func (s *Store) GrantDeviceProject(_ context.Context, tenantID, projectID, devic
 	}
 	device.ProjectIDs = append(device.ProjectIDs, projectID)
 	s.devices[deviceID] = device
-	project.ConnectedDevices++
+	project.ConnectedDevices = s.connectedDeviceCountLocked(tenantID, projectID)
 	project.UpdatedAt = now
 	project.RowVersion++
 	s.projects[projectID] = project
@@ -818,9 +832,7 @@ func (s *Store) RevokeDeviceProject(_ context.Context, tenantID, projectID, devi
 	device.ProjectIDs = next
 	s.devices[deviceID] = device
 	if project, ok := s.projects[projectID]; ok && project.TenantID == tenantID {
-		if project.ConnectedDevices > 0 {
-			project.ConnectedDevices--
-		}
+		project.ConnectedDevices = s.connectedDeviceCountLocked(tenantID, projectID)
 		project.UpdatedAt = now
 		project.RowVersion++
 		s.projects[projectID] = project
@@ -837,6 +849,16 @@ func (s *Store) RevokeDevice(_ context.Context, tenantID, id string, now time.Ti
 	}
 	v.RevokedAt = &now
 	s.devices[id] = v
+	for _, projectID := range v.ProjectIDs {
+		project, ok := s.projects[projectID]
+		if !ok || project.TenantID != tenantID {
+			continue
+		}
+		project.ConnectedDevices = s.connectedDeviceCountLocked(tenantID, projectID)
+		project.UpdatedAt = now
+		project.RowVersion++
+		s.projects[projectID] = project
+	}
 	return nil
 }
 
@@ -963,6 +985,99 @@ func (s *Store) AuditEvents(_ context.Context, tenantID, projectID string, limit
 		}
 	}
 	return out, nil
+}
+
+func workbenchKey(id, version string) string {
+	return strings.TrimSpace(id) + "@" + strings.TrimSpace(version)
+}
+
+func copyWorkbenchEntry(value workbenchdomain.Entry) workbenchdomain.Entry {
+	registry, err := workbenchdomain.NewRegistry([]workbenchdomain.Entry{value})
+	if err != nil || len(registry.Entries()) == 0 {
+		return value
+	}
+	return registry.Entries()[0]
+}
+
+func (s *Store) WorkbenchEntries(_ context.Context) ([]workbenchdomain.Entry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]workbenchdomain.Entry, 0, len(s.workbenchEntries))
+	for _, value := range s.workbenchEntries {
+		out = append(out, copyWorkbenchEntry(value))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+	return out, nil
+}
+
+func (s *Store) WorkbenchEntry(_ context.Context, id, version string) (workbenchdomain.Entry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.workbenchEntries[workbenchKey(id, version)]
+	if !ok {
+		return workbenchdomain.Entry{}, fault.NotFound("业务工作台插件版本")
+	}
+	return copyWorkbenchEntry(value), nil
+}
+
+func (s *Store) CreateWorkbenchEntry(_ context.Context, value workbenchdomain.Entry) error {
+	validated, err := workbenchdomain.NewRegistry([]workbenchdomain.Entry{value})
+	if err != nil {
+		return err
+	}
+	value = validated.Entries()[0]
+	if value.Status != "draft" {
+		return fault.Invalid("WORKBENCH_REGISTRATION_MUST_BE_DRAFT", "业务工作台必须先登记为草稿，再通过独立发布门禁启用")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := workbenchKey(value.Manifest.ID, value.Manifest.Version)
+	if _, exists := s.workbenchEntries[key]; exists {
+		return fault.Conflict("WORKBENCH_PLUGIN_DUPLICATED", "业务工作台插件的 ID 和版本重复")
+	}
+	s.workbenchEntries[key] = copyWorkbenchEntry(value)
+	return nil
+}
+
+func (s *Store) UpdateWorkbenchEntryState(_ context.Context, id, version, expectedStatus, status string, tenantIDs []string, reason string) (workbenchdomain.Entry, error) {
+	status = strings.ToLower(strings.TrimSpace(status))
+	if status != "draft" && status != "published" && status != "retired" && status != "revoked" {
+		return workbenchdomain.Entry{}, fault.Invalid("WORKBENCH_PLUGIN_STATUS_INVALID", "业务工作台插件状态无效")
+	}
+	if status == "revoked" && strings.TrimSpace(reason) == "" {
+		return workbenchdomain.Entry{}, fault.Invalid("WORKBENCH_PLUGIN_REVOCATION_REASON_REQUIRED", "安全撤销业务工作台版本时必须填写原因")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := workbenchKey(id, version)
+	value, ok := s.workbenchEntries[key]
+	if !ok {
+		return workbenchdomain.Entry{}, fault.NotFound("业务工作台插件版本")
+	}
+	if value.Status != expectedStatus {
+		return workbenchdomain.Entry{}, fault.Conflict("WORKBENCH_PLUGIN_STATE_STALE", "业务工作台版本状态已变化，请刷新后重试")
+	}
+	if value.Status == "revoked" && (!workbenchdomain.SameTenantScope(value.TenantIDs, tenantIDs) || value.LifecycleReason != strings.TrimSpace(reason)) {
+		return workbenchdomain.Entry{}, fault.Conflict("WORKBENCH_PLUGIN_REVOKED_IMMUTABLE", "已安全撤销的业务工作台版本不能再修改租户范围或撤销原因")
+	}
+	if status == "published" {
+		for existingKey, existing := range s.workbenchEntries {
+			if existingKey == key || existing.Status != "published" || !workbenchdomain.ScopesConflict(existing.TenantIDs, tenantIDs) {
+				continue
+			}
+			if workbenchdomain.SharesContentType(existing.Manifest.ContentTypes, value.Manifest.ContentTypes) {
+				return workbenchdomain.Entry{}, fault.Conflict("WORKBENCH_CONTENT_TYPE_DEFAULT_EXISTS", "同一发布范围内已经存在该内容类型的已发布工作台；请停用旧版本或改用独立租户范围")
+			}
+		}
+	}
+	value.Status = status
+	value.LifecycleReason = ""
+	if status == "revoked" {
+		value.LifecycleReason = strings.TrimSpace(reason)
+	}
+	value.TenantIDs = append([]string(nil), tenantIDs...)
+	s.workbenchEntries[key] = copyWorkbenchEntry(value)
+	return copyWorkbenchEntry(value), nil
 }
 
 func contains(values []string, wanted string) bool {

@@ -36,6 +36,10 @@ func TestBootstrapAuthorizationRequiresApprovalAndMatchingVerifier(t *testing.T)
 	if err != nil || connected.ProjectID != connect.ProjectID || connected.WorkspaceToken == "" || connected.DeviceToken == "" {
 		t.Fatalf("complete authorization failed: result=%#v error=%v", connected, err)
 	}
+	project, err := service.Workspace.Project(t.Context(), actor, connect.ProjectID)
+	if err != nil || project.ConnectedDevices != 1 {
+		t.Fatalf("consumed bootstrap authorization did not project its device grant: project=%#v error=%v", project, err)
+	}
 	if connected.Device.Capabilities == nil || len(connected.Device.Capabilities) != 0 {
 		t.Fatalf("missing device capabilities must normalize to an empty array: %#v", connected.Device.Capabilities)
 	}
@@ -217,6 +221,10 @@ func TestBootstrapReconnectReusesStableDeviceAndRotatesCredential(t *testing.T) 
 	}
 	if current, _, err := service.Workspace.DeviceActor(t.Context(), second.DeviceToken); err != nil || current.DeviceID != first.Device.ID {
 		t.Fatalf("rotated device token is not bound to stable identity: actor=%#v err=%v", current, err)
+	}
+	project, err := service.Workspace.Project(t.Context(), actor, firstConnect.ProjectID)
+	if err != nil || project.ConnectedDevices != 1 {
+		t.Fatalf("stable machine reconnect changed the connected device projection: project=%#v error=%v", project, err)
 	}
 }
 

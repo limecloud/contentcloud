@@ -4,7 +4,7 @@
   "title": "ContentCloud Novel Chapter 1.0",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "id", "series_id", "chapter_no", "title", "summary", "body", "outline_ref", "character_refs", "location_refs", "resolved_threads", "opened_threads", "timeline_order", "status", "approved_snapshot_id"],
+  "required": ["schema_version", "id", "series_id", "chapter_no", "title", "summary", "body", "outline_ref", "character_refs", "location_refs", "resolved_threads", "opened_threads", "timeline_order", "status"],
   "properties": {
     "schema_version": {"const": "contentcloud.novel-chapter/1.0"},
     "id": {"type": "string", "minLength": 1},
@@ -21,5 +21,6 @@
     "timeline_order": {"type": "integer", "minimum": 1},
     "status": {"enum": ["draft", "review_ready", "approved"]},
     "approved_snapshot_id": {"type": "string", "minLength": 1}
-  }
+  },
+  "allOf": [{"if": {"properties": {"status": {"const": "approved"}}}, "then": {"required": ["approved_snapshot_id"]}}, {"if": {"properties": {"status": {"const": "review_ready"}}}, "then": {"properties": {"approved_snapshot_id": {"maxLength": 0}}}}]
 }

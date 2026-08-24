@@ -39,6 +39,25 @@ type CreateMediaGenerationJobInput struct {
 	RuntimeEffectID         string   `json:"runtime_effect_id,omitempty"`
 }
 
+type CreateMediaGenerationBatchInput struct {
+	Jobs        []CreateMediaGenerationJobInput `json:"jobs"`
+	ConfirmCost bool                            `json:"confirm_cost"`
+}
+
+type MediaGenerationBatchBlocker struct {
+	Index  int    `json:"index"`
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
+}
+
+type MediaGenerationBatchResult struct {
+	Decision           string                              `json:"decision"`
+	Jobs               []deliverydomain.MediaGenerationJob `json:"jobs"`
+	EstimatedCostMinor int64                               `json:"estimated_cost_minor"`
+	Currency           string                              `json:"currency,omitempty"`
+	Blockers           []MediaGenerationBatchBlocker       `json:"blockers"`
+}
+
 type MediaJobDecisionInput struct {
 	ExpectedVersion int `json:"expected_version"`
 }
@@ -61,6 +80,149 @@ type BuildTaskDeliveryPackageInput struct {
 }
 
 func (s *DeliveryService) CreateMediaGenerationJob(ctx context.Context, actor Actor, taskID string, input CreateMediaGenerationJobInput, requestID string) (deliverydomain.MediaGenerationJob, error) {
+	job, err := s.prepareMediaGenerationJob(ctx, actor, taskID, input)
+	if err != nil {
+		return deliverydomain.MediaGenerationJob{}, err
+	}
+	if err := s.delivery.CreateMediaGenerationJob(ctx, job); err != nil {
+		return deliverydomain.MediaGenerationJob{}, err
+	}
+	s.audit(ctx, actor, job.ProjectID, "media.job_created", "media_generation_job", job.ID, requestID, map[string]any{"provider_id": job.ProviderID, "profile_version": job.ProfileVersion, "estimated_cost_minor": job.EstimatedCostMinor, "currency": job.Currency})
+	return job, nil
+}
+
+func (s *DeliveryService) CreateMediaGenerationBatch(ctx context.Context, actor Actor, taskID string, input CreateMediaGenerationBatchInput, requestID string) (MediaGenerationBatchResult, error) {
+	if err := requireRole(actor, "tenant_admin", "project_manager", "editor"); err != nil {
+		return MediaGenerationBatchResult{}, err
+	}
+	if len(input.Jobs) == 0 || len(input.Jobs) > 100 {
+		return MediaGenerationBatchResult{}, fault.Invalid("MEDIA_BATCH_SIZE_INVALID", "批量视频生成必须包含 1 到 100 个任务")
+	}
+	prepared := make([]deliverydomain.MediaGenerationJob, 0, len(input.Jobs))
+	result := MediaGenerationBatchResult{Decision: "admitted", Jobs: []deliverydomain.MediaGenerationJob{}, Blockers: []MediaGenerationBatchBlocker{}}
+	for index, request := range input.Jobs {
+		job, err := s.prepareMediaGenerationJob(ctx, actor, taskID, request)
+		if err != nil {
+			code, detail := faultCodeDetail(err)
+			result.Blockers = append(result.Blockers, MediaGenerationBatchBlocker{Index: index, Code: code, Detail: detail})
+			continue
+		}
+		if result.Currency == "" {
+			result.Currency = job.Currency
+		} else if result.Currency != job.Currency {
+			result.Blockers = append(result.Blockers, MediaGenerationBatchBlocker{Index: index, Code: "MEDIA_BATCH_CURRENCY_MISMATCH", Detail: "同一批视频任务不能混用不同费用币种"})
+			continue
+		}
+		result.EstimatedCostMinor += job.EstimatedCostMinor
+		prepared = append(prepared, job)
+	}
+	if len(result.Blockers) > 0 {
+		result.Decision = "blocked"
+		return result, nil
+	}
+	blockers := s.mediaBudgetBlockers(ctx, actor.TenantID, prepared)
+	blockers = append(blockers, s.mediaConcurrencyBlockers(ctx, actor.TenantID, prepared)...)
+	if len(blockers) > 0 {
+		result.Blockers = append(result.Blockers, blockers...)
+		result.Decision = "blocked"
+		return result, nil
+	}
+	if result.EstimatedCostMinor > 0 && !input.ConfirmCost {
+		result.Decision = "confirmation_required"
+		return result, nil
+	}
+	// A confirmed batch is an admission decision for the whole batch. The
+	// preparation path may initially mark priced jobs as awaiting approval;
+	// once the caller confirms the aggregate quote, no item may remain in that
+	// intermediate state.
+	for index := range prepared {
+		prepared[index].State = deliverydomain.MediaJobQueued
+		prepared[index].ErrorCode = ""
+		prepared[index].ErrorDetailSafe = ""
+	}
+	if err := s.delivery.CreateMediaGenerationJobs(ctx, prepared); err != nil {
+		return MediaGenerationBatchResult{}, err
+	}
+	result.Jobs = prepared
+	for _, job := range prepared {
+		s.audit(ctx, actor, job.ProjectID, "media.job_created", "media_generation_job", job.ID, requestID, map[string]any{"batch": true, "provider_id": job.ProviderID, "estimated_cost_minor": job.EstimatedCostMinor, "currency": job.Currency})
+	}
+	return result, nil
+}
+
+func (s *DeliveryService) mediaBudgetBlockers(ctx context.Context, tenantID string, jobs []deliverydomain.MediaGenerationJob) []MediaGenerationBatchBlocker {
+	byProvider := map[string][]int{}
+	for index, job := range jobs {
+		if job.ProviderID == "fake" {
+			continue
+		}
+		byProvider[job.ProviderID] = append(byProvider[job.ProviderID], index)
+	}
+	if len(byProvider) == 0 {
+		return nil
+	}
+	now := s.now().UTC()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	monthEnd := monthStart.AddDate(0, 1, 0)
+	blockers := []MediaGenerationBatchBlocker{}
+	for providerID, indexes := range byProvider {
+		binding, err := s.delivery.ProviderBinding(ctx, tenantID, providerID)
+		if err != nil {
+			continue
+		}
+		if binding.MonthlyBudgetMinor <= 0 {
+			continue
+		}
+		usage, err := s.delivery.MediaProviderUsage(ctx, tenantID, providerID, monthStart, monthEnd)
+		if err != nil {
+			blockers = append(blockers, MediaGenerationBatchBlocker{Index: indexes[0], Code: "MEDIA_BATCH_BUDGET_LOOKUP_FAILED", Detail: "无法读取服务商本月费用占用，批次未创建"})
+			continue
+		}
+		var requested int64
+		for _, index := range indexes {
+			requested += jobs[index].EstimatedCostMinor
+		}
+		if usage.CommittedCostMinor+requested > binding.MonthlyBudgetMinor {
+			blockers = append(blockers, MediaGenerationBatchBlocker{Index: indexes[0], Code: "MEDIA_BATCH_MONTHLY_BUDGET_EXCEEDED", Detail: fmt.Sprintf("服务商 %s 本月预算已占用 %d，当前批次还需 %d，预算上限为 %d", providerID, usage.CommittedCostMinor, requested, binding.MonthlyBudgetMinor)})
+		}
+	}
+	return blockers
+}
+
+func (s *DeliveryService) mediaConcurrencyBlockers(ctx context.Context, tenantID string, jobs []deliverydomain.MediaGenerationJob) []MediaGenerationBatchBlocker {
+	byProvider := map[string][]int{}
+	for index, job := range jobs {
+		if job.ProviderID == "fake" {
+			continue
+		}
+		byProvider[job.ProviderID] = append(byProvider[job.ProviderID], index)
+	}
+	if len(byProvider) == 0 {
+		return nil
+	}
+	now := s.now().UTC()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	monthEnd := monthStart.AddDate(0, 1, 0)
+	blockers := []MediaGenerationBatchBlocker{}
+	for providerID, indexes := range byProvider {
+		binding, err := s.delivery.ProviderBinding(ctx, tenantID, providerID)
+		if err != nil {
+			blockers = append(blockers, MediaGenerationBatchBlocker{Index: indexes[0], Code: "MEDIA_BATCH_CONCURRENCY_LOOKUP_FAILED", Detail: "无法读取服务商并发占用，批次未创建"})
+			continue
+		}
+		usage, err := s.delivery.MediaProviderUsage(ctx, tenantID, providerID, monthStart, monthEnd)
+		if err != nil {
+			blockers = append(blockers, MediaGenerationBatchBlocker{Index: indexes[0], Code: "MEDIA_BATCH_CONCURRENCY_LOOKUP_FAILED", Detail: "无法读取服务商并发占用，批次未创建"})
+			continue
+		}
+		if usage.ActiveJobs+len(indexes) > binding.MaxConcurrency {
+			blockers = append(blockers, MediaGenerationBatchBlocker{Index: indexes[0], Code: "MEDIA_BATCH_CONCURRENCY_EXCEEDED", Detail: fmt.Sprintf("服务商 %s 当前有 %d 个活动任务，本批新增 %d 个，并发上限为 %d", providerID, usage.ActiveJobs, len(indexes), binding.MaxConcurrency)})
+		}
+	}
+	return blockers
+}
+
+func (s *DeliveryService) prepareMediaGenerationJob(ctx context.Context, actor Actor, taskID string, input CreateMediaGenerationJobInput) (deliverydomain.MediaGenerationJob, error) {
 	if err := requireRole(actor, "tenant_admin", "project_manager", "editor"); err != nil {
 		return deliverydomain.MediaGenerationJob{}, err
 	}
@@ -242,11 +404,15 @@ func (s *DeliveryService) CreateMediaGenerationJob(ctx context.Context, actor Ac
 		}
 	}
 	job.NormalizeCollections()
-	if err := s.delivery.CreateMediaGenerationJob(ctx, job); err != nil {
-		return deliverydomain.MediaGenerationJob{}, err
-	}
-	s.audit(ctx, actor, task.ProjectID, "media.job_created", "media_generation_job", job.ID, requestID, map[string]any{"provider_id": providerID, "profile_version": profile.Version, "estimated_cost_minor": estimatedCost, "currency": job.Currency})
 	return job, nil
+}
+
+func faultCodeDetail(err error) (string, string) {
+	var value *fault.Error
+	if errors.As(err, &value) {
+		return value.Code, value.Message
+	}
+	return "MEDIA_BATCH_ITEM_INVALID", err.Error()
 }
 
 func (s *DeliveryService) ApproveMediaGenerationJob(ctx context.Context, actor Actor, id string, input MediaJobDecisionInput, requestID string) (deliverydomain.MediaGenerationJob, error) {
@@ -517,10 +683,16 @@ func (s *DeliveryService) ProcessMediaGenerationJob(ctx context.Context, tenantI
 				}
 				return s.failMediaJob(ctx, job, attempt.ErrorCode, attempt.ErrorDetailSafe)
 			}
+			now = s.now().UTC()
 			attempt.ProviderState = "unknown"
 			attempt.ErrorCode = "PROVIDER_SUBMIT_UNKNOWN"
 			attempt.ErrorDetailSafe = "服务商提交结果未知，等待对账"
-			attempt.UpdatedAt = s.now().UTC()
+			// A timed-out submit must be re-polled or surfaced for operator
+			// reconciliation. Without a due time it would remain invisible to
+			// PendingMediaGenerationJobs forever.
+			nextPoll := now.Add(10 * time.Second)
+			attempt.NextPollAt = &nextPoll
+			attempt.UpdatedAt = now
 			if saveErr := s.delivery.SaveProviderAttempt(ctx, attempt); saveErr != nil {
 				return saveErr
 			}
@@ -584,6 +756,8 @@ func (s *DeliveryService) ProcessMediaGenerationJob(ctx context.Context, tenantI
 		_, transitionErr := s.transitionMediaJob(ctx, job, deliverydomain.MediaJobAwaitingExternal, func(value *deliverydomain.MediaGenerationJob) {
 			value.LeaseOwner = ""
 			value.LeaseExpiresAt = nil
+			value.ErrorCode = attempt.ErrorCode
+			value.ErrorDetailSafe = attempt.ErrorDetailSafe
 		})
 		if transitionErr != nil {
 			return transitionErr
@@ -595,6 +769,8 @@ func (s *DeliveryService) ProcessMediaGenerationJob(ctx context.Context, tenantI
 	if providerState != "succeeded" && providerState != "completed" && providerState != "failed" && providerState != "cancelled" && providerState != "canceled" {
 		now = s.now().UTC()
 		attempt.ProviderState = providerState
+		attempt.ErrorCode = ""
+		attempt.ErrorDetailSafe = ""
 		attempt.LastPolledAt = &now
 		pollAfter := providerStatus.RetryAfterSeconds
 		if pollAfter <= 0 {
@@ -609,7 +785,12 @@ func (s *DeliveryService) ProcessMediaGenerationJob(ctx context.Context, tenantI
 		_, err = s.transitionMediaJob(ctx, job, deliverydomain.MediaJobAwaitingExternal, func(value *deliverydomain.MediaGenerationJob) {
 			value.LeaseOwner = ""
 			value.LeaseExpiresAt = nil
+			value.ErrorCode = ""
+			value.ErrorDetailSafe = ""
 		})
+		return err
+	}
+	if err := s.persistProviderTerminalCost(ctx, &job, &attempt, providerStatus.ActualMinor); err != nil {
 		return err
 	}
 	if (providerState == "cancelled" || providerState == "canceled") && job.CancelRequestedAt != nil {
@@ -623,6 +804,11 @@ func (s *DeliveryService) ProcessMediaGenerationJob(ctx context.Context, tenantI
 		attempt.UpdatedAt = now
 		if err := s.delivery.SaveProviderAttempt(ctx, attempt); err != nil {
 			return err
+		}
+		if job.RuntimeEffectID != "" {
+			if effectErr := s.transitionMediaEffect(ctx, job, contentruntime.EffectFailed, externalJobID, "", "PROVIDER_JOB_CANCELLED"); effectErr != nil {
+				return effectErr
+			}
 		}
 		_, err = s.transitionMediaJob(ctx, job, deliverydomain.MediaJobCancelled, func(value *deliverydomain.MediaGenerationJob) {
 			value.ErrorCode = ""
@@ -957,9 +1143,19 @@ func (s *DeliveryService) BuildTaskDeliveryPackage(ctx context.Context, actor Ac
 	if quarantined, _ := artifact.Metadata["quarantined"].(bool); quarantined {
 		return deliverydomain.DeliveryPackage{}, fault.Policy("FINAL_ARTIFACT_QUARANTINED", "最终成果文件处于隔离状态，不能交付", "处理媒体安全问题后重新批准")
 	}
+	if existing, err := s.artifacts.DeliveryPackageBySnapshotAndContentItem(ctx, actor.TenantID, artifact.ApprovedSnapshotID, task.ID); err == nil {
+		return existing, nil
+	} else if !fault.IsNotFound(err) {
+		return deliverydomain.DeliveryPackage{}, err
+	}
 	now := s.now().UTC()
-	value := deliverydomain.DeliveryPackage{ID: idgen.New(), TenantID: task.TenantID, ProjectID: task.ProjectID, ApprovedSnapshotIDs: []string{artifact.ApprovedSnapshotID}, ContentItemID: task.ID, Status: "ready", Manifest: []deliverydomain.Artifact{artifact}, CreatedBy: actor.UserID, CreatedAt: now}
+	value := deliverydomain.DeliveryPackage{ID: idgen.Deterministic("delivery-package:v1:" + actor.TenantID + ":" + artifact.ApprovedSnapshotID + ":" + task.ID), TenantID: task.TenantID, ProjectID: task.ProjectID, ApprovedSnapshotIDs: []string{artifact.ApprovedSnapshotID}, ContentItemID: task.ID, Status: "ready", Manifest: []deliverydomain.Artifact{artifact}, CreatedBy: actor.UserID, CreatedAt: now}
 	if err := s.artifacts.CreateDeliveryPackage(ctx, value, []deliverydomain.Artifact{artifact}); err != nil {
+		if fault.IsConflict(err) {
+			if existing, lookupErr := s.artifacts.DeliveryPackageBySnapshotAndContentItem(ctx, actor.TenantID, artifact.ApprovedSnapshotID, task.ID); lookupErr == nil {
+				return existing, nil
+			}
+		}
 		return deliverydomain.DeliveryPackage{}, err
 	}
 	s.audit(ctx, actor, task.ProjectID, "delivery.package_built", "delivery_package", value.ID, requestID, map[string]any{"artifact_id": artifact.ID, "artifact_digest": normalizedSHA256(artifact.SHA256), "final_review_id": review.ID})
@@ -978,6 +1174,29 @@ func (s *DeliveryService) transitionMediaJob(ctx context.Context, job deliverydo
 	}
 	job.RowVersion = expected + 1
 	return job, nil
+}
+
+// persistProviderTerminalCost records final provider billing before local
+// output processing. A terminal remote result remains billable evidence even
+// when downloading or creating an Artifact later fails.
+func (s *DeliveryService) persistProviderTerminalCost(ctx context.Context, job *deliverydomain.MediaGenerationJob, attempt *deliverydomain.ProviderAttempt, actualMinor int64) error {
+	if actualMinor < 0 {
+		return fault.Invalid("PROVIDER_ACTUAL_COST_INVALID", "服务商返回的实际费用不能为负数")
+	}
+	now := s.now().UTC()
+	attempt.ActualCostMinor = actualMinor
+	attempt.UpdatedAt = now
+	if err := s.delivery.SaveProviderAttempt(ctx, *attempt); err != nil {
+		return err
+	}
+	expected := job.RowVersion
+	job.ActualCostMinor = actualMinor
+	job.UpdatedAt = now
+	if err := s.delivery.SaveMediaGenerationJob(ctx, *job, expected); err != nil {
+		return err
+	}
+	job.RowVersion = expected + 1
+	return nil
 }
 
 func (s *DeliveryService) failMediaJob(ctx context.Context, job deliverydomain.MediaGenerationJob, code, detail string) error {

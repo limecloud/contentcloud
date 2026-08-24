@@ -1,0 +1,28 @@
+{
+  "$schema": "https://contentcloud.run/schemas/workbench-plugin/1.0.0/workbench-plugin.schema.json",
+  "id": "contentcloud-workbench-marketing-video",
+  "version": "1.0.0",
+  "name": "视频生产工作台",
+  "content_types": ["marketing_video"],
+  "experience": {"template_id": "ip_persona_marketing_video"},
+  "ui": {
+    "renderer": "approved",
+    "layout": "stage-canvas-context",
+    "density": "comfortable",
+    "theme": "signal-blue",
+    "navigation": [
+      {"id": "overview", "label": "视频首页", "icon": "video"},
+      {"id": "tasks", "label": "视频任务", "icon": "list-checks"},
+      {"id": "assets", "label": "视频素材", "icon": "image"},
+      {"id": "deliveries", "label": "视频交付", "icon": "package-check"}
+    ],
+    "stages": [
+      {"id": "objective", "label": "目标与资料", "outcome": "确定视频目标", "primary_action": "save_brief"},
+      {"id": "script", "label": "剧本", "outcome": "确认营销剧本", "primary_action": "submit_script"},
+      {"id": "storyboard", "label": "分镜", "outcome": "确认镜头和画面素材", "primary_action": "approve_storyboard"},
+      {"id": "candidates", "label": "候选视频", "outcome": "选择一个候选版本", "primary_action": "select_candidate"},
+      {"id": "approval", "label": "确认成片", "outcome": "确认最终成片", "primary_action": "approve_final"},
+      {"id": "delivery", "label": "交付", "outcome": "生成可追溯交付包", "primary_action": "create_delivery"}
+    ]
+  }
+}

@@ -31,6 +31,11 @@ func IsNotFound(err error) bool {
 	return errors.As(err, &value) && value.Type == "not_found"
 }
 
+func IsConflict(err error) bool {
+	var value *Error
+	return errors.As(err, &value) && value.Type == "conflict"
+}
+
 func Invalid(code, message string) *Error {
 	return E("validation", "input", code, message, 2)
 }

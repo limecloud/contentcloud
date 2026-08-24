@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contentcloud.goodvision.cn/schemas/commerce-content-1.0.schema.json",
+  "title": "ContentCloud CommerceContentItem 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "type", "status", "schema_version", "deliverability", "project_id", "content_id", "content_batch_id", "title", "channel", "target_audience", "product_facts", "offer_points", "variants", "blocked_reasons", "missing_inputs"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "type": {"const": "commerce_content_item"},
+    "status": {"const": "candidate"},
+    "schema_version": {"const": "contentcloud.commerce-content/1.0"},
+    "deliverability": {"const": "review_ready"},
+    "project_id": {"type": "string", "minLength": 1},
+    "content_id": {"type": "string", "minLength": 1},
+    "content_batch_id": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
+    "channel": {"type": "string", "minLength": 1},
+    "target_audience": {"type": "string", "minLength": 1},
+    "product_facts": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string", "minLength": 1}},
+    "offer_points": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "variants": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/variant"}},
+    "blocked_reasons": {"type": "array", "maxItems": 0},
+    "missing_inputs": {"type": "array", "maxItems": 0}
+  },
+  "$defs": {
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "format", "copy", "cta"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "format": {"type": "string", "minLength": 1},
+        "copy": {"type": "string", "minLength": 1},
+        "cta": {"type": "string"},
+        "channel": {"type": "string"}
+      }
+    }
+  }
+}
