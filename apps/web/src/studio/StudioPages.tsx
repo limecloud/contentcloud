@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Archive,
   BookOpen,
+  BriefcaseBusiness,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -57,7 +58,9 @@ import { BusinessTaskCanvas } from '../workbench/renderer/BusinessTaskCanvas';
 import { BusinessBriefFields } from '../workbench/host/BusinessBriefFields';
 import { buildBusinessBrief, businessBriefReady, emptyBusinessBriefForm, type BusinessBriefFormState } from '../workbench/contract/businessBrief';
 import { PipelineSummary } from '../platform/PipelineSummary';
-import { useStudio } from './StudioContext';
+import { ALL_EXPERIENCES, useStudio } from './StudioContext';
+import { scopedStudioProjects, scopedStudioTasks } from './studioScope';
+import { StudioScopeBanner } from './StudioScopeBanner';
 import { StudioProviderStatus } from './StudioProviderStatus';
 import type {
   StudioAssetCatalog,
@@ -88,14 +91,18 @@ const attentionStatuses=['waiting_gate','needs_input','blocked'];
 const completedStatuses=['delivered','cancelled','canceled'];
 
 export function StudioHomePage(){
-  const {bootstrap}=useStudio();
+  const {bootstrap,selectedExperienceID}=useStudio();
   const {tasks,loading,error,reload}=useTasks();
-  const attention=tasks.filter(task=>attentionStatuses.includes(task.status));
-  const recent=tasks.slice(0,4);
   const firstName=bootstrap.session.user.display_name.trim().split(/\s+/)[0]||bootstrap.session.user.display_name;
-  const firstExperience=bootstrap.experiences[0];
-  const hasConnectedProject=bootstrap.projects.some(project=>project.status!=='archived'&&project.execution_client_connected);
-  const startPath=firstExperience&&hasConnectedProject?`/studio/tasks/new?experience=${encodeURIComponent(firstExperience.id)}`:'/studio/connect';
+  const selectedExperience=bootstrap.experiences.find(item=>item.id===selectedExperienceID);
+  const scopedTasks=scopedStudioTasks(tasks,selectedExperienceID);
+  const attention=scopedTasks.filter(task=>attentionStatuses.includes(task.status));
+  const recent=scopedTasks.slice(0,4);
+  const visibleExperiences=selectedExperienceID===ALL_EXPERIENCES||!selectedExperienceID?bootstrap.experiences:selectedExperience?[selectedExperience]:[];
+  const scopedProjects=scopedStudioProjects(bootstrap.projects,selectedExperienceID,selectedExperience);
+  const hasConnectedProject=scopedProjects.some(project=>project.execution_client_connected);
+  const firstExperience=selectedExperience||bootstrap.experiences.find(item=>bootstrap.projects.some(project=>item.project_ids.includes(project.id)&&project.status!=='archived'&&project.execution_client_connected))||bootstrap.experiences[0];
+  const startPath=firstExperience&&hasConnectedProject?`/studio/tasks/new?experience=${encodeURIComponent(firstExperience.id)}`:selectedExperience?`/studio/connect?experience=${encodeURIComponent(selectedExperience.id)}`:'/studio/connect';
 
   return <div className="studio-view studio-home studio-home-layout">
     <aside className="studio-home-context" aria-label="创作任务概览">
@@ -108,22 +115,26 @@ export function StudioHomePage(){
       <section className="studio-context-section"><SectionHeading icon={<Clock3 size={17}/>} title="最近做过的" count={recent.length} action={<Link to="/studio/tasks">查看全部 <ArrowRight size={13}/></Link>}/>{loading?<StudioLoading label="正在读取最近记录…"/>:recent.length===0?<CompactEmpty icon={<Sparkles size={21}/>} title="还没有开始过创作" detail="从上方选择想做的内容开始。"/>:<div className="studio-task-stack">{recent.slice(0,3).map(task=><TaskRow key={task.id} task={task}/>)}</div>}</section>
     </aside>
     <main className="studio-home-canvas">
+      <div className="studio-business-context"><span><BriefcaseBusiness size={15}/>当前业务范围</span><strong>{selectedExperience?.name||(selectedExperienceID===ALL_EXPERIENCES?'全部业务':'未开通业务')}</strong><small>{selectedExperience?'只显示这个业务的项目、任务和创作入口':'选择“当前业务”菜单，可在不同业务工作台之间切换。'}</small></div>
       <PageHeading eyebrow="开始创作" title={`${firstName}，今天想做什么？`} detail="选择资料、已有内容或想完成的事情，我们会帮你安排接下来的步骤。"/>
       {error&&<StudioNotice kind="error" onRetry={reload}>{error}</StudioNotice>}
       <StudioProviderStatus/>
-      {bootstrap.experiences.length===0?<StudioUnavailableWorkbench tasks={tasks} operationsPath={bootstrap.session.can_view_operations?bootstrap.session.operations_path:undefined}/>:bootstrap.experiences.map(experience=><StudioExperienceWorkbench key={experience.id} experience={experience} tasks={tasks} canCreate={bootstrap.session.can_create}/>)}
+      {bootstrap.experiences.length===0?<StudioUnavailableWorkbench tasks={scopedTasks} operationsPath={bootstrap.session.can_view_operations?bootstrap.session.operations_path:undefined}/>:visibleExperiences.map(experience=><StudioExperienceWorkbench key={experience.id} experience={experience} tasks={scopedTasks} canCreate={bootstrap.session.can_create}/>)}
     </main>
   </div>;
 }
 
 export function StudioConnectPage(){
-  const {bootstrap,refresh}=useStudio();
+  const {bootstrap,refresh,selectedExperienceID}=useStudio();
   const navigate=useNavigate();
   const [searchParams]=useSearchParams();
   const requestedSession=searchParams.get('session')||'';
   const requestedProject=searchParams.get('project')||'';
+  const requestedExperience=searchParams.get('experience')||'';
+  const scopeExperienceID=requestedExperience||(selectedExperienceID===ALL_EXPERIENCES?'':selectedExperienceID);
   const requestedHost=searchParams.get('host')==='claude'?'claude':'codex';
-  const activeProjects=bootstrap.projects.filter(project=>project.status!=='archived');
+  const experience=bootstrap.experiences.find(item=>item.id===scopeExperienceID);
+  const activeProjects=scopedStudioProjects(bootstrap.projects,scopeExperienceID,experience);
   const initiallySelected=activeProjects.find(project=>project.id===requestedProject)||activeProjects.find(project=>!project.execution_client_connected)||activeProjects[0];
   const [projectID,setProjectID]=useState(initiallySelected?.id||'');
   const [clients,setClients]=useState<StudioExecutionClient[]>([]);
@@ -160,7 +171,7 @@ export function StudioConnectPage(){
   const start=async()=>{
     if(!project||!client)return;
     setBusy('start');setError('');
-    try{const value=await studioApi.createConnectSession(project.id);setSession(value);navigate(`/studio/connect?session=${encodeURIComponent(value.id)}&host=${encodeURIComponent(client?.id==='claude-code'?'claude':'codex')}`,{replace:true})}
+    try{const value=await studioApi.createConnectSession(project.id);setSession(value);const params=new URLSearchParams({session:value.id,host:client?.id==='claude-code'?'claude':'codex'});if(scopeExperienceID)params.set('experience',scopeExperienceID);navigate(`/studio/connect?${params.toString()}`,{replace:true})}
     catch(value){setError(value instanceof Error?value.message:'连接工作电脑失败')}
     finally{setBusy('')}
   };
@@ -172,11 +183,18 @@ export function StudioConnectPage(){
   };
   const cancel=async()=>{
     if(!session)return;setBusy('cancel');setError('');
-    try{await studioApi.cancelConnectSession(session.id);setSession(undefined);navigate(project?`/studio/connect?project=${encodeURIComponent(project.id)}`:'/studio/connect',{replace:true})}
+    try{await studioApi.cancelConnectSession(session.id);setSession(undefined);navigate(connectPath(project?.id),{replace:true})}
     catch(value){setError(value instanceof Error?value.message:'取消连接失败')}
     finally{setBusy('')}
   };
-  const reset=()=>{setSession(undefined);setError('');navigate(project?`/studio/connect?project=${encodeURIComponent(project.id)}`:'/studio/connect',{replace:true})};
+  const connectPath=(projectID?:string)=>{
+    const params=new URLSearchParams();
+    if(projectID)params.set('project',projectID);
+    if(scopeExperienceID)params.set('experience',scopeExperienceID);
+    const query=params.toString();
+    return query?`/studio/connect?${query}`:'/studio/connect';
+  };
+  const reset=()=>{setSession(undefined);setError('');navigate(connectPath(project?.id),{replace:true})};
   const prompt=session&&project?buildBootstrapPrompt({serverURL:window.location.origin,sessionID:session.id,projectName:`${project.brand_name} / ${project.product_name}`,host:requestedHost}):'';
   const copyPrompt=async()=>{try{await navigator.clipboard.writeText(prompt);setCopied(true);window.setTimeout(()=>setCopied(false),1600)}catch{setError('无法访问剪贴板，请检查浏览器权限后重试')}};
 
@@ -209,7 +227,7 @@ function StudioExperienceWorkbench({experience,tasks,canCreate}:{experience:Stud
   const hasProject=experience.project_ids.length>0;
   const hasConnectedProject=bootstrap.projects.some(project=>experience.project_ids.includes(project.id)&&project.execution_client_connected&&project.status!=='archived');
   const newTaskPath=`/studio/tasks/new?experience=${encodeURIComponent(experience.id)}`;
-  const startPath=hasConnectedProject?newTaskPath:'/studio/connect';
+  const startPath=hasConnectedProject?newTaskPath:`/studio/connect?experience=${encodeURIComponent(experience.id)}`;
   const definition=getWorkbenchDefinition(experience);
   const stepTitles=definition.stepTitles;
   const stepTitle=(index:number,fallback:string)=>stepTitles[index]||fallback;
@@ -221,14 +239,14 @@ function StudioExperienceWorkbench({experience,tasks,canCreate}:{experience:Stud
     label:panel.target==='start'?(hasConnectedProject?panel.actionLabel:'连接工作电脑'):panel.actionLabel,
   }));
   return <section className="studio-workbench" data-workbench-plugin={experience.workbench?.plugin_id||definition.key} data-workbench-layout={experience.workbench?.layout||'stage-canvas-context'} data-workbench-density={experience.workbench?.density||'comfortable'} data-workbench-theme={experience.workbench?.theme||'signal-blue'} aria-labelledby={`experience-${experience.id}`}>
-    <header className="studio-workbench-header"><div><span><WandSparkles size={15}/>{definition.eyebrow}</span><h2 id={`experience-${experience.id}`}>{experience.name}</h2><p>{experience.description}</p></div><div>{primaryTask&&<Link className="studio-secondary-link" to={`/studio/tasks/${encodeURIComponent(primaryTask.id)}`}><Play size={15}/>继续上次工作</Link>}{canCreate&&hasProject?<Link className="studio-primary-link" to={hasConnectedProject?newTaskPath:'/studio/connect'}>{hasConnectedProject?<Plus size={15}/>:<MonitorUp size={15}/>} {hasConnectedProject?'开始新创作':'连接工作电脑'}</Link>:<span className="studio-workbench-unavailable">{!hasProject?'等待后台准备项目':'当前账号只能查看'}</span>}</div></header>
+    <header className="studio-workbench-header"><div><span><WandSparkles size={15}/>{definition.eyebrow}</span><h2 id={`experience-${experience.id}`}>{experience.name}</h2><p>{experience.description}</p></div><div>{primaryTask&&<Link className="studio-secondary-link" to={`/studio/tasks/${encodeURIComponent(primaryTask.id)}`}><Play size={15}/>继续上次工作</Link>}{canCreate&&hasProject?<Link className="studio-primary-link" to={hasConnectedProject?newTaskPath:startPath}>{hasConnectedProject?<Plus size={15}/>:<MonitorUp size={15}/>} {hasConnectedProject?'开始新创作':'连接工作电脑'}</Link>:<span className="studio-workbench-unavailable">{!hasProject?'等待后台准备项目':'当前账号只能查看'}</span>}</div></header>
     <nav className="studio-workbench-navigation" aria-label={`${experience.name}导航`}>{definition.navigation.map(item=><Link to={item.href} key={item.id}><span>{workbenchPanelIcon(item.icon)}</span>{item.label}</Link>)}</nav>
     <div className="studio-compose-surface">
       <Link className="studio-compose-source" to="/studio/assets"><Archive size={24}/><span><strong>{definition.sourceTitle}</strong><small>{definition.sourceDetail}</small></span></Link>
       <div className="studio-compose-copy"><span>{primaryTask?'继续上次工作':'开始新的创作'}</span><strong>{primaryTask?primaryTask.next_action:'说说这次想完成什么'}</strong><p>{primaryTask?`${primaryTask.title} 已保存 ${primaryTask.asset_count} 项输入，打开后继续处理。`:'系统会按步骤安排资料、创作、确认和交付。'}</p></div>
       <footer><span><ClipboardCheck size={15}/>每次修改和确认都会自动保存</span><span><MonitorUp size={15}/>{hasConnectedProject?'工作电脑已连接':'请先连接工作电脑'}</span><Link to={primaryTask?`/studio/tasks/${encodeURIComponent(primaryTask.id)}`:startPath} aria-label={primaryTask?'继续上次工作':'开始创作'}><ArrowRight size={19}/></Link></footer>
     </div>
-    <div className="studio-workbench-panels">{panels.map(panel=>{
+      <div className="studio-workbench-panels">{panels.map(panel=>{
       const currentTask=activeTasks.find(task=>panel.stepIDs.includes(task.current_step_id));
       const href=currentTask?`/studio/tasks/${encodeURIComponent(currentTask.id)}`:panel.href;
       const label=currentTask?'继续上次工作':panel.label;
@@ -263,32 +281,38 @@ function StudioUnavailableWorkbench({tasks,operationsPath}:{tasks:StudioTaskSumm
 }
 
 export function StudioTasksPage(){
-  const {bootstrap}=useStudio();
+  const {bootstrap,selectedExperienceID}=useStudio();
   const [filter,setFilter]=useState<TaskFilter>('active');
   const [query,setQuery]=useState('');
   const {tasks,loading,error,reload}=useTasks();
-  const counts=useMemo(()=>({active:tasks.filter(task=>!completedStatuses.includes(task.status)).length,attention:tasks.filter(task=>attentionStatuses.includes(task.status)).length,completed:tasks.filter(task=>completedStatuses.includes(task.status)).length}),[tasks]);
-  const visible=tasks.filter(task=>{
+  const selectedExperience=bootstrap.experiences.find(item=>item.id===selectedExperienceID);
+  const scopedTasks=scopedStudioTasks(tasks,selectedExperienceID);
+  const scopedProjects=scopedStudioProjects(bootstrap.projects,selectedExperienceID,selectedExperience);
+  const newTaskPath=selectedExperience?`/studio/tasks/new?experience=${encodeURIComponent(selectedExperience.id)}`:'/studio/tasks/new';
+  const connectPath=selectedExperience?`/studio/connect?experience=${encodeURIComponent(selectedExperience.id)}`:'/studio/connect';
+  const counts=useMemo(()=>({active:scopedTasks.filter(task=>!completedStatuses.includes(task.status)).length,attention:scopedTasks.filter(task=>attentionStatuses.includes(task.status)).length,completed:scopedTasks.filter(task=>completedStatuses.includes(task.status)).length}),[scopedTasks]);
+  const visible=scopedTasks.filter(task=>{
     const matchesFilter=filter==='attention'?attentionStatuses.includes(task.status):filter==='completed'?completedStatuses.includes(task.status):!completedStatuses.includes(task.status);
     return matchesFilter&&(!query.trim()||task.title.toLowerCase().includes(query.trim().toLowerCase()));
   });
-  const canStartNewTask=bootstrap.projects.some(project=>project.status!=='archived'&&project.execution_client_connected);
+  const canStartNewTask=scopedProjects.some(project=>project.execution_client_connected);
   return <div className="studio-view">
-    <PageHeading eyebrow="我的创作" title="所有创作" detail="按进度查看和继续处理。" actions={bootstrap.session.can_create?<Link className="studio-primary-link" to={canStartNewTask?'/studio/tasks/new':'/studio/connect'}>{canStartNewTask?<Plus size={16}/>:<MonitorUp size={16}/>} {canStartNewTask?'开始新创作':'连接工作电脑'}</Link>:undefined}/>
+    <StudioScopeBanner experience={selectedExperience} experienceID={selectedExperienceID} projectCount={scopedProjects.length}/>
+    <PageHeading eyebrow="我的创作" title="所有创作" detail="按进度查看和继续处理。" actions={bootstrap.session.can_create?<Link className="studio-primary-link" to={canStartNewTask?newTaskPath:connectPath}>{canStartNewTask?<Plus size={16}/>:<MonitorUp size={16}/>} {canStartNewTask?'开始新创作':'连接工作电脑'}</Link>:undefined}/>
     {error&&<StudioNotice kind="error" onRetry={reload}>{error}</StudioNotice>}
     <div className="studio-toolbar"><div className="studio-segments" role="tablist" aria-label="任务筛选">{(Object.keys(filterLabels) as TaskFilter[]).map(id=><button type="button" role="tab" aria-selected={filter===id} className={filter===id?'is-active':''} key={id} onClick={()=>setFilter(id)}>{filterLabels[id]}<span>{counts[id]}</span></button>)}</div><label className="studio-search"><Search size={16}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="搜索任务" aria-label="搜索任务"/></label></div>
-    <section className="studio-section studio-task-list" aria-label={`${filterLabels[filter]}内容`}>{loading?<StudioLoading label="正在读取创作…"/>:visible.length===0?<CompactEmpty icon={<FileSearch size={22}/>} title={tasks.length?'没有找到匹配内容':'还没有开始过创作'} detail={tasks.length?'换一个筛选条件或搜索词。':'从一个明确的目标开始。'} action={!tasks.length&&bootstrap.session.can_create?<Link className="studio-secondary-link" to={canStartNewTask?'/studio/tasks/new':'/studio/connect'}>{canStartNewTask?<Plus size={15}/>:<MonitorUp size={15}/>} {canStartNewTask?'开始新创作':'连接工作电脑'}</Link>:undefined}/>:visible.map(task=><TaskRow key={task.id} task={task} roomy/>)}</section>
+    <section className="studio-section studio-task-list" aria-label={`${filterLabels[filter]}内容`}>{loading?<StudioLoading label="正在读取创作…"/>:visible.length===0?<CompactEmpty icon={<FileSearch size={22}/>} title={scopedTasks.length?'没有找到匹配内容':'当前业务还没有创作'} detail={scopedTasks.length?'换一个筛选条件或搜索词。':'从一个明确的目标开始。'} action={!scopedTasks.length&&bootstrap.session.can_create?<Link className="studio-secondary-link" to={canStartNewTask?newTaskPath:connectPath}>{canStartNewTask?<Plus size={15}/>:<MonitorUp size={15}/>} {canStartNewTask?'开始新创作':'连接工作电脑'}</Link>:undefined}/>:visible.map(task=><TaskRow key={task.id} task={task} roomy/>)}</section>
   </div>;
 }
 
 export function StudioNewTaskPage(){
-  const {bootstrap}=useStudio();
+  const {bootstrap,selectedExperienceID}=useStudio();
   const navigate=useNavigate();
   const [searchParams]=useSearchParams();
   const requestedProject=searchParams.get('project')||'';
   const requestedAssetRef=searchParams.get('asset_ref')||'';
   const requestedMaterialRef=searchParams.get('material_ref')||'';
-  const initialExperience=bootstrap.experiences.find(item=>item.id===searchParams.get('experience'))||bootstrap.experiences[0];
+  const initialExperience=bootstrap.experiences.find(item=>item.id===searchParams.get('experience'))||bootstrap.experiences.find(item=>item.id===selectedExperienceID)||bootstrap.experiences[0];
   const [experienceID,setExperienceID]=useState(initialExperience?.id||'');
   const experience=bootstrap.experiences.find(item=>item.id===experienceID);
   const projects=bootstrap.projects.filter(project=>experience?.project_ids.includes(project.id));
@@ -327,7 +351,7 @@ export function StudioNewTaskPage(){
 
   if(!bootstrap.session.can_create)return <div className="studio-view"><PageHeading eyebrow="新建任务" title="当前账号没有创作权限" detail="你仍可以查看任务、资料和交付结果。"/><CompactEmpty icon={<CircleHelp size={22}/>} title="需要创作权限" detail="请联系团队管理员调整当前账号的角色。" action={<Link className="studio-secondary-link" to="/studio">返回今天</Link>}/></div>;
   if(!experience||!project)return <div className="studio-view"><PageHeading eyebrow="新建任务" title="当前还不能开始新的创作" detail="新的创作场景准备好后，会自动出现在今天页面。"/><CompactEmpty icon={<CircleHelp size={22}/>} title="暂时没有可用场景" detail="请联系团队负责人，或先继续已有任务。" action={<Link className="studio-secondary-link" to="/studio/tasks">查看已有任务</Link>}/></div>;
-  if(!project.execution_client_connected)return <div className="studio-view"><PageHeading eyebrow="开始新创作" title="先连接你的工作电脑" detail="连接完成后即可开始新的创作，已有内容和交付仍可查看。"/><CompactEmpty icon={<MonitorUp size={22}/>} title={`${project.brand_name} 尚未连接工作电脑`} detail="连接完成后，就可以使用团队已经准备好的创作步骤。" action={<Link className="studio-primary-link" to={`/studio/connect?project=${encodeURIComponent(project.id)}`}><MonitorUp size={15}/>连接工作电脑</Link>}/></div>;
+  if(!project.execution_client_connected)return <div className="studio-view"><PageHeading eyebrow="开始新创作" title="先连接你的工作电脑" detail="连接完成后即可开始新的创作，已有内容和交付仍可查看。"/><CompactEmpty icon={<MonitorUp size={22}/>} title={`${project.brand_name} 尚未连接工作电脑`} detail="连接完成后，就可以使用团队已经准备好的创作步骤。" action={<Link className="studio-primary-link" to={`/studio/connect?project=${encodeURIComponent(project.id)}&experience=${encodeURIComponent(experience.id)}`}><MonitorUp size={15}/>连接工作电脑</Link>}/></div>;
 
   const reusableAssets=(catalog?.items||[]).filter(item=>item.reusable);
   const reusableMaterials=materials.filter(item=>item.processing_state!=='failed');
@@ -392,7 +416,7 @@ export function StudioTaskPage(){
 }
 
 export function StudioAssetsPage(){
-  const {bootstrap}=useStudio();
+  const {bootstrap,selectedExperienceID}=useStudio();
   const [searchParams]=useSearchParams();
   const requestedTaskID=searchParams.get('task_id')||'';
   const [surface,setSurface]=useState<StudioAssetSurface>();
@@ -401,7 +425,9 @@ export function StudioAssetsPage(){
   const [category,setCategory]=useState<AssetCategory>('all');
   const [status,setStatus]=useState<AssetStatus>('all');
   const [query,setQuery]=useState('');
-  const [projectID,setProjectID]=useState(bootstrap.projects.find(project=>project.status!=='archived')?.id||'');
+  const selectedExperience=bootstrap.experiences.find(item=>item.id===selectedExperienceID);
+  const scopedProjects=useMemo(()=>scopedStudioProjects(bootstrap.projects,selectedExperienceID,selectedExperience),[bootstrap.projects,selectedExperienceID,selectedExperience]);
+  const [projectID,setProjectID]=useState(scopedProjects[0]?.id||'');
   const [folderRef,setFolderRef]=useState('');
   const [folderName,setFolderName]=useState('');
   const [showFolderForm,setShowFolderForm]=useState(false);
@@ -409,8 +435,9 @@ export function StudioAssetsPage(){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
-  const load=useCallback(async()=>{setLoading(true);setError('');try{setSurface(await studioApi.assets(projectID||undefined))}catch(value){setError(value instanceof Error?value.message:'资料加载失败')}finally{setLoading(false)}},[projectID]);
+  const load=useCallback(async()=>{setLoading(true);setError('');if(!projectID||!scopedProjects.some(project=>project.id===projectID)){setSurface(undefined);setLoading(false);return}try{setSurface(await studioApi.assets(projectID))}catch(value){setError(value instanceof Error?value.message:'资料加载失败')}finally{setLoading(false)}},[projectID,scopedProjects]);
   useEffect(()=>{void load()},[load]);
+  useEffect(()=>{if(scopedProjects.some(project=>project.id===projectID))return;setProjectID(scopedProjects[0]?.id||'');setFolderRef('')},[projectID,scopedProjects]);
   const catalog=surface?.creative_results;
   const materials=surface?.workspace.materials||[];
   const folders=surface?.workspace.folders||[];
@@ -440,7 +467,7 @@ export function StudioAssetsPage(){
   const changeProject=(next:string)=>{setProjectID(next);setFolderRef('')};
 
   return <div className="studio-view studio-assets">
-    <PageHeading eyebrow="内容资料" title="我的资料" detail="文件资料与创作结果" actions={view==='mine'?<Button variant="secondary" disabled={!projectID} onClick={()=>setShowFolderForm(value=>!value)}><FolderPlus size={15}/>{showFolderForm?'取消创建':'新建文件夹'}</Button>:undefined}/>
+    <StudioScopeBanner experience={selectedExperience} experienceID={selectedExperienceID} projectCount={scopedProjects.length}/><PageHeading eyebrow="内容资料" title="我的资料" detail="文件资料与创作结果" actions={view==='mine'?<Button variant="secondary" disabled={!projectID} onClick={()=>setShowFolderForm(value=>!value)}><FolderPlus size={15}/>{showFolderForm?'取消创建':'新建文件夹'}</Button>:undefined}/>
     {error&&<StudioNotice kind="error" onRetry={load}>{error}</StudioNotice>}{notice&&<StudioNotice kind="success" onClose={()=>setNotice('')}>{notice}</StudioNotice>}
     <div className="studio-asset-toolbar">
       <div className="studio-asset-views" role="tablist" aria-label="资料视图">
@@ -449,12 +476,12 @@ export function StudioAssetsPage(){
         <button type="button" role="tab" aria-selected={view==='recent'} className={view==='recent'?'is-active':''} onClick={()=>chooseView('recent')}>最近使用</button>
       </div>
       <div className="studio-asset-filters">
-        <label className="studio-asset-type-filter"><span>项目</span><select value={projectID} onChange={event=>changeProject(event.target.value)}><option value="">全部项目</option>{bootstrap.projects.filter(project=>project.status!=='archived').map(project=><option value={project.id} key={project.id}>{project.brand_name}</option>)}</select></label>
+        <label className="studio-asset-type-filter"><span>项目</span><select value={projectID} onChange={event=>changeProject(event.target.value)}><option value="">选择项目</option>{scopedProjects.map(project=><option value={project.id} key={project.id}>{project.brand_name}</option>)}</select></label>
         {view==='results'&&<label className="studio-asset-type-filter"><span>状态</span><select value={status} onChange={event=>setStatus(event.target.value as AssetStatus)}>{(Object.keys(assetStatusLabels) as AssetStatus[]).map(id=><option value={id} key={id}>{assetStatusLabels[id]}</option>)}</select></label>}
         <label className="studio-search"><Search size={16}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder={view==='results'?'搜索创作结果':'搜索资料'} aria-label="搜索资料"/></label>
       </div>
     </div>
-    {showFolderForm&&<form className="studio-folder-form" onSubmit={createFolder}><label><span>所属项目</span><select value={projectID} onChange={event=>setProjectID(event.target.value)} required><option value="">选择项目</option>{bootstrap.projects.filter(project=>project.status!=='archived').map(project=><option value={project.id} key={project.id}>{project.brand_name}</option>)}</select></label><label><span>文件夹名称</span><input value={folderName} onChange={event=>setFolderName(event.target.value)} placeholder="例如：品牌素材" autoFocus required/></label><Button disabled={busy||!projectID||!folderName.trim()}><FolderPlus size={15}/>创建文件夹</Button></form>}
+    {showFolderForm&&<form className="studio-folder-form" onSubmit={createFolder}><label><span>所属项目</span><select value={projectID} onChange={event=>setProjectID(event.target.value)} required><option value="">选择项目</option>{scopedProjects.map(project=><option value={project.id} key={project.id}>{project.brand_name}</option>)}</select></label><label><span>文件夹名称</span><input value={folderName} onChange={event=>setFolderName(event.target.value)} placeholder="例如：品牌素材" autoFocus required/></label><Button disabled={busy||!projectID||!folderName.trim()}><FolderPlus size={15}/>创建文件夹</Button></form>}
     {loading?<StudioLoading label="正在整理资料…"/>:view==='mine'?<>
       <AssetCategoryTabs categories={(Object.keys(materialCategoryLabels) as MaterialCategory[])} active={materialCategory} labels={materialCategoryLabels} count={id=>id==='all'?materials.length+folders.length:id==='folder'?folders.length:surface?.workspace.counts[id]||0} onChange={setMaterialCategory}/>
       <div className="studio-asset-workspace">
@@ -495,12 +522,18 @@ function MaterialPreview({item}:{item:WorkspaceMaterialItem}){if(item.material_k
 function ResultPreview({item}:{item:StudioAssetItem}){const image=item.downloads.find(file=>file.media_type.startsWith('image/'));if(item.result_type==='image'&&image)return <img src={image.href} alt="" loading="lazy"/>;if(item.result_type==='video')return <><Video size={32}/><i><Play size={12} fill="currentColor"/></i></>;return <AssetIcon resultType={item.result_type}/>}
 
 export function StudioDeliveriesPage(){
+  const {bootstrap,selectedExperienceID}=useStudio();
   const [deliveries,setDeliveries]=useState<Awaited<ReturnType<typeof studioApi.deliveries>>>();
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
   const load=useCallback(async()=>{setLoading(true);setError('');try{setDeliveries(await studioApi.deliveries())}catch(value){setError(value instanceof Error?value.message:'交付记录加载失败')}finally{setLoading(false)}},[]);
   useEffect(()=>{void load()},[load]);
-  return <div className="studio-view"><PageHeading eyebrow="交付" title="准备好的文件与发布记录" detail="这里保存可以下载的文件；只有外部平台明确返回结果时，才会显示为已发布。"/>{error&&<StudioNotice kind="error" onRetry={load}>{error}</StudioNotice>}{loading?<StudioLoading label="正在读取交付记录…"/>:<div className="studio-delivery-layout"><section className="studio-section"><SectionHeading icon={<PackageCheck size={17}/>} title="交付文件" count={deliveries?.packages.length||0}/>{!deliveries?.packages.length?<CompactEmpty icon={<PackageCheck size={22}/>} title="还没有准备好的文件" detail="确认最终成果并完成交付准备后，文件会出现在这里。"/>:<div className="studio-package-list">{deliveries.packages.map(pkg=><article key={pkg.id}><header><div><span>{pkg.project_name}</span><strong>{pkg.files.length} 个文件</strong><small>{formatDate(pkg.created_at)} · 文件已准备好</small></div><span className="studio-state is-ready">已准备</span></header><div>{pkg.files.map(file=><a key={file.id} href={file.href} download><FileText size={16}/><span><strong>{file.file_name}</strong><small>{file.media_type} · {formatBytes(file.byte_size)}</small></span><Download size={15}/></a>)}</div></article>)}</div>}</section><section className="studio-section"><SectionHeading icon={<ExternalLink size={17}/>} title="发布状态" count={deliveries?.publications.length||0}/>{!deliveries?.publications.length?<CompactEmpty icon={<ExternalLink size={22}/>} title="还没有发布记录" detail="下载文件不会自动代表已经发布到外部平台。"/>:<div className="studio-publish-list">{deliveries.publications.map(item=><article key={item.id}><CheckCircle2 size={18}/><div><strong>{deliveryDestinationLabel(item.destination)}</strong><span>{statusLabel(item.status)} · {formatDate(item.published_at||item.updated_at)}</span></div></article>)}</div>}</section></div>}</div>;
+  const selectedExperience=bootstrap.experiences.find(item=>item.id===selectedExperienceID);
+  const scopedProjects=useMemo(()=>scopedStudioProjects(bootstrap.projects,selectedExperienceID,selectedExperience),[bootstrap.projects,selectedExperienceID,selectedExperience]);
+  const scopedProjectNames=useMemo(()=>new Set(scopedProjects.map(project=>project.brand_name)),[scopedProjects]);
+  const packages=useMemo(()=>deliveries?.packages.filter(pkg=>scopedProjectNames.has(pkg.project_name))||[],[deliveries,scopedProjectNames]);
+  const publications=useMemo(()=>deliveries?.publications.filter(item=>scopedProjectNames.has(item.project_name))||[],[deliveries,scopedProjectNames]);
+  return <div className="studio-view"><StudioScopeBanner experience={selectedExperience} experienceID={selectedExperienceID} projectCount={scopedProjects.length}/><PageHeading eyebrow="交付" title="准备好的文件与发布记录" detail="这里保存可以下载的文件；只有外部平台明确返回结果时，才会显示为已发布。"/>{error&&<StudioNotice kind="error" onRetry={load}>{error}</StudioNotice>}{loading?<StudioLoading label="正在读取交付记录…"/>:<div className="studio-delivery-layout"><section className="studio-section"><SectionHeading icon={<PackageCheck size={17}/>} title="交付文件" count={packages.length}/>{!packages.length?<CompactEmpty icon={<PackageCheck size={22}/>} title="还没有准备好的文件" detail="确认最终成果并完成交付准备后，文件会出现在这里。"/>:<div className="studio-package-list">{packages.map(pkg=><article key={pkg.id}><header><div><span>{pkg.project_name}</span><strong>{pkg.files.length} 个文件</strong><small>{formatDate(pkg.created_at)} · 文件已准备好</small></div><span className="studio-state is-ready">已准备</span></header><div>{pkg.files.map(file=><a key={file.id} href={file.href} download><FileText size={16}/><span><strong>{file.file_name}</strong><small>{file.media_type} · {formatBytes(file.byte_size)}</small></span><Download size={15}/></a>)}</div></article>)}</div>}</section><section className="studio-section"><SectionHeading icon={<ExternalLink size={17}/>} title="发布状态" count={publications.length}/>{!publications.length?<CompactEmpty icon={<ExternalLink size={22}/>} title="还没有发布记录" detail="下载文件不会自动代表已经发布到外部平台。"/>:<div className="studio-publish-list">{publications.map(item=><article key={item.id}><CheckCircle2 size={18}/><div><strong>{deliveryDestinationLabel(item.destination)}</strong><span>{statusLabel(item.status)} · {formatDate(item.published_at||item.updated_at)}</span></div></article>)}</div>}</section></div>}</div>;
 }
 
 function InspirationStage({taskID,inspirations,experience,canAdd,onChanged}:{taskID:string;inspirations:StudioTaskView['inspirations'];experience?:StudioExperience;canAdd:boolean;onChanged:(view:StudioTaskView)=>void}){
