@@ -333,11 +333,11 @@
         "./internal/bootstrapcheck",
         "./internal/localworkspace",
         "-run",
-        "^(TestEnvironmentSchemasReserveRegisteredAgentClients|TestClientRegistryResolvesAliasesAndPlannedCapabilities|TestHandoffStrategiesMatchAvailableRegistryCapabilities|TestHandoffFailsClosedForUnsupportedInput|TestBuildManifestUsesOnlyExactPublishedCompatibleRegistryEntries|TestAgentClientCatalogExposesPlannedClientsByCapability|TestGenericAgentHandoffUsesStrategyAndRejectsPlannedClient|TestGenericReviewFeedbackHandoffBindsRevisionAndTenant|TestPreflightReportsCodexCLIAndDesktopFailures|TestPlanRecognizesReservedButUnavailableClient)$"
+        "^(TestEnvironmentSchemasReserveRegisteredAgentClients|TestClientRegistryResolvesAliasesAndCapabilityBoundaries|TestHandoffStrategiesMatchAvailableRegistryCapabilities|TestHandoffFailsClosedForUnsupportedInput|TestBuildManifestUsesOnlyExactPublishedCompatibleRegistryEntries|TestAgentClientCatalogExposesPlannedClientsByCapability|TestGenericAgentHandoffUsesStrategyAndRejectsPlannedClient|TestGenericReviewFeedbackHandoffBindsRevisionAndTenant|TestPreflightReportsCodexCLIAndDesktopFailures|TestPlanRecognizesReservedButUnavailableClient)$"
       ],
       "evidence": [
         "TestEnvironmentSchemasReserveRegisteredAgentClients",
-        "TestClientRegistryResolvesAliasesAndPlannedCapabilities",
+        "TestClientRegistryResolvesAliasesAndCapabilityBoundaries",
         "TestHandoffStrategiesMatchAvailableRegistryCapabilities",
         "TestHandoffFailsClosedForUnsupportedInput",
         "TestBuildManifestUsesOnlyExactPublishedCompatibleRegistryEntries",
