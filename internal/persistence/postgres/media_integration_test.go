@@ -335,15 +335,15 @@ func createPostgresMediaTask(t *testing.T, ctx context.Context, store *storepg.S
 		UpdatedBy:   actor.UserID,
 		UpdatedAt:   time.Now().UTC(),
 	}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("enable marketing video capability: %v", err)
 	}
 	createdProject, err := service.Workspace.CreateProject(ctx, actor, application.CreateProjectInput{BrandName: "Media Brand " + suffix, ProductName: "Media Product", ContentType: identitydomain.ContentTypeMarketingVideo, Channel: "douyin"}, "")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("create media project: %v", err)
 	}
 	admin, err := service.Work.AdminWorkOS(ctx, actor)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("load media work OS: %v", err)
 	}
 	var sop catalogdomain.SOPVersion
 	for _, summary := range admin.SOPs {
@@ -362,16 +362,16 @@ func createPostgresMediaTask(t *testing.T, ctx context.Context, store *storepg.S
 	}
 	environment, err := service.Work.CreateEnvironment(ctx, actor, application.SaveEnvironmentInput{Name: "Media Environment " + suffix, Slug: "media-" + suffix, Status: "active", DefaultSOPID: sop.SOPID, DefaultSOPVersion: sop.Version}, "")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("create media environment: %v", err)
 	}
 	view, err := service.Work.CreateWorkTask(ctx, actor, application.CreateWorkTaskInput{ProjectID: createdProject.ID, EnvironmentID: environment.ID, Title: "Media persistence", ContentType: identitydomain.ContentTypeMarketingVideo, InputRefs: []string{"brief:media"}, IdempotencyKey: "task-" + suffix}, "")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("create media work task: %v", err)
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	stageRun = work.StageRun{ID: idgen.New(), TenantID: actor.TenantID, TaskID: view.Task.ID, StageID: "generation", Status: work.StageRunStatusRunning, ExecutionMode: "manual", StartedAt: &now, UpdatedAt: now}
 	if err := store.CreateStageRun(ctx, stageRun); err != nil {
-		t.Fatal(err)
+		t.Fatalf("create media stage run: %v", err)
 	}
 	return struct{ ID string }{ID: createdProject.ID}, view.Task, stageRun
 }
