@@ -47,6 +47,13 @@ type PublishWorkspaceCommand struct {
 	IdempotencyKey string `json:"idempotency_key"`
 }
 
+type RetryWorkspaceCommand struct {
+	SchemaVersion string `json:"schema_version"`
+	RequestID     string `json:"request_id"`
+	WorkspaceID   string `json:"workspace_id"`
+	ProjectID     string `json:"project_id"`
+}
+
 type CommandResponse struct {
 	SchemaVersion string    `json:"schema_version"`
 	RequestID     string    `json:"request_id"`
@@ -114,6 +121,18 @@ func validatePublishCommand(command PublishWorkspaceCommand) string {
 	}
 	if !validSHA256(command.ObservedDigest) {
 		return "DESKTOP_COMMAND_DIGEST_INVALID"
+	}
+	return ""
+}
+
+func validateRetryCommand(command RetryWorkspaceCommand) string {
+	if command.SchemaVersion != CommandSchemaVersion {
+		return "DESKTOP_COMMAND_SCHEMA_UNSUPPORTED"
+	}
+	for _, value := range []string{command.RequestID, command.WorkspaceID, command.ProjectID} {
+		if !validProtocolID(value) {
+			return "DESKTOP_COMMAND_IDENTIFIER_INVALID"
+		}
 	}
 	return ""
 }

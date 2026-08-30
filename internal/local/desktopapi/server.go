@@ -200,6 +200,7 @@ func Start(options Options) (*Server, error) {
 	mux.HandleFunc("GET /v1/snapshot", server.authorize(server.negotiate(server.snapshot)))
 	mux.HandleFunc("GET /v1/projects/{project_id}/events", server.authorize(server.negotiate(server.projectEvents)))
 	mux.HandleFunc("POST /v1/commands/workspace-publish", server.authorize(server.negotiate(server.publishWorkspace)))
+	mux.HandleFunc("POST /v1/commands/workspace-retry", server.authorize(server.negotiate(server.retryWorkspace)))
 	mux.HandleFunc("GET /v1/projects/{project_id}/review/inbox", server.authorize(server.negotiate(server.reviewInbox)))
 	mux.HandleFunc("GET /v1/projects/{project_id}/review/revisions/{revision_id}", server.authorize(server.negotiate(server.reviewRevision)))
 	mux.HandleFunc("POST /v1/projects/{project_id}/review/comments", server.authorize(server.negotiate(server.reviewComment)))
@@ -316,7 +317,7 @@ func (s *Server) capabilities(writer http.ResponseWriter, _ *http.Request) {
 		SchemaVersion: "contentcloud.desktop-api-capabilities/1.0",
 		APIVersions:   []string{APIVersion}, SnapshotSchema: SchemaVersion,
 		CommandSchema: CommandSchemaVersion, EventSchema: EventStreamSchemaVersion,
-		Commands: []string{"workspace.publish", "project.projection", "review.inbox", "review.show", "review.comment", "review.approve", "review.reject", "review.request_changes"},
+		Commands: []string{"workspace.publish", "workspace.retry", "project.projection", "review.inbox", "review.show", "review.comment", "review.approve", "review.reject", "review.request_changes"},
 	})
 }
 
@@ -389,6 +390,9 @@ func (s *Server) projectSnapshot(ctx context.Context, candidate localconfig.Daem
 			}
 			if state.TransferState == "idle" && state.ConflictCode == "" {
 				project.AllowedActions = append(project.AllowedActions, "workspace.publish")
+			}
+			if state.TransferState == "failed" && state.ConflictCode == "" {
+				project.AllowedActions = append(project.AllowedActions, "workspace.retry")
 			}
 		}
 	}
@@ -472,6 +476,29 @@ func (s *Server) publishWorkspace(writer http.ResponseWriter, request *http.Requ
 		SchemaVersion: CommandResultSchemaVersion, RequestID: command.RequestID, CommandID: result.CommandID,
 		ProjectID: result.ProjectID, State: result.State, EventCursor: result.EventCursor, AcceptedAt: result.CreatedAt,
 	})
+}
+
+func (s *Server) retryWorkspace(writer http.ResponseWriter, request *http.Request) {
+	var command RetryWorkspaceCommand
+	if err := decodeRequest(request, &command); err != nil {
+		writeError(writer, http.StatusBadRequest, "DESKTOP_COMMAND_INVALID")
+		return
+	}
+	if code := validateRetryCommand(command); code != "" {
+		writeError(writer, http.StatusBadRequest, code)
+		return
+	}
+	_, ok := s.workspaceBinding(command.ProjectID, command.WorkspaceID)
+	if !ok {
+		writeError(writer, http.StatusNotFound, "DESKTOP_PROJECT_NOT_BOUND")
+		return
+	}
+	result, err := s.syncStore.RetryPublish(request.Context(), command.ProjectID, command.WorkspaceID, s.now().UTC())
+	if err != nil {
+		writeError(writer, http.StatusConflict, syncErrorCode(err, "DESKTOP_RETRY_REJECTED"))
+		return
+	}
+	writeJSON(writer, http.StatusAccepted, CommandResponse{SchemaVersion: CommandResultSchemaVersion, RequestID: command.RequestID, CommandID: result.CommandID, ProjectID: result.ProjectID, State: result.State, EventCursor: result.EventCursor, AcceptedAt: result.CreatedAt})
 }
 
 func (s *Server) projectEvents(writer http.ResponseWriter, request *http.Request) {

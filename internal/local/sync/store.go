@@ -386,6 +386,59 @@ func (s *Store) QueuePublish(ctx context.Context, command PublishCommand) (Comma
 	return CommandResult{CommandID: commandID, State: "queued", ProjectID: command.ProjectID, EventCursor: state.EventCursor, CreatedAt: command.CreatedAt}, nil
 }
 
+// RetryPublish requeues the most recent terminal publish for an explicitly
+// requested project. It never changes the command manifest or its base
+// revision; the normal Cloud CAS check remains authoritative on execution.
+func (s *Store) RetryPublish(ctx context.Context, projectID, workspaceID string, now time.Time) (CommandResult, error) {
+	projectID, workspaceID = strings.TrimSpace(projectID), strings.TrimSpace(workspaceID)
+	if projectID == "" || workspaceID == "" {
+		return CommandResult{}, errors.New("publish retry requires project and workspace")
+	}
+	now = now.UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	defer tx.Rollback()
+	state, err := projectStateTx(ctx, tx, projectID)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	if state.WorkspaceID != workspaceID {
+		return CommandResult{}, &ConflictError{Code: "PROJECT_WORKSPACE_BINDING_CONFLICT"}
+	}
+	var commandID, commandState, currentProject, createdAt string
+	err = tx.QueryRowContext(ctx, `SELECT command_id,state,project_id,created_at FROM outbound_commands WHERE project_id=? AND state IN ('failed','conflict','auth_required') ORDER BY created_at DESC,command_id DESC LIMIT 1`, projectID).
+		Scan(&commandID, &commandState, &currentProject, &createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CommandResult{}, &ConflictError{Code: "OUTBOX_RETRY_UNAVAILABLE"}
+	}
+	if err != nil {
+		return CommandResult{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE outbound_commands SET state='queued',next_attempt_at=?,lease_owner='',lease_until=NULL,last_error_code='' WHERE command_id=? AND state IN ('failed','conflict','auth_required')`, formatTime(now), commandID); err != nil {
+		return CommandResult{}, err
+	}
+	state.EventCursor++
+	if _, err := tx.ExecContext(ctx, `UPDATE project_sync_state SET conflict_code='',event_cursor=?,updated_at=? WHERE project_id=?`, state.EventCursor, formatTime(now), projectID); err != nil {
+		return CommandResult{}, err
+	}
+	if err := insertEvent(ctx, tx, ProjectEvent{
+		ID: stableID("evt_", commandID, "retry", fmt.Sprint(state.EventCursor)), ProjectID: projectID,
+		Cursor: state.EventCursor, Type: "workspace.publish.requeued", Payload: map[string]any{"command_id": commandID, "previous_state": commandState}, CreatedAt: now,
+	}); err != nil {
+		return CommandResult{}, err
+	}
+	created, err := parseTime(createdAt)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return CommandResult{}, err
+	}
+	return CommandResult{CommandID: commandID, State: "queued", ProjectID: currentProject, EventCursor: state.EventCursor, CreatedAt: created}, nil
+}
+
 func (s *Store) SaveUploadTransfer(ctx context.Context, transfer UploadTransfer) error {
 	transfer.ProjectID, transfer.Ref, transfer.ContentDigest = strings.TrimSpace(transfer.ProjectID), strings.TrimSpace(transfer.Ref), strings.TrimSpace(transfer.ContentDigest)
 	transfer.SessionID, transfer.State = strings.TrimSpace(transfer.SessionID), strings.TrimSpace(transfer.State)
@@ -523,7 +576,7 @@ func (s *Store) CompletePublish(ctx context.Context, commandID, worker string, r
 		return err
 	}
 	state.EventCursor++
-	if _, err := tx.ExecContext(ctx, `UPDATE project_sync_state SET cloud_revision=?,synced_digest=?,synced_at=?,event_cursor=?,updated_at=? WHERE project_id=?`, revision.ID, revision.ContentDigest, formatTime(now), state.EventCursor, formatTime(now), projectID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE project_sync_state SET cloud_revision=?,synced_digest=?,synced_at=?,conflict_code='',event_cursor=?,updated_at=? WHERE project_id=?`, revision.ID, revision.ContentDigest, formatTime(now), state.EventCursor, formatTime(now), projectID); err != nil {
 		return err
 	}
 	if err := insertEvent(ctx, tx, ProjectEvent{ID: stableID("evt_", commandID, "synced", revision.ID), ProjectID: projectID, Cursor: state.EventCursor, Type: "workspace.publish.synced", Payload: map[string]any{"command_id": commandID, "cloud_revision": revision.ID, "content_digest": revision.ContentDigest}, CreatedAt: now}); err != nil {
@@ -563,7 +616,11 @@ func (s *Store) FailPublish(ctx context.Context, commandID, worker, code string,
 		return err
 	}
 	state.EventCursor++
-	if _, err := tx.ExecContext(ctx, `UPDATE project_sync_state SET event_cursor=?,updated_at=? WHERE project_id=?`, state.EventCursor, formatTime(now), projectID); err != nil {
+	conflictCode := ""
+	if conflict {
+		conflictCode = code
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE project_sync_state SET conflict_code=?,event_cursor=?,updated_at=? WHERE project_id=?`, conflictCode, state.EventCursor, formatTime(now), projectID); err != nil {
 		return err
 	}
 	if err := insertEvent(ctx, tx, ProjectEvent{ID: stableID("evt_", commandID, stateName, fmt.Sprint(state.EventCursor)), ProjectID: projectID, Cursor: state.EventCursor, Type: eventType, Payload: map[string]any{"command_id": commandID, "error_code": code}, CreatedAt: now}); err != nil {

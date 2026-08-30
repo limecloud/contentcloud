@@ -15,7 +15,7 @@ test('renderer has only the narrow preload API', async () => {
     }));
     expect(boundary.requireType).toBe('undefined');
     expect(boundary.processType).toBe('undefined');
-    expect(boundary.api).toEqual(['addReviewComment', 'decideReview', 'getAppInfo', 'getReviewInbox', 'getReviewRevision', 'getSnapshot', 'onSnapshotChanged', 'publishWorkspace']);
+    expect(boundary.api).toEqual(['addReviewComment', 'cancelConnectSession', 'chooseFiles', 'createConnectSession', 'createServerProject', 'decideReview', 'downloadDelivery', 'getAppInfo', 'getAssets', 'getAuthSession', 'getConnectSession', 'getDaemonStatus', 'getDeliveries', 'getProjectEvents', 'getReviewInbox', 'getReviewRevision', 'getServerBootstrap', 'getSnapshot', 'login', 'logout', 'onSnapshotChanged', 'previewMaterial', 'publishWorkspace', 'restartDaemon', 'retryWorkspace', 'startDaemon', 'stopDaemon', 'uploadMaterials']);
     await expect(page.getByRole('heading', { name: /本地服务未连接|内容目录/ })).toBeVisible();
   } finally {
     await application.close();

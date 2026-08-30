@@ -223,3 +223,34 @@ func TestStorePersistsWorkspaceUploadTransferParts(t *testing.T) {
 		t.Fatalf("upload transfer = %#v err=%v", loaded, err)
 	}
 }
+
+func TestRetryPublishRequeuesTerminalCommandWithoutChangingIdentity(t *testing.T) {
+	store, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	digest := "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	if _, err := store.ObserveProject(t.Context(), "project-1", "workspace-1", digest, now); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := store.QueuePublish(t.Context(), PublishCommand{RequestID: "request-1", WorkspaceID: "workspace-1", ProjectID: "project-1", SubjectRef: "workspace", BaseRevision: "0", ObservedDigest: digest, IdempotencyKey: "retry-1", CreatedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, claimed, err := store.ClaimPublish(t.Context(), "worker-1", "", []string{"project-1"}, now, time.Minute); err != nil || !claimed {
+		t.Fatalf("claim = %v", err)
+	}
+	if err := store.FailPublish(t.Context(), queued.CommandID, "worker-1", "NETWORK_ERROR", false, false, now, now); err != nil {
+		t.Fatal(err)
+	}
+	retried, err := store.RetryPublish(t.Context(), "project-1", "workspace-1", now.Add(time.Minute))
+	if err != nil || retried.CommandID != queued.CommandID || retried.State != "queued" {
+		t.Fatalf("retry = %#v err=%v", retried, err)
+	}
+	commands, err := store.PendingCommands(t.Context(), "project-1")
+	if err != nil || len(commands) != 1 || commands[0].CommandID != queued.CommandID {
+		t.Fatalf("requeued command = %#v err=%v", commands, err)
+	}
+}

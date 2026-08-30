@@ -69,7 +69,7 @@ export interface ConnectStateCopy {
   tone: 'waiting'|'progress'|'success'|'error';
 }
 
-export const CONTENTCLOUD_CLI='npx --yes @limecloud/contentcloud@0.29.1';
+export const CONTENTCLOUD_CLI='npx --yes @limecloud/contentcloud@0.29.2';
 export const BOOTSTRAP_PLAN_CONFIRMATION='Codex 会先展示准备执行的步骤和编号（plan_id）；你确认后，Codex 才会执行 apply。电脑状态变化时，系统会要求重新确认。';
 
 const stageNames:Record<string,string>={

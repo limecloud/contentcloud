@@ -16,8 +16,9 @@ import type {
   DesktopSnapshot,
   DesktopSnapshotResult,
   PublishWorkspaceInput,
+  RetryWorkspaceInput,
 } from '../shared/contracts';
-import { isCommandResponse, isEventStream, isPublishWorkspaceInput, isReviewInbox, isReviewRevision, isSnapshot } from '../shared/contracts';
+import { isCommandResponse, isEventStream, isPublishWorkspaceInput, isRetryWorkspaceInput, isReviewInbox, isReviewRevision, isSnapshot } from '../shared/contracts';
 
 const apiVersion = '1.0';
 const apiVersionHeader = 'X-ContentCloud-Desktop-API-Version';
@@ -131,6 +132,28 @@ export async function publishWorkspace(input: PublishWorkspaceInput): Promise<De
     if (error instanceof DaemonResponseError && error.status >= 400 && error.status < 500) {
       return { status: 'rejected', code: error.code };
     }
+    return { status: 'offline', message: error instanceof Error ? error.message : 'Daemon is unavailable' };
+  }
+}
+
+export async function retryWorkspace(input: RetryWorkspaceInput): Promise<DesktopCommandResult> {
+  if (!isRetryWorkspaceInput(input)) return { status: 'rejected', code: 'DESKTOP_COMMAND_INPUT_INVALID' };
+  try {
+    const discovery = await connect();
+    const value: unknown = await daemonFetch(discovery, '/v1/commands/workspace-retry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        schema_version: 'contentcloud.desktop-command/1.0',
+        request_id: `dreq_${randomUUID()}`,
+        workspace_id: input.workspace_id,
+        project_id: input.project_id,
+      }),
+    });
+    if (!isCommandResponse(value)) throw new Error('Daemon command response schema is unsupported');
+    return { status: 'accepted', command: value };
+  } catch (error) {
+    if (error instanceof DaemonResponseError && error.status >= 400 && error.status < 500) return { status: 'rejected', code: error.code };
     return { status: 'offline', message: error instanceof Error ? error.message : 'Daemon is unavailable' };
   }
 }

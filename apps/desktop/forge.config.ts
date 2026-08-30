@@ -7,11 +7,15 @@ import { MakerDMG } from "@electron-forge/maker-dmg";
 import { MakerRpm } from "@electron-forge/maker-rpm";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 const releaseSigningEnabled = process.env.CONTENTCLOUD_DESKTOP_SIGN === "1";
 const desktopProductName = "Content Work OS";
 const desktopExecutableName = "content-work-os";
 const desktopSquirrelName = "content_work_os";
+const bundledCLI = resolve(__dirname, "../../bin", process.platform === "win32" ? "contentcloud.exe" : "contentcloud");
+const extraResources = existsSync(bundledCLI) ? [bundledCLI] : [];
 const linuxMakerOptions = {
   name: desktopExecutableName,
   productName: desktopProductName,
@@ -80,6 +84,7 @@ const config: ForgeConfig = {
     asar: true,
     name: desktopProductName,
     executableName: desktopExecutableName,
+    extraResource: extraResources,
     appBundleId: "run.zhongcao.contentcloud.desktop",
     protocols: [{ name: desktopProductName, schemes: ["contentcloud"] }],
     osxSign: macSignOptions(),

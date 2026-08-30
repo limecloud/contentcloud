@@ -18,6 +18,7 @@
 - Web 只读取云端事实，不假装拥有本地未提交文件。
 - Runtime Worker 与 Sync Engine 可以同进程托管，但使用独立状态、命令和错误域。
 - Renderer 的审批请求必须经过独立 IPC 方法，经 Main 到 Daemon，再由设备绑定 Cloud client 调用 `desktop.review.*`。
+- 云端项目目录和设备连接会话由 Main 的 `serverGateway` 读取 `/api/studio/bootstrap`、`/api/studio/*/connect-sessions`，Renderer 只接收经过校验的项目与会话投影。
 
 ## 2. Electron 进程模型
 
@@ -31,6 +32,8 @@ Main 负责：
 - Daemon 发现、启动、版本兼容检查和健康恢复。
 - 文件选择器、目录选择器和允许的外部链接。
 - 更新下载、签名验证、安装与重启协调。
+- 服务端用户会话登录、续期检查与登出；会话 Cookie 仅保留在 Main，系统支持时使用安全存储持久化。
+- 受控 Daemon 生命周期：应用启动时探测 loopback discovery；存在本地设备绑定时可启动随应用发布的 CLI 子进程，并提供状态、启动、停止和重启 IPC。已有 LaunchAgent/系统托管进程只读显示，不被应用退出流程误杀。
 - 把 Renderer 命令映射为版本化 Desktop API。
 
 Main 不负责：
@@ -38,6 +41,8 @@ Main 不负责：
 - 解析业务文件、决定同步冲突、执行审批或保存上传状态。
 - 直接持久化业务对象、Cloud Revision 或 Runtime 状态。
 - 将设备 Token 注入 Renderer 或 Codex。
+
+服务端登录使用 `/api/v1/auth/login` 与 `/api/bff/session`，Renderer 只收到脱敏的用户、租户和角色摘要。登录会话与设备/Workspace 凭据保持分离：登录成功不自动扩大本地 Daemon 的项目绑定范围，云端同步仍由已授权设备绑定和 Local Sync Engine 执行。Desktop 可在云端项目目录中创建、轮询或取消 ConnectSession；会话完成后由本机 `bootstrap` 将设备凭据写入系统钥匙串并启动 Daemon，页面自动从云端项目切换到本地 Workspace 投影。
 
 ## 3. 技术栈
 
@@ -107,7 +112,9 @@ idempotency_key
 - 事件有单调 ID、重连游标、gap 和 full-resync 语义。
 - 路径序列化为 Workspace-relative ref，不返回绝对路径。
 
-当前 Local Desktop API 方法包括：`snapshot`、`workspace-publish`、`project events`、`review inbox`、`review revision`、`review comment`、`review approve`、`review reject`、`review request-changes`。审批命令不会把设备 Token 放入 Renderer；Daemon 关闭窗口后仍可继续 outbox、上传和 Runtime worker。
+当前 Local Desktop API 方法包括：`snapshot`、`workspace-publish`、`workspace-retry`、`project events`、`review inbox`、`review revision`、`review comment`、`review approve`、`review reject`、`review request-changes`。云端资料通过 Main 侧受控文件选择和 `/api/studio/materials` multipart 上传接入，资产投影通过 `/api/studio/assets` 读取，交付包和发布回执通过 `/api/studio/deliveries` 读取，Artifact 下载由 Main 弹出保存对话框并代理 `/api/studio/artifacts/{id}/download`。媒体预览由 Main 代理并限制在 8 MiB 内。审批、资料和交付命令不会把设备 Token、会话 Cookie、本机绝对路径或任意远程 URL 放入 Renderer；Daemon 关闭窗口后仍可继续 outbox、上传和 Runtime worker。
+
+Desktop 的 CLI 资源只从显式环境变量、打包 `Resources/contentcloud` 或开发树 `bin/contentcloud` 这几个固定路径解析，不使用 PATH 搜索。Forge 在构建时仅在目标文件存在时将 CLI 放入 `extraResource`；跨平台正式包必须分别提供对应平台的 CLI 资产。
 
 ## 7. 安全基线
 

@@ -2,6 +2,22 @@
 
 ContentCloud 的重要变更记录在此文件中。
 
+## [0.29.2] - 2026-08-30
+
+### Added
+
+- Desktop 接入服务端登录鉴权、会话恢复与安全登出，并增加项目 Bootstrap、创建和 ConnectSession 管理。
+- Desktop 打通本地 Workspace Revision 发布、事件游标同步、失败重试和冲突状态展示。
+- Desktop 增加审批收件箱、Revision diff、评论与批准/拒绝/要求修改操作。
+- Desktop 支持云端资料选择、批量上传、资料投影、媒体预览及交付包下载。
+- Desktop 支持受控管理 ContentCloud CLI Daemon 的启动、停止和重启，并展示交付发布回执。
+
+### Changed
+
+- 扩展 Desktop IPC、共享契约和本地同步存储，统一鉴权、同步、审批与交付数据流。
+- Desktop 打包产物携带固定路径解析的 CLI，并通过环境变量白名单限制子进程运行时配置。
+- Server、Worker、Web、Desktop、CLI 和 npm 启动包版本元数据同步升级到 `0.29.2`。
+
 ## [0.29.1] - 2026-08-24
 
 ### Fixed

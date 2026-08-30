@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	codexGuideVersion       = "0.29.1"
+	codexGuideVersion       = "0.29.2"
 	codexGuideSchemaVersion = "contentcloud.codex-guide/1.0"
 	codexGuideVary          = "Accept, Sec-Fetch-Mode, Sec-Fetch-Dest"
 )
