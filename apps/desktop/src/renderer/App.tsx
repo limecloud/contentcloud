@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   ArrowRightLeft,
   Archive,
+  BookOpenCheck,
   CheckCircle2,
   ChevronRight,
   CircleDashed,
@@ -16,6 +17,8 @@ import {
   FileText,
   FolderTree,
   Eye,
+  GitPullRequest,
+  History,
   KeyRound,
   LayoutDashboard,
   LogIn,
@@ -24,6 +27,7 @@ import {
   PackageCheck,
   Power,
   RefreshCw,
+  RotateCcw,
   Send,
   Server,
   ShieldCheck,
@@ -34,15 +38,16 @@ import {
   X,
 } from 'lucide-react';
 
-import type { DesktopAuthResult, DesktopCommandResult, DesktopCreateServerProjectInput, DesktopDaemonStatus, DesktopDeliveryDownloadResult, DesktopEvent, DesktopFileSelection, DesktopMaterialUploadResult, DesktopReviewAction, DesktopReviewRevisionDetail, DesktopServerBootstrap, DesktopServerConnectSession, DesktopServerProject, DesktopServerResult, DesktopSnapshot, DesktopSnapshotResult, ProjectSnapshot } from '../shared/contracts';
+import type { DesktopAuthResult, DesktopCommandResult, DesktopCreateServerProjectInput, DesktopDaemonStatus, DesktopDeliveryDownloadResult, DesktopEvent, DesktopExperienceProjection, DesktopFileSelection, DesktopMaterialUploadResult, DesktopReviewAction, DesktopReviewRevisionDetail, DesktopServerBootstrap, DesktopServerConnectSession, DesktopServerProject, DesktopServerResult, DesktopSnapshot, DesktopSnapshotResult, ProjectSnapshot } from '../shared/contracts';
 
-type View = 'overview' | 'review' | 'transfers' | 'runs' | 'delivery';
+type View = 'overview' | 'review' | 'transfers' | 'runs' | 'experience' | 'delivery';
 
 const viewItems: Array<{ id: View; label: string; icon: typeof LayoutDashboard }> = [
   { id: 'overview', label: '内容目录', icon: FolderTree },
   { id: 'transfers', label: '同步与上传', icon: UploadCloud },
   { id: 'review', label: '审批收件箱', icon: ClipboardCheck },
   { id: 'runs', label: '任务运行', icon: Activity },
+  { id: 'experience', label: '经验演化', icon: BookOpenCheck },
   { id: 'delivery', label: '交付状态', icon: PackageCheck },
 ];
 
@@ -283,6 +288,7 @@ function ViewContent({ project, view, onPublish, onRetry, publishing, retrying, 
     case 'transfers': return <TransferView project={project} onPublish={onPublish} onRetry={onRetry} publishing={publishing} retrying={retrying} result={publishResult} />;
     case 'review': return <ReviewView project={project} />;
     case 'runs': return <RuntimeView project={project} />;
+    case 'experience': return <ExperienceView project={project} />;
     case 'delivery': return <DeliveryView project={project} />;
     default: return <ContentDirectory project={project} />;
   }
@@ -468,6 +474,77 @@ function StatusView({ icon, title, value, detail }: { icon: React.ReactNode; tit
 
 function RuntimeView({ project }: { project: ProjectSnapshot }) {
   return <section className="surface-view"><div className="surface-view-heading"><div><div className="eyebrow">Cloud Runtime projection</div><h2>任务运行</h2></div><StatePill state={project.local_state} /></div><div className="runtime-status"><Activity size={22} /><strong>{project.runtime_state}</strong></div><div className="projection-grid"><Metric label="本地 Revision" value={String(project.local_revision)} /><Metric label="Cloud Revision" value={project.cloud_revision} /><Metric label="事件游标" value={String(project.cloud_event_cursor)} /></div><p className="surface-note">Codex 负责任务期推理、生成与工具执行；Desktop 只展示 Daemon 与 Cloud Runtime 的可恢复投影。</p></section>;
+}
+
+function ExperienceView({ project }: { project: ProjectSnapshot }) {
+  const projection = project.experience ?? emptyExperienceProjection();
+  const eventsQuery = useQuery({
+    queryKey: ['desktop-experience-events', project.project_id, project.event_cursor],
+    queryFn: () => window.contentcloudDesktop.getProjectEvents(project.project_id, Math.max(0, project.event_cursor - 24)),
+    staleTime: 5_000,
+  });
+  const events = eventsQuery.data?.status === 'ready' ? eventsQuery.data.stream.events : [];
+  const failureRate = projection.event_count > 0 ? Math.round((projection.failure_count / projection.event_count) * 100) : 0;
+  const status = projection.failure_count > 0 ? 'needs_review' : projection.event_count > 0 ? 'observed' : 'empty';
+
+  return <section className="experience-surface">
+    <div className="surface-view-heading"><div><div className="eyebrow">Persistent experience layer</div><h2>经验演化</h2><p className="section-description">从不可变项目事件中提炼可回溯模式，为后续 Skill 提案提供证据。</p></div><span className={`state-pill ${status === 'needs_review' ? 'modified' : status === 'observed' ? 'clean' : ''}`}><span />{experienceStatusLabel(status)}</span></div>
+    <div className="experience-summary-grid" aria-label="经验统计">
+      <article className="experience-stat"><span className="overview-metric-label">执行证据</span><strong>{projection.event_count}</strong><small>不可变事件</small></article>
+      <article className="experience-stat success"><span className="overview-metric-label">成功路径</span><strong>{projection.success_count}</strong><small>已确认的同步结果</small></article>
+      <article className="experience-stat warning"><span className="overview-metric-label">失败模式</span><strong>{projection.failure_count}</strong><small>{failureRate}% 事件需要复盘</small></article>
+      <article className="experience-stat recovery"><span className="overview-metric-label">恢复动作</span><strong>{projection.recovery_count}</strong><small>保留原失败证据</small></article>
+    </div>
+    <div className="experience-loop" aria-label="经验演化流程">
+      <div className="experience-loop-step active"><span><History size={16} /></span><div><strong>执行证据</strong><small>事件游标持续记录</small></div></div>
+      <ArrowRightLeft size={16} aria-hidden="true" />
+      <div className="experience-loop-step active"><span><BookOpenCheck size={16} /></span><div><strong>模式沉淀</strong><small>{projection.pattern_count} 个当前模式</small></div></div>
+      <ArrowRightLeft size={16} aria-hidden="true" />
+      <div className="experience-loop-step guarded"><span><GitPullRequest size={16} /></span><div><strong>Skill 提案</strong><small>需通过服务端验证后发布</small></div></div>
+    </div>
+    <div className="experience-columns">
+      <div className="experience-pattern-panel">
+        <div className="section-heading"><div><div className="eyebrow">Derived patterns</div><h3>当前模式</h3></div><span className="item-count">{projection.pattern_count}</span></div>
+        {projection.patterns.length ? <div className="experience-pattern-list">{projection.patterns.map((pattern) => <article className="experience-pattern" key={pattern.id}><div className="experience-pattern-heading"><div className="experience-pattern-icon"><PatternIcon kind={pattern.kind} /></div><div><strong>{pattern.title}</strong><small>{experienceKindLabel(pattern.kind)} · {pattern.evidence_count} 条证据</small></div><span className={`pattern-status ${pattern.kind}`}>{experiencePatternStatusLabel(pattern.status)}</span></div><p>{pattern.detail}</p>{pattern.evidence.length ? <div className="experience-evidence-refs">{pattern.evidence.slice(0, 2).map((evidence) => <span key={evidence.event_id}>#{evidence.cursor} · {formatDate(evidence.created_at)}</span>)}</div> : null}</article>)}</div> : <div className="experience-empty"><BookOpenCheck size={20} /><strong>还没有可提炼的模式</strong><span>完成一次本地运行或同步后，这里会显示带证据的经验。</span></div>}
+      </div>
+      <aside className="experience-guardrail-panel">
+        <div className="section-heading"><div><div className="eyebrow">Governance</div><h3>演化门禁</h3></div><ShieldCheck size={17} /></div>
+        <div className="guardrail-list"><div className="guardrail-item passed"><CheckCircle2 size={15} /><div><strong>事件不可变</strong><small>只追加证据，不覆盖原始结果。</small></div></div><div className="guardrail-item passed"><CheckCircle2 size={15} /><div><strong>证据可追溯</strong><small>模式绑定事件 ID 和游标。</small></div></div><div className="guardrail-item pending"><RotateCcw size={15} /><div><strong>Skill 发布</strong><small>提案必须在沙箱验证并人工确认。</small></div></div></div>
+        <div className="guardrail-note"><AlertTriangle size={14} /><span>经验层与客户知识事实源分离，避免把执行失败误写成产品事实。</span></div>
+      </aside>
+    </div>
+    <section className="experience-events"><div className="section-heading"><div><div className="eyebrow">Recent evidence</div><h3>最近证据</h3></div><span className={eventsQuery.data?.status === 'offline' ? 'activity-status warning' : 'activity-status'}>{eventsQuery.data?.status === 'offline' ? '读取失败' : eventsQuery.isLoading ? '读取中' : `${events.length} 条`}</span></div>{events.length ? <ol className="experience-event-list">{events.slice(-10).reverse().map((event) => <li key={event.id}><span className={`experience-event-dot ${experienceEventKind(event.type)}`} /><div><strong>{eventLabel(event.type)}</strong><small>游标 {event.cursor} · {formatDate(event.created_at)} · {event.id}</small></div></li>)}</ol> : <div className="empty-line"><CircleDashed size={15} /><span>{eventsQuery.data?.status === 'offline' ? eventsQuery.data.message : '暂无可展示的项目事件'}</span></div>}</section>
+  </section>;
+}
+
+function emptyExperienceProjection(): DesktopExperienceProjection {
+  return { schema_version: 'contentcloud.desktop-experience/1.0', event_count: 0, success_count: 0, failure_count: 0, recovery_count: 0, pattern_count: 0, patterns: [] };
+}
+
+function experienceStatusLabel(status: string): string {
+  return status === 'needs_review' ? '需要复盘' : status === 'observed' ? '已记录' : '等待事件';
+}
+
+function experienceKindLabel(kind: string): string {
+  return ({ failure: '失败模式', recovery: '恢复路径', success: '成功路径', observation: '工作区观察' } as Record<string, string>)[kind] ?? '经验模式';
+}
+
+function experiencePatternStatusLabel(status: string): string {
+  return ({ needs_review: '待复盘', improving: '恢复中', validated: '已验证', recorded: '已记录' } as Record<string, string>)[status] ?? status;
+}
+
+function experienceEventKind(type: string): string {
+  if (type.includes('failed') || type.includes('conflict') || type.includes('auth_required') || type.includes('resync')) return 'failure';
+  if (type.includes('retry') || type.includes('requeued')) return 'recovery';
+  if (type.includes('synced')) return 'success';
+  return 'observation';
+}
+
+function PatternIcon({ kind }: { kind: string }) {
+  if (kind === 'failure') return <AlertTriangle size={15} />;
+  if (kind === 'recovery') return <RotateCcw size={15} />;
+  if (kind === 'success') return <CheckCircle2 size={15} />;
+  return <History size={15} />;
 }
 
 function DeliveryView({ project }: { project: ProjectSnapshot }) {

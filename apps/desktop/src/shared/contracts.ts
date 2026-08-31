@@ -217,6 +217,35 @@ export interface ProjectSnapshot {
   event_cursor: number;
   allowed_actions: DesktopAllowedAction[];
   error_code?: string;
+  experience?: DesktopExperienceProjection;
+}
+
+export interface DesktopExperienceProjection {
+  schema_version: 'contentcloud.desktop-experience/1.0';
+  event_count: number;
+  success_count: number;
+  failure_count: number;
+  recovery_count: number;
+  pattern_count: number;
+  last_updated?: string;
+  patterns: DesktopExperiencePattern[];
+}
+
+export interface DesktopExperiencePattern {
+  id: string;
+  kind: 'observation' | 'success' | 'failure' | 'recovery' | string;
+  title: string;
+  detail: string;
+  status: string;
+  evidence_count: number;
+  evidence: DesktopExperienceEvidence[];
+}
+
+export interface DesktopExperienceEvidence {
+  event_id: string;
+  cursor: number;
+  event_type: string;
+  created_at: string;
 }
 
 export type DesktopAllowedAction = 'workspace.publish' | 'workspace.retry';
@@ -442,7 +471,46 @@ declare global {
 export function isSnapshot(value: unknown): value is DesktopSnapshot {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<DesktopSnapshot>;
-  return candidate.schema_version === 'contentcloud.desktop-snapshot/1.0' && Array.isArray(candidate.projects);
+  return candidate.schema_version === 'contentcloud.desktop-snapshot/1.0'
+    && Array.isArray(candidate.projects)
+    && candidate.projects.every((project) => {
+      if (!project || typeof project !== 'object') return false;
+      const experience = (project as Partial<ProjectSnapshot>).experience;
+      return experience === undefined || isDesktopExperienceProjection(experience);
+    });
+}
+
+export function isDesktopExperienceProjection(value: unknown): value is DesktopExperienceProjection {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<DesktopExperienceProjection>;
+  return candidate.schema_version === 'contentcloud.desktop-experience/1.0'
+    && [candidate.event_count, candidate.success_count, candidate.failure_count, candidate.recovery_count, candidate.pattern_count].every((count) => Number.isSafeInteger(count) && Number(count) >= 0)
+    && (candidate.last_updated === undefined || (typeof candidate.last_updated === 'string' && !Number.isNaN(Date.parse(candidate.last_updated))))
+    && Array.isArray(candidate.patterns)
+    && candidate.patterns.every(isDesktopExperiencePattern);
+}
+
+function isDesktopExperiencePattern(value: unknown): value is DesktopExperiencePattern {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<DesktopExperiencePattern>;
+  return isBoundedString(candidate.id)
+    && isBoundedString(candidate.kind)
+    && isBoundedString(candidate.title)
+    && isBoundedString(candidate.detail)
+    && isBoundedString(candidate.status)
+    && Number.isSafeInteger(candidate.evidence_count) && Number(candidate.evidence_count) >= 0
+    && Array.isArray(candidate.evidence)
+    && candidate.evidence.every(isDesktopExperienceEvidence);
+}
+
+function isDesktopExperienceEvidence(value: unknown): value is DesktopExperienceEvidence {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<DesktopExperienceEvidence>;
+  return isBoundedString(candidate.event_id)
+    && Number.isSafeInteger(candidate.cursor) && Number(candidate.cursor) >= 0
+    && isBoundedString(candidate.event_type)
+    && typeof candidate.created_at === 'string'
+    && !Number.isNaN(Date.parse(candidate.created_at));
 }
 
 export function isDesktopDaemonStatus(value: unknown): value is DesktopDaemonStatus {

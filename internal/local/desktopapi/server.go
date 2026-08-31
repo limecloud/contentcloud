@@ -94,27 +94,28 @@ type DaemonStatus struct {
 }
 
 type ProjectSnapshot struct {
-	ProjectID        string           `json:"project_id"`
-	WorkspaceID      string           `json:"workspace_id"`
-	Name             string           `json:"name"`
-	LocalState       string           `json:"local_state"`
-	TransferState    string           `json:"transfer_state"`
-	ReviewState      string           `json:"review_state"`
-	LifecycleState   string           `json:"lifecycle_state"`
-	RuntimeState     string           `json:"runtime_state"`
-	Content          []ContentSection `json:"content"`
-	PendingFeedback  int              `json:"pending_feedback"`
-	PendingDecision  int              `json:"pending_decision"`
-	SourceCount      int              `json:"source_count"`
-	LastSyncedAt     *time.Time       `json:"last_synced_at,omitempty"`
-	LocalRevision    uint64           `json:"local_revision"`
-	ObservedDigest   string           `json:"observed_digest,omitempty"`
-	CloudRevision    string           `json:"cloud_revision"`
-	CloudEventCursor int64            `json:"cloud_event_cursor"`
-	SyncedDigest     string           `json:"synced_digest,omitempty"`
-	EventCursor      uint64           `json:"event_cursor"`
-	AllowedActions   []string         `json:"allowed_actions"`
-	ErrorCode        string           `json:"error_code,omitempty"`
+	ProjectID        string               `json:"project_id"`
+	WorkspaceID      string               `json:"workspace_id"`
+	Name             string               `json:"name"`
+	LocalState       string               `json:"local_state"`
+	TransferState    string               `json:"transfer_state"`
+	ReviewState      string               `json:"review_state"`
+	LifecycleState   string               `json:"lifecycle_state"`
+	RuntimeState     string               `json:"runtime_state"`
+	Content          []ContentSection     `json:"content"`
+	PendingFeedback  int                  `json:"pending_feedback"`
+	PendingDecision  int                  `json:"pending_decision"`
+	SourceCount      int                  `json:"source_count"`
+	LastSyncedAt     *time.Time           `json:"last_synced_at,omitempty"`
+	LocalRevision    uint64               `json:"local_revision"`
+	ObservedDigest   string               `json:"observed_digest,omitempty"`
+	CloudRevision    string               `json:"cloud_revision"`
+	CloudEventCursor int64                `json:"cloud_event_cursor"`
+	SyncedDigest     string               `json:"synced_digest,omitempty"`
+	EventCursor      uint64               `json:"event_cursor"`
+	AllowedActions   []string             `json:"allowed_actions"`
+	ErrorCode        string               `json:"error_code,omitempty"`
+	Experience       ExperienceProjection `json:"experience"`
 }
 
 type ContentSection struct {
@@ -351,6 +352,7 @@ func (s *Server) projectSnapshot(ctx context.Context, candidate localconfig.Daem
 		ProjectID: candidate.ProjectID, WorkspaceID: candidate.WorkspaceID,
 		Name: workspaceName(candidate.Root, candidate.ProjectID), LocalState: "clean", TransferState: "idle",
 		ReviewState: "unsubmitted", LifecycleState: "draft", RuntimeState: "succeeded", Content: []ContentSection{}, CloudRevision: "0", AllowedActions: []string{},
+		Experience: ExperienceProjection{SchemaVersion: ExperienceSchemaVersion, Patterns: []ExperiencePattern{}},
 	}
 	status, err := localworkspace.LoadStatus(candidate.Root)
 	if err != nil {
@@ -426,6 +428,9 @@ func (s *Server) projectSnapshot(ctx context.Context, candidate localconfig.Daem
 				project.PendingFeedback, project.PendingDecision = projection.PendingFeedback, projection.PendingDecision
 			}
 		}
+	}
+	if events, _, _, eventErr := s.syncStore.ListEvents(ctx, candidate.ProjectID, 0, 200); eventErr == nil {
+		project.Experience = buildExperienceProjection(events, now)
 	}
 	return project
 }

@@ -116,6 +116,10 @@ func TestServerNegotiatesVersionAndQueuesIdempotentPublishWithEvents(t *testing.
 	if response.StatusCode != http.StatusOK || stream.Gap || len(stream.Events) != 2 || stream.Events[1].Type != "workspace.publish.queued" {
 		t.Fatalf("unexpected event stream: status=%d %#v", response.StatusCode, stream)
 	}
+	updated := requestSnapshotForTest(t, server)
+	if updated.Projects[0].Experience.SchemaVersion != ExperienceSchemaVersion || updated.Projects[0].Experience.EventCount != 2 {
+		t.Fatalf("experience projection did not follow project events: %#v", updated.Projects[0].Experience)
+	}
 }
 
 func TestPublishRejectsStaleDigestAndUnknownFields(t *testing.T) {

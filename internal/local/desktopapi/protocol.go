@@ -21,6 +21,7 @@ const (
 	CommandSchemaVersion       = "contentcloud.desktop-command/1.0"
 	CommandResultSchemaVersion = "contentcloud.desktop-command-result/1.0"
 	EventStreamSchemaVersion   = "contentcloud.desktop-events/1.0"
+	ExperienceSchemaVersion    = "contentcloud.desktop-experience/1.0"
 )
 
 // ReviewDispatcher is the Daemon's in-memory bridge to the Cloud client.
@@ -80,6 +81,37 @@ type DesktopEvent struct {
 	Type      string         `json:"type"`
 	Payload   map[string]any `json:"payload"`
 	CreatedAt time.Time      `json:"created_at"`
+}
+
+// ExperienceProjection is a bounded, structured view over immutable project
+// events. It deliberately exposes evidence references instead of raw tool
+// transcripts or model reasoning.
+type ExperienceProjection struct {
+	SchemaVersion string              `json:"schema_version"`
+	EventCount    int                 `json:"event_count"`
+	SuccessCount  int                 `json:"success_count"`
+	FailureCount  int                 `json:"failure_count"`
+	RecoveryCount int                 `json:"recovery_count"`
+	PatternCount  int                 `json:"pattern_count"`
+	LastUpdated   *time.Time          `json:"last_updated,omitempty"`
+	Patterns      []ExperiencePattern `json:"patterns"`
+}
+
+type ExperiencePattern struct {
+	ID            string               `json:"id"`
+	Kind          string               `json:"kind"`
+	Title         string               `json:"title"`
+	Detail        string               `json:"detail"`
+	Status        string               `json:"status"`
+	EvidenceCount int                  `json:"evidence_count"`
+	Evidence      []ExperienceEvidence `json:"evidence"`
+}
+
+type ExperienceEvidence struct {
+	EventID   string    `json:"event_id"`
+	Cursor    uint64    `json:"cursor"`
+	EventType string    `json:"event_type"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func decodeRequest(request *http.Request, destination any) error {

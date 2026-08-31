@@ -7,6 +7,8 @@ describe('desktop snapshot contract', () => {
     expect(isSnapshot({ schema_version: 'contentcloud.desktop-snapshot/1.0', projects: [] })).toBe(true);
     expect(isSnapshot({ schema_version: 'contentcloud.desktop-snapshot/0.9', projects: [] })).toBe(false);
     expect(isSnapshot({ schema_version: 'contentcloud.desktop-snapshot/1.0', projects: null })).toBe(false);
+    expect(isSnapshot({ schema_version: 'contentcloud.desktop-snapshot/1.0', projects: [{ experience: { schema_version: 'contentcloud.desktop-experience/0.9', event_count: 0, success_count: 0, failure_count: 0, recovery_count: 0, pattern_count: 0, patterns: [] } }] })).toBe(false);
+    expect(isSnapshot({ schema_version: 'contentcloud.desktop-snapshot/1.0', projects: [{ experience: { schema_version: 'contentcloud.desktop-experience/1.0', event_count: 1, success_count: 1, failure_count: 0, recovery_count: 0, pattern_count: 1, patterns: [{ id: 'publish-confirmed', kind: 'success', title: 'ok', detail: 'detail', status: 'validated', evidence_count: 1, evidence: [{ event_id: 'event-1', cursor: 1, event_type: 'workspace.publish.synced', created_at: new Date().toISOString() }] }] } }] })).toBe(true);
   });
 });
 
@@ -24,7 +26,7 @@ describe('desktop command and event contracts', () => {
   });
 
   it('validates daemon lifecycle status', () => {
-    expect(isDesktopDaemonStatus({ state: 'running', managed: true, pid: 42, version: '0.29.2' })).toBe(true);
+    expect(isDesktopDaemonStatus({ state: 'running', managed: true, pid: 42, version: '0.29.3' })).toBe(true);
     expect(isDesktopDaemonStatus({ state: 'failed', managed: false, message: 'failed' })).toBe(true);
     expect(isDesktopDaemonStatus({ state: 'running', managed: true, pid: 0 })).toBe(false);
   });
