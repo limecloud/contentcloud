@@ -1,7 +1,7 @@
 {
   "name": "@limecloud/contentcloud",
-  "version": "0.29.3",
-  "contentcloudReleaseTag": "v0.29.3",
+  "version": "0.29.4",
+  "contentcloudReleaseTag": "v0.29.4",
   "description": "Verified installer and launcher for the ContentCloud Go CLI",
   "license": "Apache-2.0",
   "type": "module",

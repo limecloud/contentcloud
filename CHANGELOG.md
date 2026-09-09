@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.29.4] - 2026-09-09
+
+### Changed
+
+- 将运维手工部署 Runbook 直接写入根 README，统一 Development/Production GKE 发布、Runtime Bundle、Secret 和回滚说明。
+
 ContentCloud 的重要变更记录在此文件中。
 
 ## [0.29.3] - 2026-08-31

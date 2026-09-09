@@ -1,5 +1,7 @@
 # Content Work OS
 
+> **部署范围声明：** Content Work OS 是独立产品，不属于 GoodVision 平台 GKE 运维交接。运维不要将本仓库加入 GoodVision Development/Production 发布清单；其部署由 ContentCloud 自有发布流程负责。
+
 Content Work OS 是面向 AI 内容营销团队的 Studio-first 创作与云端治理系统。客户默认在简单的 Web 创作台中选择场景、提交资料、查看进度、确认结果和取得交付；Codex、Claude Code、ContentCloud Worker、外部服务商和人工是可按任务能力选择的执行者。
 
 当前版本覆盖从输入收集、知识治理、剧本、分镜素材、视频生成、成片审核到正式交付的完整生产链。
