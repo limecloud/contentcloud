@@ -1,10 +1,16 @@
 # Changelog
 
+## [0.29.5] - 2026-09-10
+
+### Changed
+
+- 同步当前运行配置交付口径，保持 ContentCloud 版本元数据与工作区发布合同一致。
+
 ## [0.29.4] - 2026-09-09
 
 ### Changed
 
-- 将运维手工部署 Runbook 直接写入根 README，统一 Development/Production GKE 发布、Runtime Bundle、Secret 和回滚说明。
+- 将运维手工部署 Runbook 直接写入根 README，统一 Development/Production GKE 发布、历史全局运行配置、Secret 和回滚说明。
 
 ContentCloud 的重要变更记录在此文件中。
 
