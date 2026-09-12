@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.6] - 2026-09-12
+
+### Changed
+
+- 统一 Server、Worker、CLI、Web 和 Desktop 的发布版本元数据到 `0.29.6`。
+- 更新 Bootstrap、CLI 安装器和桌面工作台的版本契约，保持源码校验与发布标记一致。
+
 ## [0.29.5] - 2026-09-10
 
 ### Changed

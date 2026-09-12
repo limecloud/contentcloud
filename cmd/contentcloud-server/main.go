@@ -20,9 +20,48 @@ import (
 	contentruntime "github.com/limecloud/contentcloud/internal/runtime"
 	"github.com/limecloud/contentcloud/internal/runtime/worker"
 	httpapi "github.com/limecloud/contentcloud/internal/transport/http"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func main() {
+	if err := newCommand().Execute(); err != nil {
+		slog.Error("contentcloud server stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func newCommand() *cobra.Command {
+	settings := viper.New()
+	settings.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	settings.AutomaticEnv()
+	command := &cobra.Command{Use: "contentcloud-server", Short: "启动 ContentCloud 服务", Args: cobra.NoArgs, SilenceUsage: true, SilenceErrors: true}
+	for _, flag := range []struct{ name, key, environment, usage string }{
+		{"database-url", "database_url", "CONTENTCLOUD_DATABASE_URL", "PostgreSQL 连接串（优先使用 Secret 文件或受控环境变量）"},
+		{"addr", "addr", "CONTENTCLOUD_ADDR", "HTTP 监听地址"},
+		{"data-dir", "data_dir", "CONTENTCLOUD_DATA_DIR", "对象数据目录"},
+		{"web-dist", "web_dist", "CONTENTCLOUD_WEB_DIST", "前端静态文件目录"},
+		{"dev-mode", "dev_mode", "CONTENTCLOUD_DEV_MODE", "启用本地开发模式"},
+	} {
+		command.Flags().String(flag.name, "", flag.usage)
+		_ = settings.BindPFlag(flag.key, command.Flags().Lookup(flag.name))
+		_ = settings.BindEnv(flag.key, flag.environment)
+	}
+	command.RunE = func(_ *cobra.Command, _ []string) error {
+		for _, binding := range []struct{ key, environment string }{{"database_url", "CONTENTCLOUD_DATABASE_URL"}, {"addr", "CONTENTCLOUD_ADDR"}, {"data_dir", "CONTENTCLOUD_DATA_DIR"}, {"web_dist", "CONTENTCLOUD_WEB_DIST"}, {"dev_mode", "CONTENTCLOUD_DEV_MODE"}} {
+			if value := strings.TrimSpace(settings.GetString(binding.key)); value != "" {
+				if err := os.Setenv(binding.environment, value); err != nil {
+					return err
+				}
+			}
+		}
+		run()
+		return nil
+	}
+	return command
+}
+
+func run() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 	var st any = memory.New()

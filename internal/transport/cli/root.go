@@ -22,6 +22,7 @@ import (
 	"github.com/limecloud/contentcloud/internal/platform/idgen"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	bootstrapcheck "github.com/limecloud/contentcloud/internal/bootstrap/check"
 	capabilitycatalog "github.com/limecloud/contentcloud/internal/catalog/capability"
@@ -38,12 +39,14 @@ import (
 	builtinskills "github.com/limecloud/contentcloud/plugins/contentcloud-video-production/skills"
 )
 
-const Version = "0.29.5"
+const Version = "0.29.6"
 
 type Root struct {
 	json                   bool
 	serverURL              string
 	projectID              string
+	configFile             string
+	settings               *viper.Viper
 	stdout                 io.Writer
 	stderr                 io.Writer
 	mcpCWD                 string
@@ -93,12 +96,37 @@ func Execute() int {
 }
 
 func (r *Root) command() *cobra.Command {
+	if r.settings == nil {
+		r.settings = viper.New()
+	}
 	cmd := &cobra.Command{Use: "contentcloud", Short: "Content Work OS 本地创作运行工具", Long: "管理 Content Work OS 项目并运行本地创作能力，无需暴露服务端私有接口。", SilenceErrors: true, SilenceUsage: true}
 	cmd.SetOut(r.stdout)
 	cmd.SetErr(r.stderr)
 	cmd.PersistentFlags().BoolVar(&r.json, "json", false, "在标准输出中返回稳定的 JSON 响应结构")
 	cmd.PersistentFlags().StringVar(&r.serverURL, "server-url", "", "Content Work OS 服务地址")
 	cmd.PersistentFlags().StringVar(&r.projectID, "project", "", "明确指定项目 ID")
+	cmd.PersistentFlags().StringVar(&r.configFile, "config-file", "", "可选的 CLI YAML/JSON 配置文件；不替代本地凭据配置")
+	_ = r.settings.BindPFlag("server_url", cmd.PersistentFlags().Lookup("server-url"))
+	_ = r.settings.BindPFlag("project_id", cmd.PersistentFlags().Lookup("project"))
+	_ = r.settings.BindPFlag("config_file", cmd.PersistentFlags().Lookup("config-file"))
+	_ = r.settings.BindEnv("server_url", "CONTENTCLOUD_SERVER_URL")
+	_ = r.settings.BindEnv("project_id", "CONTENTCLOUD_PROJECT_ID")
+	cmd.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+		r.settings.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+		if strings.TrimSpace(r.configFile) != "" {
+			r.settings.SetConfigFile(r.configFile)
+			if err := r.settings.ReadInConfig(); err != nil {
+				return fmt.Errorf("读取 CLI 配置文件 %q 失败: %w", r.configFile, err)
+			}
+		}
+		if !cmd.PersistentFlags().Changed("server-url") {
+			r.serverURL = strings.TrimSpace(r.settings.GetString("server_url"))
+		}
+		if !cmd.PersistentFlags().Changed("project") {
+			r.projectID = strings.TrimSpace(r.settings.GetString("project_id"))
+		}
+		return nil
+	}
 	cmd.AddCommand(r.authCommand(), r.doctor(), r.bootstrapCommand(), r.workspaceCommand(), r.localCommand(), r.mcpCommand(), r.publishCommand(), r.pullCommand(), r.submissionCommand(), r.down(), r.updateCommand(), r.status(), r.contextCommand(), r.skillsCommand(), r.daemonCommand(), r.runtimeWorkerCommand(), r.schemaCommand(), r.tenantCommand(), r.teamCommand(), r.fullProjectCommand(), r.deviceCommand(), r.sourceCommand(), r.connectorCommand(), r.contentProfileCommand(), r.novelCommand(), r.assetCommand(), r.knowledgeCommand(), r.runCommand(), r.modelCommand(), r.artifactCommand(), r.deliveryCommand(), r.channelCommand(), r.reviewCommand(), r.resultCommand(), r.lineageCommand(), r.auditCommand(), r.requestCommand())
 	cmd.Version = Version
 	return cmd
@@ -448,8 +476,10 @@ func (r *Root) resolveServer(cfg localconfig.Config) string {
 	if r.serverURL != "" {
 		return strings.TrimRight(r.serverURL, "/")
 	}
-	if env := os.Getenv("CONTENTCLOUD_SERVER_URL"); env != "" {
-		return strings.TrimRight(env, "/")
+	if r.settings != nil {
+		if configured := strings.TrimSpace(r.settings.GetString("server_url")); configured != "" {
+			return strings.TrimRight(configured, "/")
+		}
 	}
 	if cfg.ServerURL != "" {
 		return strings.TrimRight(cfg.ServerURL, "/")

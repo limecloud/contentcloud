@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/spf13/viper"
 )
 
 type Config struct {
@@ -36,7 +38,7 @@ type DaemonWorkspace struct {
 }
 
 func Path() (string, error) {
-	if custom := os.Getenv("CONTENTCLOUD_CONFIG_PATH"); custom != "" {
+	if custom := Env("CONTENTCLOUD_CONFIG_PATH"); custom != "" {
 		return custom, nil
 	}
 	base, err := os.UserConfigDir()
@@ -222,7 +224,7 @@ func normalizeDaemonBindings(bindings []DaemonBinding) []DaemonBinding {
 }
 
 func SaveDeviceToken(deviceID, token string) error {
-	if env := os.Getenv("CONTENTCLOUD_CREDENTIAL_FILE"); env != "" {
+	if env := Env("CONTENTCLOUD_CREDENTIAL_FILE"); env != "" {
 		return fmt.Errorf("拒绝使用明文凭据文件 %s", env)
 	}
 	if runtime.GOOS != "darwin" {
@@ -236,7 +238,7 @@ func SaveDeviceToken(deviceID, token string) error {
 	return nil
 }
 func DeviceToken(deviceID string) (string, error) {
-	if token := os.Getenv("CONTENTCLOUD_DEVICE_TOKEN"); token != "" {
+	if token := Env("CONTENTCLOUD_DEVICE_TOKEN"); token != "" {
 		return token, nil
 	}
 	if deviceID == "" {
@@ -278,7 +280,7 @@ func SaveWorkspaceToken(workspaceID, token string) error {
 }
 
 func WorkspaceToken(workspaceID string) (string, error) {
-	if token := os.Getenv("CONTENTCLOUD_WORKSPACE_TOKEN"); token != "" {
+	if token := Env("CONTENTCLOUD_WORKSPACE_TOKEN"); token != "" {
 		return token, nil
 	}
 	if workspaceID == "" {
@@ -307,7 +309,7 @@ func SaveUserToken(serverURL, token string) error {
 }
 
 func UserToken(serverURL string) (string, error) {
-	if token := os.Getenv("CONTENTCLOUD_TOKEN"); token != "" {
+	if token := Env("CONTENTCLOUD_TOKEN"); token != "" {
 		return token, nil
 	}
 	if runtime.GOOS != "darwin" {
@@ -340,7 +342,7 @@ func ResolveProject(explicit string, c Config) (string, error) {
 	if explicit != "" {
 		return explicit, nil
 	}
-	if env := os.Getenv("CONTENTCLOUD_PROJECT_ID"); env != "" {
+	if env := Env("CONTENTCLOUD_PROJECT_ID"); env != "" {
 		return env, nil
 	}
 	cwd, err := os.Getwd()
@@ -362,4 +364,20 @@ func ResolveProject(explicit string, c Config) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("PROJECT_CONTEXT_REQUIRED")
+}
+
+// Env resolves one CLI environment variable through the same Viper adapter as
+// command flags. It deliberately creates a local instance so tests and
+// concurrent commands do not share mutable global configuration state.
+func Env(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	settings := viper.New()
+	settings.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	if err := settings.BindEnv(strings.ToLower(name), name); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(settings.GetString(strings.ToLower(name)))
 }

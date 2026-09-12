@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
+	localconfig "github.com/limecloud/contentcloud/internal/local/config"
 	"github.com/limecloud/contentcloud/internal/platform/idgen"
 	runtimepkg "github.com/limecloud/contentcloud/internal/runtime"
 )
@@ -23,12 +23,12 @@ type runtimeMCPClient struct {
 }
 
 func newRuntimeMCPClient() (*runtimeMCPClient, error) {
-	url := strings.TrimSpace(os.Getenv("CONTENTCLOUD_RUNTIME_GATEWAY_URL"))
-	token := strings.TrimSpace(os.Getenv("CONTENTCLOUD_RUNTIME_GATEWAY_TOKEN"))
+	url := localconfig.Env("CONTENTCLOUD_RUNTIME_GATEWAY_URL")
+	token := localconfig.Env("CONTENTCLOUD_RUNTIME_GATEWAY_TOKEN")
 	if url == "" || !strings.HasPrefix(token, "rtg_") {
 		return nil, &runtimeMCPError{code: -32001, message: "Runtime Gateway 配置缺失或已失效"}
 	}
-	rawTools := strings.TrimSpace(os.Getenv("CONTENTCLOUD_RUNTIME_GATEWAY_TOOLS"))
+	rawTools := localconfig.Env("CONTENTCLOUD_RUNTIME_GATEWAY_TOOLS")
 	if rawTools == "" {
 		return nil, &runtimeMCPError{code: -32001, message: "Runtime Gateway 工具授权配置缺失或无效"}
 	}
