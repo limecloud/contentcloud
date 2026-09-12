@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -519,7 +518,7 @@ func (r *Root) environmentManifestVerifier() (*environment.Verifier, error) {
 	if r.manifestVerifierHook != nil {
 		return r.manifestVerifierHook()
 	}
-	if path := strings.TrimSpace(os.Getenv("CONTENTCLOUD_ENVIRONMENT_TRUST_FILE")); path != "" {
+	if path := localconfig.Env("CONTENTCLOUD_ENVIRONMENT_TRUST_FILE"); path != "" {
 		return environment.LoadManifestVerifier(path)
 	}
 	return environment.DefaultManifestVerifier()
@@ -529,7 +528,7 @@ func (r *Root) environmentRegistryVerifier() (*environment.RegistryVerifier, err
 	if r.registryVerifierHook != nil {
 		return r.registryVerifierHook()
 	}
-	if path := strings.TrimSpace(os.Getenv("CONTENTCLOUD_PLUGIN_TRUST_FILE")); path != "" {
+	if path := localconfig.Env("CONTENTCLOUD_PLUGIN_TRUST_FILE"); path != "" {
 		return environment.LoadRegistryVerifier(path)
 	}
 	return environment.DefaultRegistryVerifier()

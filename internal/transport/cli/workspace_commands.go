@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	localconfig "github.com/limecloud/contentcloud/internal/local/config"
 	"github.com/limecloud/contentcloud/internal/platform/fault"
 	"github.com/limecloud/contentcloud/internal/platform/idgen"
 
@@ -175,7 +176,7 @@ func (r *Root) workspaceMemoryCommand() *cobra.Command {
 	var extractSources []string
 	var extractAllowPrivate, extractAllowHTTP bool
 	extract := &cobra.Command{Use: "extract", Args: cobra.NoArgs, Short: "显式调用受控远程抽取器形成本地记忆候选", RunE: func(cmd *cobra.Command, args []string) error {
-		token := os.Getenv(strings.TrimSpace(extractTokenEnv))
+		token := localconfig.Env(strings.TrimSpace(extractTokenEnv))
 		adapter, err := localworkspace.NewMemoryRemoteAdapter(localworkspace.MemoryRemoteAdapterConfig{Provider: extractProvider, BaseURL: extractEndpoint, AuthToken: token, AllowPrivateNetworks: extractAllowPrivate, AllowInsecureHTTP: extractAllowHTTP})
 		if err != nil {
 			return err
@@ -201,7 +202,7 @@ func (r *Root) workspaceMemoryCommand() *cobra.Command {
 	var remoteLimit, remoteMaxChars int
 	var remoteAllowPrivate, remoteAllowHTTP bool
 	remoteQuery := &cobra.Command{Use: "remote-query", Args: cobra.NoArgs, Short: "显式通过受控远程适配器查询并回验本地记忆来源", RunE: func(cmd *cobra.Command, args []string) error {
-		token := os.Getenv(strings.TrimSpace(remoteTokenEnv))
+		token := localconfig.Env(strings.TrimSpace(remoteTokenEnv))
 		adapter, err := localworkspace.NewMemoryRemoteAdapter(localworkspace.MemoryRemoteAdapterConfig{Provider: remoteProvider, BaseURL: remoteEndpoint, AuthToken: token, AllowPrivateNetworks: remoteAllowPrivate, AllowInsecureHTTP: remoteAllowHTTP})
 		if err != nil {
 			return err
@@ -577,7 +578,7 @@ func (r *Root) serveMCP(ctx context.Context, input io.Reader) error {
 	r.setMCPAppsSupported(false)
 	r.resetMCPRoots()
 	if strings.TrimSpace(r.mcpCWD) == "" {
-		r.mcpCWD = strings.TrimSpace(os.Getenv(contentCloudWorkspaceRootEnvironment))
+		r.mcpCWD = localconfig.Env(contentCloudWorkspaceRootEnvironment)
 		if r.mcpCWD == "" {
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -1761,7 +1762,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		if resolveErr != nil {
 			return nil, resolveErr
 		}
-		token := os.Getenv(strings.TrimSpace(params.Arguments.TokenEnv))
+		token := localconfig.Env(strings.TrimSpace(params.Arguments.TokenEnv))
 		adapter, adapterErr := localworkspace.NewMemoryRemoteAdapter(localworkspace.MemoryRemoteAdapterConfig{
 			Provider:             params.Arguments.Provider,
 			BaseURL:              params.Arguments.Endpoint,
@@ -1784,7 +1785,7 @@ func (r *Root) callLocalMCPTool(ctx context.Context, raw json.RawMessage) (map[s
 		if resolveErr != nil {
 			return nil, resolveErr
 		}
-		token := os.Getenv(strings.TrimSpace(params.Arguments.TokenEnv))
+		token := localconfig.Env(strings.TrimSpace(params.Arguments.TokenEnv))
 		adapter, adapterErr := localworkspace.NewMemoryRemoteAdapter(localworkspace.MemoryRemoteAdapterConfig{
 			Provider:             params.Arguments.Provider,
 			BaseURL:              params.Arguments.Endpoint,

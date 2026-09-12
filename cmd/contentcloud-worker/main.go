@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -12,9 +13,45 @@ import (
 	"github.com/limecloud/contentcloud/internal/persistence/blob"
 	"github.com/limecloud/contentcloud/internal/persistence/postgres"
 	"github.com/limecloud/contentcloud/internal/runtime/worker"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func main() {
+	if err := newCommand().Execute(); err != nil {
+		slog.Error("contentcloud worker stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func newCommand() *cobra.Command {
+	settings := viper.New()
+	settings.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	settings.AutomaticEnv()
+	command := &cobra.Command{Use: "contentcloud-worker", Short: "启动 ContentCloud Worker", Args: cobra.NoArgs, SilenceUsage: true, SilenceErrors: true}
+	for _, flag := range []struct{ name, key, environment, usage string }{
+		{"database-url", "database_url", "CONTENTCLOUD_DATABASE_URL", "PostgreSQL 连接串（仅通过 Secret 或受控环境变量提供）"},
+		{"data-dir", "data_dir", "CONTENTCLOUD_DATA_DIR", "对象数据目录"},
+	} {
+		command.Flags().String(flag.name, "", flag.usage)
+		_ = settings.BindPFlag(flag.key, command.Flags().Lookup(flag.name))
+		_ = settings.BindEnv(flag.key, flag.environment)
+	}
+	command.RunE = func(_ *cobra.Command, _ []string) error {
+		for _, binding := range []struct{ key, environment string }{{"database_url", "CONTENTCLOUD_DATABASE_URL"}, {"data_dir", "CONTENTCLOUD_DATA_DIR"}} {
+			if value := strings.TrimSpace(settings.GetString(binding.key)); value != "" {
+				if err := os.Setenv(binding.environment, value); err != nil {
+					return err
+				}
+			}
+		}
+		run()
+		return nil
+	}
+	return command
+}
+
+func run() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
