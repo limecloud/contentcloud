@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.29.7] - 2026-09-26
+
+### Added
+
+- align runtime configuration and cli contracts (#24) (`bd0baf9`)
+
+### Changed
+
+- Merge pull request #23 from limecloud/codex/release-20260910 (`9880725`)
+- release updates (`798a9b1`)
+- v0.29.4 contentcloud updates (`c6f3ff3`)
+
 ## [0.29.6] - 2026-09-12
 
 ### Changed
