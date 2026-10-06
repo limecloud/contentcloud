@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.29.8] - 2026-10-06
+
+### Release preparation
+
+- Prepare the current workspace source for the requested test-gke batch. Deployment and remote tag verification remain pending; this version entry does not claim an environment rollout.
+
+### Changed
+
+- Prepare release 0.29.8.
+
 ## [0.29.7] - 2026-09-26
 
 ### Added
