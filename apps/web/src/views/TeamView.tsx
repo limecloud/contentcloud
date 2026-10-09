@@ -1,3 +1,4 @@
+import { entityDisplayName } from "../entity-display-name";
 import { Check, Clipboard, MailPlus, Shield, Trash2, UserRoundCheck, Users } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { api, patch, post } from '../api';
@@ -119,7 +120,7 @@ export function TeamView({session, onChanged}: {session: TeamSession; onChanged:
         {members.length === 0 ? <Empty title="暂无团队成员"/> : <div className="team-table">
           <div className="team-table-head"><span>成员</span><span>角色</span><span>状态</span><span>加入时间</span><span>操作</span></div>
           {members.map(member => <article className="team-member-row" key={member.membership.user_id}>
-            <div className="team-person"><div>{initials(member.display_name || member.email)}</div><span><strong>{member.display_name || '未命名成员'}{member.membership.user_id === session.user.id && <small>你</small>}</strong><small>{member.email}</small></span></div>
+            <div className="team-person"><div>{initials(member.display_name || member.email)}</div><span><strong>{entityDisplayName(member.display_name, "未命名用户", member.membership.user_id)}{member.membership.user_id === session.user.id && <small>你</small>}</strong><small>{member.email}</small></span></div>
             <div>{isAdmin && member.membership.status === 'active' ? <select aria-label={`设置 ${member.display_name} 的角色`} value={member.membership.role} disabled={busy === `role:${member.membership.user_id}`} onChange={event => updateRole(member.membership.user_id, event.target.value)}>{roles.map(role => <option key={role} value={role}>{roleLabel(role)}</option>)}</select> : <span className="role-label"><Shield size={13}/>{roleLabel(member.membership.role)}</span>}</div>
             <Status value={member.membership.status}/>
             <time>{formatDate(member.membership.created_at)}</time>

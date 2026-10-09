@@ -1,3 +1,4 @@
+import { entityDisplayName } from "../../entity-display-name";
 import { articleWorkbench } from '../../workbenches/article/definition';
 import { commerceWorkbench } from '../../workbenches/commerce/definition';
 import { marketingVideoWorkbench } from '../../workbenches/marketing-video/definition';
@@ -97,6 +98,6 @@ export function getWorkbenchDefinition(experience?:WorkbenchExperienceInput):Wor
     ...base,
     navigation:resolvedNavigation,
     stepTitles:stepTitles.length?stepTitles:base.stepTitles,
-    panels:(serverPanels.length?serverPanels.map(panel=>({id:panel.id,title:panel.title,detail:panel.detail,tone:(panel.tone as WorkbenchTone),icon:approvedIcon(panel.icon),stepIDs:panel.stage_ids,stepTitles:panel.stage_ids.map(stageID=>serverStages.find(stage=>stage.id===stageID)?.label||stageID),target:(panel.target as WorkbenchPanelTarget),actionLabel:panel.action_label})):base.panels).map(panel=>({...panel,stepTitles:serverPanels.length?panel.stepTitles:panel.stepTitles.map((title,index)=>stepTitles[base.stepTitles.indexOf(title)]||stepTitles[index]||title)})),
+    panels:(serverPanels.length?serverPanels.map(panel=>({id:panel.id,title:panel.title,detail:panel.detail,tone:(panel.tone as WorkbenchTone),icon:approvedIcon(panel.icon),stepIDs:panel.stage_ids,stepTitles:panel.stage_ids.map(stageID=>entityDisplayName(serverStages.find(stage=>stage.id===stageID)?.label,"未命名阶段",stageID)),target:(panel.target as WorkbenchPanelTarget),actionLabel:panel.action_label})):base.panels).map(panel=>({...panel,stepTitles:serverPanels.length?panel.stepTitles:panel.stepTitles.map((title,index)=>stepTitles[base.stepTitles.indexOf(title)]||stepTitles[index]||title)})),
   };
 }
